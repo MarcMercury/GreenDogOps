@@ -133,8 +133,10 @@ export function EmployeeForm({ row }: { row: RosterRow }) {
   return (
     <form action={formAction} className="mt-3 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold text-slate-900">{heading}</h1>
-        <div className="flex items-center gap-3">
+        <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
+          {heading}
+        </h1>
+        <div className="hidden items-center gap-3 sm:flex">
           {result?.ok === true && (
             <span className="text-sm text-emerald-700">Saved ✓</span>
           )}
@@ -381,7 +383,13 @@ export function EmployeeForm({ row }: { row: RosterRow }) {
         </label>
       </Section>
 
-      <div className="flex justify-end pb-8">
+      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
+        {result?.ok === true && (
+          <span className="text-sm text-emerald-700">Saved ✓</span>
+        )}
+        {result?.ok === false && (
+          <span className="text-sm text-red-600">{result.error}</span>
+        )}
         <SaveBar />
       </div>
     </form>

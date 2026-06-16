@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,18 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Green Dog Ops",
   description: "HR, ATS, CRM, and Scheduling operations platform.",
+  appleWebApp: {
+    capable: true,
+    title: "Green Dog Ops",
+    statusBarStyle: "default",
+  },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#047857",
+  colorScheme: "light",
 };
 
 export default function RootLayout({

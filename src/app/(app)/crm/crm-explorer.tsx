@@ -39,7 +39,7 @@ function Pill({
   return (
     <button
       onClick={onClick}
-      className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+      className={`shrink-0 rounded-full px-3 py-1.5 text-sm font-medium transition sm:py-1 ${
         active
           ? "bg-emerald-600 text-white"
           : "bg-slate-100 text-slate-600 hover:bg-slate-200"
@@ -106,7 +106,12 @@ export function CrmExplorer({
     <div className="mx-auto max-w-7xl">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">CRM</h1>
+          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-emerald-600">
+            Contacts
+          </p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            CRM
+          </h1>
           <p className="mt-1 text-sm text-slate-500">
             {organizations.length} organizations · {contacts.length} contacts
           </p>
@@ -116,7 +121,7 @@ export function CrmExplorer({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search…"
-          className="w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          className="w-full rounded-lg border border-slate-300 bg-white/80 px-3 py-2 text-sm shadow-sm backdrop-blur-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:w-72"
         />
       </div>
 
@@ -138,7 +143,7 @@ export function CrmExplorer({
 
       {tab === "organizations" ? (
         <>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-nowrap gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
             <Pill
               active={orgType === "all"}
               label="All"
@@ -156,9 +161,46 @@ export function CrmExplorer({
             ))}
           </div>
 
-          <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="mt-4 space-y-2.5 sm:hidden">
+            {filteredOrgs.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => router.push(`/crm/org/${o.id}`)}
+                className="flex w-full items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/80 p-4 text-left shadow-sm backdrop-blur-sm transition active:scale-[0.99] active:bg-emerald-50"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-900">
+                    {o.name}
+                    {o.is_preferred && (
+                      <span className="ml-1.5 text-amber-500">★</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 truncate text-sm text-slate-500">
+                    {o.subtype ?? ORG_TYPE_LABELS[o.org_type]}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    {o.contact_name ? <span>{o.contact_name}</span> : null}
+                    {o.phone ? <span>{o.phone}</span> : null}
+                    {o.area ? <span>{o.area}</span> : null}
+                  </div>
+                </div>
+                {o.status ? (
+                  <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    {o.status}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+            {filteredOrgs.length === 0 && (
+              <p className="rounded-xl border border-slate-200/80 bg-white/80 px-4 py-10 text-center text-sm text-slate-400">
+                No organizations match your filters.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4 hidden overflow-x-auto rounded-xl border border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-sm sm:block">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <thead className="bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Type</th>
@@ -214,7 +256,7 @@ export function CrmExplorer({
         </>
       ) : (
         <>
-          <div className="mt-4 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-nowrap gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
             <Pill
               active={contactType === "all"}
               label="All"
@@ -232,9 +274,40 @@ export function CrmExplorer({
             ))}
           </div>
 
-          <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="mt-4 space-y-2.5 sm:hidden">
+            {filteredContacts.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => router.push(`/crm/contact/${c.id}`)}
+                className="flex w-full items-start justify-between gap-3 rounded-xl border border-slate-200/80 bg-white/80 p-4 text-left shadow-sm backdrop-blur-sm transition active:scale-[0.99] active:bg-emerald-50"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-slate-900">
+                    {contactName(c)}
+                  </p>
+                  <p className="mt-0.5 truncate text-sm text-slate-500">
+                    {c.school ?? c.organization ?? "—"}
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+                    {c.email ? <span className="truncate">{c.email}</span> : null}
+                    {c.program_name ? <span>{c.program_name}</span> : null}
+                  </div>
+                </div>
+                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                  {CONTACT_TYPE_LABELS[c.contact_type]}
+                </span>
+              </button>
+            ))}
+            {filteredContacts.length === 0 && (
+              <p className="rounded-xl border border-slate-200/80 bg-white/80 px-4 py-10 text-center text-sm text-slate-400">
+                No contacts match your filters.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-4 hidden overflow-x-auto rounded-xl border border-slate-200/80 bg-white/80 shadow-sm backdrop-blur-sm sm:block">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <thead className="bg-slate-50/80 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-4 py-3">Name</th>
                   <th className="px-4 py-3">Type</th>
