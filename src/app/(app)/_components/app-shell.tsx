@@ -3,17 +3,40 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CRM_SECTIONS } from "@/lib/crm/types";
+import type { AppRole, ModuleKey } from "@/lib/auth/permissions";
+import { ROLE_LABELS } from "@/lib/auth/permissions";
 
-/** Modules of Green Dog Ops. Visibility will later be gated by permissions. */
-const MODULES = [
-  { href: "/", label: "Dashboard", icon: "▣" },
-  { href: "/hr", label: "HR / Roster", icon: "👥" },
-  { href: "/ats", label: "Recruiting (ATS)", icon: "🎯" },
-  { href: "/crm", label: "CRM / Contacts", icon: "🏢" },
-  { href: "/schedule", label: "Scheduling", icon: "🗓️" },
-  { href: "/policies", label: "Policies", icon: "📚" },
-  { href: "/admin", label: "Admin", icon: "⚙️" },
-] as const;
+type NavItem = { key: ModuleKey; href: string; label: string; icon: string };
+
+/** Top-level modules of Green Dog Ops, before the CRM group. */
+const MODULES_TOP: NavItem[] = [
+  { key: "dashboard", href: "/", label: "Dashboard", icon: "▣" },
+  { key: "hr", href: "/hr", label: "HR / Roster", icon: "👥" },
+  { key: "ats", href: "/ats", label: "Recruiting (ATS)", icon: "🎯" },
+];
+
+/** CRM sub-modules, one focused CRM per relationship type. */
+const CRM_NAV: NavItem[] = CRM_SECTIONS.map((s) => ({
+  key: `crm_${s.slug}` as ModuleKey,
+  href: `/crm/${s.slug}`,
+  label: s.label,
+  icon: s.icon,
+}));
+
+/** Remaining top-level modules, after the CRM group. */
+const MODULES_BOTTOM: NavItem[] = [
+  { key: "schedule", href: "/schedule", label: "Scheduling", icon: "🗓️" },
+  { key: "policies", href: "/policies", label: "Policies", icon: "📚" },
+  { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
+];
+
+const ALL_NAV: NavItem[] = [
+  ...MODULES_TOP,
+  { href: "/crm", label: "CRM", icon: "🏢" },
+  ...CRM_NAV,
+  ...MODULES_BOTTOM,
+];
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
@@ -21,51 +44,95 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 function currentLabel(pathname: string): string {
-  const match = [...MODULES]
+  const match = [...ALL_NAV]
     .filter((m) => isActive(pathname, m.href))
     .sort((a, b) => b.href.length - a.href.length)[0];
   return match?.label ?? "Green Dog Ops";
 }
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLink({
+  item,
+  onNavigate,
+}: {
+  item: NavItem;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
+  const active = isActive(pathname, item.href);
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition sm:py-2 ${
+        active
+          ? "bg-emerald-50 text-emerald-700"
+          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+      }`}
+    >
+      <span
+        className={`absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-emerald-600 transition-opacity ${
+          active ? "opacity-100" : "opacity-0"
+        }`}
+        aria-hidden
+      />
+      <span
+        className={`text-base transition-transform group-hover:scale-110 ${
+          active ? "" : "grayscale-[0.2]"
+        }`}
+        aria-hidden
+      >
+        {item.icon}
+      </span>
+      {item.label}
+    </Link>
+  );
+}
+
+function NavLinks({
+  allowed,
+  onNavigate,
+}: {
+  allowed: Set<ModuleKey>;
+  onNavigate?: () => void;
+}) {
+  const top = MODULES_TOP.filter((m) => allowed.has(m.key));
+  const crm = CRM_NAV.filter((m) => allowed.has(m.key));
+  const bottom = MODULES_BOTTOM.filter((m) => allowed.has(m.key));
   return (
     <>
-      <p className="px-3 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-        Modules
-      </p>
-      {MODULES.map((m) => {
-        const active = isActive(pathname, m.href);
-        return (
-          <Link
-            key={m.href}
-            href={m.href}
-            onClick={onNavigate}
-            aria-current={active ? "page" : undefined}
-            className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition sm:py-2 ${
-              active
-                ? "bg-emerald-50 text-emerald-700"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-            }`}
-          >
-            <span
-              className={`absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-emerald-600 transition-opacity ${
-                active ? "opacity-100" : "opacity-0"
-              }`}
-              aria-hidden
-            />
-            <span
-              className={`text-base transition-transform group-hover:scale-110 ${
-                active ? "" : "grayscale-[0.2]"
-              }`}
-              aria-hidden
-            >
-              {m.icon}
-            </span>
-            {m.label}
-          </Link>
-        );
-      })}
+      {top.length > 0 ? (
+        <>
+          <p className="px-3 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Modules
+          </p>
+          {top.map((m) => (
+            <NavLink key={m.href} item={m} onNavigate={onNavigate} />
+          ))}
+        </>
+      ) : null}
+
+      {crm.length > 0 ? (
+        <>
+          <p className="px-3 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            CRM
+          </p>
+          {crm.map((m) => (
+            <NavLink key={m.href} item={m} onNavigate={onNavigate} />
+          ))}
+        </>
+      ) : null}
+
+      {bottom.length > 0 ? (
+        <>
+          <p className="px-3 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Operations
+          </p>
+          {bottom.map((m) => (
+            <NavLink key={m.href} item={m} onNavigate={onNavigate} />
+          ))}
+        </>
+      ) : null}
     </>
   );
 }
@@ -88,19 +155,30 @@ function Brand() {
   );
 }
 
-function UserFooter({ email }: { email: string | null }) {
+function UserFooter({
+  email,
+  role,
+}: {
+  email: string | null;
+  role: AppRole;
+}) {
   return (
     <div className="border-t border-slate-200/80 p-3">
       <div className="mb-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5">
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold uppercase text-slate-500">
           {(email ?? "?").charAt(0)}
         </span>
-        <p
-          className="min-w-0 flex-1 truncate text-xs text-slate-500"
-          title={email ?? ""}
-        >
-          {email}
-        </p>
+        <div className="min-w-0 flex-1">
+          <p
+            className="truncate text-xs text-slate-500"
+            title={email ?? ""}
+          >
+            {email}
+          </p>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+            {ROLE_LABELS[role]}
+          </span>
+        </div>
       </div>
       <form action="/auth/signout" method="post">
         <button
@@ -116,13 +194,18 @@ function UserFooter({ email }: { email: string | null }) {
 
 export function AppShell({
   email,
+  role,
+  modules,
   children,
 }: {
   email: string | null;
+  role: AppRole;
+  modules: ModuleKey[];
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const allowed = new Set<ModuleKey>(modules);
 
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -204,10 +287,10 @@ export function AppShell({
         </div>
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
-          <NavLinks onNavigate={() => setOpen(false)} />
+          <NavLinks allowed={allowed} onNavigate={() => setOpen(false)} />
         </nav>
 
-        <UserFooter email={email} />
+        <UserFooter email={email} role={role} />
       </aside>
 
       {/* Main content */}

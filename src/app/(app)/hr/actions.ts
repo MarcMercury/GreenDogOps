@@ -2,6 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+
+const DOCUMENTS_BUCKET = "employee-documents";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -87,5 +90,171 @@ export async function updateEmployee(
 
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/hr");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Reviews
+// ---------------------------------------------------------------------------
+
+export async function saveReview(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const id = str(formData.get("review_id"));
+
+  const patch = {
+    person_id: personId,
+    review_date: str(formData.get("review_date")),
+    review_type: str(formData.get("review_type")),
+    reviewer: str(formData.get("reviewer")),
+    rating: str(formData.get("rating")),
+    summary: str(formData.get("summary")),
+    next_review_date: str(formData.get("next_review_date")),
+  };
+
+  const { error } = id
+    ? await supabase.from("person_review").update(patch).eq("id", id)
+    : await supabase.from("person_review").insert(patch);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteReview(
+  personId: string,
+  reviewId: string,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_review")
+    .delete()
+    .eq("id", reviewId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Assets
+// ---------------------------------------------------------------------------
+
+export async function saveAsset(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const id = str(formData.get("asset_id"));
+  const assetName = str(formData.get("asset_name"));
+  if (!assetName) return { ok: false, error: "Asset name is required." };
+
+  const patch = {
+    person_id: personId,
+    asset_name: assetName,
+    asset_type: str(formData.get("asset_type")),
+    identifier: str(formData.get("identifier")),
+    assigned_date: str(formData.get("assigned_date")),
+    returned_date: str(formData.get("returned_date")),
+    status: str(formData.get("status")) ?? "assigned",
+    notes: str(formData.get("notes")),
+  };
+
+  const { error } = id
+    ? await supabase.from("person_asset").update(patch).eq("id", id)
+    : await supabase.from("person_asset").insert(patch);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteAsset(
+  personId: string,
+  assetId: string,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_asset")
+    .delete()
+    .eq("id", assetId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Documents (file uploads go to the private employee-documents Storage bucket)
+// ---------------------------------------------------------------------------
+
+export async function uploadDocument(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Please choose a file to upload." };
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    return { ok: false, error: "File exceeds the 25 MB limit." };
+  }
+
+  const admin = createAdminClient();
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const storagePath = `${personId}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await admin.storage
+    .from(DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { error: dbErr } = await admin.from("person_document").insert({
+    person_id: personId,
+    title: str(formData.get("title")) ?? file.name,
+    category: str(formData.get("category")),
+    storage_path: storagePath,
+    file_name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+  });
+
+  if (dbErr) {
+    // Roll back the orphaned upload so storage and the table stay in sync.
+    await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+    return { ok: false, error: dbErr.message };
+  }
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteDocument(
+  personId: string,
+  documentId: string,
+  storagePath: string,
+): Promise<SaveResult> {
+  const admin = createAdminClient();
+
+  await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+
+  const { error } = await admin
+    .from("person_document")
+    .delete()
+    .eq("id", documentId);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
   return { ok: true };
 }

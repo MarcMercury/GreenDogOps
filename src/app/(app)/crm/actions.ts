@@ -69,7 +69,7 @@ export async function updateOrganization(
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/crm/org/${id}`);
-  revalidatePath("/crm");
+  revalidatePath("/crm", "layout");
   return { ok: true };
 }
 
@@ -109,6 +109,6 @@ export async function updateContact(
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/crm/contact/${id}`);
-  revalidatePath("/crm");
+  revalidatePath("/crm", "layout");
   return { ok: true };
 }

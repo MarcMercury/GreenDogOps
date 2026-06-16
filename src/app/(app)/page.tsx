@@ -20,8 +20,8 @@ const MODULE_CARDS = [
   },
   {
     href: "/crm",
-    title: "CRM / Contacts",
-    desc: "Referring clinics, local businesses, facility and medical vendors.",
+    title: "CRM",
+    desc: "Dedicated CRMs: Referral, Vendor, Business, Student, and CE Leads.",
     icon: "🏢",
     accent: "from-violet-500/10 to-violet-500/0 text-violet-700",
     dot: "bg-violet-500",

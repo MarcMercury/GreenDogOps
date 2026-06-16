@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { RosterRow } from "@/lib/hr/types";
-import { EmployeeForm } from "./employee-form";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type {
+  RosterRow,
+  PersonReview,
+  PersonAsset,
+  PersonDocument,
+  PersonDocumentWithUrl,
+  PersonRecruitingSummary,
+} from "@/lib/hr/types";
+import { EmployeeProfile } from "./employee-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +37,11 @@ export default async function EmployeeDetailPage({
          benefits_enrolled, benefits_monthly, benefits_annual, last_review_date,
          compliance, separation_date, separation_type, separation_letter_signed,
          separation_notes
+       ),
+       person_recruiting (
+         person_id, pipeline, stage, status_notes, source, interview_date,
+         score, resume_url, keep_for_future, follow_up_date, notes,
+         created_at, updated_at
        )`,
     )
     .eq("id", id)
@@ -47,10 +60,60 @@ export default async function EmployeeDetailPage({
   if (!data) notFound();
 
   const emp = (data as { person_employment?: unknown }).person_employment;
+  const rec = (data as { person_recruiting?: unknown }).person_recruiting;
   const row: RosterRow = {
     ...data,
     person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
   } as RosterRow;
+
+  const recruitingRaw = Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null);
+  const recruiting = recruitingRaw as PersonRecruitingSummary | null;
+
+  // Sub-records for the Reviews / Assets / Documents tabs.
+  const [reviewsRes, assetsRes, docsRes] = await Promise.all([
+    supabase
+      .from("person_review")
+      .select("*")
+      .eq("person_id", id)
+      .order("review_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("person_asset")
+      .select("*")
+      .eq("person_id", id)
+      .order("assigned_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("person_document")
+      .select("*")
+      .eq("person_id", id)
+      .order("uploaded_at", { ascending: false }),
+  ]);
+
+  const reviews = (reviewsRes.data ?? []) as PersonReview[];
+  const assets = (assetsRes.data ?? []) as PersonAsset[];
+  const documents = (docsRes.data ?? []) as PersonDocument[];
+
+  // Generate short-lived signed URLs for private documents.
+  let documentsWithUrls: PersonDocumentWithUrl[] = documents.map((d) => ({
+    ...d,
+    signed_url: null,
+  }));
+  if (documents.length > 0) {
+    const admin = createAdminClient();
+    const { data: signed } = await admin.storage
+      .from("employee-documents")
+      .createSignedUrls(
+        documents.map((d) => d.storage_path),
+        60 * 60,
+      );
+    if (signed) {
+      documentsWithUrls = documents.map((d, i) => ({
+        ...d,
+        signed_url: signed[i]?.signedUrl ?? null,
+      }));
+    }
+  }
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -60,7 +123,13 @@ export default async function EmployeeDetailPage({
       >
         ← Back to roster
       </Link>
-      <EmployeeForm row={row} />
+      <EmployeeProfile
+        row={row}
+        reviews={reviews}
+        assets={assets}
+        documents={documentsWithUrls}
+        recruiting={recruiting}
+      />
     </div>
   );
 }

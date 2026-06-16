@@ -71,6 +71,104 @@ export interface RosterRow extends Person {
   person_employment: PersonEmployment | null;
 }
 
+export interface PersonReview {
+  id: string;
+  person_id: string;
+  review_date: string | null;
+  review_type: string | null;
+  reviewer: string | null;
+  rating: string | null;
+  summary: string | null;
+  next_review_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonAsset {
+  id: string;
+  person_id: string;
+  asset_name: string;
+  asset_type: string | null;
+  identifier: string | null;
+  assigned_date: string | null;
+  returned_date: string | null;
+  status: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonDocument {
+  id: string;
+  person_id: string;
+  title: string;
+  category: string | null;
+  storage_path: string;
+  file_name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  uploaded_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A document plus a short-lived signed URL for download/preview. */
+export interface PersonDocumentWithUrl extends PersonDocument {
+  signed_url: string | null;
+}
+
+/** Recruiting summary surfaced on the employee History tab (read-only). */
+export interface PersonRecruitingSummary {
+  person_id: string;
+  pipeline: string | null;
+  stage: string | null;
+  status_notes: string | null;
+  source: string | null;
+  interview_date: string | null;
+  score: number | null;
+  resume_url: string | null;
+  keep_for_future: boolean | null;
+  follow_up_date: string | null;
+  notes: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export const REVIEW_TYPE_LABELS: Record<string, string> = {
+  annual: "Annual Review",
+  ninety_day: "90-Day Review",
+  performance: "Performance Review",
+  disciplinary: "Disciplinary",
+  check_in: "Check-In",
+  other: "Other",
+};
+
+export const ASSET_TYPE_LABELS: Record<string, string> = {
+  laptop: "Laptop / Computer",
+  phone: "Phone",
+  badge: "Badge",
+  key: "Key / Fob",
+  scrubs: "Scrubs / Uniform",
+  vehicle: "Vehicle",
+  other: "Other",
+};
+
+export const ASSET_STATUS_LABELS: Record<string, string> = {
+  assigned: "Assigned",
+  returned: "Returned",
+  lost: "Lost",
+  damaged: "Damaged",
+};
+
+export const DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
+  contract: "Contract / Offer",
+  license: "License",
+  certification: "Certification",
+  id: "Identification",
+  review: "Review",
+  other: "Other",
+};
+
 export const STATUS_LABELS: Record<EmploymentStatus, string> = {
   prospect: "Prospect",
   applicant: "Applicant",

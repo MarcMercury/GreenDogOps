@@ -93,3 +93,89 @@ export const CONTACT_TYPE_LABELS: Record<ContactType, string> = {
   student: "Students",
   ce_attendee: "CE Attendees",
 };
+
+// ---------------------------------------------------------------------------
+// CRM sections — the CRM module is split into focused sub-CRMs.
+//   referral : referring medical clinics
+//   vendor   : facility resources + med-ops vendors
+//   business : business / marketing partners
+//   student  : students & program participants (contacts)
+//   ce       : continuing-education leads / attendees (contacts)
+// (Recruiting/ATS lives in its own module at /ats.)
+// ---------------------------------------------------------------------------
+export type CrmSlug = "referral" | "vendor" | "business" | "student" | "ce";
+
+export interface CrmSection {
+  slug: CrmSlug;
+  title: string;
+  label: string;
+  description: string;
+  icon: string;
+  entity: "organization" | "contact";
+  orgTypes?: OrgType[];
+  contactTypes?: ContactType[];
+}
+
+export const CRM_SECTIONS: CrmSection[] = [
+  {
+    slug: "referral",
+    title: "Referral CRM",
+    label: "Referral CRM",
+    description: "Referring medical clinics & hospitals.",
+    icon: "🏥",
+    entity: "organization",
+    orgTypes: ["referral_clinic"],
+  },
+  {
+    slug: "vendor",
+    title: "Vendor CRM",
+    label: "Vendor CRM",
+    description: "Facility resources and medical-ops vendors.",
+    icon: "🔧",
+    entity: "organization",
+    orgTypes: ["facility_resource", "med_ops"],
+  },
+  {
+    slug: "business",
+    title: "Business CRM",
+    label: "Business CRM",
+    description: "Business & marketing partners.",
+    icon: "🤝",
+    entity: "organization",
+    orgTypes: ["marketing_partner"],
+  },
+  {
+    slug: "student",
+    title: "Student CRM",
+    label: "Student CRM",
+    description: "Students, externs, and program participants.",
+    icon: "🎓",
+    entity: "contact",
+    contactTypes: ["student"],
+  },
+  {
+    slug: "ce",
+    title: "CE Leads",
+    label: "CE Leads",
+    description: "Continuing-education event attendees & leads.",
+    icon: "📋",
+    entity: "contact",
+    contactTypes: ["ce_attendee"],
+  },
+];
+
+export function crmSectionBySlug(slug: string): CrmSection | undefined {
+  return CRM_SECTIONS.find((s) => s.slug === slug);
+}
+
+export function crmSlugForOrgType(t: OrgType): CrmSlug {
+  return (
+    CRM_SECTIONS.find((s) => s.orgTypes?.includes(t))?.slug ?? "business"
+  );
+}
+
+export function crmSlugForContactType(t: ContactType): CrmSlug {
+  return (
+    CRM_SECTIONS.find((s) => s.contactTypes?.includes(t))?.slug ?? "student"
+  );
+}

@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { CrmContact } from "@/lib/crm/types";
+import {
+  type CrmContact,
+  crmSectionBySlug,
+  crmSlugForContactType,
+} from "@/lib/crm/types";
 import { ContactForm } from "./contact-form";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +34,18 @@ export default async function ContactDetailPage({
   }
   if (!data) notFound();
 
+  const contact = data as CrmContact;
+  const section = crmSectionBySlug(crmSlugForContactType(contact.contact_type));
+
   return (
     <div className="mx-auto max-w-4xl">
-      <Link href="/crm" className="text-sm text-emerald-700 hover:text-emerald-900">
-        ← Back to CRM
+      <Link
+        href={section ? `/crm/${section.slug}` : "/crm"}
+        className="text-sm text-emerald-700 hover:text-emerald-900"
+      >
+        ← Back to {section?.title ?? "CRM"}
       </Link>
-      <ContactForm contact={data as CrmContact} />
+      <ContactForm contact={contact} />
     </div>
   );
 }

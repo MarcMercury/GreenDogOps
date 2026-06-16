@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { CrmOrganization } from "@/lib/crm/types";
+import {
+  type CrmOrganization,
+  crmSectionBySlug,
+  crmSlugForOrgType,
+} from "@/lib/crm/types";
 import { OrganizationForm } from "./organization-form";
 
 export const dynamic = "force-dynamic";
@@ -30,12 +34,18 @@ export default async function OrganizationDetailPage({
   }
   if (!data) notFound();
 
+  const org = data as CrmOrganization;
+  const section = crmSectionBySlug(crmSlugForOrgType(org.org_type));
+
   return (
     <div className="mx-auto max-w-4xl">
-      <Link href="/crm" className="text-sm text-emerald-700 hover:text-emerald-900">
-        ← Back to CRM
+      <Link
+        href={section ? `/crm/${section.slug}` : "/crm"}
+        className="text-sm text-emerald-700 hover:text-emerald-900"
+      >
+        ← Back to {section?.title ?? "CRM"}
       </Link>
-      <OrganizationForm org={data as CrmOrganization} />
+      <OrganizationForm org={org} />
     </div>
   );
 }
