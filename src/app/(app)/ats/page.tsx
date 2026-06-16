@@ -11,7 +11,7 @@ export default async function AtsPage() {
     .from("person")
     .select(
       `id, status, first_name, last_name, full_name, email, phone_mobile, notes,
-       created_at, updated_at,
+       source_contact_id, created_at, updated_at,
        person_recruiting (
          person_id, target_position_id, pipeline, stage, status_notes, source,
          interview_date, score, resume_url, keep_for_future, follow_up_date,

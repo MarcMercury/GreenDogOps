@@ -76,6 +76,8 @@ export interface CrmContact {
   ce_events_attended: string | null;
   lead_source: string | null;
   notes: string | null;
+  promoted_person_id: string | null;
+  promoted_at: string | null;
   source: string;
   external_id: string | null;
   created_at: string;

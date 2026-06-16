@@ -25,6 +25,7 @@ export interface CandidateRow {
   email: string | null;
   phone_mobile: string | null;
   notes: string | null;
+  source_contact_id: string | null;
   created_at: string;
   updated_at: string;
   person_recruiting: PersonRecruiting | null;

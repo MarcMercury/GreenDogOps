@@ -30,6 +30,11 @@ function timeAgo(iso: string | null): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+function isRecent(iso: string | null): boolean {
+  if (!iso) return false;
+  return Date.now() - new Date(iso).getTime() < 86_400_000;
+}
+
 const INTEGRATIONS: { label: string; env: string }[] = [
   { label: "OpenAI", env: "OPENAI_API_KEY" },
   { label: "Gemini", env: "GEMINI_API_KEY" },
@@ -76,14 +81,12 @@ export default async function AdminOverviewPage() {
     {} as Record<AppRole, number>,
   );
   let recentlyActive = 0;
-  const dayAgo = Date.now() - 86_400_000;
   for (const u of (usersData.data ?? []) as {
     role: AppRole;
     last_seen_at: string | null;
   }[]) {
     roleCounts[u.role] = (roleCounts[u.role] ?? 0) + 1;
-    if (u.last_seen_at && new Date(u.last_seen_at).getTime() > dayAgo)
-      recentlyActive += 1;
+    if (isRecent(u.last_seen_at)) recentlyActive += 1;
   }
 
   const audit = (auditData.data ?? []) as {
