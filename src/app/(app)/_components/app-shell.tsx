@@ -31,7 +31,7 @@ const MODULES_BOTTOM: NavItem[] = [
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 
-const ALL_NAV: NavItem[] = [
+const ALL_NAV: Array<{ href: string; label: string; icon: string }> = [
   ...MODULES_TOP,
   { href: "/crm", label: "CRM", icon: "🏢" },
   ...CRM_NAV,

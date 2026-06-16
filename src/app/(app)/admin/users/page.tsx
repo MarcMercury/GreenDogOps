@@ -1,0 +1,161 @@
+import Link from "next/link";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  APP_ROLES,
+  ROLE_LABELS,
+  type AppRole,
+  type AppUser,
+} from "@/lib/auth/permissions";
+import { Panel, RoleBadge } from "../_components";
+import { grantAccess } from "../actions";
+
+export const dynamic = "force-dynamic";
+
+function lastSeen(iso: string | null): string {
+  if (!iso) return "never";
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export default async function UsersPage() {
+  const admin = createAdminClient();
+
+  const [{ data: appUsersData }, { data: authList }] = await Promise.all([
+    admin
+      .from("app_user")
+      .select("*")
+      .order("is_active", { ascending: false })
+      .order("role"),
+    admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
+  ]);
+
+  const appUsers = (appUsersData ?? []) as AppUser[];
+  const grantedIds = new Set(appUsers.map((u) => u.id));
+
+  // Auth users (shared with the sibling app) who don't yet have GDO access.
+  const pending = (authList?.users ?? [])
+    .filter((u) => u.email && !grantedIds.has(u.id))
+    .map((u) => ({ id: u.id, email: u.email as string }))
+    .sort((a, b) => a.email.localeCompare(b.email));
+
+  return (
+    <div className="space-y-6">
+      <Panel
+        title="Green Dog Ops users"
+        description={`${appUsers.filter((u) => u.is_active).length} active · ${appUsers.length} total`}
+      >
+        <div className="-mx-5 -mb-5 overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+                <th className="px-5 py-2.5">User</th>
+                <th className="px-3 py-2.5">Role</th>
+                <th className="px-3 py-2.5">Status</th>
+                <th className="px-3 py-2.5">Last seen</th>
+                <th className="px-5 py-2.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {appUsers.map((u) => (
+                <tr
+                  key={u.id}
+                  className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
+                >
+                  <td className="px-5 py-3">
+                    <p className="font-medium text-slate-900">
+                      {u.full_name ?? u.email}
+                    </p>
+                    {u.full_name ? (
+                      <p className="text-xs text-slate-400">{u.email}</p>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-3">
+                    <RoleBadge role={u.role} />
+                  </td>
+                  <td className="px-3 py-3">
+                    {u.is_active ? (
+                      <span className="text-emerald-600">● Active</span>
+                    ) : (
+                      <span className="text-slate-400">○ Inactive</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-slate-500">
+                    {lastSeen(u.last_seen_at)}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <Link
+                      href={`/admin/users/${u.id}`}
+                      className="text-xs font-medium text-emerald-600 hover:text-emerald-700"
+                    >
+                      Manage →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
+
+      <Panel
+        title="Grant access"
+        description={`${pending.length} authenticated account(s) don't have Green Dog Ops access yet.`}
+      >
+        {pending.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            Everyone with an account already has access.
+          </p>
+        ) : (
+          <form
+            action={grantAccess}
+            className="flex flex-wrap items-end gap-3"
+          >
+            <label className="flex-1 min-w-[220px]">
+              <span className="mb-1 block text-xs font-medium text-slate-500">
+                Account
+              </span>
+              <select
+                name="auth_id"
+                required
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              >
+                {pending.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="mb-1 block text-xs font-medium text-slate-500">
+                Role
+              </span>
+              <select
+                name="role"
+                defaultValue="staff"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+              >
+                {APP_ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABELS[r as AppRole]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="submit"
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+            >
+              Grant access
+            </button>
+          </form>
+        )}
+      </Panel>
+    </div>
+  );
+}
