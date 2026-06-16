@@ -9,6 +9,7 @@ const MODULES = [
   { href: "/ats", label: "Recruiting (ATS)", icon: "🎯" },
   { href: "/crm", label: "CRM / Contacts", icon: "🏢" },
   { href: "/schedule", label: "Scheduling", icon: "🗓️" },
+  { href: "/policies", label: "Policies", icon: "📚" },
   { href: "/admin", label: "Admin", icon: "⚙️" },
 ] as const;
 

@@ -20,6 +20,11 @@ const MODULE_CARDS = [
     desc: "Build and manage shifts across locations.",
   },
   {
+    href: "/policies",
+    title: "Policies",
+    desc: "Searchable wiki of Green Dog policies, procedures, and internal admin documents.",
+  },
+  {
     href: "/admin",
     title: "Admin",
     desc: "Users, roles, permissions, and system settings.",

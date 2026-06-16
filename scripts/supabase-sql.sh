@@ -41,14 +41,19 @@ if [[ -z "${SQL//[[:space:]]/}" ]]; then
   exit 2
 fi
 
-# Build JSON body safely with python (handles escaping/newlines).
-BODY="$(SQL="$SQL" python3 -c 'import json,os;print(json.dumps({"query":os.environ["SQL"]}))')"
+# Build JSON body safely with python (handles escaping/newlines). Read the SQL
+# from a temp file to avoid ARG_MAX limits on large migrations/imports.
+SQL_TMP="$(mktemp)"
+BODY_TMP="$(mktemp)"
+trap 'rm -f "$SQL_TMP" "$BODY_TMP"' EXIT
+printf '%s' "$SQL" > "$SQL_TMP"
+python3 -c 'import json,sys; open(sys.argv[2],"w").write(json.dumps({"query":open(sys.argv[1]).read()}))' "$SQL_TMP" "$BODY_TMP"
 
 HTTP_RESPONSE="$(curl -sS -w $'\n%{http_code}' \
   -X POST "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \
   -H "Authorization: Bearer ${SUPABASE_ACCESS_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d "$BODY")"
+  --data-binary "@${BODY_TMP}")"
 
 STATUS="$(printf '%s' "$HTTP_RESPONSE" | tail -n1)"
 PAYLOAD="$(printf '%s' "$HTTP_RESPONSE" | sed '$d')"

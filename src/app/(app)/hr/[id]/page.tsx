@@ -1,10 +1,17 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { RosterRow } from "@/lib/hr/types";
-import { RosterGrid } from "./roster-grid";
+import { EmployeeForm } from "./employee-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function HrRosterPage() {
+export default async function EmployeeDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -24,27 +31,36 @@ export default async function HrRosterPage() {
          separation_notes
        )`,
     )
-    .order("last_name", { ascending: true });
+    .eq("id", id)
+    .maybeSingle();
 
   if (error) {
     return (
-      <div className="mx-auto max-w-5xl">
-        <h1 className="text-2xl font-semibold text-slate-900">HR / Roster</h1>
-        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-          Could not load roster: {error.message}
+      <div className="mx-auto max-w-3xl">
+        <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          Could not load employee: {error.message}
         </p>
       </div>
     );
   }
 
-  // Supabase returns the 1:1 relation as an array; normalize to a single object.
-  const rows: RosterRow[] = (data ?? []).map((r) => {
-    const emp = (r as { person_employment?: unknown }).person_employment;
-    return {
-      ...r,
-      person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
-    } as RosterRow;
-  });
+  if (!data) notFound();
 
-  return <RosterGrid rows={rows} />;
+  const emp = (data as { person_employment?: unknown }).person_employment;
+  const row: RosterRow = {
+    ...data,
+    person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
+  } as RosterRow;
+
+  return (
+    <div className="mx-auto max-w-4xl">
+      <Link
+        href="/hr"
+        className="text-sm text-emerald-700 hover:text-emerald-900"
+      >
+        ← Back to roster
+      </Link>
+      <EmployeeForm row={row} />
+    </div>
+  );
 }
