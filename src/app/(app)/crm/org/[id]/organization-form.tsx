@@ -1,0 +1,94 @@
+"use client";
+
+import { useActionState } from "react";
+import { type CrmOrganization, ORG_TYPE_LABELS } from "@/lib/crm/types";
+import { updateOrganization, type SaveResult } from "../../actions";
+import {
+  Field,
+  TextArea,
+  Checkbox,
+  Section,
+  SaveButton,
+} from "../../form-fields";
+
+export function OrganizationForm({ org }: { org: CrmOrganization }) {
+  const [result, formAction] = useActionState<SaveResult | null, FormData>(
+    (prev, fd) => updateOrganization(org.id, prev, fd),
+    null,
+  );
+
+  return (
+    <form action={formAction} className="mt-3 space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">{org.name}</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            {ORG_TYPE_LABELS[org.org_type]}
+            {org.subtype ? ` · ${org.subtype}` : ""}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {result?.ok === true && (
+            <span className="text-sm text-emerald-700">Saved ✓</span>
+          )}
+          {result?.ok === false && (
+            <span className="text-sm text-red-600">{result.error}</span>
+          )}
+          <SaveButton />
+        </div>
+      </div>
+
+      <Section title="Overview">
+        <Field label="Name" name="name" defaultValue={org.name} />
+        <Field label="Subtype / Category" name="subtype" defaultValue={org.subtype} />
+        <Field label="Status" name="status" defaultValue={org.status} />
+        <Field label="Area / Zone" name="area" defaultValue={org.area} />
+        <Field label="Tier" name="tier" defaultValue={org.tier} />
+        <Field label="Priority" name="priority" defaultValue={org.priority} />
+        <Checkbox label="Preferred" name="is_preferred" defaultChecked={org.is_preferred} />
+        <Checkbox label="Active" name="is_active" defaultChecked={org.is_active} />
+      </Section>
+
+      <Section title="Contact">
+        <Field label="Contact name" name="contact_name" defaultValue={org.contact_name} />
+        <Field label="Title" name="title" defaultValue={org.title} />
+        <Field label="Phone" name="phone" defaultValue={org.phone} />
+        <Field label="Alt phone" name="phone_alt" defaultValue={org.phone_alt} />
+        <Field label="Email" name="email" type="email" defaultValue={org.email} />
+        <Field label="Website" name="website" defaultValue={org.website} />
+        <Field label="Instagram" name="instagram" defaultValue={org.instagram} />
+      </Section>
+
+      <Section title="Address">
+        <Field label="Address" name="address" defaultValue={org.address} />
+        <Field label="City" name="city" defaultValue={org.city} />
+        <Field label="State" name="state" defaultValue={org.state} />
+        <Field label="ZIP" name="zip" defaultValue={org.zip} />
+      </Section>
+
+      <Section title="Relationship">
+        <Field label="Services" name="services" defaultValue={org.services} />
+        <Field label="Membership level" name="membership_level" defaultValue={org.membership_level} />
+        <Field label="Annual fee" name="annual_fee" type="number" defaultValue={org.annual_fee} />
+        <Field label="Account number" name="account_number" defaultValue={org.account_number} />
+        <Field label="Account rep" name="account_rep" defaultValue={org.account_rep} />
+        <Field label="Total referrals" name="total_referrals" type="number" defaultValue={org.total_referrals} />
+        <Field label="Revenue" name="revenue" type="number" defaultValue={org.revenue} />
+        <Field label="Monthly spend" name="monthly_spend" type="number" defaultValue={org.monthly_spend} />
+        <Field label="Spend YTD" name="spend_ytd" type="number" defaultValue={org.spend_ytd} />
+        <Field label="Relationship score" name="relationship_score" type="number" defaultValue={org.relationship_score} />
+        <Field label="Internal rating" name="internal_rating" type="number" defaultValue={org.internal_rating} />
+        <Field label="Last visit" name="last_visit_date" type="date" defaultValue={org.last_visit_date} />
+        <Field label="Last contact" name="last_contact_date" type="date" defaultValue={org.last_contact_date} />
+      </Section>
+
+      <Section title="Notes">
+        <TextArea label="Notes" name="notes" defaultValue={org.notes} />
+      </Section>
+
+      <div className="flex justify-end pb-8">
+        <SaveButton />
+      </div>
+    </form>
+  );
+}

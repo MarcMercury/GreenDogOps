@@ -1,0 +1,114 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+
+function str(v: FormDataEntryValue | null): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+}
+
+function num(v: FormDataEntryValue | null): number | null {
+  const s = str(v);
+  if (s == null) return null;
+  const n = Number(s.replace(/[$,]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function bool(v: FormDataEntryValue | null): boolean {
+  return v === "on" || v === "true";
+}
+
+export type SaveResult = { ok: true } | { ok: false; error: string };
+
+export async function updateOrganization(
+  id: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const patch = {
+    name: str(formData.get("name")) ?? "Unknown",
+    subtype: str(formData.get("subtype")),
+    status: str(formData.get("status")),
+    contact_name: str(formData.get("contact_name")),
+    title: str(formData.get("title")),
+    phone: str(formData.get("phone")),
+    phone_alt: str(formData.get("phone_alt")),
+    email: str(formData.get("email")),
+    website: str(formData.get("website")),
+    instagram: str(formData.get("instagram")),
+    address: str(formData.get("address")),
+    city: str(formData.get("city")),
+    state: str(formData.get("state")),
+    zip: str(formData.get("zip")),
+    area: str(formData.get("area")),
+    services: str(formData.get("services")),
+    tier: str(formData.get("tier")),
+    priority: str(formData.get("priority")),
+    membership_level: str(formData.get("membership_level")),
+    annual_fee: num(formData.get("annual_fee")),
+    account_number: str(formData.get("account_number")),
+    account_rep: str(formData.get("account_rep")),
+    total_referrals: num(formData.get("total_referrals")),
+    revenue: num(formData.get("revenue")),
+    monthly_spend: num(formData.get("monthly_spend")),
+    spend_ytd: num(formData.get("spend_ytd")),
+    relationship_score: num(formData.get("relationship_score")),
+    internal_rating: num(formData.get("internal_rating")),
+    is_preferred: bool(formData.get("is_preferred")),
+    is_active: bool(formData.get("is_active")),
+    last_visit_date: str(formData.get("last_visit_date")),
+    last_contact_date: str(formData.get("last_contact_date")),
+    notes: str(formData.get("notes")),
+  };
+  const { error } = await supabase
+    .from("crm_organization")
+    .update(patch)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/org/${id}`);
+  revalidatePath("/crm");
+  return { ok: true };
+}
+
+export async function updateContact(
+  id: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const patch = {
+    first_name: str(formData.get("first_name")),
+    last_name: str(formData.get("last_name")),
+    email: str(formData.get("email")),
+    phone: str(formData.get("phone")),
+    status: str(formData.get("status")),
+    organization: str(formData.get("organization")),
+    program_type: str(formData.get("program_type")),
+    program_name: str(formData.get("program_name")),
+    cohort: str(formData.get("cohort")),
+    school: str(formData.get("school")),
+    location: str(formData.get("location")),
+    mentor: str(formData.get("mentor")),
+    coordinator: str(formData.get("coordinator")),
+    visitor_type: str(formData.get("visitor_type")),
+    start_date: str(formData.get("start_date")),
+    end_date: str(formData.get("end_date")),
+    hours_completed: num(formData.get("hours_completed")),
+    hours_required: num(formData.get("hours_required")),
+    eligible_for_employment: bool(formData.get("eligible_for_employment")),
+    ce_events_attended: str(formData.get("ce_events_attended")),
+    lead_source: str(formData.get("lead_source")),
+    notes: str(formData.get("notes")),
+  };
+  const { error } = await supabase
+    .from("crm_contact")
+    .update(patch)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/contact/${id}`);
+  revalidatePath("/crm");
+  return { ok: true };
+}

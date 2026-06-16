@@ -1,26 +1,79 @@
 @import "tailwindcss";
 
+/* ----------------------------------------------------------------------------
+   Green Dog Ops — light design system
+   Clear, sharp, organized. One brand accent (emerald) on a calm slate canvas.
+---------------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Surfaces */
+  --background: #f6f8f7;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f4;
+  --foreground: #0f172a;
+  --muted: #64748b;
+
+  /* Brand */
+  --brand: #047857;
+  --brand-strong: #065f46;
+  --brand-soft: #ecfdf5;
+  --border: #e2e8f0;
+  --ring: #34d399;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: light;
 }
 
 body {
-  background: var(--background);
+  background:
+    radial-gradient(60rem 60rem at 110% -10%, #e8f5ef 0%, transparent 55%),
+    radial-gradient(50rem 50rem at -10% 0%, #eef2f6 0%, transparent 50%),
+    var(--background);
+  background-attachment: fixed;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    Roboto, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Crisp, on-brand text selection */
+::selection {
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+}
+
+/* Slim, unobtrusive scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+  background-clip: padding-box;
+}
+
+/* Consistent, accessible focus ring for keyboard users */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }

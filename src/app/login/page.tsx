@@ -16,10 +16,15 @@ export default async function LoginPage({
   const { error } = await searchParams;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-200">
-        <div className="mb-6 text-center">
-          <h1 className="text-2xl font-semibold text-slate-900">Green Dog Ops</h1>
+    <main className="flex min-h-screen items-center justify-center p-4">
+      <div className="w-full max-w-sm rounded-2xl bg-white/90 p-8 shadow-xl shadow-slate-900/5 ring-1 ring-slate-200/80 backdrop-blur-sm">
+        <div className="mb-6 flex flex-col items-center text-center">
+          <span className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-2xl shadow-sm shadow-emerald-600/30">
+            🐾
+          </span>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Green Dog Ops
+          </h1>
           <p className="mt-1 text-sm text-slate-500">Sign in to continue</p>
         </div>
 
@@ -64,7 +69,7 @@ export default async function LoginPage({
           </div>
           <button
             type="submit"
-            className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+            className="w-full rounded-lg bg-gradient-to-b from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-600/30 transition hover:from-emerald-600 hover:to-emerald-700"
           >
             Sign in
           </button>
