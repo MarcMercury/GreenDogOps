@@ -10,7 +10,8 @@ export default async function AtsPage() {
   const { data, error } = await supabase
     .from("person")
     .select(
-      `id, status, first_name, last_name, full_name, email, phone_mobile, notes,
+      `id, status, first_name, last_name, full_name, email, phone_mobile,
+       phone_home, phone_other, notes,
        source_contact_id, created_at, updated_at,
        person_recruiting (
          person_id, target_position_id, pipeline, stage, status_notes, source,

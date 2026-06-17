@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentUser } from "@/lib/auth/session";
+import { isAdminRole } from "@/lib/auth/permissions";
 
 const DOCUMENTS_BUCKET = "employee-documents";
 
@@ -32,6 +34,9 @@ export async function updateEmployee(
 ): Promise<SaveResult> {
   const supabase = await createClient();
 
+  const current = await getCurrentUser();
+  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+
   const personPatch = {
     first_name: str(formData.get("first_name")),
     last_name: str(formData.get("last_name")),
@@ -39,6 +44,8 @@ export async function updateEmployee(
     grid_name: str(formData.get("grid_name")),
     email: str(formData.get("email")),
     phone_mobile: str(formData.get("phone_mobile")),
+    phone_home: str(formData.get("phone_home")),
+    phone_other: str(formData.get("phone_other")),
     date_of_birth: str(formData.get("date_of_birth")),
     postal_code: str(formData.get("postal_code")),
     work_location_type: str(formData.get("work_location_type")),
@@ -61,25 +68,31 @@ export async function updateEmployee(
     days_per_week: num(formData.get("days_per_week")),
     hire_date: str(formData.get("hire_date")),
     original_hire_date: str(formData.get("original_hire_date")),
-    pay_type: str(formData.get("pay_type")),
-    current_rate: num(formData.get("current_rate")),
-    biweekly_wage: num(formData.get("biweekly_wage")),
-    annual_wages: num(formData.get("annual_wages")),
     pto_policy_allotment: num(formData.get("pto_policy_allotment")),
     pto_used: num(formData.get("pto_used")),
     pto_available: num(formData.get("pto_available")),
     pto_notes: str(formData.get("pto_notes")),
-    ce_budget: num(formData.get("ce_budget")),
-    ce_used: num(formData.get("ce_used")),
-    ce_remaining: num(formData.get("ce_remaining")),
-    benefits_enrolled: bool(formData.get("benefits_enrolled")),
-    benefits_monthly: num(formData.get("benefits_monthly")),
-    benefits_annual: num(formData.get("benefits_annual")),
-    last_review_date: str(formData.get("last_review_date")),
     separation_date: str(formData.get("separation_date")),
     separation_type: str(formData.get("separation_type")),
     separation_letter_signed: bool(formData.get("separation_letter_signed")),
     separation_notes: str(formData.get("separation_notes")),
+    // Compensation/benefits fields are admin-only. Non-admins never submit
+    // them, so we omit them entirely to avoid overwriting with null.
+    ...(isAdmin
+      ? {
+          pay_type: str(formData.get("pay_type")),
+          current_rate: num(formData.get("current_rate")),
+          biweekly_wage: num(formData.get("biweekly_wage")),
+          annual_wages: num(formData.get("annual_wages")),
+          ce_budget: num(formData.get("ce_budget")),
+          ce_used: num(formData.get("ce_used")),
+          ce_remaining: num(formData.get("ce_remaining")),
+          benefits_enrolled: bool(formData.get("benefits_enrolled")),
+          benefits_monthly: num(formData.get("benefits_monthly")),
+          benefits_annual: num(formData.get("benefits_annual")),
+          last_review_date: str(formData.get("last_review_date")),
+        }
+      : {}),
   };
 
   const { error: eErr } = await supabase

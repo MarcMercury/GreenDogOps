@@ -123,10 +123,12 @@ export function EmployeeForm({
   row,
   activeTab,
   hidden,
+  isAdmin,
 }: {
   row: RosterRow;
   activeTab: FieldTab;
   hidden: boolean;
+  isAdmin: boolean;
 }) {
   const emp = row.person_employment;
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -151,9 +153,22 @@ export function EmployeeForm({
           <Field label="Grid name" name="grid_name" defaultValue={row.grid_name} />
           <Field label="Email" name="email" type="email" defaultValue={row.email} />
           <Field
-            label="Mobile phone"
+            label="Cell phone"
             name="phone_mobile"
+            type="tel"
             defaultValue={row.phone_mobile}
+          />
+          <Field
+            label="Home phone"
+            name="phone_home"
+            type="tel"
+            defaultValue={row.phone_home}
+          />
+          <Field
+            label="Other phone"
+            name="phone_other"
+            type="tel"
+            defaultValue={row.phone_other}
           />
           <Field
             label="Date of birth"
@@ -286,75 +301,79 @@ export function EmployeeForm({
         </Section>
       </div>
 
-      <div className={activeTab === "comp" ? "space-y-5" : "hidden"}>
-        <Section title="Compensation">
-          <Field label="Pay type" name="pay_type" defaultValue={emp?.pay_type} />
-          <Field
-            label="Hourly rate"
-            name="current_rate"
-            type="number"
-            defaultValue={emp?.current_rate}
-          />
-          <Field
-            label="Biweekly wage"
-            name="biweekly_wage"
-            type="number"
-            defaultValue={emp?.biweekly_wage}
-          />
-          <Field
-            label="Annual wages"
-            name="annual_wages"
-            type="number"
-            defaultValue={emp?.annual_wages}
-          />
-          <Field
-            label="Last review date"
-            name="last_review_date"
-            type="date"
-            defaultValue={emp?.last_review_date}
-          />
-        </Section>
+      <div className={activeTab === "comp" && isAdmin ? "space-y-5" : "hidden"}>
+        {isAdmin && (
+          <>
+            <Section title="Compensation">
+              <Field label="Pay type" name="pay_type" defaultValue={emp?.pay_type} />
+              <Field
+                label="Hourly rate"
+                name="current_rate"
+                type="number"
+                defaultValue={emp?.current_rate}
+              />
+              <Field
+                label="Biweekly wage"
+                name="biweekly_wage"
+                type="number"
+                defaultValue={emp?.biweekly_wage}
+              />
+              <Field
+                label="Annual wages"
+                name="annual_wages"
+                type="number"
+                defaultValue={emp?.annual_wages}
+              />
+              <Field
+                label="Last review date"
+                name="last_review_date"
+                type="date"
+                defaultValue={emp?.last_review_date}
+              />
+            </Section>
 
-        <Section title="Benefits">
-          <Checkbox
-            label="Enrolled in benefits"
-            name="benefits_enrolled"
-            defaultChecked={emp?.benefits_enrolled}
-          />
-          <Field
-            label="Monthly cost"
-            name="benefits_monthly"
-            type="number"
-            defaultValue={emp?.benefits_monthly}
-          />
-          <Field
-            label="Annual cost"
-            name="benefits_annual"
-            type="number"
-            defaultValue={emp?.benefits_annual}
-          />
-        </Section>
+            <Section title="Benefits">
+              <Checkbox
+                label="Enrolled in benefits"
+                name="benefits_enrolled"
+                defaultChecked={emp?.benefits_enrolled}
+              />
+              <Field
+                label="Monthly cost"
+                name="benefits_monthly"
+                type="number"
+                defaultValue={emp?.benefits_monthly}
+              />
+              <Field
+                label="Annual cost"
+                name="benefits_annual"
+                type="number"
+                defaultValue={emp?.benefits_annual}
+              />
+            </Section>
 
-        <Section title="Continuing Education">
-          <Field
-            label="CE budget"
-            name="ce_budget"
-            type="number"
-            defaultValue={emp?.ce_budget}
-          />
-          <Field
-            label="CE used"
-            name="ce_used"
-            type="number"
-            defaultValue={emp?.ce_used}
-          />
-          <Field
-            label="CE remaining"
-            name="ce_remaining"
-            type="number"
-            defaultValue={emp?.ce_remaining}
-          />
-        </Section>
+            <Section title="Continuing Education">
+              <Field
+                label="CE budget"
+                name="ce_budget"
+                type="number"
+                defaultValue={emp?.ce_budget}
+              />
+              <Field
+                label="CE used"
+                name="ce_used"
+                type="number"
+                defaultValue={emp?.ce_used}
+              />
+              <Field
+                label="CE remaining"
+                name="ce_remaining"
+                type="number"
+                defaultValue={emp?.ce_remaining}
+              />
+            </Section>
+          </>
+        )}
       </div>
 
       <div className={activeTab === "attendance" ? "space-y-5" : "hidden"}>

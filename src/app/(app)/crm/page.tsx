@@ -17,6 +17,11 @@ export default async function CrmHubPage() {
     supabase.from("crm_contact").select("contact_type"),
   ]);
 
+  const influencerRes = await supabase
+    .from("marketing_influencers")
+    .select("id", { count: "exact", head: true });
+  const influencerCount = influencerRes.count ?? 0;
+
   const orgCounts: Record<string, number> = {};
   for (const o of (orgRes.data ?? []) as { org_type: OrgType }[]) {
     orgCounts[o.org_type] = (orgCounts[o.org_type] ?? 0) + 1;
@@ -29,6 +34,7 @@ export default async function CrmHubPage() {
   function sectionCount(slug: string): number {
     const section = CRM_SECTIONS.find((s) => s.slug === slug);
     if (!section) return 0;
+    if (section.entity === "influencer") return influencerCount;
     if (section.entity === "organization") {
       return (section.orgTypes ?? []).reduce(
         (n, t) => n + (orgCounts[t] ?? 0),

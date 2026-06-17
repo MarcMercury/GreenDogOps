@@ -25,19 +25,16 @@ function displayName(r: RosterRow): string {
   return r.grid_name ?? "—";
 }
 
-function formatRate(r: RosterRow): string {
-  const emp = r.person_employment;
-  if (!emp) return "—";
-  if (emp.annual_wages) {
-    return `$${Number(emp.annual_wages).toLocaleString("en-US")}/yr`;
-  }
-  if (emp.current_rate) {
-    return `$${Number(emp.current_rate).toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}/hr`;
-  }
-  return "—";
+function formatHireDate(r: RosterRow): string {
+  const d = r.person_employment?.hire_date;
+  if (!d) return "—";
+  const dt = new Date(d.length <= 10 ? `${d}T00:00:00` : d);
+  if (Number.isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export function RosterGrid({ rows }: { rows: RosterRow[] }) {
@@ -142,7 +139,7 @@ export function RosterGrid({ rows }: { rows: RosterRow[] }) {
                       ? WORK_LOCATION_LABELS[r.work_location_type]
                       : "—"}
                   </span>
-                  <span>{formatRate(r)}</span>
+                  <span>{formatHireDate(r)}</span>
                 </div>
               </div>
               <span
@@ -170,7 +167,7 @@ export function RosterGrid({ rows }: { rows: RosterRow[] }) {
               <th className="px-4 py-3">Title</th>
               <th className="px-4 py-3">Location</th>
               <th className="px-4 py-3">Schedule</th>
-              <th className="px-4 py-3">Pay</th>
+              <th className="px-4 py-3">Hire Date</th>
               <th className="px-4 py-3">Status</th>
             </tr>
           </thead>
@@ -202,7 +199,9 @@ export function RosterGrid({ rows }: { rows: RosterRow[] }) {
                       ? SCHEDULE_LABELS[emp.work_schedule]
                       : "—"}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-700">{formatRate(r)}</td>
+                  <td className="px-4 py-2.5 text-slate-700">
+                    {formatHireDate(r)}
+                  </td>
                   <td className="px-4 py-2.5">
                     <span
                       className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[r.status]}`}

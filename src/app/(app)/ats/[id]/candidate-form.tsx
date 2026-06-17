@@ -145,7 +145,9 @@ export function CandidateForm({ row }: { row: CandidateRow }) {
         <Field label="First name" name="first_name" defaultValue={row.first_name} />
         <Field label="Last name" name="last_name" defaultValue={row.last_name} />
         <Field label="Email" name="email" type="email" defaultValue={row.email} />
-        <Field label="Phone" name="phone_mobile" defaultValue={row.phone_mobile} />
+        <Field label="Cell phone" name="phone_mobile" type="tel" defaultValue={row.phone_mobile} />
+        <Field label="Home phone" name="phone_home" type="tel" defaultValue={row.phone_home} />
+        <Field label="Other phone" name="phone_other" type="tel" defaultValue={row.phone_other} />
       </Section>
 
       <Section title="Pipeline">

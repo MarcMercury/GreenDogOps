@@ -114,6 +114,75 @@ export async function updateContact(
   return { ok: true };
 }
 
+export async function updateInfluencer(
+  id: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const patch = {
+    contact_name: str(formData.get("contact_name")),
+    pet_name: str(formData.get("pet_name")),
+    email: str(formData.get("email")),
+    phone: str(formData.get("phone")),
+    status: str(formData.get("status")),
+    tier: str(formData.get("tier")),
+    priority: str(formData.get("priority")),
+    relationship_status: str(formData.get("relationship_status")),
+    relationship_score: num(formData.get("relationship_score")),
+    needs_followup: bool(formData.get("needs_followup")),
+    collaboration_type: str(formData.get("collaboration_type")),
+    content_niche: str(formData.get("content_niche")),
+    location: str(formData.get("location")),
+    instagram_handle: str(formData.get("instagram_handle")),
+    instagram_url: str(formData.get("instagram_url")),
+    tiktok_handle: str(formData.get("tiktok_handle")),
+    youtube_url: str(formData.get("youtube_url")),
+    facebook_url: str(formData.get("facebook_url")),
+    pet_instagram: str(formData.get("pet_instagram")),
+    highest_platform: str(formData.get("highest_platform")),
+    follower_count: num(formData.get("follower_count")),
+    instagram_followers: num(formData.get("instagram_followers")),
+    tiktok_followers: num(formData.get("tiktok_followers")),
+    youtube_subscribers: num(formData.get("youtube_subscribers")),
+    facebook_followers: num(formData.get("facebook_followers")),
+    engagement_rate: num(formData.get("engagement_rate")),
+    audience_age_range: str(formData.get("audience_age_range")),
+    audience_gender_split: str(formData.get("audience_gender_split")),
+    audience_location: str(formData.get("audience_location")),
+    agreement_details: str(formData.get("agreement_details")),
+    promo_code: str(formData.get("promo_code")),
+    ezyvet_tracking: str(formData.get("ezyvet_tracking")),
+    compensation_type: str(formData.get("compensation_type")),
+    compensation_rate: num(formData.get("compensation_rate")),
+    commission_percentage: num(formData.get("commission_percentage")),
+    total_paid: num(formData.get("total_paid")),
+    total_value_generated: num(formData.get("total_value_generated")),
+    contract_start_date: str(formData.get("contract_start_date")),
+    contract_end_date: str(formData.get("contract_end_date")),
+    posts_completed: num(formData.get("posts_completed")),
+    stories_completed: num(formData.get("stories_completed")),
+    reels_completed: num(formData.get("reels_completed")),
+    events_attended: num(formData.get("events_attended")),
+    pet_breed: str(formData.get("pet_breed")),
+    pet_type: str(formData.get("pet_type")),
+    pet_age: str(formData.get("pet_age")),
+    last_post_date: str(formData.get("last_post_date")),
+    last_contact_date: str(formData.get("last_contact_date")),
+    next_followup_date: str(formData.get("next_followup_date")),
+    bio: str(formData.get("bio")),
+    notes: str(formData.get("notes")),
+  };
+  const { error } = await supabase
+    .from("marketing_influencers")
+    .update(patch)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/influencer/${id}`);
+  revalidatePath("/crm", "layout");
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Promote a student (crm_contact) into the Recruiting CRM (ATS).
 // Creates a unified greendogops.person (status='applicant') + a person_recruiting

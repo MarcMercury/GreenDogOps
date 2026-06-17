@@ -63,14 +63,18 @@ export function EmployeeProfile({
   assets,
   documents,
   recruiting,
+  isAdmin,
 }: {
   row: RosterRow;
   reviews: PersonReview[];
   assets: PersonAsset[];
   documents: PersonDocumentWithUrl[];
   recruiting: PersonRecruitingSummary | null;
+  isAdmin: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
+
+  const tabs = isAdmin ? TABS : TABS.filter((t) => t.key !== "comp");
 
   const heading =
     row.full_name ||
@@ -91,7 +95,7 @@ export function EmployeeProfile({
 
       <div className="overflow-x-auto border-b border-slate-200">
         <nav className="-mb-px flex gap-1">
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             const active = t.key === activeTab;
             return (
               <button
@@ -116,6 +120,7 @@ export function EmployeeProfile({
         row={row}
         activeTab={isFieldTab(activeTab) ? activeTab : "general"}
         hidden={!isFieldTab(activeTab)}
+        isAdmin={isAdmin}
       />
 
       {activeTab === "reviews" && (

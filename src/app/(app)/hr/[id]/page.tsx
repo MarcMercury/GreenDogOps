@@ -10,6 +10,9 @@ import type {
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
 } from "@/lib/hr/types";
+import { redactCompensation } from "@/lib/hr/types";
+import { getCurrentUser } from "@/lib/auth/session";
+import { isAdminRole } from "@/lib/auth/permissions";
 import { EmployeeProfile } from "./employee-profile";
 
 export const dynamic = "force-dynamic";
@@ -21,12 +24,14 @@ export default async function EmployeeDetailPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
 
   const { data, error } = await supabase
     .from("person")
     .select(
       `id, status, first_name, last_name, preferred_name, grid_name, full_name,
-       email, phone_mobile, date_of_birth, postal_code, work_location_type,
+       email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
        avatar_url, is_active, notes, status_changed_at, created_at, updated_at,
        person_employment (
          person_id, position_id, location_id, offer_title, adp_job_title,
@@ -61,10 +66,11 @@ export default async function EmployeeDetailPage({
 
   const emp = (data as { person_employment?: unknown }).person_employment;
   const rec = (data as { person_recruiting?: unknown }).person_recruiting;
-  const row: RosterRow = {
+  const rawRow: RosterRow = {
     ...data,
     person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
   } as RosterRow;
+  const row = isAdmin ? rawRow : redactCompensation(rawRow);
 
   const recruitingRaw = Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null);
   const recruiting = recruitingRaw as PersonRecruitingSummary | null;
@@ -129,6 +135,7 @@ export default async function EmployeeDetailPage({
         assets={assets}
         documents={documentsWithUrls}
         recruiting={recruiting}
+        isAdmin={isAdmin}
       />
     </div>
   );

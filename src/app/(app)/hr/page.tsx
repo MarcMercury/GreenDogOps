@@ -1,17 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
 import type { RosterRow } from "@/lib/hr/types";
+import { redactCompensation } from "@/lib/hr/types";
+import { getCurrentUser } from "@/lib/auth/session";
+import { isAdminRole } from "@/lib/auth/permissions";
 import { RosterGrid } from "./roster-grid";
 
 export const dynamic = "force-dynamic";
 
 export default async function HrRosterPage() {
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
 
   const { data, error } = await supabase
     .from("person")
     .select(
       `id, status, first_name, last_name, preferred_name, grid_name, full_name,
-       email, phone_mobile, date_of_birth, postal_code, work_location_type,
+       email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
        avatar_url, is_active, notes, status_changed_at, created_at, updated_at,
        person_employment (
          person_id, position_id, location_id, offer_title, adp_job_title,
@@ -40,10 +45,11 @@ export default async function HrRosterPage() {
   // Supabase returns the 1:1 relation as an array; normalize to a single object.
   const rows: RosterRow[] = (data ?? []).map((r) => {
     const emp = (r as { person_employment?: unknown }).person_employment;
-    return {
+    const row = {
       ...r,
       person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
     } as RosterRow;
+    return isAdmin ? row : redactCompensation(row);
   });
 
   return <RosterGrid rows={rows} />;

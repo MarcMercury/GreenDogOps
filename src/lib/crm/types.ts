@@ -6,6 +6,78 @@ export type OrgType =
 
 export type ContactType = "student" | "ce_attendee";
 
+export interface CrmInfluencer {
+  id: string;
+  contact_name: string | null;
+  pet_name: string | null;
+  phone: string | null;
+  email: string | null;
+  status: string | null;
+  tier: string | null;
+  priority: string | null;
+  relationship_status: string | null;
+  relationship_score: number | null;
+  needs_followup: boolean | null;
+  collaboration_type: string | null;
+  content_niche: string | null;
+  location: string | null;
+  // Social
+  instagram_handle: string | null;
+  instagram_url: string | null;
+  facebook_url: string | null;
+  tiktok_handle: string | null;
+  youtube_url: string | null;
+  pet_instagram: string | null;
+  highest_platform: string | null;
+  follower_count: number | null;
+  instagram_followers: number | null;
+  tiktok_followers: number | null;
+  youtube_subscribers: number | null;
+  facebook_followers: number | null;
+  engagement_rate: number | null;
+  avg_likes: number | null;
+  avg_comments: number | null;
+  avg_views: number | null;
+  // Audience
+  audience_age_range: string | null;
+  audience_gender_split: string | null;
+  audience_location: string | null;
+  // Agreement / compensation
+  agreement_details: string | null;
+  promo_code: string | null;
+  ezyvet_tracking: string | null;
+  compensation_type: string | null;
+  compensation_rate: number | null;
+  commission_percentage: number | null;
+  total_paid: number | null;
+  total_value_generated: number | null;
+  contract_start_date: string | null;
+  contract_end_date: string | null;
+  // Performance
+  total_campaigns: number | null;
+  total_impressions: number | null;
+  total_conversions: number | null;
+  roi: number | null;
+  posts_completed: number | null;
+  stories_completed: number | null;
+  reels_completed: number | null;
+  events_attended: number | null;
+  // Pet
+  pet_breed: string | null;
+  pet_type: string | null;
+  pet_age: string | null;
+  // Misc
+  bio: string | null;
+  notes: string | null;
+  source: string | null;
+  referral_source: string | null;
+  last_post_date: string | null;
+  last_contact_date: string | null;
+  next_followup_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CrmOrganization {
   id: string;
   org_type: OrgType;
@@ -105,7 +177,13 @@ export const CONTACT_TYPE_LABELS: Record<ContactType, string> = {
 //   ce       : continuing-education leads / attendees (contacts)
 // (Recruiting/ATS lives in its own module at /ats.)
 // ---------------------------------------------------------------------------
-export type CrmSlug = "referral" | "vendor" | "business" | "student" | "ce";
+export type CrmSlug =
+  | "referral"
+  | "vendor"
+  | "business"
+  | "student"
+  | "ce"
+  | "influencer";
 
 export interface CrmSection {
   slug: CrmSlug;
@@ -113,7 +191,7 @@ export interface CrmSection {
   label: string;
   description: string;
   icon: string;
-  entity: "organization" | "contact";
+  entity: "organization" | "contact" | "influencer";
   orgTypes?: OrgType[];
   contactTypes?: ContactType[];
 }
@@ -163,6 +241,14 @@ export const CRM_SECTIONS: CrmSection[] = [
     icon: "📋",
     entity: "contact",
     contactTypes: ["ce_attendee"],
+  },
+  {
+    slug: "influencer",
+    title: "Influencer CRM",
+    label: "Influencer CRM",
+    description: "Influencer partnerships, campaigns & performance.",
+    icon: "⭐",
+    entity: "influencer",
   },
 ];
 

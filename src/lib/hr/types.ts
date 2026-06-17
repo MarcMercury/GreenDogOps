@@ -21,6 +21,8 @@ export interface Person {
   full_name: string | null;
   email: string | null;
   phone_mobile: string | null;
+  phone_home: string | null;
+  phone_other: string | null;
   date_of_birth: string | null;
   postal_code: string | null;
   work_location_type: WorkLocationType | null;
@@ -69,6 +71,31 @@ export interface PersonEmployment {
 
 export interface RosterRow extends Person {
   person_employment: PersonEmployment | null;
+}
+
+/** Employment fields treated as compensation/benefits — admin-only. */
+export const COMPENSATION_FIELDS: Array<keyof PersonEmployment> = [
+  "pay_type",
+  "current_rate",
+  "previous_rate",
+  "latest_wage_change_date",
+  "biweekly_wage",
+  "annual_wages",
+  "benefits_enrolled",
+  "benefits_monthly",
+  "benefits_annual",
+  "ce_budget",
+  "ce_used",
+  "ce_remaining",
+  "last_review_date",
+];
+
+/** Return a copy of the row with compensation fields nulled out. */
+export function redactCompensation(row: RosterRow): RosterRow {
+  if (!row.person_employment) return row;
+  const emp = { ...row.person_employment } as Record<string, unknown>;
+  for (const field of COMPENSATION_FIELDS) emp[field] = null;
+  return { ...row, person_employment: emp as unknown as PersonEmployment };
 }
 
 export interface PersonReview {

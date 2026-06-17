@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   type CrmOrganization,
   type CrmContact,
+  type CrmInfluencer,
   ORG_TYPE_LABELS,
 } from "@/lib/crm/types";
 
@@ -12,6 +13,23 @@ function contactName(c: CrmContact): string {
   if (c.full_name) return c.full_name;
   const parts = [c.first_name, c.last_name].filter(Boolean);
   return parts.length ? parts.join(" ") : "—";
+}
+
+function compactNumber(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return "—";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}K`;
+  return String(n);
+}
+
+function influencerReach(i: CrmInfluencer): number {
+  return (
+    i.follower_count ??
+    (i.instagram_followers ?? 0) +
+      (i.tiktok_followers ?? 0) +
+      (i.youtube_subscribers ?? 0) +
+      (i.facebook_followers ?? 0)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -464,6 +482,191 @@ export function ContactListView({
           c.notes,
         ]}
         onRowClick={(c) => router.push(`/crm/contact/${c.id}`)}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Influencer CRM — partnerships, tiers, reach & performance.
+// ---------------------------------------------------------------------------
+function influencerName(i: CrmInfluencer): string {
+  const name = i.contact_name && i.contact_name !== "-" ? i.contact_name : null;
+  if (name) return name;
+  if (i.pet_name) return i.pet_name;
+  if (i.instagram_handle) return `@${i.instagram_handle}`;
+  return "—";
+}
+
+const STATUS_STYLES: Record<string, string> = {
+  active: "bg-emerald-100 text-emerald-700",
+  prospect: "bg-sky-100 text-sky-700",
+  inactive: "bg-slate-100 text-slate-500",
+};
+
+const TIER_STYLES: Record<string, string> = {
+  nano: "bg-slate-100 text-slate-600",
+  micro: "bg-violet-100 text-violet-700",
+  macro: "bg-amber-100 text-amber-700",
+  mega: "bg-rose-100 text-rose-700",
+};
+
+function Pill({ text, styles }: { text: string; styles: Record<string, string> }) {
+  const key = text.toLowerCase();
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize ${
+        styles[key] ?? "bg-slate-100 text-slate-600"
+      }`}
+    >
+      {text}
+    </span>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/80 p-4 text-center shadow-sm">
+      <p className="text-2xl font-bold text-slate-900">{value}</p>
+      <p className="mt-0.5 text-xs font-medium text-slate-500">{label}</p>
+    </div>
+  );
+}
+
+export function InfluencerListView({
+  influencers,
+}: {
+  influencers: CrmInfluencer[];
+}) {
+  const router = useRouter();
+
+  const total = influencers.length;
+  const active = influencers.filter((i) => i.status === "active").length;
+  const prospects = influencers.filter((i) => i.status === "prospect").length;
+  const followUp = influencers.filter((i) => i.needs_followup === true).length;
+  const totalReach = influencers.reduce((n, i) => n + influencerReach(i), 0);
+  const tierCounts = influencers.reduce<Record<string, number>>((acc, i) => {
+    if (i.tier) acc[i.tier] = (acc[i.tier] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const columns: Column<CrmInfluencer>[] = [
+    {
+      key: "name",
+      header: "Influencer",
+      value: influencerName,
+      render: (i) => (
+        <div className="min-w-0">
+          <span className="font-medium text-slate-900">{influencerName(i)}</span>
+          {i.pet_name && (
+            <span className="ml-1.5 text-xs text-slate-400">🐾 {i.pet_name}</span>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: "handle",
+      header: "Handle",
+      value: (i) => i.instagram_handle,
+      render: (i) =>
+        i.instagram_handle ? (
+          <span className="text-slate-600">@{i.instagram_handle}</span>
+        ) : (
+          "—"
+        ),
+    },
+    {
+      key: "tier",
+      header: "Tier",
+      value: (i) => i.tier,
+      render: (i) => (i.tier ? <Pill text={i.tier} styles={TIER_STYLES} /> : "—"),
+    },
+    {
+      key: "reach",
+      header: "Reach",
+      value: (i) => influencerReach(i),
+      render: (i) => compactNumber(influencerReach(i)),
+      className: "tabular-nums",
+    },
+    {
+      key: "platform",
+      header: "Platform",
+      value: (i) => i.highest_platform,
+    },
+    {
+      key: "status",
+      header: "Status",
+      value: (i) => i.status,
+      render: (i) =>
+        i.status ? <Pill text={i.status} styles={STATUS_STYLES} /> : "—",
+    },
+    {
+      key: "priority",
+      header: "Priority",
+      value: (i) => i.priority,
+    },
+  ];
+
+  const filters: FilterDef<CrmInfluencer>[] = [
+    { key: "status", label: "Status", value: (i) => i.status },
+    { key: "tier", label: "Tier", value: (i) => i.tier },
+    { key: "platform", label: "Platform", value: (i) => i.highest_platform },
+    { key: "priority", label: "Priority", value: (i) => i.priority },
+    { key: "niche", label: "Niche", value: (i) => i.content_niche },
+  ];
+
+  return (
+    <div className="mx-auto max-w-7xl">
+      <ViewHeader
+        icon="⭐"
+        title="Influencer CRM"
+        description="Influencer partnerships, campaigns & performance"
+        count={total}
+      />
+
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard label="Total" value={String(total)} />
+        <StatCard label="Active Partners" value={String(active)} />
+        <StatCard label="Prospects" value={String(prospects)} />
+        <StatCard label="Needs Follow-up" value={String(followUp)} />
+        <StatCard label="Total Reach" value={compactNumber(totalReach)} />
+      </div>
+
+      {Object.keys(tierCounts).length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {["nano", "micro", "macro", "mega"]
+            .filter((t) => tierCounts[t])
+            .map((t) => (
+              <span
+                key={t}
+                className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium capitalize ${
+                  TIER_STYLES[t] ?? "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {t}
+                <span className="font-bold">{tierCounts[t]}</span>
+              </span>
+            ))}
+        </div>
+      )}
+
+      <CrmDataTable
+        rows={influencers}
+        columns={columns}
+        filters={filters}
+        searchPlaceholder="Search by name, handle, pet, email…"
+        searchExtra={(i) => [
+          i.email,
+          i.phone,
+          i.pet_name,
+          i.instagram_handle,
+          i.tiktok_handle,
+          i.content_niche,
+          i.location,
+          i.notes,
+        ]}
+        onRowClick={(i) => router.push(`/crm/influencer/${i.id}`)}
+        emptyLabel="No influencers match your search."
       />
     </div>
   );

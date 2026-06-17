@@ -10,7 +10,8 @@ export default async function CeLeadsCrmPage() {
     .from("crm_contact")
     .select("*")
     .eq("contact_type", "ce_attendee")
-    .order("last_name", { ascending: true });
+    .order("last_name", { ascending: true })
+    .limit(5000);
 
   if (error) {
     return (

@@ -35,6 +35,8 @@ export async function updateCandidate(
     last_name: str(formData.get("last_name")),
     email: str(formData.get("email")),
     phone_mobile: str(formData.get("phone_mobile")),
+    phone_home: str(formData.get("phone_home")),
+    phone_other: str(formData.get("phone_other")),
   };
   const { error: pErr } = await supabase
     .from("person")
