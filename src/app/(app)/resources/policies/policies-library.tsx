@@ -50,8 +50,13 @@ export function PoliciesLibrary({
   const [activeKind, setActiveKind] = useState<"all" | "document" | "policy">(
     "all",
   );
-  // Sections collapsed by `key`. Default = expanded; toggling adds the key.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Sections start collapsed for a cleaner page; toggling removes the key.
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    const keys = new Set<string>();
+    for (const d of documents) keys.add(`doc:${d.category}`);
+    for (const cat of policies) keys.add(`policy:${cat.title}`);
+    return keys;
+  });
 
   const toggleCollapsed = (key: string) =>
     setCollapsed((prev) => {
