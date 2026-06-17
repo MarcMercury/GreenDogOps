@@ -95,6 +95,15 @@ export async function updateContact(
     mentor: str(formData.get("mentor")),
     coordinator: str(formData.get("coordinator")),
     visitor_type: str(formData.get("visitor_type")),
+    supervising_dvm: str(formData.get("supervising_dvm")),
+    weekday_schedule: str(formData.get("weekday_schedule")),
+    doc_recommendation: str(formData.get("doc_recommendation")),
+    hire_interest: str(formData.get("hire_interest")),
+    grad_year: str(formData.get("grad_year")),
+    stipend: str(formData.get("stipend")),
+    completed: bool(formData.get("completed")),
+    stipend_paid: bool(formData.get("stipend_paid")),
+    check_cashed: bool(formData.get("check_cashed")),
     start_date: str(formData.get("start_date")),
     end_date: str(formData.get("end_date")),
     hours_completed: num(formData.get("hours_completed")),
@@ -203,7 +212,8 @@ export async function promoteStudentToRecruiting(
        status, organization, program_type, program_name, cohort, school,
        location, mentor, coordinator, start_date, end_date, hours_completed,
        hours_required, eligible_for_employment, opportunity_type, lead_source,
-       notes, promoted_person_id`,
+       supervising_dvm, weekday_schedule, doc_recommendation, hire_interest,
+       grad_year, stipend, notes, promoted_person_id`,
     )
     .eq("id", contactId)
     .maybeSingle();
@@ -248,6 +258,12 @@ export async function promoteStudentToRecruiting(
     contact.school ? `School: ${contact.school}` : null,
     contact.program_name ? `Program: ${contact.program_name}` : null,
     contact.cohort ? `Cohort: ${contact.cohort}` : null,
+    contact.grad_year ? `Grad year: ${contact.grad_year}` : null,
+    contact.supervising_dvm ? `DVM: ${contact.supervising_dvm}` : null,
+    contact.weekday_schedule ? `Schedule: ${contact.weekday_schedule}` : null,
+    contact.doc_recommendation ? `Doc rec: ${contact.doc_recommendation}` : null,
+    contact.hire_interest ? `Hire interest: ${contact.hire_interest}` : null,
+    contact.stipend ? `Stipend: ${contact.stipend}` : null,
     contact.hours_completed != null || contact.hours_required != null
       ? `Hours: ${contact.hours_completed ?? "?"}/${contact.hours_required ?? "?"}`
       : null,

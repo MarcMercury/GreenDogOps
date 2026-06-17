@@ -141,6 +141,15 @@ export interface CrmContact {
   mentor: string | null;
   coordinator: string | null;
   visitor_type: string | null;
+  supervising_dvm: string | null;
+  weekday_schedule: string | null;
+  doc_recommendation: string | null;
+  hire_interest: string | null;
+  grad_year: string | null;
+  stipend: string | null;
+  completed: boolean | null;
+  stipend_paid: boolean | null;
+  check_cashed: boolean | null;
   start_date: string | null;
   end_date: string | null;
   hours_completed: number | null;

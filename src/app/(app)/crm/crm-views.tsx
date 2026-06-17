@@ -155,7 +155,9 @@ export function ContactListView({
             header: "School / Org",
             value: (c) => c.school ?? c.organization,
           },
-          { key: "program", header: "Program", value: (c) => c.program_name },
+          { key: "program", header: "Program", value: (c) => c.program_name ?? c.program_type },
+          { key: "grad_year", header: "Grad Year", value: (c) => c.grad_year },
+          { key: "dvm", header: "DVM", value: (c) => c.supervising_dvm },
           {
             key: "opportunity",
             header: "Opportunity",
@@ -190,9 +192,21 @@ export function ContactListView({
     variant === "student"
       ? [
           { key: "status", label: "Status", value: (c) => c.status },
-          { key: "program", label: "Program", value: (c) => c.program_name },
+          { key: "program", label: "Program", value: (c) => c.program_name ?? c.program_type },
           { key: "school", label: "School", value: (c) => c.school },
           { key: "cohort", label: "Cohort", value: (c) => c.cohort },
+          { key: "grad_year", label: "Grad Year", value: (c) => c.grad_year },
+          { key: "dvm", label: "DVM", value: (c) => c.supervising_dvm },
+          {
+            key: "doc_rec",
+            label: "Doc Rec",
+            value: (c) => c.doc_recommendation,
+          },
+          {
+            key: "hire_interest",
+            label: "Hire Interest",
+            value: (c) => c.hire_interest,
+          },
           {
             key: "opportunity",
             label: "Opportunity",
@@ -261,7 +275,10 @@ export function ContactListView({
           c.phone,
           c.organization,
           c.program_name,
+          c.program_type,
           c.school,
+          c.grad_year,
+          c.supervising_dvm,
           c.lead_source,
           c.notes,
         ]}

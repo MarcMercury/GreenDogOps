@@ -64,6 +64,13 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
         <Field label="Location" name="location" defaultValue={contact.location} />
         <Field label="Mentor" name="mentor" defaultValue={contact.mentor} />
         <Field label="Coordinator" name="coordinator" defaultValue={contact.coordinator} />
+        {isStudent && (
+          <>
+            <Field label="Supervising DVM" name="supervising_dvm" defaultValue={contact.supervising_dvm} />
+            <Field label="Weekday schedule" name="weekday_schedule" defaultValue={contact.weekday_schedule} />
+            <Field label="Grad year" name="grad_year" defaultValue={contact.grad_year} />
+          </>
+        )}
         <Field label="Start date" name="start_date" type="date" defaultValue={contact.start_date} />
         <Field label="End date" name="end_date" type="date" defaultValue={contact.end_date} />
       </Section>
@@ -72,11 +79,17 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
         <Section title="Internship / Hours">
           <Field label="Hours completed" name="hours_completed" type="number" defaultValue={contact.hours_completed} />
           <Field label="Hours required" name="hours_required" type="number" defaultValue={contact.hours_required} />
+          <Field label="Doc recommendation" name="doc_recommendation" defaultValue={contact.doc_recommendation} />
+          <Field label="Hire interest" name="hire_interest" defaultValue={contact.hire_interest} />
+          <Field label="Stipend" name="stipend" defaultValue={contact.stipend} />
           <Checkbox
             label="Eligible for employment"
             name="eligible_for_employment"
             defaultChecked={contact.eligible_for_employment}
           />
+          <Checkbox label="Completed" name="completed" defaultChecked={contact.completed} />
+          <Checkbox label="Stipend paid" name="stipend_paid" defaultChecked={contact.stipend_paid} />
+          <Checkbox label="Check cashed" name="check_cashed" defaultChecked={contact.check_cashed} />
         </Section>
       ) : (
         <Section title="CE Engagement">
