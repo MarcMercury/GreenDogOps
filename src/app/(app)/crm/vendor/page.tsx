@@ -9,7 +9,7 @@ export default async function VendorCrmPage() {
   const { data, error } = await supabase
     .from("crm_organization")
     .select("*")
-    .in("org_type", ["facility_resource", "med_ops"])
+    .in("org_type", ["facility_resource", "med_ops", "office_marketing"])
     .order("name", { ascending: true });
 
   if (error) {
@@ -27,7 +27,7 @@ export default async function VendorCrmPage() {
     <OrgListView
       organizations={(data ?? []) as CrmOrganization[]}
       title="Vendor CRM"
-      description="Facility resources and medical-ops vendors"
+      description="Med-ops, facility, and marketing/office vendors"
       icon="🔧"
     />
   );

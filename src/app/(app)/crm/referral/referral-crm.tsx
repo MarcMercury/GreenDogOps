@@ -40,6 +40,12 @@ import {
   type UploadResult,
 } from "./actions";
 import { PartnerDialog } from "./partner-dialog";
+import {
+  type CellValue,
+  type SortDir,
+  SortIcon,
+  compareValues,
+} from "../../_components/data-views";
 
 type TabKey = "list" | "map" | "targeting" | "activity" | "upload-log" | "reports";
 type FollowFilter = "all" | "followup" | "overdue";
@@ -406,6 +412,61 @@ function PartnerTable({
   onQuickVisit: (p: ReferralPartner) => void;
   onDelete: (p: ReferralPartner) => void;
 }) {
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const SORTS: Record<string, (p: ReferralPartner) => CellValue> = {
+    partner: (p) => partnerName(p),
+    priority: (p) => p.priority,
+    health: (p) => Number(p.relationship_health) || 0,
+    status: (p) => p.status || (p.is_active ? "active" : ""),
+    referrals: (p) => p.total_referrals_all_time || 0,
+    revenue: (p) => Number(p.total_revenue_all_time) || 0,
+    last_referral: (p) => p.last_referral_date,
+    divisions: (p) => p.referral_divisions?.length ?? 0,
+    last_visit: (p) => p.last_visit_date,
+  };
+
+  const sorted = useMemo(() => {
+    if (!sortKey || !SORTS[sortKey]) return partners;
+    const accessor = SORTS[sortKey];
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...partners].sort((a, b) => compareValues(accessor(a), accessor(b)) * dir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [partners, sortKey, sortDir]);
+
+  function toggleSort(key: string) {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else {
+      setSortKey(null);
+      setSortDir("asc");
+    }
+  }
+
+  const renderTh = (
+    label: React.ReactNode,
+    opts: { sortKeyName?: string; right?: boolean; wide?: boolean } = {},
+  ) => {
+    const { sortKeyName, right, wide } = opts;
+    return (
+      <th
+        onClick={sortKeyName ? () => toggleSort(sortKeyName) : undefined}
+        className={`${wide ? "px-4" : "px-3"} py-3 ${right ? "text-right" : ""} ${
+          sortKeyName ? "cursor-pointer select-none hover:text-slate-700" : ""
+        }`}
+      >
+        <span className={`inline-flex items-center ${right ? "justify-end" : ""}`}>
+          {label}
+          {sortKeyName && <SortIcon dir={sortKey === sortKeyName ? sortDir : null} />}
+        </span>
+      </th>
+    );
+  };
+
   if (partners.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-500">
@@ -419,20 +480,20 @@ function PartnerTable({
       <table className="hidden w-full text-sm sm:table">
         <thead>
           <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <th className="px-4 py-3">Partner</th>
-            <th className="px-3 py-3">Priority</th>
-            <th className="px-3 py-3">Health</th>
-            <th className="px-3 py-3">Status</th>
-            <th className="px-3 py-3 text-right">Referrals</th>
-            <th className="px-3 py-3 text-right">Revenue</th>
-            <th className="px-3 py-3">Last Referral</th>
-            <th className="px-3 py-3">Divisions</th>
-            <th className="px-3 py-3">Last Visit</th>
-            <th className="px-3 py-3 text-right">Actions</th>
+            {renderTh("Partner", { sortKeyName: "partner", wide: true })}
+            {renderTh("Priority", { sortKeyName: "priority" })}
+            {renderTh("Health", { sortKeyName: "health" })}
+            {renderTh("Status", { sortKeyName: "status" })}
+            {renderTh("Referrals", { sortKeyName: "referrals", right: true })}
+            {renderTh("Revenue", { sortKeyName: "revenue", right: true })}
+            {renderTh("Last Referral", { sortKeyName: "last_referral" })}
+            {renderTh("Divisions", { sortKeyName: "divisions" })}
+            {renderTh("Last Visit", { sortKeyName: "last_visit" })}
+            {renderTh("Actions", { right: true })}
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
-          {partners.map((p) => (
+          {sorted.map((p) => (
             <tr key={p.id} className="group cursor-pointer transition hover:bg-emerald-50/40" onClick={() => onView(p)}>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-3">
@@ -489,7 +550,7 @@ function PartnerTable({
 
       {/* Mobile cards */}
       <div className="divide-y divide-slate-100 sm:hidden">
-        {partners.map((p) => (
+        {sorted.map((p) => (
           <div key={p.id} className="p-4" onClick={() => onView(p)}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">

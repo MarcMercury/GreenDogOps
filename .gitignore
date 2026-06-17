@@ -47,3 +47,7 @@ next-env.d.ts
 
 # Local source data (PII — never commit)
 /.data/
+
+# Python cache
+__pycache__/
+*.pyc

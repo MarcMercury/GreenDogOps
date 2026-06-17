@@ -2,7 +2,8 @@ export type OrgType =
   | "referral_clinic"
   | "marketing_partner"
   | "facility_resource"
-  | "med_ops";
+  | "med_ops"
+  | "office_marketing";
 
 export type ContactType = "student" | "ce_attendee";
 
@@ -161,6 +162,7 @@ export const ORG_TYPE_LABELS: Record<OrgType, string> = {
   marketing_partner: "Business Partners",
   facility_resource: "Facility Resources",
   med_ops: "Med Ops Vendors",
+  office_marketing: "Marketing & Office",
 };
 
 export const CONTACT_TYPE_LABELS: Record<ContactType, string> = {
@@ -210,10 +212,10 @@ export const CRM_SECTIONS: CrmSection[] = [
     slug: "vendor",
     title: "Vendor CRM",
     label: "Vendor CRM",
-    description: "Facility resources and medical-ops vendors.",
+    description: "Med-ops, facility, and marketing/office vendors.",
     icon: "🔧",
     entity: "organization",
-    orgTypes: ["facility_resource", "med_ops"],
+    orgTypes: ["facility_resource", "med_ops", "office_marketing"],
   },
   {
     slug: "business",
