@@ -177,3 +177,89 @@ export async function updateSettings(formData: FormData): Promise<void> {
 
   revalidatePath("/admin/settings");
 }
+
+// ---------------------------------------------------------------------------
+// Credential vault
+// ---------------------------------------------------------------------------
+const CREDENTIAL_FIELDS = [
+  "category",
+  "label",
+  "service",
+  "url",
+  "username",
+  "password",
+  "account_number",
+  "location",
+  "contact_name",
+  "contact_email",
+  "contact_phone",
+  "order_method",
+  "payment_method",
+  "status",
+  "owner_scope",
+  "notes",
+] as const;
+
+function collectCredential(form: FormData): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const f of CREDENTIAL_FIELDS) {
+    const v = String(form.get(f) ?? "").trim();
+    out[f] = v === "" ? null : v;
+  }
+  if (!out.category) out.category = "vendor";
+  return out;
+}
+
+/** Create or update a credential. */
+export async function saveCredential(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  const values = collectCredential(formData);
+  if (!values.label) return;
+
+  const admin = createAdminClient();
+  if (id) {
+    await admin.from("credential").update(values).eq("id", id);
+  } else {
+    await admin
+      .from("credential")
+      .insert({ ...values, source: "manual", created_by: current.authId });
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: id ? "credential.updated" : "credential.created",
+    entity: "credential",
+    entityId: id || undefined,
+    summary: `${id ? "Updated" : "Added"} credential “${values.label}”`,
+  });
+
+  revalidatePath("/admin/credentials");
+}
+
+/** Delete a credential. */
+export async function deleteCredential(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return;
+
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("credential")
+    .select("label")
+    .eq("id", id)
+    .maybeSingle();
+  await admin.from("credential").delete().eq("id", id);
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "credential.deleted",
+    entity: "credential",
+    entityId: id,
+    summary: `Deleted credential “${(data as { label?: string } | null)?.label ?? id}”`,
+  });
+
+  revalidatePath("/admin/credentials");
+}

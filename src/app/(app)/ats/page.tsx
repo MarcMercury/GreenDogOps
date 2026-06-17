@@ -19,7 +19,8 @@ export default async function AtsPage() {
        )`,
     )
     .eq("status", "applicant")
-    .order("last_name", { ascending: true });
+    .order("last_name", { ascending: true })
+    .limit(5000);
 
   if (error) {
     return (

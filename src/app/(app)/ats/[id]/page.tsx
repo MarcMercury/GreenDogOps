@@ -50,6 +50,19 @@ export default async function CandidateDetailPage({
       <Link href="/ats" className="text-sm text-emerald-700 hover:text-emerald-900">
         ← Back to recruiting
       </Link>
+      {row.source_contact_id && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3">
+          <p className="text-sm font-medium text-violet-900">
+            🎓 Promoted from the Student CRM
+          </p>
+          <Link
+            href={`/crm/contact/${row.source_contact_id}`}
+            className="shrink-0 rounded-lg border border-violet-300 bg-white px-4 py-2 text-sm font-semibold text-violet-700 shadow-sm transition hover:bg-violet-50"
+          >
+            View student record →
+          </Link>
+        </div>
+      )}
       <CandidateForm row={row} />
     </div>
   );

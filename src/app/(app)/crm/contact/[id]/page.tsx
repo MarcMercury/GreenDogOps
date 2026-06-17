@@ -7,6 +7,7 @@ import {
   crmSlugForContactType,
 } from "@/lib/crm/types";
 import { ContactForm } from "./contact-form";
+import { PromoteToRecruiting } from "./promote-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,25 @@ export default async function ContactDetailPage({
       >
         ← Back to {section?.title ?? "CRM"}
       </Link>
+      {contact.contact_type === "student" &&
+        (contact.promoted_person_id ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 px-4 py-3">
+            <p className="text-sm font-medium text-emerald-900">
+              ✓ Promoted to the Recruiting CRM
+              {contact.promoted_at
+                ? ` on ${new Date(contact.promoted_at).toLocaleDateString()}`
+                : ""}
+            </p>
+            <Link
+              href={`/ats/${contact.promoted_person_id}`}
+              className="shrink-0 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
+            >
+              Open recruiting record →
+            </Link>
+          </div>
+        ) : (
+          <PromoteToRecruiting contactId={contact.id} />
+        ))}
       <ContactForm contact={contact} />
     </div>
   );

@@ -29,7 +29,6 @@ export default async function VendorCrmPage() {
       title="Vendor CRM"
       description="Facility resources and medical-ops vendors"
       icon="🔧"
-      showTypePills
     />
   );
 }

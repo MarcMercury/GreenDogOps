@@ -57,6 +57,7 @@ export default async function AdminOverviewPage() {
     contacts,
     appUsers,
     activeUsers,
+    credentials,
     usersData,
     auditData,
   ] = await Promise.all([
@@ -68,6 +69,7 @@ export default async function AdminOverviewPage() {
     count(admin, "crm_contact"),
     count(admin, "app_user"),
     count(admin, "app_user", (q) => q.eq("is_active", true)),
+    count(admin, "credential"),
     admin.from("app_user").select("role, last_seen_at"),
     admin
       .from("audit_log")
@@ -128,6 +130,12 @@ export default async function AdminOverviewPage() {
           value={recentlyActive}
           icon="🟢"
           href="/admin/users"
+        />
+        <StatCard
+          label="Credentials"
+          value={credentials}
+          icon="🔐"
+          href="/admin/credentials"
         />
       </div>
 
