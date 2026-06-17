@@ -21,6 +21,8 @@ import {
   exportColumnsCsv,
   previewCsvImport,
 } from "../_components/data-views";
+import { OpportunityBadge } from "../_components/opportunity-type-field";
+import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
 
 function contactName(c: CrmContact): string {
   if (c.full_name) return c.full_name;
@@ -154,6 +156,12 @@ export function ContactListView({
             value: (c) => c.school ?? c.organization,
           },
           { key: "program", header: "Program", value: (c) => c.program_name },
+          {
+            key: "opportunity",
+            header: "Opportunity",
+            value: (c) => opportunityShortLabel(c.opportunity_type),
+            render: (c) => <OpportunityBadge value={c.opportunity_type} />,
+          },
           { key: "status", header: "Status", value: (c) => c.status },
         ]
       : [
@@ -185,6 +193,11 @@ export function ContactListView({
           { key: "program", label: "Program", value: (c) => c.program_name },
           { key: "school", label: "School", value: (c) => c.school },
           { key: "cohort", label: "Cohort", value: (c) => c.cohort },
+          {
+            key: "opportunity",
+            label: "Opportunity",
+            value: (c) => opportunityShortLabel(c.opportunity_type) || null,
+          },
         ]
       : [
           {

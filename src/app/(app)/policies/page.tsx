@@ -1,12 +1,5 @@
-import { ComingSoon } from "../_components/ui";
+import { redirect } from "next/navigation";
 
-export default function Placeholder() {
-  return (
-    <ComingSoon
-      icon="📚"
-      title="Policies"
-      description="A searchable wiki of Green Dog policies, procedures, and internal admin documents."
-      badge="Coming soon"
-    />
-  );
+export default function PoliciesRedirect() {
+  redirect("/resources/policies");
 }

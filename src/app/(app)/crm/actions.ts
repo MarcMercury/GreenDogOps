@@ -100,6 +100,7 @@ export async function updateContact(
     hours_completed: num(formData.get("hours_completed")),
     hours_required: num(formData.get("hours_required")),
     eligible_for_employment: bool(formData.get("eligible_for_employment")),
+    opportunity_type: str(formData.get("opportunity_type")),
     ce_events_attended: str(formData.get("ce_events_attended")),
     lead_source: str(formData.get("lead_source")),
     notes: str(formData.get("notes")),
@@ -201,8 +202,8 @@ export async function promoteStudentToRecruiting(
       `id, contact_type, first_name, last_name, full_name, email, phone,
        status, organization, program_type, program_name, cohort, school,
        location, mentor, coordinator, start_date, end_date, hours_completed,
-       hours_required, eligible_for_employment, lead_source, notes,
-       promoted_person_id`,
+       hours_required, eligible_for_employment, opportunity_type, lead_source,
+       notes, promoted_person_id`,
     )
     .eq("id", contactId)
     .maybeSingle();
@@ -232,6 +233,7 @@ export async function promoteStudentToRecruiting(
       email: contact.email,
       phone_mobile: contact.phone,
       notes: contact.notes,
+      opportunity_type: contact.opportunity_type,
       source_contact_id: contact.id,
     })
     .select("id")

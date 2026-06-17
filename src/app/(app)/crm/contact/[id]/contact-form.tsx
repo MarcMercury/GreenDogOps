@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { type CrmContact, CONTACT_TYPE_LABELS } from "@/lib/crm/types";
 import { updateContact, type SaveResult } from "../../actions";
+import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import {
   Field,
   TextArea,
@@ -56,6 +57,7 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
 
       <Section title="Program">
         <Field label="Program type" name="program_type" defaultValue={contact.program_type} />
+        <OpportunityTypeField defaultValue={contact.opportunity_type} />
         <Field label="Program name" name="program_name" defaultValue={contact.program_name} />
         <Field label="Cohort" name="cohort" defaultValue={contact.cohort} />
         <Field label="School" name="school" defaultValue={contact.school} />

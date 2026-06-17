@@ -26,6 +26,7 @@ export interface CandidateRow {
   phone_mobile: string | null;
   phone_home: string | null;
   phone_other: string | null;
+  opportunity_type: string | null;
   notes: string | null;
   source_contact_id: string | null;
   created_at: string;

@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type { RosterRow } from "@/lib/hr/types";
+import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { updateEmployee, type SaveResult } from "../actions";
 
 export function Field({
@@ -216,6 +217,7 @@ export function EmployeeForm({
             name="offer_title"
             defaultValue={emp?.offer_title}
           />
+          <OpportunityTypeField defaultValue={row.opportunity_type} />
           <Select
             label="FLSA status"
             name="flsa_status"

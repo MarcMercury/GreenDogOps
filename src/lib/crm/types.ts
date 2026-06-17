@@ -146,6 +146,7 @@ export interface CrmContact {
   hours_completed: number | null;
   hours_required: number | null;
   eligible_for_employment: boolean | null;
+  opportunity_type: string | null;
   ce_events_attended: string | null;
   lead_source: string | null;
   notes: string | null;

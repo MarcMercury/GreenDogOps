@@ -39,7 +39,7 @@ export type ModuleKey =
   | "crm_ce"
   | "crm_influencer"
   | "schedule"
-  | "policies"
+  | "resources"
   | "admin";
 
 export interface ModuleDef {
@@ -59,7 +59,7 @@ export const MODULES: ModuleDef[] = [
   { key: "crm_ce", label: "CE Leads", href: "/crm/ce" },
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
   { key: "schedule", label: "Scheduling", href: "/schedule" },
-  { key: "policies", label: "Policies", href: "/policies" },
+  { key: "resources", label: "Resources", href: "/resources" },
   { key: "admin", label: "Admin", href: "/admin" },
 ];
 
@@ -70,8 +70,8 @@ const ROLE_DEFAULT_MODULES: Record<AppRole, ModuleKey[]> = {
   owner: ALL_MODULES,
   admin: ALL_MODULES,
   manager: ALL_MODULES.filter((m) => m !== "admin"),
-  staff: ["dashboard", "hr", "ats", "schedule", "policies"],
-  viewer: ["dashboard", "policies"],
+  staff: ["dashboard", "hr", "ats", "schedule", "resources"],
+  viewer: ["dashboard", "resources"],
 };
 
 export interface AppUser {

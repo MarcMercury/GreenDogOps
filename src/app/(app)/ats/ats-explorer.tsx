@@ -17,6 +17,8 @@ import {
   exportColumnsCsv,
   previewCsvImport,
 } from "../_components/data-views";
+import { OpportunityBadge } from "../_components/opportunity-type-field";
+import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
 
 function candidateName(r: CandidateRow): string {
   if (r.full_name) return r.full_name;
@@ -55,6 +57,12 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
       key: "position",
       header: "Position",
       value: (r) => r.person_recruiting?.target_title,
+    },
+    {
+      key: "opportunity",
+      header: "Opportunity",
+      value: (r) => opportunityShortLabel(r.opportunity_type),
+      render: (r) => <OpportunityBadge value={r.opportunity_type} />,
     },
     {
       key: "pipeline",
@@ -100,6 +108,11 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
     },
     { key: "pipeline", label: "Pipeline", value: (r) => r.person_recruiting?.pipeline },
     { key: "source", label: "Source", value: (r) => r.person_recruiting?.source },
+    {
+      key: "opportunity",
+      label: "Opportunity",
+      value: (r) => opportunityShortLabel(r.opportunity_type) || null,
+    },
   ];
 
   return (

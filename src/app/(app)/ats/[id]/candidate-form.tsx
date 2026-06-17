@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type { CandidateRow } from "@/lib/ats/types";
+import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { updateCandidate, hireCandidate, type SaveResult } from "../actions";
 
 function Field({
@@ -152,6 +153,7 @@ export function CandidateForm({ row }: { row: CandidateRow }) {
 
       <Section title="Pipeline">
         <Field label="Position applied for" name="target_title" defaultValue={rec?.target_title} />
+        <OpportunityTypeField defaultValue={row.opportunity_type} />
         <Field label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} />
         <Field label="Stage" name="stage" defaultValue={rec?.stage} />
         <Field label="Source (found on)" name="source" defaultValue={rec?.source} />

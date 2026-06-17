@@ -17,7 +17,7 @@ export default async function HrRosterPage() {
     .select(
       `id, status, first_name, last_name, preferred_name, grid_name, full_name,
        email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
-       avatar_url, is_active, notes, status_changed_at, created_at, updated_at,
+     opportunity_type, avatar_url, is_active, notes, status_changed_at, created_at, updated_at,
        person_employment (
          person_id, position_id, location_id, offer_title, adp_job_title,
          flsa_status, work_schedule, days_per_week, hire_date, original_hire_date,

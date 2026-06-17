@@ -18,6 +18,8 @@ import {
   exportColumnsCsv,
   previewCsvImport,
 } from "../_components/data-views";
+import { OpportunityBadge } from "../_components/opportunity-type-field";
+import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
 
 const STATUS_BADGE: Record<EmploymentStatus, string> = {
   prospect: "bg-amber-100 text-amber-800",
@@ -92,6 +94,12 @@ export function RosterGrid({ rows }: { rows: RosterRow[] }) {
           : null,
     },
     {
+      key: "opportunity",
+      header: "Opportunity",
+      value: (r) => opportunityShortLabel(r.opportunity_type),
+      render: (r) => <OpportunityBadge value={r.opportunity_type} />,
+    },
+    {
       key: "hire_date",
       header: "Hire Date",
       value: (r) => r.person_employment?.hire_date,
@@ -126,6 +134,11 @@ export function RosterGrid({ rows }: { rows: RosterRow[] }) {
         r.person_employment?.work_schedule
           ? SCHEDULE_LABELS[r.person_employment.work_schedule]
           : null,
+    },
+    {
+      key: "opportunity",
+      label: "Opportunity",
+      value: (r) => opportunityShortLabel(r.opportunity_type) || null,
     },
   ];
 

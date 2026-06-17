@@ -35,9 +35,9 @@ const MODULE_CARDS = [
     dot: "bg-amber-500",
   },
   {
-    href: "/policies",
-    title: "Policies",
-    desc: "Searchable wiki of Green Dog policies, procedures, and internal admin documents.",
+    href: "/resources",
+    title: "Resources",
+    desc: "Search all program data and the web with AI, plus the Green Dog policies wiki.",
     icon: "📚",
     accent: "from-rose-500/10 to-rose-500/0 text-rose-700",
     dot: "bg-rose-500",

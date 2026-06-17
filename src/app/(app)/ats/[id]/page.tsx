@@ -18,7 +18,7 @@ export default async function CandidateDetailPage({
     .from("person")
     .select(
       `id, status, first_name, last_name, full_name, email, phone_mobile,
-       phone_home, phone_other, notes,
+     phone_home, phone_other, opportunity_type, notes,
        source_contact_id, created_at, updated_at,
        person_recruiting (
          person_id, target_position_id, pipeline, stage, status_notes, source,

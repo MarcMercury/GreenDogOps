@@ -49,6 +49,7 @@ export async function updateEmployee(
     date_of_birth: str(formData.get("date_of_birth")),
     postal_code: str(formData.get("postal_code")),
     work_location_type: str(formData.get("work_location_type")),
+    opportunity_type: str(formData.get("opportunity_type")),
     status: str(formData.get("status")) ?? "employee",
     notes: str(formData.get("notes")),
   };

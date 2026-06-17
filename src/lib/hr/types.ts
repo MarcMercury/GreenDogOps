@@ -26,6 +26,7 @@ export interface Person {
   date_of_birth: string | null;
   postal_code: string | null;
   work_location_type: WorkLocationType | null;
+  opportunity_type: string | null;
   avatar_url: string | null;
   is_active: boolean;
   notes: string | null;
