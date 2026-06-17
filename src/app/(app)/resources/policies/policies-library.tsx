@@ -50,6 +50,16 @@ export function PoliciesLibrary({
   const [activeKind, setActiveKind] = useState<"all" | "document" | "policy">(
     "all",
   );
+  // Sections collapsed by `key`. Default = expanded; toggling adds the key.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const toggleCollapsed = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
 
   // Normalise both data sources into one uniform shape so the layout stays
   // consistent instead of two stacked, differently-shaped blocks.
@@ -124,6 +134,12 @@ export function PoliciesLibrary({
   }, [documents, policies]);
 
   const visibleCount = filtered.reduce((n, c) => n + c.items.length, 0);
+  const allCollapsed =
+    filtered.length > 0 && filtered.every((c) => collapsed.has(c.key));
+
+  const collapseAll = () =>
+    setCollapsed(new Set(filtered.map((c) => c.key)));
+  const expandAll = () => setCollapsed(new Set());
 
   return (
     <div className="space-y-5">
@@ -183,16 +199,30 @@ export function PoliciesLibrary({
         </div>
       ) : (
         <>
-          <p className="px-1 text-xs text-slate-400">
-            Showing {visibleCount} item{visibleCount === 1 ? "" : "s"} across{" "}
-            {filtered.length}{" "}
-            {filtered.length === 1 ? "category" : "categories"}
-          </p>
+          <div className="flex items-center justify-between px-1">
+            <p className="text-xs text-slate-400">
+              Showing {visibleCount} item{visibleCount === 1 ? "" : "s"} across{" "}
+              {filtered.length}{" "}
+              {filtered.length === 1 ? "category" : "categories"}
+            </p>
+            <button
+              type="button"
+              onClick={allCollapsed ? expandAll : collapseAll}
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            >
+              {allCollapsed ? "Expand all" : "Collapse all"}
+            </button>
+          </div>
 
           {/* Masonry columns pack the cards tightly to avoid empty gaps. */}
           <div className="gap-4 sm:columns-2 lg:columns-3">
             {filtered.map((c) => (
-              <CollectionCard key={c.key} collection={c} />
+              <CollectionCard
+                key={c.key}
+                collection={c}
+                open={!collapsed.has(c.key)}
+                onToggle={() => toggleCollapsed(c.key)}
+              />
             ))}
           </div>
         </>
@@ -237,11 +267,26 @@ function FilterTab({
   );
 }
 
-function CollectionCard({ collection }: { collection: Collection }) {
+function CollectionCard({
+  collection,
+  open,
+  onToggle,
+}: {
+  collection: Collection;
+  open: boolean;
+  onToggle: () => void;
+}) {
   const kind = KIND_META[collection.kind];
   return (
     <div className="mb-4 break-inside-avoid overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-2.5">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className={`flex w-full items-center gap-2 bg-slate-50/70 px-4 py-2.5 text-left transition hover:bg-slate-100/70 ${
+          open ? "border-b border-slate-100" : ""
+        }`}
+      >
         <span aria-hidden className="text-base">
           {collection.icon}
         </span>
@@ -256,8 +301,22 @@ function CollectionCard({ collection }: { collection: Collection }) {
           <span className={`h-1.5 w-1.5 rounded-full ${kind.dot}`} />
           {collection.items.length}
         </span>
-      </div>
-      <ul className="divide-y divide-slate-100">
+        <svg
+          aria-hidden
+          viewBox="0 0 20 20"
+          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M5 7.5 10 12.5 15 7.5" />
+        </svg>
+      </button>
+      <ul className={`divide-y divide-slate-100 ${open ? "" : "hidden"}`}>
         {collection.items.map((item) => (
           <li key={item.id}>
             <a
