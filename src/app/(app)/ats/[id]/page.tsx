@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { CandidateRow } from "@/lib/ats/types";
-import { CandidateForm } from "./candidate-form";
+import { getCurrentUser } from "@/lib/auth/session";
+import { isAdminRole } from "@/lib/auth/permissions";
+import type { CandidateRow, PersonInterview } from "@/lib/ats/types";
+import { CandidateProfile } from "./candidate-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,8 @@ export default async function CandidateDetailPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
 
   const { data, error } = await supabase
     .from("person")
@@ -46,6 +50,14 @@ export default async function CandidateDetailPage({
     person_recruiting: Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null),
   } as CandidateRow;
 
+  const { data: interviewData } = await supabase
+    .from("person_interview")
+    .select("*")
+    .eq("person_id", id)
+    .order("interview_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+  const interviews = (interviewData ?? []) as PersonInterview[];
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link href="/ats" className="text-sm text-emerald-700 hover:text-emerald-900">
@@ -64,7 +76,7 @@ export default async function CandidateDetailPage({
           </Link>
         </div>
       )}
-      <CandidateForm row={row} />
+      <CandidateProfile row={row} interviews={interviews} isAdmin={isAdmin} />
     </div>
   );
 }

@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, recordAudit } from "@/lib/auth/session";
+import { isAdminRole } from "@/lib/auth/permissions";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -69,6 +71,74 @@ export async function updateCandidate(
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// Interview tracking
+// ---------------------------------------------------------------------------
+
+export async function saveInterview(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const id = str(formData.get("interview_id"));
+
+  // Collect structured question/answer pairs (question_<n> + answer_<n>).
+  const responses: { index: number; question: string; answer: string | null }[] =
+    [];
+  for (const [key, value] of formData.entries()) {
+    const m = /^question_(\d+)$/.exec(key);
+    if (!m) continue;
+    const idx = Number(m[1]);
+    responses.push({
+      index: idx,
+      question: String(value),
+      answer: str(formData.get(`answer_${m[1]}`)),
+    });
+  }
+  responses.sort((a, b) => a.index - b.index);
+  const cleanResponses = responses.map((r) => ({
+    question: r.question,
+    answer: r.answer,
+  }));
+
+  const patch = {
+    person_id: personId,
+    interview_date: str(formData.get("interview_date")),
+    interview_type: str(formData.get("interview_type")),
+    interviewer: str(formData.get("interviewer")),
+    location: str(formData.get("location")),
+    status: str(formData.get("status")) ?? "scheduled",
+    overall_grade: str(formData.get("overall_grade")),
+    recommendation: str(formData.get("recommendation")),
+    summary: str(formData.get("summary")),
+    responses: cleanResponses,
+  };
+
+  const { error } = id
+    ? await supabase.from("person_interview").update(patch).eq("id", id)
+    : await supabase.from("person_interview").insert(patch);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/ats/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteInterview(
+  personId: string,
+  interviewId: string,
+): Promise<SaveResult> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_interview")
+    .delete()
+    .eq("id", interviewId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/ats/${personId}`);
+  return { ok: true };
+}
+
 // Convert a candidate into an employee: flip status + seed an employment row.
 export async function hireCandidate(personId: string): Promise<void> {
   const supabase = await createClient();
@@ -82,4 +152,30 @@ export async function hireCandidate(personId: string): Promise<void> {
   revalidatePath("/ats");
   revalidatePath("/hr");
   redirect(`/hr/${personId}`);
+}
+
+// Permanently delete a candidate record. Admin/owner only.
+export async function deleteCandidate(personId: string): Promise<void> {
+  const current = await getCurrentUser();
+  if (!current || !isAdminRole(current.appUser.role)) {
+    redirect("/ats");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("person").delete().eq("id", personId);
+  if (error) {
+    throw new Error(`Could not delete candidate: ${error.message}`);
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "delete",
+    entity: "person",
+    entityId: personId,
+    summary: "Deleted recruiting candidate record",
+  });
+
+  revalidatePath("/ats");
+  redirect("/ats");
 }

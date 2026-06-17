@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { CandidateRow } from "@/lib/ats/types";
+import type { CandidateRow, CandidateInterviewMeta } from "@/lib/ats/types";
 import { AtsExplorer } from "./ats-explorer";
 
 export const dynamic = "force-dynamic";
@@ -41,6 +41,66 @@ export default async function AtsPage() {
       person_recruiting: Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null),
     } as CandidateRow;
   });
+
+  // Roll up interviews per candidate for the pipeline list (next scheduled
+  // date + most recent grade).
+  const ids = rows.map((r) => r.id);
+  if (ids.length > 0) {
+    const { data: ivData } = await supabase
+      .from("person_interview")
+      .select("person_id, interview_date, status, overall_grade, created_at")
+      .in("person_id", ids);
+
+    if (ivData && ivData.length > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+      type IvRow = {
+        person_id: string;
+        interview_date: string | null;
+        status: string | null;
+        overall_grade: string | null;
+        created_at: string;
+      };
+      const byPerson = new Map<string, IvRow[]>();
+      for (const iv of ivData as IvRow[]) {
+        const list = byPerson.get(iv.person_id) ?? [];
+        list.push(iv);
+        byPerson.set(iv.person_id, list);
+      }
+
+      const metaByPerson = new Map<string, CandidateInterviewMeta>();
+      for (const [personId, list] of byPerson) {
+        let nextDate: string | null = null;
+        for (const iv of list) {
+          if (
+            iv.status === "scheduled" &&
+            iv.interview_date &&
+            iv.interview_date >= today &&
+            (nextDate === null || iv.interview_date < nextDate)
+          ) {
+            nextDate = iv.interview_date;
+          }
+        }
+
+        const graded = list
+          .filter((iv) => iv.overall_grade)
+          .sort((a, b) => {
+            const ad = a.interview_date ?? a.created_at;
+            const bd = b.interview_date ?? b.created_at;
+            return bd.localeCompare(ad);
+          });
+
+        metaByPerson.set(personId, {
+          count: list.length,
+          next_date: nextDate,
+          last_grade: graded[0]?.overall_grade ?? null,
+        });
+      }
+
+      for (const r of rows) {
+        r.interview_meta = metaByPerson.get(r.id) ?? null;
+      }
+    }
+  }
 
   return <AtsExplorer rows={rows} />;
 }

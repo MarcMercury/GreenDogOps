@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type { CandidateRow } from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
-import { updateCandidate, hireCandidate, type SaveResult } from "../actions";
+import { updateCandidate, hireCandidate, deleteCandidate, type SaveResult } from "../actions";
 
 function Field({
   label,
@@ -108,38 +108,55 @@ function HireButton({ personId }: { personId: string }) {
   );
 }
 
-export function CandidateForm({ row }: { row: CandidateRow }) {
+function DeleteButton({ personId }: { personId: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      onClick={(e) => {
+        if (
+          !confirm(
+            "Permanently delete this candidate record? This cannot be undone.",
+          )
+        ) {
+          e.preventDefault();
+        }
+      }}
+      formAction={() => deleteCandidate(personId)}
+      className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+    >
+      {pending ? "Deleting…" : "Delete record"}
+    </button>
+  );
+}
+
+export function CandidateForm({
+  row,
+  isAdmin = false,
+  hidden = false,
+}: {
+  row: CandidateRow;
+  isAdmin?: boolean;
+  hidden?: boolean;
+}) {
   const rec = row.person_recruiting;
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) => updateCandidate(row.id, prev, fd),
     null,
   );
 
-  const heading =
-    row.full_name ||
-    [row.first_name, row.last_name].filter(Boolean).join(" ") ||
-    "Candidate";
-
   return (
-    <form action={formAction} className="mt-3 space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">{heading}</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            {rec?.target_title ?? "Candidate"}
-            {rec?.pipeline ? ` · ${rec.pipeline}` : ""}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {result?.ok === true && (
-            <span className="text-sm text-emerald-700">Saved ✓</span>
-          )}
-          {result?.ok === false && (
-            <span className="text-sm text-red-600">{result.error}</span>
-          )}
-          <HireButton personId={row.id} />
-          <SaveButton />
-        </div>
+    <form action={formAction} className={`mt-3 space-y-5 ${hidden ? "hidden" : ""}`}>
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {result?.ok === true && (
+          <span className="text-sm text-emerald-700">Saved ✓</span>
+        )}
+        {result?.ok === false && (
+          <span className="text-sm text-red-600">{result.error}</span>
+        )}
+        <HireButton personId={row.id} />
+        <SaveButton />
       </div>
 
       <Section title="Candidate">
@@ -178,6 +195,7 @@ export function CandidateForm({ row }: { row: CandidateRow }) {
       </Section>
 
       <div className="flex justify-end gap-3 pb-8">
+        {isAdmin && <DeleteButton personId={row.id} />}
         <HireButton personId={row.id} />
         <SaveButton />
       </div>

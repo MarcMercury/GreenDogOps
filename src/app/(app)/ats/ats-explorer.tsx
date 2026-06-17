@@ -26,6 +26,13 @@ function candidateName(r: CandidateRow): string {
   return parts.length ? parts.join(" ") : "—";
 }
 
+function fmtDate(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const dt = new Date(d.length <= 10 ? `${d}T00:00:00` : d);
+  if (Number.isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
   const router = useRouter();
 
@@ -35,9 +42,14 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
     counts[b] = (counts[b] ?? 0) + 1;
   }
 
+  const upcomingInterviews = rows.filter(
+    (r) => r.interview_meta?.next_date,
+  ).length;
+
   const stats: Stat[] = [
     { label: "Total", value: String(rows.length), tone: "text-emerald-700" },
     { label: "Active", value: String(counts.active ?? 0), tone: "text-emerald-600" },
+    { label: "Interviews Set", value: String(upcomingInterviews), tone: "text-violet-700" },
     { label: "Hired", value: String(counts.hired ?? 0), tone: "text-indigo-700" },
     { label: "Keep for Future", value: String(counts.future ?? 0), tone: "text-sky-700" },
     { label: "No Response", value: String(counts.no_response ?? 0), tone: "text-amber-600" },
@@ -97,6 +109,37 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
         return s != null && s > 0 ? s : null;
       },
       className: "tabular-nums",
+    },
+    {
+      key: "next_interview",
+      header: "Next Interview",
+      value: (r) => fmtDate(r.interview_meta?.next_date),
+      render: (r) => {
+        const d = fmtDate(r.interview_meta?.next_date);
+        return d ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">
+            📅 {d}
+          </span>
+        ) : (
+          <span className="text-slate-400">—</span>
+        );
+      },
+    },
+    {
+      key: "grade",
+      header: "Grade",
+      value: (r) => r.interview_meta?.last_grade ?? null,
+      render: (r) => {
+        const g = r.interview_meta?.last_grade;
+        return g ? (
+          <span className="inline-flex rounded-md bg-emerald-50 px-1.5 py-0.5 text-xs font-bold text-emerald-700">
+            {g}
+          </span>
+        ) : (
+          <span className="text-slate-400">—</span>
+        );
+      },
+      className: "text-center",
     },
   ];
 
