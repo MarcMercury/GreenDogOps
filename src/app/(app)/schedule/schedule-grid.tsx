@@ -30,6 +30,7 @@ import {
   toggleClosure,
   setWeekStatus,
   addWeekLine,
+  applyDefaultTemplate,
 } from "./actions";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -313,8 +314,21 @@ export function ScheduleGrid({
                   colSpan={1 + DAYS.length}
                   className="px-4 py-10 text-center text-sm text-slate-400"
                 >
-                  No shift lines planned for this week. Add shift lines in Set Up,
-                  then create the week — or add ad-hoc lines.
+                  No shift lines planned for this week yet.
+                  <button
+                    onClick={() =>
+                      start(async () => {
+                        await applyDefaultTemplate(week.id);
+                        router.refresh();
+                      })
+                    }
+                    className="mx-auto mt-3 block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
+                  >
+                    ⚡ Load Week Template
+                  </button>
+                  <span className="mt-2 block text-xs text-slate-400">
+                    or add ad-hoc lines below.
+                  </span>
                 </td>
               </tr>
             )}
@@ -324,12 +338,28 @@ export function ScheduleGrid({
 
       <div className="flex items-center justify-between gap-3 print:hidden">
         <Legend />
-        <button
-          onClick={() => setAddLine(true)}
-          className="shrink-0 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-emerald-400 hover:text-emerald-600"
-        >
-          + Add shift line
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {week.status === "draft" && (
+            <button
+              onClick={() =>
+                start(async () => {
+                  await applyDefaultTemplate(week.id);
+                  router.refresh();
+                })
+              }
+              className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+              title="Load the standard default shift lines into this week"
+            >
+              ⚡ Week Template
+            </button>
+          )}
+          <button
+            onClick={() => setAddLine(true)}
+            className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-emerald-400 hover:text-emerald-600"
+          >
+            + Add shift line
+          </button>
+        </div>
       </div>
 
       {addLine && (

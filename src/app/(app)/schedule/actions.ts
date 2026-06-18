@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import type { AttendanceStatus, ScheduleStatus } from "@/lib/schedule/types";
 import { dateForDay } from "@/lib/schedule/types";
+import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -369,6 +370,136 @@ export async function syncWeekLinesFromTemplates(
   }
   revalidateAll();
   return { ok: true };
+}
+
+/**
+ * Apply the standard default week template: ensure the canonical departments,
+ * roles, and shift lines exist (seeded once), then copy them into the week.
+ * Safe to click repeatedly — existing template lines are not duplicated.
+ */
+export async function applyDefaultTemplate(
+  weekId: string,
+): Promise<ActionResult> {
+  const supabase = await createClient();
+
+  // 1. Ensure every template department exists.
+  const { data: existingDepts } = await supabase
+    .from("sched_department")
+    .select("id, name");
+  const deptByName = new Map(
+    ((existingDepts ?? []) as { id: string; name: string }[]).map((d) => [
+      d.name.toLowerCase(),
+      d.id,
+    ]),
+  );
+  const deptInserts = DEFAULT_WEEK_TEMPLATE.filter(
+    (d) => !deptByName.has(d.name.toLowerCase()),
+  ).map((d, i) => ({
+    name: d.name,
+    color: d.color,
+    sort_order: (DEFAULT_WEEK_TEMPLATE.indexOf(d) + 1) * 10 + i,
+  }));
+  if (deptInserts.length > 0) {
+    const { data: created, error } = await supabase
+      .from("sched_department")
+      .insert(deptInserts)
+      .select("id, name");
+    if (error) return { ok: false, error: error.message };
+    for (const d of (created ?? []) as { id: string; name: string }[])
+      deptByName.set(d.name.toLowerCase(), d.id);
+  }
+
+  // Only seed roles + shift templates the first time (no templates yet).
+  const { count } = await supabase
+    .from("sched_shift_template")
+    .select("id", { count: "exact", head: true });
+  const alreadySeeded = (count ?? 0) > 0;
+
+  if (!alreadySeeded) {
+    const deptIds = DEFAULT_WEEK_TEMPLATE.map((d) =>
+      deptByName.get(d.name.toLowerCase()),
+    ).filter(Boolean) as string[];
+
+    // 2. Ensure one role per (department, role name).
+    const { data: existingRoles } = await supabase
+      .from("sched_role")
+      .select("id, department_id, name")
+      .in("department_id", deptIds);
+    const roleKey = (deptId: string, name: string) =>
+      `${deptId}|${name.toLowerCase()}`;
+    const roleMap = new Map(
+      (
+        (existingRoles ?? []) as {
+          id: string;
+          department_id: string;
+          name: string;
+        }[]
+      ).map((r) => [roleKey(r.department_id, r.name), r.id]),
+    );
+
+    const roleInserts: {
+      department_id: string;
+      name: string;
+      sort_order: number;
+    }[] = [];
+    for (const dept of DEFAULT_WEEK_TEMPLATE) {
+      const deptId = deptByName.get(dept.name.toLowerCase());
+      if (!deptId) continue;
+      let order = 0;
+      const seen = new Set<string>();
+      for (const line of dept.lines) {
+        const key = roleKey(deptId, line.role);
+        if (seen.has(line.role.toLowerCase()) || roleMap.has(key)) continue;
+        seen.add(line.role.toLowerCase());
+        roleInserts.push({
+          department_id: deptId,
+          name: line.role,
+          sort_order: order++ * 10,
+        });
+      }
+    }
+    if (roleInserts.length > 0) {
+      const { data: createdRoles, error } = await supabase
+        .from("sched_role")
+        .insert(roleInserts)
+        .select("id, department_id, name");
+      if (error) return { ok: false, error: error.message };
+      for (const r of (createdRoles ?? []) as {
+        id: string;
+        department_id: string;
+        name: string;
+      }[])
+        roleMap.set(roleKey(r.department_id, r.name), r.id);
+    }
+
+    // 3. Insert the shift templates (intentional duplicates preserved).
+    const tplInserts: Record<string, unknown>[] = [];
+    let sort = 0;
+    for (const dept of DEFAULT_WEEK_TEMPLATE) {
+      const deptId = deptByName.get(dept.name.toLowerCase());
+      if (!deptId) continue;
+      for (const line of dept.lines) {
+        tplInserts.push({
+          department_id: deptId,
+          role_id: roleMap.get(roleKey(deptId, line.role)) ?? null,
+          label: null,
+          start_time: line.start,
+          end_time: line.end,
+          sort_order: sort++,
+          is_active: true,
+        });
+      }
+    }
+    if (tplInserts.length > 0) {
+      const { error } = await supabase
+        .from("sched_shift_template")
+        .insert(tplInserts);
+      if (error) return { ok: false, error: error.message };
+    }
+  }
+
+  // 4. Copy the active templates into this week.
+  return syncWeekLinesFromTemplates(weekId);
 }
 
 // ===========================================================================

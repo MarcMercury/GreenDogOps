@@ -112,7 +112,7 @@ on conflict (id) do update
 insert into greendogops.app_setting (key, value, category, label, description) values
   ('org.name',            '"Green Dog Veterinary Center"', 'general',  'Organization name', 'Display name for the practice.'),
   ('org.timezone',        '"America/Los_Angeles"',         'general',  'Time zone',         'Default time zone for dates & scheduling.'),
-  ('org.locations',       '["San Marino","Venice","Aetna"]','general', 'Locations',         'Active practice locations.'),
+  ('org.locations',       '["Sherman Oaks","Venice","Van Nuys"]','general', 'Locations',         'Active practice locations.'),
   ('security.session_timeout_minutes', '720',              'security', 'Session timeout',   'Minutes before an idle session expires.'),
   ('security.require_admin_invite',    'true',              'security', 'Invite-only access','Only invited users may access GDO.'),
   ('features.ai_assist',  'true',                           'features', 'AI assist',         'Enable AI auto-fill & suggestions.'),

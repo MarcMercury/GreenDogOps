@@ -31,10 +31,9 @@ alter table greendogops.location add column if not exists sort_order int not nul
 -- Seed the practice locations if the table is empty.
 insert into greendogops.location (name, code, short_code, color, sort_order, is_active)
 select * from (values
-  ('Venice',     'VEN', 'VEN', '#0ea5e9', 10, true),
-  ('Van Nuys',   'VAN', 'VAN', '#8b5cf6', 20, true),
-  ('Aetna',      'AET', 'AET', '#f59e0b', 30, true),
-  ('San Marino', 'SM',  'SO',  '#10b981', 40, true)
+  ('Sherman Oaks', 'SO',  'SO',  '#10b981', 10, true),
+  ('Venice',       'VEN', 'VEN', '#0ea5e9', 20, true),
+  ('Van Nuys',     'VAN', 'VAN', '#8b5cf6', 30, true)
 ) as v(name, code, short_code, color, sort_order, is_active)
 where not exists (select 1 from greendogops.location);
 

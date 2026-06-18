@@ -133,6 +133,61 @@ export async function revokeAccess(formData: FormData): Promise<void> {
   revalidatePath("/admin/users");
 }
 
+/**
+ * Reconcile the canonical `location` table against the admin Settings list.
+ * Settings (`org.locations`) is the single source of truth for clinic
+ * locations; the schedule module reads from `location` (it needs stable IDs),
+ * so we mirror the Settings names here on every save:
+ *   - names in Settings are upserted as active, ordered by position;
+ *   - locations missing from Settings are soft-deactivated (rows are kept so
+ *     historical schedule assignments keep their foreign keys).
+ */
+async function reconcileLocations(
+  admin: ReturnType<typeof createAdminClient>,
+  names: string[],
+): Promise<void> {
+  const wanted = names.map((n) => n.trim()).filter(Boolean);
+  const wantedLower = new Set(wanted.map((n) => n.toLowerCase()));
+
+  const { data: existing } = await admin
+    .from("location")
+    .select("id, name, is_active, sort_order");
+  const rows = (existing ?? []) as {
+    id: string;
+    name: string;
+    is_active: boolean;
+    sort_order: number | null;
+  }[];
+
+  // Deactivate any location no longer present in Settings.
+  for (const row of rows) {
+    if (!wantedLower.has(row.name.toLowerCase()) && row.is_active) {
+      await admin
+        .from("location")
+        .update({ is_active: false })
+        .eq("id", row.id);
+    }
+  }
+
+  // Activate / insert each Settings location, preserving order.
+  for (let i = 0; i < wanted.length; i++) {
+    const name = wanted[i];
+    const match = rows.find(
+      (r) => r.name.toLowerCase() === name.toLowerCase(),
+    );
+    if (match) {
+      await admin
+        .from("location")
+        .update({ is_active: true, sort_order: i * 10 })
+        .eq("id", match.id);
+    } else {
+      await admin
+        .from("location")
+        .insert({ name, is_active: true, sort_order: i * 10 });
+    }
+  }
+}
+
 /** Persist global program settings (one form for all editable keys). */
 export async function updateSettings(formData: FormData): Promise<void> {
   const current = await requireAdmin();
@@ -164,6 +219,13 @@ export async function updateSettings(formData: FormData): Promise<void> {
       .from("app_setting")
       .update({ value: e.value, updated_by: current.authId })
       .eq("key", e.key);
+  }
+
+  // Settings drives the canonical location list used by the scheduler.
+  const locEntry = entries.find((e) => e.key === "org.locations");
+  if (locEntry && Array.isArray(locEntry.value)) {
+    await reconcileLocations(admin, locEntry.value as string[]);
+    revalidatePath("/schedule");
   }
 
   await recordAudit({
