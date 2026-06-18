@@ -25,6 +25,7 @@ export async function getLocations(): Promise<ScheduleLocation[]> {
   const { data } = await supabase
     .from("location")
     .select(LOCATION_COLUMNS)
+    .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
   return (data ?? []) as unknown as ScheduleLocation[];

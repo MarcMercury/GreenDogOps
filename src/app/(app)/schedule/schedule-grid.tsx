@@ -18,6 +18,7 @@ import {
   type AttendanceStatus,
   type SchedAssignment,
   type SchedPerson,
+  type SchedRole,
   type SchedWeek,
   type SchedWeekLine,
   type ScheduleLocation,
@@ -384,6 +385,7 @@ export function ScheduleGrid({
           settings={setup.settings}
           membersByRole={membersByRole}
           roleName={roleName}
+          roles={setup.roles}
           weeklyCount={weeklyCount}
           scheduledByDay={scheduledByDay}
           assignedHere={new Set(
@@ -745,6 +747,7 @@ function EligiblePicker({
   settings,
   membersByRole,
   roleName,
+  roles,
   weeklyCount,
   scheduledByDay,
   assignedHere,
@@ -758,6 +761,7 @@ function EligiblePicker({
   settings: SetupData["settings"];
   membersByRole: Map<string, Set<string>>;
   roleName: (id: string | null) => string | null;
+  roles: SchedRole[];
   weeklyCount: Map<string, number>;
   scheduledByDay: Map<number, Set<string>>;
   assignedHere: Set<string>;
@@ -765,19 +769,53 @@ function EligiblePicker({
   onPick: (personId: string) => void;
 }) {
   const [q, setQ] = useState("");
+  const [roleFilter, setRoleFilter] = useState<string | null>(null);
   const settingByPerson = useMemo(
     () => new Map(settings.map((s) => [s.person_id, s])),
     [settings],
   );
 
-  const eligible = useMemo(() => {
+  // Roles each person belongs to (inverted membersByRole) for quick filters.
+  const rolesByPerson = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const [roleId, persons] of membersByRole) {
+      for (const pid of persons) {
+        if (!m.has(pid)) m.set(pid, new Set());
+        m.get(pid)!.add(roleId);
+      }
+    }
+    return m;
+  }, [membersByRole]);
+
+  // People eligible for this shift before role/search filters apply.
+  const baseEligible = useMemo(() => {
     const roleMembers = line.role_id ? membersByRole.get(line.role_id) : null;
+    return people.filter((p) => {
+      const s = settingByPerson.get(p.id);
+      if (s && !s.is_schedulable) return false;
+      if (roleMembers && !roleMembers.has(p.id)) return false;
+      return true;
+    });
+  }, [people, line.role_id, membersByRole, settingByPerson]);
+
+  // Quick-filter chips: only roles represented among eligible people.
+  const availableRoles = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of baseEligible) {
+      const r = rolesByPerson.get(p.id);
+      if (r) for (const id of r) ids.add(id);
+    }
+    return roles
+      .filter((r) => ids.has(r.id))
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }, [baseEligible, rolesByPerson, roles]);
+
+  const eligible = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return people
+    return baseEligible
       .filter((p) => {
-        const s = settingByPerson.get(p.id);
-        if (s && !s.is_schedulable) return false;
-        if (roleMembers && !roleMembers.has(p.id)) return false;
+        if (roleFilter && !rolesByPerson.get(p.id)?.has(roleFilter))
+          return false;
         if (term && !gridName(p).toLowerCase().includes(term)) return false;
         return true;
       })
@@ -787,7 +825,7 @@ function EligiblePicker({
         if (ca !== cb) return ca - cb; // least-loaded first
         return gridName(a).localeCompare(gridName(b));
       });
-  }, [people, line.role_id, membersByRole, q, settingByPerson, weeklyCount]);
+  }, [baseEligible, roleFilter, rolesByPerson, q, weeklyCount]);
 
   const dayScheduled = scheduledByDay.get(cell.day) ?? new Set<string>();
 
@@ -819,6 +857,35 @@ function EligiblePicker({
             placeholder="Search eligible employees…"
             className="mt-3 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
           />
+          {availableRoles.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1">
+              <button
+                onClick={() => setRoleFilter(null)}
+                className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
+                  roleFilter === null
+                    ? "bg-emerald-600 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                All
+              </button>
+              {availableRoles.map((r) => (
+                <button
+                  key={r.id}
+                  onClick={() =>
+                    setRoleFilter((cur) => (cur === r.id ? null : r.id))
+                  }
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
+                    roleFilter === r.id
+                      ? "bg-emerald-600 text-white"
+                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  {r.name}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <ul className="flex-1 overflow-y-auto p-2">
           {eligible.map((p) => {

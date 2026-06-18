@@ -53,9 +53,11 @@ function currentLabel(pathname: string): string {
 function NavLink({
   item,
   onNavigate,
+  collapsed,
 }: {
   item: NavItem;
   onNavigate?: () => void;
+  collapsed?: boolean;
 }) {
   const pathname = usePathname();
   const active = isActive(pathname, item.href);
@@ -64,7 +66,10 @@ function NavLink({
       href={item.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
+      title={collapsed ? item.label : undefined}
       className={`group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition sm:py-2 ${
+        collapsed ? "lg:justify-center lg:px-2" : ""
+      } ${
         active
           ? "bg-emerald-50 text-emerald-700"
           : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
@@ -84,7 +89,7 @@ function NavLink({
       >
         {item.icon}
       </span>
-      {item.label}
+      <span className={collapsed ? "lg:hidden" : ""}>{item.label}</span>
     </Link>
   );
 }
@@ -92,44 +97,58 @@ function NavLink({
 function NavLinks({
   allowed,
   onNavigate,
+  collapsed,
 }: {
   allowed: Set<ModuleKey>;
   onNavigate?: () => void;
+  collapsed?: boolean;
 }) {
   const top = MODULES_TOP.filter((m) => allowed.has(m.key));
   const crm = CRM_NAV.filter((m) => allowed.has(m.key));
   const bottom = MODULES_BOTTOM.filter((m) => allowed.has(m.key));
+  const headerClass = `px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${
+    collapsed ? "lg:hidden" : ""
+  }`;
   return (
     <>
       {top.length > 0 ? (
         <>
-          <p className="px-3 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Modules
-          </p>
+          <p className={`${headerClass} pt-2`}>Modules</p>
           {top.map((m) => (
-            <NavLink key={m.href} item={m} onNavigate={onNavigate} />
+            <NavLink
+              key={m.href}
+              item={m}
+              onNavigate={onNavigate}
+              collapsed={collapsed}
+            />
           ))}
         </>
       ) : null}
 
       {crm.length > 0 ? (
         <>
-          <p className="px-3 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            CRM
-          </p>
+          <p className={`${headerClass} pt-4`}>CRM</p>
           {crm.map((m) => (
-            <NavLink key={m.href} item={m} onNavigate={onNavigate} />
+            <NavLink
+              key={m.href}
+              item={m}
+              onNavigate={onNavigate}
+              collapsed={collapsed}
+            />
           ))}
         </>
       ) : null}
 
       {bottom.length > 0 ? (
         <>
-          <p className="px-3 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Operations
-          </p>
+          <p className={`${headerClass} pt-4`}>Operations</p>
           {bottom.map((m) => (
-            <NavLink key={m.href} item={m} onNavigate={onNavigate} />
+            <NavLink
+              key={m.href}
+              item={m}
+              onNavigate={onNavigate}
+              collapsed={collapsed}
+            />
           ))}
         </>
       ) : null}
@@ -137,13 +156,15 @@ function NavLinks({
   );
 }
 
-function Brand() {
+function Brand({ collapsed }: { collapsed?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-base font-bold text-white shadow-sm shadow-emerald-600/30">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700 text-base font-bold text-white shadow-sm shadow-emerald-600/30">
         🐾
       </span>
-      <span className="flex flex-col leading-tight">
+      <span
+        className={`flex flex-col leading-tight ${collapsed ? "lg:hidden" : ""}`}
+      >
         <span className="text-[15px] font-bold tracking-tight text-slate-900">
           Green Dog Ops
         </span>
@@ -158,17 +179,23 @@ function Brand() {
 function UserFooter({
   email,
   role,
+  collapsed,
 }: {
   email: string | null;
   role: AppRole;
+  collapsed?: boolean;
 }) {
   return (
     <div className="border-t border-slate-200/80 p-3">
-      <div className="mb-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5">
+      <div
+        className={`mb-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5 ${
+          collapsed ? "lg:justify-center lg:px-0" : ""
+        }`}
+      >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold uppercase text-slate-500">
           {(email ?? "?").charAt(0)}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className={`min-w-0 flex-1 ${collapsed ? "lg:hidden" : ""}`}>
           <p
             className="truncate text-xs text-slate-500"
             title={email ?? ""}
@@ -183,9 +210,15 @@ function UserFooter({
       <form action="/auth/signout" method="post">
         <button
           type="submit"
-          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+          title={collapsed ? "Sign out" : undefined}
+          className={`w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 ${
+            collapsed ? "lg:px-0" : ""
+          }`}
         >
-          Sign out
+          <span className={collapsed ? "lg:hidden" : ""}>Sign out</span>
+          <span className={collapsed ? "hidden lg:inline" : "hidden"} aria-hidden>
+            ⏻
+          </span>
         </button>
       </form>
     </div>
@@ -205,7 +238,23 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const allowed = new Set<ModuleKey>(modules);
+
+  // Restore the desktop collapsed preference.
+  useEffect(() => {
+    setCollapsed(
+      window.localStorage.getItem("gdo:sidebar-collapsed") === "1",
+    );
+  }, []);
+
+  // Persist the desktop collapsed preference.
+  useEffect(() => {
+    window.localStorage.setItem(
+      "gdo:sidebar-collapsed",
+      collapsed ? "1" : "0",
+    );
+  }, [collapsed]);
 
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -259,12 +308,16 @@ export function AppShell({
 
       {/* Sidebar — drawer on mobile, static on desktop */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[82vw] shrink-0 flex-col border-r border-slate-200/80 bg-white shadow-xl transition-transform duration-300 ease-out lg:static lg:z-auto lg:w-64 lg:max-w-none lg:translate-x-0 lg:bg-white/80 lg:shadow-none lg:backdrop-blur-sm ${
-          open ? "translate-x-0" : "-translate-x-full"
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 flex w-72 max-w-[82vw] shrink-0 flex-col border-r border-slate-200/80 bg-white shadow-xl transition-all duration-300 ease-out lg:static lg:z-auto lg:max-w-none lg:translate-x-0 lg:bg-white/80 lg:shadow-none lg:backdrop-blur-sm ${
+          collapsed ? "lg:w-20" : "lg:w-64"
+        } ${open ? "translate-x-0" : "-translate-x-full"}`}
       >
-        <div className="flex items-center justify-between border-b border-slate-200/80 px-5 py-4">
-          <Brand />
+        <div
+          className={`flex items-center justify-between border-b border-slate-200/80 px-5 py-4 ${
+            collapsed ? "lg:px-3" : ""
+          }`}
+        >
+          <Brand collapsed={collapsed} />
           <button
             type="button"
             onClick={() => setOpen(false)}
@@ -287,10 +340,45 @@ export function AppShell({
         </div>
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto p-3">
-          <NavLinks allowed={allowed} onNavigate={() => setOpen(false)} />
+          <NavLinks
+            allowed={allowed}
+            onNavigate={() => setOpen(false)}
+            collapsed={collapsed}
+          />
         </nav>
 
-        <UserFooter email={email} role={role} />
+        {/* Desktop collapse / expand toggle */}
+        <div className="hidden border-t border-slate-200/80 p-3 lg:block">
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+            title={collapsed ? "Expand navigation" : "Collapse navigation"}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 ${
+              collapsed ? "justify-center px-2" : ""
+            }`}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={`shrink-0 transition-transform ${
+                collapsed ? "rotate-180" : ""
+              }`}
+              aria-hidden
+            >
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+            <span className={collapsed ? "hidden" : ""}>Collapse</span>
+          </button>
+        </div>
+
+        <UserFooter email={email} role={role} collapsed={collapsed} />
       </aside>
 
       {/* Main content */}
