@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import Link from "next/link";
 import { Panel } from "../_components";
 import { updateSettings } from "../actions";
 
@@ -85,13 +86,31 @@ export default async function SettingsPage() {
     .order("key");
 
   const settings = (data ?? []) as Setting[];
-  const byCategory = settings.reduce<Record<string, Setting[]>>((acc, s) => {
+  // Locations are managed in the dedicated Admin → Locations directory (the
+  // single source of truth); hide the legacy flat list from the generic form.
+  const editable = settings.filter((s) => s.key !== "org.locations");
+  const byCategory = editable.reduce<Record<string, Setting[]>>((acc, s) => {
     (acc[s.category] ??= []).push(s);
     return acc;
   }, {});
 
   return (
     <form action={updateSettings} className="space-y-6">
+      <Panel title="Locations">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-slate-500">
+            Practice locations (addresses, contacts, scheduling colors) are
+            managed in the Locations directory and used across scheduling, HR,
+            and CRM.
+          </p>
+          <Link
+            href="/admin/locations"
+            className="shrink-0 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+          >
+            Manage locations
+          </Link>
+        </div>
+      </Panel>
       {Object.entries(byCategory).map(([cat, items]) => (
         <Panel key={cat} title={CATEGORY_LABELS[cat] ?? cat}>
           {items.map((s) => (

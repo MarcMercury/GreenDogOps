@@ -1,5 +1,7 @@
 // Domain types and helpers for the Scheduling module.
 
+import type { Location } from "@/lib/shared/locations";
+
 export type ScheduleStatus =
   | "draft"
   | "pending_approval"
@@ -83,15 +85,8 @@ export const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as co
 // Row shapes (mirror the DB tables).
 // ---------------------------------------------------------------------------
 
-export interface ScheduleLocation {
-  id: string;
-  name: string;
-  code: string | null;
-  short_code: string | null;
-  color: string | null;
-  sort_order: number;
-  is_active: boolean;
-}
+/** The scheduler reads the shared, canonical location row. */
+export type ScheduleLocation = Location;
 
 export interface SchedDepartment {
   id: string;

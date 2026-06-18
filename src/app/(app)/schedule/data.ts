@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { LOCATION_COLUMNS } from "@/lib/shared/locations";
 import type {
   ScheduleLocation,
   SchedAssignment,
@@ -23,10 +24,10 @@ export async function getLocations(): Promise<ScheduleLocation[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("location")
-    .select("id, name, code, short_code, color, sort_order, is_active")
+    .select(LOCATION_COLUMNS)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
-  return (data ?? []) as ScheduleLocation[];
+  return (data ?? []) as unknown as ScheduleLocation[];
 }
 
 export interface SetupData {

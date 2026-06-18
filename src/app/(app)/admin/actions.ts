@@ -134,58 +134,106 @@ export async function revokeAccess(formData: FormData): Promise<void> {
 }
 
 /**
- * Reconcile the canonical `location` table against the admin Settings list.
- * Settings (`org.locations`) is the single source of truth for clinic
- * locations; the schedule module reads from `location` (it needs stable IDs),
- * so we mirror the Settings names here on every save:
- *   - names in Settings are upserted as active, ordered by position;
- *   - locations missing from Settings are soft-deactivated (rows are kept so
- *     historical schedule assignments keep their foreign keys).
+ * Keep the legacy flat setting `org.locations` in sync as a derived mirror of
+ * the active location names. The canonical source of truth is the `location`
+ * table (managed via Admin → Locations); this mirror exists only so any older
+ * code path that still reads the setting stays consistent.
  */
-async function reconcileLocations(
+async function syncOrgLocationsSetting(
   admin: ReturnType<typeof createAdminClient>,
-  names: string[],
 ): Promise<void> {
-  const wanted = names.map((n) => n.trim()).filter(Boolean);
-  const wantedLower = new Set(wanted.map((n) => n.toLowerCase()));
-
-  const { data: existing } = await admin
+  const { data } = await admin
     .from("location")
-    .select("id, name, is_active, sort_order");
-  const rows = (existing ?? []) as {
-    id: string;
-    name: string;
-    is_active: boolean;
-    sort_order: number | null;
-  }[];
+    .select("name, is_active, sort_order")
+    .eq("is_active", true)
+    .order("sort_order")
+    .order("name");
+  const names = (data ?? []).map((r) => (r as { name: string }).name);
+  await admin
+    .from("app_setting")
+    .update({ value: names })
+    .eq("key", "org.locations");
+}
 
-  // Deactivate any location no longer present in Settings.
-  for (const row of rows) {
-    if (!wantedLower.has(row.name.toLowerCase()) && row.is_active) {
-      await admin
-        .from("location")
-        .update({ is_active: false })
-        .eq("id", row.id);
-    }
-  }
+const LOCATION_TEXT_FIELDS = [
+  "name",
+  "display_name",
+  "short_code",
+  "address_line1",
+  "address_line2",
+  "city",
+  "state",
+  "postal_code",
+  "phone",
+  "email",
+  "map_url",
+  "website_url",
+  "notes",
+] as const;
 
-  // Activate / insert each Settings location, preserving order.
-  for (let i = 0; i < wanted.length; i++) {
-    const name = wanted[i];
-    const match = rows.find(
-      (r) => r.name.toLowerCase() === name.toLowerCase(),
-    );
-    if (match) {
-      await admin
-        .from("location")
-        .update({ is_active: true, sort_order: i * 10 })
-        .eq("id", match.id);
-    } else {
-      await admin
-        .from("location")
-        .insert({ name, is_active: true, sort_order: i * 10 });
-    }
+/** Create or update a clinic / mobile location (admin source of truth). */
+export async function saveLocation(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+
+  const values: Record<string, unknown> = {};
+  for (const f of LOCATION_TEXT_FIELDS) {
+    const v = String(formData.get(f) ?? "").trim();
+    values[f] = v === "" ? null : v;
   }
+  if (!values.name) return;
+
+  const kind = String(formData.get("kind") ?? "clinic");
+  values.kind = kind === "mobile" ? "mobile" : "clinic";
+  values.color = String(formData.get("color") ?? "").trim() || "#64748b";
+  values.sort_order = Number(formData.get("sort_order") ?? 0) || 0;
+  values.is_active = formData.get("is_active") === "on";
+  const parent = String(formData.get("parent_location_id") ?? "").trim();
+  values.parent_location_id = parent === "" ? null : parent;
+
+  const admin = createAdminClient();
+  if (id) {
+    await admin.from("location").update(values).eq("id", id);
+  } else {
+    await admin.from("location").insert(values);
+  }
+  await syncOrgLocationsSetting(admin);
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: id ? "location.updated" : "location.created",
+    entity: "location",
+    entityId: id || undefined,
+    summary: `${id ? "Updated" : "Added"} location “${values.name as string}”`,
+  });
+
+  revalidatePath("/admin/locations");
+  revalidatePath("/schedule");
+}
+
+/** Toggle a location's active state (kept, never hard-deleted, for FK history). */
+export async function setLocationActive(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return;
+  const isActive = String(formData.get("is_active") ?? "") === "true";
+
+  const admin = createAdminClient();
+  await admin.from("location").update({ is_active: isActive }).eq("id", id);
+  await syncOrgLocationsSetting(admin);
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: isActive ? "location.activated" : "location.deactivated",
+    entity: "location",
+    entityId: id,
+    summary: `${isActive ? "Activated" : "Deactivated"} location ${id}`,
+  });
+
+  revalidatePath("/admin/locations");
+  revalidatePath("/schedule");
 }
 
 /** Persist global program settings (one form for all editable keys). */
@@ -219,13 +267,6 @@ export async function updateSettings(formData: FormData): Promise<void> {
       .from("app_setting")
       .update({ value: e.value, updated_by: current.authId })
       .eq("key", e.key);
-  }
-
-  // Settings drives the canonical location list used by the scheduler.
-  const locEntry = entries.find((e) => e.key === "org.locations");
-  if (locEntry && Array.isArray(locEntry.value)) {
-    await reconcileLocations(admin, locEntry.value as string[]);
-    revalidatePath("/schedule");
   }
 
   await recordAudit({

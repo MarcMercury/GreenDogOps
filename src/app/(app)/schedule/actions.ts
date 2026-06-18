@@ -190,30 +190,6 @@ export async function saveEmployeeSetting(
 }
 
 // ===========================================================================
-// SETUP — locations
-// ===========================================================================
-
-export async function saveLocation(formData: FormData): Promise<ActionResult> {
-  const supabase = await createClient();
-  const id = str(formData.get("id"));
-  const patch = {
-    name: str(formData.get("name")),
-    short_code: str(formData.get("short_code")),
-    color: str(formData.get("color")) ?? "#64748b",
-    sort_order: int(formData.get("sort_order")),
-    is_active: formData.has("is_active") ? bool(formData.get("is_active")) : true,
-  };
-  if (!patch.name) return { ok: false, error: "Location name is required." };
-
-  const { error } = id
-    ? await supabase.from("location").update(patch).eq("id", id)
-    : await supabase.from("location").insert(patch);
-  if (error) return { ok: false, error: error.message };
-  revalidateAll();
-  return { ok: true };
-}
-
-// ===========================================================================
 // WEEKS — create + planning guide
 // ===========================================================================
 

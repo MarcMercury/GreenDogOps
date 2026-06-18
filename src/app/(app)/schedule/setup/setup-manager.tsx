@@ -10,6 +10,7 @@ import {
   type SchedRole,
   type SchedShiftTemplate,
 } from "@/lib/schedule/types";
+import { formatAddress } from "@/lib/shared/locations";
 import {
   saveDepartment,
   deleteDepartment,
@@ -19,7 +20,6 @@ import {
   saveShiftTemplate,
   deleteShiftTemplate,
   saveEmployeeSetting,
-  saveLocation,
 } from "../actions";
 
 type SubTab = "departments" | "roles" | "shifts" | "employees" | "locations";
@@ -809,128 +809,53 @@ function Employees({ data }: { data: SetupData }) {
 }
 
 // ===========================================================================
-// Locations
+// Locations (read-only — managed in Admin → Locations, the source of truth)
 // ===========================================================================
 
 function Locations({ data }: { data: SetupData }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [editing, setEditing] = useState<SetupData["locations"][number] | null>(
-    null,
-  );
-  const [error, setError] = useState<string | null>(null);
-
-  function submit(fd: FormData) {
-    setError(null);
-    start(async () => {
-      const res = await saveLocation(fd);
-      if (!res.ok) setError(res.error);
-      else {
-        setEditing(null);
-        router.refresh();
-      }
-    });
-  }
-
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">Locations</h2>
-        <ul className="divide-y divide-slate-100">
-          {data.locations.map((l) => (
-            <li key={l.id} className="flex items-center gap-3 py-2">
-              <span
-                className="h-4 w-4 rounded"
-                style={{ background: l.color ?? "#64748b" }}
-              />
-              <span className="flex-1 text-sm font-medium text-slate-800">
-                {l.name}
-                <span className="ml-2 text-xs text-slate-400">
-                  {l.short_code}
-                </span>
-              </span>
-              {!l.is_active && (
-                <span className="text-xs text-slate-400">inactive</span>
-              )}
-              <button
-                onClick={() => setEditing(l)}
-                className="text-xs font-medium text-emerald-700 hover:underline"
-              >
-                Edit
-              </button>
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">
-          {editing ? "Edit location" : "New location"}
-        </h2>
-        <form action={submit} className="space-y-3" key={editing?.id ?? "new"}>
-          {editing && <input type="hidden" name="id" value={editing.id} />}
-          <label className="block text-xs font-medium text-slate-500">
-            Name
-            <input
-              name="name"
-              defaultValue={editing?.name ?? ""}
-              required
-              className={`mt-1 w-full ${inputCls}`}
-            />
-          </label>
-          <div className="flex gap-3">
-            <label className="block text-xs font-medium text-slate-500">
-              Short code
-              <input
-                name="short_code"
-                defaultValue={editing?.short_code ?? ""}
-                className={`mt-1 w-24 ${inputCls}`}
-              />
-            </label>
-            <label className="block text-xs font-medium text-slate-500">
-              Order
-              <input
-                name="sort_order"
-                type="number"
-                defaultValue={editing?.sort_order ?? 0}
-                className={`mt-1 w-20 ${inputCls}`}
-              />
-            </label>
-          </div>
-          <label className="block text-xs font-medium text-slate-500">
-            Color
-            <input
-              name="color"
-              type="color"
-              defaultValue={editing?.color ?? "#64748b"}
-              className="mt-1 block h-9 w-16 cursor-pointer rounded border border-slate-300"
-            />
-          </label>
-          <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-            <input
-              type="checkbox"
-              name="is_active"
-              defaultChecked={editing?.is_active ?? true}
-            />
-            Active
-          </label>
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          <div className="flex gap-2">
-            <button type="submit" disabled={pending} className={btnPrimary}>
-              {editing ? "Save" : "Add"}
-            </button>
-            {editing && (
-              <button
-                type="button"
-                onClick={() => setEditing(null)}
-                className={btnGhost}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </Card>
-    </div>
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold text-slate-700">Locations</h2>
+        <a
+          href="/admin/locations"
+          className="text-xs font-medium text-emerald-700 hover:underline"
+        >
+          Manage in Admin → Locations
+        </a>
+      </div>
+      <p className="mb-3 text-xs text-slate-400">
+        Locations are managed centrally in Admin so Settings and the schedule
+        always match. Active locations below appear as columns on the grid.
+      </p>
+      <ul className="divide-y divide-slate-100">
+        {data.locations
+          .filter((l) => l.is_active)
+          .map((l) => {
+            const address = formatAddress(l);
+            return (
+              <li key={l.id} className="flex items-start gap-3 py-2">
+                <span
+                  className="mt-1 h-4 w-4 shrink-0 rounded"
+                  style={{ background: l.color ?? "#64748b" }}
+                />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-slate-800">
+                    {l.name}
+                    {l.short_code ? (
+                      <span className="ml-2 text-xs text-slate-400">
+                        {l.short_code}
+                      </span>
+                    ) : null}
+                  </p>
+                  {address ? (
+                    <p className="text-xs text-slate-400">{address}</p>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+      </ul>
+    </Card>
   );
 }
