@@ -4,6 +4,8 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type { CandidateRow } from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
+import { CopyForSlackButton } from "./copy-for-slack";
+import { buildCandidateSummary } from "@/lib/ats/slack-summary";
 import { updateCandidate, hireCandidate, deleteCandidate, type SaveResult } from "../actions";
 
 function Field({
@@ -155,6 +157,10 @@ export function CandidateForm({
         {result?.ok === false && (
           <span className="text-sm text-red-600">{result.error}</span>
         )}
+        <CopyForSlackButton
+          label="Copy candidate summary"
+          getText={() => buildCandidateSummary(row)}
+        />
         <HireButton personId={row.id} />
         <SaveButton />
       </div>

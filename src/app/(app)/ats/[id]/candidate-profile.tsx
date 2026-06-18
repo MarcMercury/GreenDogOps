@@ -13,6 +13,8 @@ import {
   CSR_PHONE_SCREEN_QUESTIONS,
 } from "@/lib/ats/types";
 import { CandidateForm } from "./candidate-form";
+import { CopyForSlackButton } from "./copy-for-slack";
+import { buildInterviewSummary } from "@/lib/ats/slack-summary";
 import { saveInterview, deleteInterview, type SaveResult } from "../actions";
 
 type TabKey = "profile" | "interviews";
@@ -83,7 +85,7 @@ export function CandidateProfile({
       <CandidateForm row={row} isAdmin={isAdmin} hidden={activeTab !== "profile"} />
 
       {activeTab === "interviews" && (
-        <InterviewsPanel personId={row.id} interviews={interviews} />
+        <InterviewsPanel row={row} interviews={interviews} />
       )}
     </div>
   );
@@ -208,12 +210,13 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 // ---------------------------------------------------------------------------
 
 function InterviewsPanel({
-  personId,
+  row,
   interviews,
 }: {
-  personId: string;
+  row: CandidateRow;
   interviews: PersonInterview[];
 }) {
+  const personId = row.id;
   const formRef = useRef<HTMLFormElement>(null);
   const [showQuestions, setShowQuestions] = useState(false);
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -317,7 +320,7 @@ function InterviewsPanel({
       ) : (
         <ul className="space-y-3">
           {interviews.map((iv) => (
-            <InterviewCard key={iv.id} personId={personId} interview={iv} />
+            <InterviewCard key={iv.id} row={row} interview={iv} />
           ))}
         </ul>
       )}
@@ -326,12 +329,13 @@ function InterviewsPanel({
 }
 
 function InterviewCard({
-  personId,
+  row,
   interview,
 }: {
-  personId: string;
+  row: CandidateRow;
   interview: PersonInterview;
 }) {
+  const personId = row.id;
   const [open, setOpen] = useState(false);
   const answered = (interview.responses ?? []).filter((r) => r.answer);
   const statusBadge =
@@ -367,6 +371,10 @@ function InterviewCard({
           >
             {INTERVIEW_STATUS_LABELS[interview.status] ?? interview.status}
           </span>
+          <CopyForSlackButton
+            label="Copy summary"
+            getText={() => buildInterviewSummary(row, interview)}
+          />
           <DeleteButton
             label="this interview"
             onConfirm={() => deleteInterview(personId, interview.id)}

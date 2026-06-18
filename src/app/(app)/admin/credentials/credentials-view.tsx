@@ -203,13 +203,14 @@ function CredentialForm({
   );
 }
 
-function CredentialCard({
+function CredentialRow({
   c,
   onEdit,
 }: {
   c: Credential;
   onEdit: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   const statusColor = c.status
     ? /not|incorrect|fail/i.test(c.status)
       ? "text-rose-600"
@@ -218,20 +219,38 @@ function CredentialCard({
         : "text-slate-500"
     : "text-slate-400";
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-semibold text-slate-900">{c.label}</p>
-          <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
-            <span>
-              {CATEGORY_ICONS[c.category] ?? "🔑"} {categoryLabel(c.category)}
+    <div className="bg-white">
+      <div className="flex items-center gap-3 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
+          <span
+            className={`shrink-0 text-slate-400 transition-transform ${
+              open ? "rotate-90" : ""
+            }`}
+          >
+            ▸
+          </span>
+          <span className="shrink-0 text-base">
+            {CATEGORY_ICONS[c.category] ?? "🔑"}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate font-semibold text-slate-900">
+              {c.label}
             </span>
-            {c.location ? <span>· {c.location}</span> : null}
-            {c.status ? (
-              <span className={`font-medium ${statusColor}`}>· {c.status}</span>
-            ) : null}
-          </p>
-        </div>
+            <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-400">
+              <span>{categoryLabel(c.category)}</span>
+              {c.location ? <span>· {c.location}</span> : null}
+              {c.status ? (
+                <span className={`font-medium ${statusColor}`}>
+                  · {c.status}
+                </span>
+              ) : null}
+            </span>
+          </span>
+        </button>
         <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
@@ -258,7 +277,8 @@ function CredentialCard({
         </div>
       </div>
 
-      <div className="mt-3 space-y-1.5">
+      {open ? (
+      <div className="space-y-1.5 px-4 pb-4 pl-14">
         {c.url ? (
           <Row label="URL">
             <a
@@ -302,6 +322,7 @@ function CredentialCard({
         {c.owner_scope ? <Row label="Scope">{c.owner_scope}</Row> : null}
         {c.notes ? <Row label="Notes">{c.notes}</Row> : null}
       </div>
+      ) : null}
     </div>
   );
 }
@@ -396,9 +417,9 @@ export function CredentialsView({
           No credentials match your search.
         </p>
       ) : (
-        <div className="grid gap-3 lg:grid-cols-2">
+        <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
           {filtered.map((c) => (
-            <CredentialCard key={c.id} c={c} onEdit={() => setEditing(c)} />
+            <CredentialRow key={c.id} c={c} onEdit={() => setEditing(c)} />
           ))}
         </div>
       )}
