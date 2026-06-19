@@ -86,6 +86,12 @@ export interface ReferralPartner {
   description: string | null;
   tags: string[] | null;
 
+  // Geocoding (Map View)
+  latitude: number | null;
+  longitude: number | null;
+  geocoded_at: string | null;
+  geocoded_address: string | null;
+
   created_at: string;
   updated_at: string | null;
 }

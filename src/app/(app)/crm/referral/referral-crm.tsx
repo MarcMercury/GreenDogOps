@@ -33,6 +33,7 @@ import {
   parseReferralUpload,
   logQuickVisit,
   deletePartner,
+  addUnmatchedPartner,
   saveContact,
   deleteContact,
   saveNote,
@@ -40,6 +41,7 @@ import {
   type UploadResult,
 } from "./actions";
 import { PartnerDialog } from "./partner-dialog";
+import { PartnerMap } from "./partner-map";
 import {
   type CellValue,
   type SortDir,
@@ -70,6 +72,7 @@ export function ReferralCrm({
   contacts,
   notes,
   isAdmin,
+  mapsApiKey,
 }: {
   partners: ReferralPartner[];
   visits: ClinicVisit[];
@@ -78,6 +81,7 @@ export function ReferralCrm({
   contacts: PartnerContact[];
   notes: PartnerNote[];
   isAdmin: boolean;
+  mapsApiKey: string;
 }) {
   const [tab, setTab] = useState<TabKey>("list");
   const [search, setSearch] = useState("");
@@ -245,7 +249,7 @@ export function ReferralCrm({
         />
       )}
 
-      {tab === "map" && <MapTab partners={partners} onView={setDetail} />}
+      {tab === "map" && <MapTab partners={partners} mapsApiKey={mapsApiKey} onView={setDetail} onNotify={notify} />}
       {tab === "targeting" && <TargetingTab partners={partners} onFilterZone={(z) => { setZone(z); setTab("list"); }} onView={setDetail} />}
       {tab === "activity" && <ActivityTab visits={visits} />}
       {tab === "upload-log" && (
@@ -265,6 +269,14 @@ export function ReferralCrm({
             startTransition(async () => {
               const r = await clearReferralStats();
               notify(r.ok ? r.message ?? "Cleared." : `Error: ${r.error}`);
+            });
+          }}
+          onAddUnmatched={(clinicName) => {
+            const fd = new FormData();
+            fd.set("clinic_name", clinicName);
+            startTransition(async () => {
+              const r = await addUnmatchedPartner(fd);
+              notify(r.ok ? r.message ?? "Partner added." : `Error: ${r.error}`);
             });
           }}
         />
@@ -594,48 +606,81 @@ function IconBtn({ children, title, onClick, danger }: { children: React.ReactNo
 // ===========================================================================
 // Map tab — zone-grouped geographic summary
 // ===========================================================================
-function MapTab({ partners, onView }: { partners: ReferralPartner[]; onView: (p: ReferralPartner) => void }) {
-  const geocoded = partners.filter((p) => p.zone);
-  const byZone = ZONE_DEFINITIONS.map((z) => ({
-    zone: z,
-    list: geocoded.filter((p) => p.zone === z.value),
-  }));
-  const noZone = partners.filter((p) => !p.zone);
+function MapTab({
+  partners,
+  mapsApiKey,
+  onView,
+  onNotify,
+}: {
+  partners: ReferralPartner[];
+  mapsApiKey: string;
+  onView: (p: ReferralPartner) => void;
+  onNotify: (msg: string) => void;
+}) {
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-slate-500">Partners grouped by geographic zone.</p>
-      <div className="grid gap-4 md:grid-cols-2">
-        {byZone.map(({ zone, list }) => (
-          <div key={zone.value} className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-slate-800">{zone.title}</h3>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{list.length}</span>
-            </div>
-            <p className="mt-1 text-xs text-slate-400">{zone.description}</p>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {list.slice(0, 12).map((p) => (
-                <button key={p.id} onClick={() => onView(p)} className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 ring-1 ring-emerald-100 hover:bg-emerald-100">
-                  {partnerName(p)}
-                </button>
-              ))}
-              {list.length > 12 && <span className="px-1 text-xs text-slate-400">+{list.length - 12} more</span>}
-              {list.length === 0 && <span className="text-xs text-slate-300">No partners</span>}
-            </div>
-          </div>
-        ))}
-      </div>
-      {noZone.length > 0 && (
-        <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-          <h3 className="font-semibold text-slate-800">Unzoned <span className="ml-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{noZone.length}</span></h3>
-        </div>
-      )}
-    </div>
+    <PartnerMap
+      partners={partners}
+      mapsApiKey={mapsApiKey}
+      onView={onView}
+      onNotify={onNotify}
+    />
   );
 }
 
 // ===========================================================================
-// Targeting tab — by zone, overdue & follow-up
+// Targeting tab — collapsible sections, dynamically ordered by clinic priority
 // ===========================================================================
+const PRIORITY_RANK: Record<string, number> = { "Very High": 4, High: 3, Medium: 2, Low: 1 };
+function priorityRank(p: ReferralPartner): number {
+  return PRIORITY_RANK[(p.priority ?? "").trim()] ?? 0;
+}
+
+// Sort clinics so the most important targets surface first: overdue, then
+// higher priority, then weaker relationship health.
+function compareTargets(a: ReferralPartner, b: ReferralPartner): number {
+  if (!!a.visit_overdue !== !!b.visit_overdue) return a.visit_overdue ? -1 : 1;
+  const pr = priorityRank(b) - priorityRank(a);
+  if (pr !== 0) return pr;
+  return (a.relationship_health ?? 0) - (b.relationship_health ?? 0);
+}
+
+function CollapsibleSection({
+  title,
+  badge,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  badge?: React.ReactNode;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className={`flex w-full items-center justify-between gap-2 px-4 py-3 text-left transition hover:bg-slate-50 ${open ? "border-b border-slate-100" : ""}`}
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
+          >
+            <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
+          </svg>
+          {title}
+        </span>
+        {badge}
+      </button>
+      {open && children}
+    </div>
+  );
+}
+
 function TargetingTab({
   partners, onFilterZone, onView,
 }: {
@@ -643,10 +688,30 @@ function TargetingTab({
   onFilterZone: (z: string) => void;
   onView: (p: ReferralPartner) => void;
 }) {
-  const overdue = partners.filter((p) => p.visit_overdue);
+  const overdue = partners.filter((p) => p.visit_overdue).sort(compareTargets);
   const followups = partners.filter((p) => p.needs_followup);
   const active = partners.filter((p) => (p.status || "").toLowerCase() === "active" || p.is_active);
-  const [open, setOpen] = useState<string | null>(ZONE_DEFINITIONS[0]?.value ?? null);
+
+  // Clinics grouped by priority — only non-empty levels are shown, ordered
+  // from highest to lowest priority. Reflects the latest priority values.
+  const prioritySet = new Set<string>(REFERRAL_PRIORITIES);
+  const priorityGroups = REFERRAL_PRIORITIES
+    .map((pr) => ({
+      priority: pr as string,
+      list: partners.filter((p) => (p.priority ?? "").trim() === pr).sort(compareTargets),
+    }))
+    .filter((g) => g.list.length > 0);
+  const noPriority = partners.filter((p) => !prioritySet.has((p.priority ?? "").trim())).sort(compareTargets);
+
+  // Zones ordered dynamically by aggregate clinic priority weight so the
+  // highest-priority regions float to the top as priorities change.
+  const zoneGroups = ZONE_DEFINITIONS.map((z) => {
+    const list = partners.filter((p) => p.zone === z.value).sort(compareTargets);
+    return { z, list, weight: list.reduce((s, p) => s + priorityRank(p), 0) };
+  }).sort((a, b) => b.weight - a.weight);
+
+  const [openPriority, setOpenPriority] = useState<string | null>(priorityGroups[0]?.priority ?? null);
+  const [openZone, setOpenZone] = useState<string | null>(zoneGroups[0]?.z.value ?? null);
 
   return (
     <div className="space-y-5">
@@ -657,18 +722,87 @@ function TargetingTab({
         <StatCard label="Zones" value={String(ZONE_DEFINITIONS.length)} tone="text-sky-700" />
       </div>
 
-      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Target Clinics by Region</div>
+      <CollapsibleSection
+        title="Priority Targets"
+        badge={<span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{partners.length}</span>}
+      >
         <div className="divide-y divide-slate-100">
-          {ZONE_DEFINITIONS.map((z) => {
-            const list = partners.filter((p) => p.zone === z.value);
+          {priorityGroups.length === 0 && (
+            <p className="px-4 py-6 text-center text-sm text-slate-400">No clinics to prioritize yet.</p>
+          )}
+          {priorityGroups.map((g) => {
+            const od = g.list.filter((p) => p.visit_overdue).length;
+            const isOpen = openPriority === g.priority;
+            return (
+              <div key={g.priority}>
+                <button
+                  onClick={() => setOpenPriority(isOpen ? null : g.priority)}
+                  className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
+                >
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${priorityClass(g.priority)}`}>{g.priority}</span>
+                  <span className="flex items-center gap-2 text-xs">
+                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{g.list.length}</span>
+                    {od > 0 && <span className="rounded-full bg-red-100 px-2 py-0.5 text-red-700">{od} overdue</span>}
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="space-y-1 bg-slate-50/60 px-4 pb-3">
+                    {g.list.slice(0, 25).map((p) => (
+                      <button key={p.id} onClick={() => onView(p)} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white">
+                        <span className="truncate text-slate-700">{partnerName(p)}</span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-[11px] text-slate-400">{getZoneDisplay(p.zone)}</span>
+                          <span className={`rounded-full px-1.5 py-0.5 text-[11px] ring-1 ${tierClass(p.tier)}`}>{p.tier || "—"}</span>
+                          {p.visit_overdue && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] text-red-700">overdue</span>}
+                        </span>
+                      </button>
+                    ))}
+                    {g.list.length > 25 && <p className="px-2 pt-1 text-[11px] text-slate-400">+{g.list.length - 25} more</p>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {noPriority.length > 0 && (
+            <div>
+              <button
+                onClick={() => setOpenPriority(openPriority === "__none" ? null : "__none")}
+                className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
+              >
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200">Unprioritized</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{noPriority.length}</span>
+              </button>
+              {openPriority === "__none" && (
+                <div className="space-y-1 bg-slate-50/60 px-4 pb-3">
+                  {noPriority.slice(0, 25).map((p) => (
+                    <button key={p.id} onClick={() => onView(p)} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white">
+                      <span className="truncate text-slate-700">{partnerName(p)}</span>
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-400">{getZoneDisplay(p.zone)}</span>
+                        <span className={`rounded-full px-1.5 py-0.5 text-[11px] ring-1 ${tierClass(p.tier)}`}>{p.tier || "—"}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </CollapsibleSection>
+
+      <CollapsibleSection
+        title="Target Clinics by Region"
+        badge={<span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{ZONE_DEFINITIONS.length} zones</span>}
+      >
+        <div className="divide-y divide-slate-100">
+          {zoneGroups.map(({ z, list }) => {
             const od = list.filter((p) => p.visit_overdue).length;
             const fu = list.filter((p) => p.needs_followup).length;
-            const isOpen = open === z.value;
+            const isOpen = openZone === z.value;
             return (
               <div key={z.value}>
                 <button
-                  onClick={() => setOpen(isOpen ? null : z.value)}
+                  onClick={() => setOpenZone(isOpen ? null : z.value)}
                   className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
                 >
                   <span className="font-medium text-slate-800">{z.title}</span>
@@ -688,6 +822,7 @@ function TargetingTab({
                       <button key={p.id} onClick={() => onView(p)} className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-sm hover:bg-white">
                         <span className="truncate text-slate-700">{partnerName(p)}</span>
                         <span className="flex items-center gap-1.5">
+                          <span className={`rounded-full px-1.5 py-0.5 text-[11px] ring-1 ${priorityClass(p.priority)}`}>{p.priority || "—"}</span>
                           <span className={`rounded-full px-1.5 py-0.5 text-[11px] ring-1 ${tierClass(p.tier)}`}>{p.tier || "—"}</span>
                           {p.visit_overdue && <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] text-red-700">overdue</span>}
                         </span>
@@ -699,23 +834,28 @@ function TargetingTab({
             );
           })}
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Overdue Visits</div>
+      <CollapsibleSection
+        title="Overdue Visits"
+        badge={<span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{overdue.length}</span>}
+      >
         {overdue.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-emerald-600">✓ All caught up!</p>
         ) : (
           <div className="divide-y divide-slate-100">
             {overdue.slice(0, 50).map((p) => (
               <button key={p.id} onClick={() => onView(p)} className="flex w-full items-center justify-between px-4 py-2.5 text-left hover:bg-slate-50">
-                <span className="truncate text-sm text-slate-700">{partnerName(p)}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate text-sm text-slate-700">{partnerName(p)}</span>
+                  <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-[11px] ring-1 ${priorityClass(p.priority)}`}>{p.priority || "—"}</span>
+                </span>
                 <span className="text-xs text-red-600">{p.days_since_last_visit ?? "—"} days · {getZoneDisplay(p.zone)}</span>
               </button>
             ))}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
     </div>
   );
 }
@@ -757,14 +897,16 @@ function ActivityTab({ visits }: { visits: ClinicVisit[] }) {
 // Upload Log tab
 // ===========================================================================
 function UploadLogTab({
-  history, unmatched, isAdmin, onUndo, onClearAll,
+  history, unmatched, isAdmin, onUndo, onClearAll, onAddUnmatched,
 }: {
   history: SyncHistoryRow[];
   unmatched: UnmatchedEntry[];
   isAdmin: boolean;
   onUndo: (id: string) => void;
   onClearAll: () => void;
+  onAddUnmatched: (clinicName: string) => void;
 }) {
+  const [adding, setAdding] = useState<string | null>(null);
   return (
     <div className="space-y-5">
       {isAdmin && (
@@ -792,6 +934,7 @@ function UploadLogTab({
                   <th className="px-3 py-2 text-right">Revenue</th>
                   <th className="px-3 py-2">Upload Date</th>
                   <th className="px-3 py-2">Date Range</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -802,6 +945,16 @@ function UploadLogTab({
                     <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(u.revenue)}</td>
                     <td className="px-3 py-2 text-xs text-slate-500">{formatDate(u.uploadDate)}</td>
                     <td className="px-3 py-2 text-xs text-slate-500">{u.dateRange}</td>
+                    <td className="px-3 py-2 text-right">
+                      <button
+                        onClick={() => { setAdding(u.clinicName); onAddUnmatched(u.clinicName); }}
+                        disabled={adding === u.clinicName}
+                        className="rounded-lg border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                        title="Create a partner from this clinic and link its referrals"
+                      >
+                        {adding === u.clinicName ? "Adding…" : "+ Add as Partner"}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

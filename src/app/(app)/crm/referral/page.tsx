@@ -64,7 +64,13 @@ export default async function ReferralCrmPage() {
   const contacts = (contactsRes.data ?? []) as PartnerContact[];
   const notes = (notesRes.data ?? []) as PartnerNote[];
 
-  // Derive unmatched upload entries from the most recent sync details.
+  // Derive unmatched upload entries from the most recent sync details. Any
+  // clinic that now corresponds to an existing partner (e.g. it was just
+  // quick-added) is treated as resolved and dropped from the list.
+  const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const partnerNameSet = new Set(
+    partners.map((p) => normalizeName(p.name ?? p.hospital_name ?? "")).filter(Boolean),
+  );
   const unmatchedMap = new Map<string, UnmatchedEntry>();
   for (const h of history) {
     const details = (h.sync_details?.clinicDetails as ClinicDetail[] | undefined) ?? [];
@@ -76,6 +82,7 @@ export default async function ReferralCrmPage() {
       if (d.matched) continue;
       const key = d.clinicName.toLowerCase();
       if (unmatchedMap.has(key)) continue;
+      if (partnerNameSet.has(normalizeName(d.clinicName))) continue;
       unmatchedMap.set(key, {
         clinicName: d.clinicName,
         visits: d.visits,
@@ -87,6 +94,10 @@ export default async function ReferralCrmPage() {
   }
   const unmatched = Array.from(unmatchedMap.values()).sort((a, b) => b.revenue - a.revenue);
 
+  // Browser-safe, referrer-restricted Maps key for the interactive Map View.
+  const mapsApiKey =
+    process.env.GOOGLE_MAPS_PUBLIC_KEY ?? process.env.GOOGLE_MAPS_API_KEY ?? "";
+
   return (
     <ReferralCrm
       partners={partners}
@@ -96,6 +107,7 @@ export default async function ReferralCrmPage() {
       contacts={contacts}
       notes={notes}
       isAdmin={isAdmin}
+      mapsApiKey={mapsApiKey}
     />
   );
 }

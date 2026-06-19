@@ -166,10 +166,91 @@ export async function logQuickVisit(formData: FormData): Promise<ActionResult> {
         updated_at: new Date().toISOString(),
       })
       .eq("id", partnerId);
+
+    // Refresh derived metrics (days-since-visit, overdue flag, relationship
+    // health/status) immediately so the new visit is reflected without
+    // waiting for a manual "Recalculate Metrics".
+    await createAdminClient().rpc("recalculate_partner_metrics");
   }
 
   revalidatePath("/crm/referral");
   return { ok: true, message: "Visit logged." };
+}
+
+// ---------------------------------------------------------------------------
+// Quick-add an unmatched upload clinic as a new partner
+// Creates the partner, re-links any orphaned revenue line items that carry the
+// same CSV clinic name, merges their divisions, then recalculates metrics so
+// the previously-unmatched revenue/referrals fold into the new partner.
+// ---------------------------------------------------------------------------
+export async function addUnmatchedPartner(formData: FormData): Promise<ActionResult> {
+  const current = await requireReferralUser();
+  const clinicName = str(formData.get("clinic_name"));
+  if (!clinicName) return { ok: false, error: "Clinic name is required." };
+  const admin = createAdminClient();
+
+  // Guard against creating a duplicate of an existing partner.
+  const { data: existing } = await admin
+    .from("referral_partners")
+    .select("id, name")
+    .ilike("name", clinicName)
+    .limit(1)
+    .maybeSingle();
+  if (existing) {
+    return { ok: false, error: `A partner named "${existing.name}" already exists.` };
+  }
+
+  // 1. Create the partner.
+  const now = new Date().toISOString();
+  const { data: partner, error: insErr } = await admin
+    .from("referral_partners")
+    .insert({
+      name: clinicName,
+      status: "active",
+      last_data_source: "csv_upload",
+      last_sync_date: now,
+      created_at: now,
+      updated_at: now,
+    })
+    .select("id")
+    .single();
+  if (insErr || !partner) return { ok: false, error: insErr?.message ?? "Failed to create partner." };
+
+  // 2. Re-link orphaned revenue line items recorded under this clinic name.
+  const { data: relinked, error: relinkErr } = await admin
+    .from("referral_revenue_line_items")
+    .update({ partner_id: partner.id })
+    .is("partner_id", null)
+    .eq("csv_clinic_name", clinicName)
+    .select("division");
+  if (relinkErr) return { ok: false, error: relinkErr.message };
+  const linkedCount = relinked?.length ?? 0;
+
+  // 3. Merge divisions discovered on those line items onto the partner.
+  const divisions = [
+    ...new Set((relinked ?? []).map((r) => r.division as string | null).filter((d): d is string => !!d)),
+  ].sort();
+  if (divisions.length) {
+    await admin.from("referral_partners").update({ referral_divisions: divisions }).eq("id", partner.id);
+  }
+
+  // 4. Recompute totals + tier / priority / health for everyone.
+  await admin.rpc("recalculate_partner_metrics");
+
+  await recordAudit({
+    actorId: current.authId, actorEmail: current.email,
+    action: "referral.partner.quickadd", entity: "referral_partner", entityId: partner.id,
+    summary: `Quick-added partner ${clinicName} from unmatched upload`,
+    metadata: { lineItemsRelinked: linkedCount, divisions },
+  });
+
+  revalidatePath("/crm/referral");
+  return {
+    ok: true,
+    message: linkedCount
+      ? `Added "${clinicName}" — ${linkedCount.toLocaleString()} referral${linkedCount === 1 ? "" : "s"} linked.`
+      : `Added "${clinicName}".`,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -299,6 +380,95 @@ export async function recalculateMetrics(): Promise<ActionResult> {
   });
   revalidatePath("/crm/referral");
   return { ok: true, message: "Partner metrics recalculated." };
+}
+
+// ---------------------------------------------------------------------------
+// Geocode partners for the Map View
+// ---------------------------------------------------------------------------
+// Resolves lat/lng from each partner's `address` via the Google Geocoding API
+// and caches the result on the row. Only partners that have an address but are
+// missing coordinates (or whose address changed since the last geocode) are
+// processed. Capped per-call so the server action stays well under platform
+// timeouts; the UI can re-run until `remaining` hits 0.
+export type GeocodeResult =
+  | { ok: true; geocoded: number; failed: number; remaining: number; message: string }
+  | { ok: false; error: string };
+
+const GEOCODE_BATCH = 40;
+
+export async function geocodePartners(): Promise<GeocodeResult> {
+  await requireReferralUser();
+
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) {
+    return { ok: false, error: "GOOGLE_MAPS_API_KEY is not configured on the server." };
+  }
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("referral_partners")
+    .select("id, address, latitude, longitude, geocoded_address")
+    .not("address", "is", null);
+  if (error) return { ok: false, error: error.message };
+
+  const stale = (data ?? []).filter((p) => {
+    const addr = (p.address as string | null)?.trim();
+    if (!addr) return false;
+    const hasCoords = p.latitude != null && p.longitude != null;
+    return !hasCoords || p.geocoded_address !== addr;
+  });
+
+  const totalPending = stale.length;
+  const batch = stale.slice(0, GEOCODE_BATCH);
+
+  let geocoded = 0;
+  let failed = 0;
+
+  for (const p of batch) {
+    const address = (p.address as string).trim();
+    try {
+      const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+      url.searchParams.set("address", address);
+      url.searchParams.set("key", apiKey);
+      const res = await fetch(url, { cache: "no-store" });
+      const json = (await res.json()) as {
+        status: string;
+        results?: { geometry?: { location?: { lat: number; lng: number } } }[];
+      };
+      const loc = json.results?.[0]?.geometry?.location;
+      if (json.status === "OK" && loc) {
+        const { error: updErr } = await admin
+          .from("referral_partners")
+          .update({
+            latitude: loc.lat,
+            longitude: loc.lng,
+            geocoded_at: new Date().toISOString(),
+            geocoded_address: address,
+          })
+          .eq("id", p.id as string);
+        if (updErr) failed++;
+        else geocoded++;
+      } else {
+        failed++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+
+  const remaining = Math.max(0, totalPending - batch.length);
+  if (geocoded > 0) revalidatePath("/crm/referral");
+
+  return {
+    ok: true,
+    geocoded,
+    failed,
+    remaining,
+    message:
+      remaining > 0
+        ? `Geocoded ${geocoded} clinic${geocoded === 1 ? "" : "s"}. ${remaining} still pending — run again to continue.`
+        : `Geocoded ${geocoded} clinic${geocoded === 1 ? "" : "s"}.${failed ? ` ${failed} address${failed === 1 ? "" : "es"} could not be located.` : ""} Map is up to date.`,
+  };
 }
 
 // ---------------------------------------------------------------------------
