@@ -423,6 +423,8 @@ export async function geocodePartners(): Promise<GeocodeResult> {
 
   let geocoded = 0;
   let failed = 0;
+  // Reasons we couldn't locate addresses (e.g. ZERO_RESULTS), for diagnostics.
+  const sampleNotFound: string[] = [];
 
   for (const p of batch) {
     const address = (p.address as string).trim();
@@ -433,8 +435,24 @@ export async function geocodePartners(): Promise<GeocodeResult> {
       const res = await fetch(url, { cache: "no-store" });
       const json = (await res.json()) as {
         status: string;
+        error_message?: string;
         results?: { geometry?: { location?: { lat: number; lng: number } } }[];
       };
+
+      // A bad API key / disabled API / billing problem fails identically for
+      // EVERY address. Abort the whole run immediately and surface Google's own
+      // error_message so it's actionable instead of "0 geocoded".
+      if (
+        json.status === "REQUEST_DENIED" ||
+        json.status === "OVER_QUERY_LIMIT" ||
+        json.status === "INVALID_REQUEST"
+      ) {
+        return {
+          ok: false,
+          error: `Google Geocoding API ${json.status}: ${json.error_message ?? "no detail provided"}. Check that the Geocoding API is enabled for GOOGLE_MAPS_API_KEY and that the key has no HTTP-referrer restriction (server-side calls send no referer).`,
+        };
+      }
+
       const loc = json.results?.[0]?.geometry?.location;
       if (json.status === "OK" && loc) {
         const { error: updErr } = await admin
@@ -449,7 +467,9 @@ export async function geocodePartners(): Promise<GeocodeResult> {
         if (updErr) failed++;
         else geocoded++;
       } else {
+        // ZERO_RESULTS or similar — this specific address couldn't be located.
         failed++;
+        if (sampleNotFound.length < 3) sampleNotFound.push(address);
       }
     } catch {
       failed++;
@@ -459,6 +479,12 @@ export async function geocodePartners(): Promise<GeocodeResult> {
   const remaining = Math.max(0, totalPending - batch.length);
   if (geocoded > 0) revalidatePath("/crm/referral");
 
+  const failNote = failed
+    ? ` ${failed} address${failed === 1 ? "" : "es"} could not be located${
+        sampleNotFound.length ? ` (e.g. "${sampleNotFound[0]}")` : ""
+      }.`
+    : "";
+
   return {
     ok: true,
     geocoded,
@@ -466,8 +492,8 @@ export async function geocodePartners(): Promise<GeocodeResult> {
     remaining,
     message:
       remaining > 0
-        ? `Geocoded ${geocoded} clinic${geocoded === 1 ? "" : "s"}. ${remaining} still pending — run again to continue.`
-        : `Geocoded ${geocoded} clinic${geocoded === 1 ? "" : "s"}.${failed ? ` ${failed} address${failed === 1 ? "" : "es"} could not be located.` : ""} Map is up to date.`,
+        ? `Geocoded ${geocoded} clinic${geocoded === 1 ? "" : "s"}.${failNote} ${remaining} still pending — run again to continue.`
+        : `Geocoded ${geocoded} clinic${geocoded === 1 ? "" : "s"}.${failNote} Map is up to date.`,
   };
 }
 
