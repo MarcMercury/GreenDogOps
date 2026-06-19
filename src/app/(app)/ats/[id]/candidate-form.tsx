@@ -2,7 +2,11 @@
 
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
-import type { CandidateRow } from "@/lib/ats/types";
+import {
+  type CandidateRow,
+  RECRUITING_PIPELINE_OPTIONS,
+  RECRUITING_SOURCE_OPTIONS,
+} from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { CopyForSlackButton } from "./copy-for-slack";
 import { buildCandidateSummary } from "@/lib/ats/slack-summary";
@@ -51,6 +55,39 @@ function TextArea({
         defaultValue={defaultValue ?? ""}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
       />
+    </label>
+  );
+}
+
+function Select({
+  label,
+  name,
+  defaultValue,
+  options,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | null;
+  options: ReadonlyArray<{ value: string; label: string }>;
+}) {
+  const current = defaultValue == null ? "" : String(defaultValue);
+  const known = current === "" || options.some((o) => o.value === current);
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <select
+        name={name}
+        defaultValue={current}
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      >
+        <option value="">—</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+        {!known && <option value={current}>{current} (current)</option>}
+      </select>
     </label>
   );
 }
@@ -177,9 +214,9 @@ export function CandidateForm({
       <Section title="Pipeline">
         <Field label="Position applied for" name="target_title" defaultValue={rec?.target_title} />
         <OpportunityTypeField defaultValue={row.opportunity_type} />
-        <Field label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} />
+        <Select label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} options={RECRUITING_PIPELINE_OPTIONS} />
         <Field label="Stage" name="stage" defaultValue={rec?.stage} />
-        <Field label="Source (found on)" name="source" defaultValue={rec?.source} />
+        <Select label="Source (found on)" name="source" defaultValue={rec?.source} options={RECRUITING_SOURCE_OPTIONS} />
         <Field label="Interview date" name="interview_date" type="date" defaultValue={rec?.interview_date} />
         <Field label="Score" name="score" type="number" defaultValue={rec?.score} />
         <Field label="Resume" name="resume_url" defaultValue={rec?.resume_url} />

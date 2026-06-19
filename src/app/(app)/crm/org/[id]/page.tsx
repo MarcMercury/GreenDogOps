@@ -6,7 +6,9 @@ import {
   crmSectionBySlug,
   crmSlugForOrgType,
 } from "@/lib/crm/types";
+import { LOCATION_COLUMNS, type Location } from "@/lib/shared/locations";
 import { OrganizationForm } from "./organization-form";
+import type { LocationOption } from "./location-multi-select";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,16 @@ export default async function OrganizationDetailPage({
   const org = data as CrmOrganization;
   const section = crmSectionBySlug(crmSlugForOrgType(org.org_type));
 
+  const { data: locationData } = await supabase
+    .from("location")
+    .select(LOCATION_COLUMNS)
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  const locationOptions: LocationOption[] = (
+    (locationData ?? []) as unknown as Location[]
+  ).map((l) => ({ value: l.name, label: l.display_name ?? l.name }));
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link
@@ -45,7 +57,7 @@ export default async function OrganizationDetailPage({
       >
         ← Back to {section?.title ?? "CRM"}
       </Link>
-      <OrganizationForm org={org} />
+      <OrganizationForm org={org} locations={locationOptions} />
     </div>
   );
 }

@@ -8,7 +8,9 @@ import {
 import { PoliciesLibrary } from "./policies-library";
 
 export default async function ResourcesPoliciesPage() {
-  await requireUser();
+  const current = await requireUser();
+  const role = current.appUser.role;
+  const canUpload = role === "owner" || role === "admin" || role === "manager";
 
   const admin = createAdminClient();
   const { data } = await admin
@@ -41,5 +43,11 @@ export default async function ResourcesPoliciesPage() {
     }
   }
 
-  return <PoliciesLibrary documents={withUrls} policies={POLICY_CATEGORIES} />;
+  return (
+    <PoliciesLibrary
+      documents={withUrls}
+      policies={POLICY_CATEGORIES}
+      canUpload={canUpload}
+    />
+  );
 }

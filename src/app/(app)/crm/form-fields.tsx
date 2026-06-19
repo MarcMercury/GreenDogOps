@@ -27,6 +27,91 @@ export function Field({
   );
 }
 
+export interface SelectOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Labeled <select> for low-option fields. To avoid losing legacy data, any
+ * existing `defaultValue` that isn't part of `options` is preserved as an
+ * extra "… (current)" choice so it stays selected and saveable.
+ */
+export function Select({
+  label,
+  name,
+  defaultValue,
+  options,
+  className,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | number | null;
+  options: ReadonlyArray<SelectOption>;
+  className?: string;
+}) {
+  const current = defaultValue == null ? "" : String(defaultValue);
+  const known = current === "" || options.some((o) => o.value === current);
+  return (
+    <label className={`flex flex-col gap-1 ${className ?? ""}`}>
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <select
+        name={name}
+        defaultValue={current}
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      >
+        <option value="">—</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+        {!known && (
+          <option value={current}>{current} (current)</option>
+        )}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * Input backed by a <datalist> of suggestions. Use for higher-cardinality
+ * fields where we still want consistent suggestions but must allow free text.
+ */
+export function ComboField({
+  label,
+  name,
+  defaultValue,
+  options,
+  placeholder,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | null;
+  options: ReadonlyArray<string | SelectOption>;
+  placeholder?: string;
+}) {
+  const listId = `dl-${name}`;
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <input
+        name={name}
+        list={listId}
+        defaultValue={defaultValue ?? ""}
+        placeholder={placeholder}
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      />
+      <datalist id={listId}>
+        {options.map((o) => {
+          const value = typeof o === "string" ? o : o.value;
+          return <option key={value} value={value} />;
+        })}
+      </datalist>
+    </label>
+  );
+}
+
 export function TextArea({
   label,
   name,

@@ -17,6 +17,14 @@ function num(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Join repeated form values (e.g. multi-select) into a comma-separated string. */
+function list(values: FormDataEntryValue[]): string | null {
+  const items = values
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  return items.length ? items.join(", ") : null;
+}
+
 function bool(v: FormDataEntryValue | null): boolean {
   return v === "on" || v === "true";
 }
@@ -45,6 +53,7 @@ export async function updateOrganization(
     state: str(formData.get("state")),
     zip: str(formData.get("zip")),
     area: str(formData.get("area")),
+    clinic_area: list(formData.getAll("clinic_area")),
     services: str(formData.get("services")),
     tier: str(formData.get("tier")),
     priority: str(formData.get("priority")),

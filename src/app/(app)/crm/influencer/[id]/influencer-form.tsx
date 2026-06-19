@@ -1,12 +1,22 @@
 "use client";
 
 import { useActionState } from "react";
-import type { CrmInfluencer } from "@/lib/crm/types";
+import {
+  type CrmInfluencer,
+  INFLUENCER_STATUS_OPTIONS,
+  INFLUENCER_TIER_OPTIONS,
+  INFLUENCER_PRIORITY_OPTIONS,
+  INFLUENCER_RELATIONSHIP_STATUS_OPTIONS,
+  PLATFORM_OPTIONS,
+  COLLABORATION_TYPE_OPTIONS,
+  COMPENSATION_TYPE_OPTIONS,
+} from "@/lib/crm/types";
 import { updateInfluencer, type SaveResult } from "../../actions";
 import {
   Field,
   TextArea,
   Checkbox,
+  Select,
   Section,
   SaveButton,
 } from "../../form-fields";
@@ -55,9 +65,9 @@ export function InfluencerForm({ influencer }: { influencer: CrmInfluencer }) {
         <Field label="Email" name="email" type="email" defaultValue={i.email} />
         <Field label="Phone" name="phone" defaultValue={i.phone} />
         <Field label="Location" name="location" defaultValue={i.location} />
-        <Field label="Status" name="status" defaultValue={i.status} />
-        <Field label="Tier" name="tier" defaultValue={i.tier} />
-        <Field label="Priority" name="priority" defaultValue={i.priority} />
+        <Select label="Status" name="status" defaultValue={i.status} options={INFLUENCER_STATUS_OPTIONS} />
+        <Select label="Tier" name="tier" defaultValue={i.tier} options={INFLUENCER_TIER_OPTIONS} />
+        <Select label="Priority" name="priority" defaultValue={i.priority} options={INFLUENCER_PRIORITY_OPTIONS} />
         <Field label="Content niche" name="content_niche" defaultValue={i.content_niche} />
       </Section>
 
@@ -68,7 +78,7 @@ export function InfluencerForm({ influencer }: { influencer: CrmInfluencer }) {
         <Field label="YouTube URL" name="youtube_url" defaultValue={i.youtube_url} />
         <Field label="Facebook URL" name="facebook_url" defaultValue={i.facebook_url} />
         <Field label="Pet Instagram" name="pet_instagram" defaultValue={i.pet_instagram} />
-        <Field label="Highest platform" name="highest_platform" defaultValue={i.highest_platform} />
+        <Select label="Highest platform" name="highest_platform" defaultValue={i.highest_platform} options={PLATFORM_OPTIONS} />
         <Field label="Total followers" name="follower_count" type="number" defaultValue={i.follower_count} />
         <Field label="Engagement rate (%)" name="engagement_rate" type="number" defaultValue={i.engagement_rate} />
         <Field label="Instagram followers" name="instagram_followers" type="number" defaultValue={i.instagram_followers} />
@@ -90,10 +100,10 @@ export function InfluencerForm({ influencer }: { influencer: CrmInfluencer }) {
       </Section>
 
       <Section title="Agreement & Compensation">
-        <Field label="Collaboration type" name="collaboration_type" defaultValue={i.collaboration_type} />
+        <Select label="Collaboration type" name="collaboration_type" defaultValue={i.collaboration_type} options={COLLABORATION_TYPE_OPTIONS} />
         <Field label="Promo code" name="promo_code" defaultValue={i.promo_code} />
         <Field label="EzyVet tracking" name="ezyvet_tracking" defaultValue={i.ezyvet_tracking} />
-        <Field label="Compensation type" name="compensation_type" defaultValue={i.compensation_type} />
+        <Select label="Compensation type" name="compensation_type" defaultValue={i.compensation_type} options={COMPENSATION_TYPE_OPTIONS} />
         <Field label="Compensation rate" name="compensation_rate" type="number" defaultValue={i.compensation_rate} />
         <Field label="Commission (%)" name="commission_percentage" type="number" defaultValue={i.commission_percentage} />
         <Field label="Total paid" name="total_paid" type="number" defaultValue={i.total_paid} />
@@ -108,7 +118,7 @@ export function InfluencerForm({ influencer }: { influencer: CrmInfluencer }) {
         <Field label="Stories completed" name="stories_completed" type="number" defaultValue={i.stories_completed} />
         <Field label="Reels completed" name="reels_completed" type="number" defaultValue={i.reels_completed} />
         <Field label="Events attended" name="events_attended" type="number" defaultValue={i.events_attended} />
-        <Field label="Relationship status" name="relationship_status" defaultValue={i.relationship_status} />
+        <Select label="Relationship status" name="relationship_status" defaultValue={i.relationship_status} options={INFLUENCER_RELATIONSHIP_STATUS_OPTIONS} />
         <Field label="Relationship score" name="relationship_score" type="number" defaultValue={i.relationship_score} />
         <Field label="Last post date" name="last_post_date" type="date" defaultValue={i.last_post_date} />
         <Field label="Last contact date" name="last_contact_date" type="date" defaultValue={i.last_contact_date} />

@@ -1,13 +1,22 @@
 "use client";
 
 import { useActionState } from "react";
-import { type CrmContact, CONTACT_TYPE_LABELS } from "@/lib/crm/types";
+import {
+  type CrmContact,
+  CONTACT_TYPE_LABELS,
+  CONTACT_STATUS_OPTIONS,
+  VISITOR_TYPE_OPTIONS,
+  HIRE_INTEREST_OPTIONS,
+  PROGRAM_TYPE_SUGGESTIONS,
+} from "@/lib/crm/types";
 import { updateContact, type SaveResult } from "../../actions";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import {
   Field,
   TextArea,
   Checkbox,
+  Select,
+  ComboField,
   Section,
   SaveButton,
 } from "../../form-fields";
@@ -51,12 +60,12 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
         <Field label="Last name" name="last_name" defaultValue={contact.last_name} />
         <Field label="Email" name="email" type="email" defaultValue={contact.email} />
         <Field label="Phone" name="phone" defaultValue={contact.phone} />
-        <Field label="Status" name="status" defaultValue={contact.status} />
+        <Select label="Status" name="status" defaultValue={contact.status} options={CONTACT_STATUS_OPTIONS} />
         <Field label="School / Org" name="organization" defaultValue={contact.organization} />
       </Section>
 
       <Section title="Program">
-        <Field label="Program type" name="program_type" defaultValue={contact.program_type} />
+        <ComboField label="Program type" name="program_type" defaultValue={contact.program_type} options={PROGRAM_TYPE_SUGGESTIONS} />
         <OpportunityTypeField defaultValue={contact.opportunity_type} />
         <Field label="Program name" name="program_name" defaultValue={contact.program_name} />
         <Field label="Cohort" name="cohort" defaultValue={contact.cohort} />
@@ -80,7 +89,7 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
           <Field label="Hours completed" name="hours_completed" type="number" defaultValue={contact.hours_completed} />
           <Field label="Hours required" name="hours_required" type="number" defaultValue={contact.hours_required} />
           <Field label="Doc recommendation" name="doc_recommendation" defaultValue={contact.doc_recommendation} />
-          <Field label="Hire interest" name="hire_interest" defaultValue={contact.hire_interest} />
+          <Select label="Hire interest" name="hire_interest" defaultValue={contact.hire_interest} options={HIRE_INTEREST_OPTIONS} />
           <Field label="Stipend" name="stipend" defaultValue={contact.stipend} />
           <Checkbox
             label="Eligible for employment"
@@ -93,7 +102,7 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
         </Section>
       ) : (
         <Section title="CE Engagement">
-          <Field label="Visitor type" name="visitor_type" defaultValue={contact.visitor_type} />
+          <Select label="Visitor type" name="visitor_type" defaultValue={contact.visitor_type} options={VISITOR_TYPE_OPTIONS} />
           <Field label="CE events attended" name="ce_events_attended" defaultValue={contact.ce_events_attended} />
           <Field label="Lead source" name="lead_source" defaultValue={contact.lead_source} />
         </Section>

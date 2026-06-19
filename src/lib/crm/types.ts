@@ -97,6 +97,7 @@ export interface CrmOrganization {
   state: string | null;
   zip: string | null;
   area: string | null;
+  clinic_area: string | null;
   services: string | null;
   products: string[] | null;
   tier: string | null;
@@ -179,6 +180,147 @@ export const CONTACT_TYPE_LABELS: Record<ContactType, string> = {
   student: "Students",
   ce_attendee: "CE Attendees",
 };
+
+// ---------------------------------------------------------------------------
+// Dropdown option lists for CRM data-entry forms. Centralized so the same
+// canonical choices appear across the Organization / Contact / Influencer
+// forms. Values mirror what already exists in the database.
+// ---------------------------------------------------------------------------
+export interface CrmOption {
+  value: string;
+  label: string;
+}
+
+export const ORG_STATUS_OPTIONS: CrmOption[] = [
+  { value: "active", label: "Active" },
+  { value: "prospect", label: "Prospect" },
+  { value: "lead", label: "Lead" },
+  { value: "pending", label: "Pending" },
+  { value: "inactive", label: "Inactive" },
+];
+
+export const CRM_TIER_OPTIONS: CrmOption[] = [
+  { value: "Platinum", label: "Platinum" },
+  { value: "Gold", label: "Gold" },
+  { value: "Silver", label: "Silver" },
+  { value: "Bronze", label: "Bronze" },
+  { value: "Coal", label: "Coal" },
+];
+
+export const CRM_PRIORITY_OPTIONS: CrmOption[] = [
+  { value: "Very High", label: "Very High" },
+  { value: "High", label: "High" },
+  { value: "Medium", label: "Medium" },
+  { value: "Low", label: "Low" },
+];
+
+// Suggestions only (free text still allowed) — subtype varies widely by org type.
+export const ORG_SUBTYPE_SUGGESTIONS: string[] = [
+  "general",
+  "specialty",
+  "emergency",
+  "groomer",
+  "daycare_boarding",
+  "rescue",
+  "pet_retail",
+  "pet_business",
+  "food_vendor",
+  "merch_vendor",
+  "print_vendor",
+  "local_business",
+  "chamber",
+  "media",
+  "entertainment",
+  "other",
+];
+
+export const CONTACT_STATUS_OPTIONS: CrmOption[] = [
+  { value: "lead", label: "Lead" },
+  { value: "registrant", label: "Registrant" },
+  { value: "upcoming", label: "Upcoming" },
+  { value: "current", label: "Current" },
+  { value: "enrolled", label: "Enrolled" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "attendee", label: "Attendee" },
+  { value: "completed", label: "Completed" },
+  { value: "done", label: "Done" },
+  { value: "no_show", label: "No Show" },
+  { value: "applied", label: "Applied" },
+];
+
+export const VISITOR_TYPE_OPTIONS: CrmOption[] = [
+  { value: "student", label: "Student" },
+  { value: "extern", label: "Extern" },
+  { value: "intern", label: "Intern" },
+  { value: "ce_attendee", label: "CE Attendee" },
+  { value: "other", label: "Other" },
+];
+
+export const HIRE_INTEREST_OPTIONS: CrmOption[] = [
+  { value: "want_to_hire", label: "Want to Hire" },
+  { value: "maybe", label: "Maybe / Watch" },
+  { value: "not_interested", label: "Not Interested" },
+];
+
+export const PROGRAM_TYPE_SUGGESTIONS: string[] = [
+  "externship",
+  "internship",
+  "paid_cohort",
+  "intensive",
+  "shadowing",
+  "rotation",
+];
+
+export const INFLUENCER_STATUS_OPTIONS: CrmOption[] = [
+  { value: "active", label: "Active" },
+  { value: "prospect", label: "Prospect" },
+  { value: "inactive", label: "Inactive" },
+  { value: "completed", label: "Completed" },
+];
+
+export const INFLUENCER_TIER_OPTIONS: CrmOption[] = [
+  { value: "nano", label: "Nano (< 10K)" },
+  { value: "micro", label: "Micro (10K–100K)" },
+  { value: "macro", label: "Macro (100K–1M)" },
+  { value: "mega", label: "Mega (1M+)" },
+];
+
+export const INFLUENCER_PRIORITY_OPTIONS: CrmOption[] = [
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+];
+
+export const INFLUENCER_RELATIONSHIP_STATUS_OPTIONS: CrmOption[] = [
+  { value: "new", label: "New" },
+  { value: "active", label: "Active" },
+  { value: "past_partner", label: "Past Partner" },
+  { value: "declined", label: "Declined" },
+];
+
+export const PLATFORM_OPTIONS: CrmOption[] = [
+  { value: "Instagram", label: "Instagram" },
+  { value: "TikTok", label: "TikTok" },
+  { value: "YouTube", label: "YouTube" },
+  { value: "Facebook", label: "Facebook" },
+];
+
+export const COLLABORATION_TYPE_OPTIONS: CrmOption[] = [
+  { value: "sponsored_post", label: "Sponsored Post" },
+  { value: "ambassador", label: "Brand Ambassador" },
+  { value: "affiliate", label: "Affiliate" },
+  { value: "gifting", label: "Product Gifting" },
+  { value: "event", label: "Event Appearance" },
+  { value: "ugc", label: "UGC / Content" },
+];
+
+export const COMPENSATION_TYPE_OPTIONS: CrmOption[] = [
+  { value: "paid", label: "Paid" },
+  { value: "commission", label: "Commission" },
+  { value: "gifting", label: "Product / Gifting" },
+  { value: "hybrid", label: "Hybrid (Paid + Commission)" },
+  { value: "none", label: "None" },
+];
 
 // ---------------------------------------------------------------------------
 // CRM sections — the CRM module is split into focused sub-CRMs.

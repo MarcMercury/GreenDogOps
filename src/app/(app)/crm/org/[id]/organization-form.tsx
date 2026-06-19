@@ -1,17 +1,42 @@
 "use client";
 
 import { useActionState } from "react";
-import { type CrmOrganization, ORG_TYPE_LABELS } from "@/lib/crm/types";
+import {
+  type CrmOrganization,
+  ORG_TYPE_LABELS,
+  ORG_STATUS_OPTIONS,
+  CRM_TIER_OPTIONS,
+  CRM_PRIORITY_OPTIONS,
+  ORG_SUBTYPE_SUGGESTIONS,
+} from "@/lib/crm/types";
+import { ZONE_DEFINITIONS } from "@/lib/crm/referral-types";
 import { updateOrganization, type SaveResult } from "../../actions";
 import {
   Field,
   TextArea,
   Checkbox,
+  Select,
+  ComboField,
   Section,
   SaveButton,
 } from "../../form-fields";
+import {
+  LocationMultiSelect,
+  type LocationOption,
+} from "./location-multi-select";
 
-export function OrganizationForm({ org }: { org: CrmOrganization }) {
+const ZONE_OPTIONS = ZONE_DEFINITIONS.map((z) => ({
+  value: z.value,
+  label: z.title,
+}));
+
+export function OrganizationForm({
+  org,
+  locations,
+}: {
+  org: CrmOrganization;
+  locations: LocationOption[];
+}) {
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) => updateOrganization(org.id, prev, fd),
     null,
@@ -42,11 +67,22 @@ export function OrganizationForm({ org }: { org: CrmOrganization }) {
 
       <Section title="Overview">
         <Field label="Name" name="name" defaultValue={org.name} />
-        <Field label="Subtype / Category" name="subtype" defaultValue={org.subtype} />
-        <Field label="Status" name="status" defaultValue={org.status} />
-        <Field label="Area / Zone" name="area" defaultValue={org.area} />
-        <Field label="Tier" name="tier" defaultValue={org.tier} />
-        <Field label="Priority" name="priority" defaultValue={org.priority} />
+        <ComboField
+          label="Subtype / Category"
+          name="subtype"
+          defaultValue={org.subtype}
+          options={ORG_SUBTYPE_SUGGESTIONS}
+        />
+        <Select label="Status" name="status" defaultValue={org.status} options={ORG_STATUS_OPTIONS} />
+        <Select label="Business Location Zone" name="area" defaultValue={org.area} options={ZONE_OPTIONS} />
+        <LocationMultiSelect
+          label="Clinic Area"
+          name="clinic_area"
+          locations={locations}
+          defaultValue={org.clinic_area}
+        />
+        <Select label="Tier" name="tier" defaultValue={org.tier} options={CRM_TIER_OPTIONS} />
+        <Select label="Priority" name="priority" defaultValue={org.priority} options={CRM_PRIORITY_OPTIONS} />
         <Checkbox label="Preferred" name="is_preferred" defaultChecked={org.is_preferred} />
         <Checkbox label="Active" name="is_active" defaultChecked={org.is_active} />
       </Section>

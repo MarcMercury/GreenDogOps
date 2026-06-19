@@ -45,6 +45,29 @@ export const INTERVIEW_TYPE_LABELS: Record<string, string> = {
   other: "Other",
 };
 
+// Canonical dropdown options for the candidate form.
+export const RECRUITING_PIPELINE_OPTIONS = [
+  { value: "MVS New Hires", label: "MVS New Hires" },
+  { value: "MVS Staff Outreach", label: "MVS Staff Outreach" },
+  { value: "MVS Vet Outreach", label: "MVS Vet Outreach" },
+  { value: "All In House Positions", label: "All In House Positions" },
+  { value: "Remote CSR", label: "Remote CSR" },
+  { value: "DVM Vet America", label: "DVM Vet America" },
+  { value: "Volunteers, Externs", label: "Volunteers / Externs" },
+  { value: "Hired", label: "Hired" },
+] as const;
+
+export const RECRUITING_SOURCE_OPTIONS = [
+  { value: "Indeed", label: "Indeed" },
+  { value: "ZipRecruiter", label: "ZipRecruiter" },
+  { value: "Career Builder", label: "Career Builder" },
+  { value: "GD Website", label: "GD Website" },
+  { value: "Social Media", label: "Social Media" },
+  { value: "Facebook", label: "Facebook" },
+  { value: "Personal Referral", label: "Personal Referral" },
+  { value: "Other", label: "Other" },
+] as const;
+
 export const INTERVIEW_STATUS_LABELS: Record<string, string> = {
   scheduled: "Scheduled",
   completed: "Completed",

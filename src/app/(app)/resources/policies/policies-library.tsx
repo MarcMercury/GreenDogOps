@@ -1,12 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import {
   formatBytes,
   resourceCategoryMeta,
+  RESOURCE_CATEGORY_META,
   type PolicyCategory,
   type ResourceDocumentWithUrl,
 } from "@/lib/resources/types";
+import { uploadPolicyDocument, type UploadResult } from "./actions";
 
 type CollectionItem = {
   id: string;
@@ -42,9 +46,11 @@ const KIND_META = {
 export function PoliciesLibrary({
   documents,
   policies,
+  canUpload = false,
 }: {
   documents: ResourceDocumentWithUrl[];
   policies: PolicyCategory[];
+  canUpload?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [activeKind, setActiveKind] = useState<"all" | "document" | "policy">(
@@ -190,6 +196,8 @@ export function PoliciesLibrary({
         </div>
       </div>
 
+      {canUpload ? <UploadPanel /> : null}
+
       {filtered.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 p-10 text-center">
           <span className="text-3xl" aria-hidden>
@@ -233,6 +241,144 @@ export function PoliciesLibrary({
         </>
       )}
     </div>
+  );
+}
+
+function UploadPanel() {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [open, setOpen] = useState(false);
+  const [result, formAction] = useActionState<UploadResult | null, FormData>(
+    uploadPolicyDocument,
+    null,
+  );
+
+  useEffect(() => {
+    if (result?.ok) {
+      formRef.current?.reset();
+      setOpen(false);
+    }
+  }, [result]);
+
+  const categories = Object.entries(RESOURCE_CATEGORY_META);
+
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-2xl px-4 py-3 text-left transition hover:bg-slate-50"
+      >
+        <span aria-hidden className="text-base">
+          ⬆️
+        </span>
+        <span className="flex-1 text-sm font-semibold text-slate-800">
+          Upload a new policy
+        </span>
+        <svg
+          aria-hidden
+          viewBox="0 0 20 20"
+          className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M5 7.5 10 12.5 15 7.5" />
+        </svg>
+      </button>
+
+      {open ? (
+        <form
+          ref={formRef}
+          action={formAction}
+          className="grid gap-4 border-t border-slate-100 p-4 sm:grid-cols-2"
+        >
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className="text-xs font-medium text-slate-500">Title</span>
+            <input
+              name="title"
+              placeholder="e.g. Updated PTO Policy"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-slate-500">Category</span>
+            <select
+              name="category"
+              defaultValue="general"
+              required
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              {categories.map(([value, meta]) => (
+                <option key={value} value={value}>
+                  {meta.icon} {meta.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-slate-500">File</span>
+            <input
+              name="file"
+              type="file"
+              required
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm file:mr-3 file:rounded-md file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-100 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 sm:col-span-2">
+            <span className="text-xs font-medium text-slate-500">
+              Description <span className="text-slate-400">(optional)</span>
+            </span>
+            <textarea
+              name="description"
+              rows={2}
+              placeholder="Short summary of what this document covers."
+              className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </label>
+
+          <label className="flex items-center gap-2 sm:col-span-2">
+            <input
+              name="staff_only"
+              type="checkbox"
+              className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            <span className="text-sm text-slate-600">Staff only</span>
+          </label>
+
+          <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
+            <SubmitButton />
+            <span className="text-xs text-slate-400">
+              PDF or Word document · max 25 MB.
+            </span>
+            {result?.ok === false ? (
+              <span className="text-sm text-red-600">{result.error}</span>
+            ) : null}
+          </div>
+        </form>
+      ) : null}
+    </div>
+  );
+}
+
+function SubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      {pending ? "Uploading…" : "Upload policy"}
+    </button>
   );
 }
 

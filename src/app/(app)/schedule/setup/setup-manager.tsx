@@ -27,7 +27,7 @@ type SubTab = "departments" | "roles" | "shifts" | "employees" | "locations";
 const SUB_TABS: { key: SubTab; label: string }[] = [
   { key: "departments", label: "Departments" },
   { key: "roles", label: "Roles & Eligibility" },
-  { key: "shifts", label: "Shift Lines" },
+  { key: "shifts", label: "Week Template" },
   { key: "employees", label: "Employees" },
   { key: "locations", label: "Locations" },
 ];
@@ -498,7 +498,7 @@ function RoleEditor({
 }
 
 // ===========================================================================
-// Shift Lines (templates)
+// Week Template (shift template lines)
 // ===========================================================================
 
 function Shifts({ data }: { data: SetupData }) {
@@ -538,7 +538,7 @@ function Shifts({ data }: { data: SetupData }) {
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">
-          Shift lines
+          Week template
         </h2>
         <div className="space-y-4">
           {data.departments.map((dept) => {
@@ -586,7 +586,7 @@ function Shifts({ data }: { data: SetupData }) {
                   ))}
                   {lines.length === 0 && (
                     <li className="px-3 py-2 text-xs text-slate-400">
-                      No shift lines.
+                      No template lines.
                     </li>
                   )}
                 </ul>
@@ -598,7 +598,7 @@ function Shifts({ data }: { data: SetupData }) {
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold text-slate-700">
-          {editing ? "Edit shift line" : "New shift line"}
+          {editing ? "Edit template line" : "New template line"}
         </h2>
         <form action={submit} className="space-y-3" key={editing?.id ?? "new"}>
           {editing && <input type="hidden" name="id" value={editing.id} />}
