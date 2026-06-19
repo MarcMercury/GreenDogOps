@@ -9,7 +9,7 @@ import {
   SCHEDULE_STATUS_TONE,
   type SchedWeek,
 } from "@/lib/schedule/types";
-import { createWeek } from "./actions";
+import { copyPreviousWeek, createWeek } from "./actions";
 
 export function WeekPicker({
   weeks,
@@ -21,6 +21,7 @@ export function WeekPicker({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [newWeek, setNewWeek] = useState<string>(weekStartFor(new Date()));
+  const [error, setError] = useState<string | null>(null);
 
   function go(id: string) {
     router.push(`/schedule?week=${id}`);
@@ -28,11 +29,28 @@ export function WeekPicker({
 
   function create() {
     const ws = weekStartFor(new Date(`${newWeek}T00:00:00`));
+    setError(null);
     start(async () => {
       const res = await createWeek(ws);
       if (res.ok && res.data) {
         router.push(`/schedule?week=${res.data}`);
         router.refresh();
+      } else if (!res.ok) {
+        setError(res.error);
+      }
+    });
+  }
+
+  function copyPrevious() {
+    const ws = weekStartFor(new Date(`${newWeek}T00:00:00`));
+    setError(null);
+    start(async () => {
+      const res = await copyPreviousWeek(ws);
+      if (res.ok && res.data) {
+        router.push(`/schedule?week=${res.data}`);
+        router.refresh();
+      } else if (!res.ok) {
+        setError(res.error);
       }
     });
   }
@@ -77,6 +95,14 @@ export function WeekPicker({
           className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
         />
         <button
+          onClick={copyPrevious}
+          disabled={pending}
+          title="Create the week and copy every shift, person, and time from the most recent prior week"
+          className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
+        >
+          Copy previous week
+        </button>
+        <button
           onClick={create}
           disabled={pending}
           className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
@@ -84,6 +110,11 @@ export function WeekPicker({
           + Create / open week
         </button>
       </div>
+      {error && (
+        <p className="w-full text-right text-xs font-medium text-red-600">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

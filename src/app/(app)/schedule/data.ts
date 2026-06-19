@@ -58,7 +58,7 @@ export async function getSetupData(): Promise<SetupData> {
       supabase
         .from("person")
         .select(PERSON_COLS)
-        .eq("status", "employee")
+        .in("status", ["employee", "contractor"])
         .order("last_name"),
       getLocations(),
     ]);
@@ -154,7 +154,7 @@ export async function getAttendanceData(): Promise<{
     supabase
       .from("person")
       .select(PERSON_COLS)
-      .eq("status", "employee")
+      .in("status", ["employee", "contractor"])
       .order("last_name"),
   ]);
 

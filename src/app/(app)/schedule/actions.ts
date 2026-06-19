@@ -254,6 +254,162 @@ export async function createWeek(weekStart: string): Promise<ActionResult<string
   return { ok: true, data: weekId };
 }
 
+/**
+ * Create a week by cloning the most recent prior week: copies its shift lines,
+ * locations, closures, and every staffed assignment (same people, days, and
+ * times) into the new week. Attendance is reset to "scheduled". If the target
+ * week already exists it is rebuilt from the previous week.
+ */
+export async function copyPreviousWeek(
+  weekStart: string,
+): Promise<ActionResult<string>> {
+  const supabase = await createClient();
+  const me = await actor();
+
+  // Most recent existing week strictly before the new start date.
+  const { data: prev } = await supabase
+    .from("sched_week")
+    .select("id")
+    .lt("week_start", weekStart)
+    .order("week_start", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!prev)
+    return { ok: false, error: "There is no previous week to copy from." };
+  const prevId = (prev as { id: string }).id;
+
+  // Create the target week, or wipe an existing one so the copy is clean.
+  const { data: existing } = await supabase
+    .from("sched_week")
+    .select("id")
+    .eq("week_start", weekStart)
+    .maybeSingle();
+
+  let weekId: string;
+  if (existing) {
+    weekId = (existing as { id: string }).id;
+    await supabase.from("sched_assignment").delete().eq("week_id", weekId);
+    await supabase.from("sched_closure").delete().eq("week_id", weekId);
+    await supabase.from("sched_week_location").delete().eq("week_id", weekId);
+    await supabase.from("sched_week_line").delete().eq("week_id", weekId);
+  } else {
+    const { data: weekRow, error: weekErr } = await supabase
+      .from("sched_week")
+      .insert({ week_start: weekStart, status: "draft", created_by: me.id })
+      .select("id")
+      .single();
+    if (weekErr) return { ok: false, error: weekErr.message };
+    weekId = (weekRow as { id: string }).id;
+  }
+
+  // Copy shift lines, mapping each old line id to its new one.
+  const { data: prevLines } = await supabase
+    .from("sched_week_line")
+    .select("*")
+    .eq("week_id", prevId)
+    .order("sort_order");
+  const lineRows = (prevLines ?? []) as Record<string, unknown>[];
+  const lineIdMap = new Map<string, string>();
+  if (lineRows.length > 0) {
+    const { data: created, error } = await supabase
+      .from("sched_week_line")
+      .insert(
+        lineRows.map((l) => ({
+          week_id: weekId,
+          template_id: l.template_id,
+          department_id: l.department_id,
+          role_id: l.role_id,
+          label: l.label,
+          start_time: l.start_time,
+          end_time: l.end_time,
+          sort_order: l.sort_order,
+          is_adhoc: l.is_adhoc,
+        })),
+      )
+      .select("id");
+    if (error) return { ok: false, error: error.message };
+    const newLines = (created ?? []) as { id: string }[];
+    lineRows.forEach((l, i) => {
+      if (newLines[i]) lineIdMap.set(l.id as string, newLines[i].id);
+    });
+  }
+
+  // Copy week locations.
+  const { data: prevLocs } = await supabase
+    .from("sched_week_location")
+    .select("location_id, sort_order")
+    .eq("week_id", prevId);
+  const locRows = (prevLocs ?? []) as {
+    location_id: string;
+    sort_order: number;
+  }[];
+  if (locRows.length > 0)
+    await supabase.from("sched_week_location").insert(
+      locRows.map((l) => ({
+        week_id: weekId,
+        location_id: l.location_id,
+        sort_order: l.sort_order,
+      })),
+    );
+
+  // Copy closures.
+  const { data: prevClosures } = await supabase
+    .from("sched_closure")
+    .select("location_id, day_of_week, reason")
+    .eq("week_id", prevId);
+  const closureRows = (prevClosures ?? []) as {
+    location_id: string;
+    day_of_week: number;
+    reason: string | null;
+  }[];
+  if (closureRows.length > 0)
+    await supabase.from("sched_closure").insert(
+      closureRows.map((c) => ({
+        week_id: weekId,
+        location_id: c.location_id,
+        day_of_week: c.day_of_week,
+        reason: c.reason,
+      })),
+    );
+
+  // Copy staffed assignments — same people, days, and times — onto the new
+  // lines, with work dates recomputed for the new week and attendance reset.
+  const { data: prevAsg } = await supabase
+    .from("sched_assignment")
+    .select("line_id, location_id, person_id, day_of_week")
+    .eq("week_id", prevId)
+    .eq("removed_post_publish", false);
+  const asgInserts = ((prevAsg ?? []) as {
+    line_id: string;
+    location_id: string;
+    person_id: string;
+    day_of_week: number;
+  }[])
+    .map((a) => {
+      const newLineId = lineIdMap.get(a.line_id);
+      if (!newLineId) return null;
+      return {
+        week_id: weekId,
+        line_id: newLineId,
+        location_id: a.location_id,
+        person_id: a.person_id,
+        day_of_week: a.day_of_week,
+        work_date: dateForDay(weekStart, a.day_of_week),
+        created_by: me.id,
+      };
+    })
+    .filter(Boolean) as Record<string, unknown>[];
+  if (asgInserts.length > 0) {
+    const { error } = await supabase
+      .from("sched_assignment")
+      .insert(asgInserts);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  revalidateAll();
+  return { ok: true, data: weekId };
+}
+
 export async function setWeekLocations(
   weekId: string,
   locationIds: string[],

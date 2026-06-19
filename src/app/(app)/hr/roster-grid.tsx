@@ -77,7 +77,7 @@ export function RosterGrid({ rows }: { rows: RosterRow[] }) {
         <span className="font-medium text-slate-900">{displayName(r)}</span>
       ),
     },
-    { key: "grid", header: "Grid", value: (r) => r.grid_name },
+    { key: "email", header: "Email", value: (r) => r.email },
     { key: "title", header: "Title", value: jobTitle },
     {
       key: "location",
