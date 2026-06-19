@@ -136,6 +136,7 @@ export interface AttendanceRow {
   assignment: SchedAssignment;
   person: SchedPerson | null;
   week_start: string;
+  published: boolean;
 }
 
 /** Resolved-attendance assignments across published weeks, for the rollup. */
@@ -160,18 +161,21 @@ export async function getAttendanceData(): Promise<{
   const people = (peopleRes.data ?? []) as SchedPerson[];
   const personById = new Map(people.map((p) => [p.id, p]));
   const weekById = new Map(
-    ((weekRes.data ?? []) as { id: string; week_start: string }[]).map((w) => [
-      w.id,
-      w.week_start,
-    ]),
+    (
+      (weekRes.data ?? []) as { id: string; week_start: string; status: string }[]
+    ).map((w) => [w.id, w]),
   );
 
   const rows: AttendanceRow[] = ((asgRes.data ?? []) as SchedAssignment[]).map(
-    (a) => ({
-      assignment: a,
-      person: personById.get(a.person_id) ?? null,
-      week_start: weekById.get(a.week_id) ?? "",
-    }),
+    (a) => {
+      const week = weekById.get(a.week_id);
+      return {
+        assignment: a,
+        person: personById.get(a.person_id) ?? null,
+        week_start: week?.week_start ?? "",
+        published: week?.status === "published",
+      };
+    },
   );
 
   return { rows, people };

@@ -1,6 +1,7 @@
 import { PageHeader } from "../../_components/ui";
 import { getAttendanceData } from "../data";
 import {
+  effectiveAttendance,
   gridName,
   reliabilityScore,
   type AttendanceStatus,
@@ -41,7 +42,10 @@ export default async function AttendancePage() {
       });
     }
     const entry = byPerson.get(id)!;
-    const status = row.assignment.attendance_status as AttendanceStatus;
+    const status = effectiveAttendance(
+      row.assignment,
+      row.published,
+    ) as AttendanceStatus;
     entry.tally[status] += 1;
     if (status !== "scheduled") entry.tally.total += 1;
   }

@@ -68,6 +68,27 @@ export const MARKABLE_ATTENDANCE: AttendanceStatus[] = [
   "pto",
 ];
 
+/**
+ * Resolve the attendance status to display and count. On a published schedule a
+ * shift left unmarked ("scheduled") is assumed Present once its day has arrived
+ * — schedulers only need to mark the exceptions, not every present employee.
+ * Future shifts, removed shifts, and non-published weeks keep "scheduled".
+ */
+export function effectiveAttendance(
+  assignment: Pick<
+    SchedAssignment,
+    "attendance_status" | "work_date" | "removed_post_publish"
+  >,
+  published: boolean,
+  today: string = toISODate(new Date()),
+): AttendanceStatus {
+  const status = assignment.attendance_status;
+  if (status !== "scheduled") return status;
+  if (!published || assignment.removed_post_publish) return status;
+  if (assignment.work_date && assignment.work_date > today) return status;
+  return "present";
+}
+
 /** Days of the week, Sunday-first to match the legacy schedule layout. */
 export const DAY_LABELS = [
   "Sunday",

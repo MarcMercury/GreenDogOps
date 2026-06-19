@@ -12,6 +12,7 @@ import {
   SCHEDULE_STATUS_LABELS,
   SCHEDULE_STATUS_TONE,
   dateForDay,
+  effectiveAttendance,
   formatWeekRange,
   gridName,
   timeRange,
@@ -188,7 +189,7 @@ export function ScheduleGrid({
             <tr>
               <th
                 rowSpan={2}
-                className="sticky left-0 z-20 min-w-[180px] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left align-bottom text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+                className="sticky left-0 z-20 min-w-[180px] border-b border-r border-slate-300 bg-slate-50 px-3 py-2 text-left align-bottom text-[11px] font-semibold uppercase tracking-wide text-slate-500"
               >
                 Shift
               </th>
@@ -196,7 +197,7 @@ export function ScheduleGrid({
                 <th
                   key={d}
                   colSpan={Math.max(colCount, 1)}
-                  className="border-b border-l border-slate-200 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600"
+                  className="border-b border-l-2 border-b-slate-300 border-l-slate-400 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600"
                 >
                   {DAY_SHORT[d]}{" "}
                   <span className="font-normal text-slate-400">
@@ -212,17 +213,22 @@ export function ScheduleGrid({
                 shownLocations.length === 0 ? (
                   <th
                     key={d}
-                    className="border-b border-l border-slate-200 bg-slate-50 px-2 py-1 text-center text-[10px] text-slate-400"
+                    className="border-b border-l-2 border-b-slate-300 border-l-slate-400 bg-slate-50 px-2 py-1 text-center text-[10px] text-slate-400"
                   >
                     —
                   </th>
                 ) : (
-                  shownLocations.map((loc) => {
+                  shownLocations.map((loc, locIdx) => {
                     const closed = closureSet.has(`${loc.id}|${d}`);
+                    const dayStart = locIdx === 0;
                     return (
                       <th
                         key={`${d}-${loc.id}`}
-                        className="border-b border-l border-slate-200 bg-slate-50 px-1.5 py-1 text-center"
+                        className={`border-b border-b-slate-300 bg-slate-50 px-1.5 py-1 text-center ${
+                          dayStart
+                            ? "border-l-2 border-l-slate-400"
+                            : "border-l border-l-slate-300"
+                        }`}
                         style={{
                           borderTop: `2px solid ${loc.color ?? "#94a3b8"}`,
                         }}
@@ -265,7 +271,7 @@ export function ScheduleGrid({
                   <tr key={line.id} className="group/line hover:bg-slate-50/40">
                     <th
                       scope="row"
-                      className="sticky left-0 z-10 border-b border-r border-slate-100 bg-white px-3 py-1.5 text-left align-top"
+                      className="sticky left-0 z-10 border-b border-r border-slate-300 bg-white px-3 py-1.5 text-left align-top"
                       style={{ borderLeft: `3px solid ${dept.color}` }}
                     >
                       <div className="flex items-start justify-between gap-1">
@@ -309,10 +315,10 @@ export function ScheduleGrid({
                       shownLocations.length === 0 ? (
                         <td
                           key={d}
-                          className="border-b border-l border-slate-100 bg-slate-50/40"
+                          className="border-b border-b-slate-200 border-l-2 border-l-slate-400 bg-slate-50/40"
                         />
                       ) : (
-                        shownLocations.map((loc) => {
+                        shownLocations.map((loc, locIdx) => {
                           const closed = closureSet.has(`${loc.id}|${d}`);
                           const k = `${line.id}|${loc.id}|${d}`;
                           const cellAsgs = cellMap.get(k) ?? [];
@@ -321,6 +327,7 @@ export function ScheduleGrid({
                               key={`${d}-${loc.id}`}
                               closed={closed}
                               accent={loc.color ?? "#cbd5e1"}
+                              isDayStart={locIdx === 0}
                               assignments={cellAsgs}
                               personById={personById}
                               weeklyCount={weeklyCount}
@@ -690,6 +697,7 @@ function DeptSection({
 function Cell({
   closed,
   accent,
+  isDayStart,
   assignments,
   personById,
   weeklyCount,
@@ -700,6 +708,7 @@ function Cell({
 }: {
   closed: boolean;
   accent: string;
+  isDayStart?: boolean;
   assignments: SchedAssignment[];
   personById: Map<string, SchedPerson>;
   weeklyCount: Map<string, number>;
@@ -708,10 +717,13 @@ function Cell({
   onRemove: (id: string) => void;
   onAttendance: (id: string) => void;
 }) {
+  const dayBorder = isDayStart
+    ? "border-l-2 border-l-slate-400"
+    : "border-l border-l-slate-200";
   if (closed) {
     return (
       <td
-        className="border-b border-l border-slate-100 bg-[repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9_6px,#e2e8f0_6px,#e2e8f0_12px)] text-center align-middle"
+        className={`border-b border-b-slate-200 ${dayBorder} bg-[repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9_6px,#e2e8f0_6px,#e2e8f0_12px)] text-center align-middle`}
         title="Location closed"
       >
         <span className="text-[9px] font-semibold uppercase text-slate-400">
@@ -725,13 +737,17 @@ function Cell({
 
   return (
     <td
-      className="group border-b border-l border-slate-100 align-top"
-      style={{ minWidth: 96, borderLeftColor: `${accent}33` }}
+      className={`group border-b border-b-slate-200 ${dayBorder} align-top`}
+      style={{
+        minWidth: 96,
+        backgroundColor: `${accent}14`,
+        ...(isDayStart ? {} : { borderLeftColor: `${accent}55` }),
+      }}
     >
       <div className="flex min-h-[34px] flex-col gap-0.5 p-1">
         {visible.map((a) => {
           const p = personById.get(a.person_id);
-          const att = a.attendance_status;
+          const att = effectiveAttendance(a, isPublished);
           const marked = att !== "scheduled";
           return (
             <div
@@ -1058,7 +1074,7 @@ function AttendanceMenu({
             <p className="text-xs text-slate-500">
               Current:{" "}
               <span className="font-medium">
-                {ATTENDANCE_LABELS[assignment.attendance_status]}
+                {ATTENDANCE_LABELS[effectiveAttendance(assignment, true)]}
               </span>
             </p>
           </div>
@@ -1089,7 +1105,7 @@ function AttendanceMenu({
             onClick={() => onMark("scheduled", note.trim() || null)}
             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50"
           >
-            Reset to Scheduled
+            Clear marking (assume Present)
           </button>
         </div>
       </div>
