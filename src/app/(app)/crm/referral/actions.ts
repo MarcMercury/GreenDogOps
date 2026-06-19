@@ -498,6 +498,57 @@ export async function geocodePartners(): Promise<GeocodeResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Persist client-resolved coordinates for the Map View
+// ---------------------------------------------------------------------------
+// The browser geocodes addresses with the referrer-restricted public Maps key
+// (the Google Geocoding *web service* rejects referrer-restricted keys, but the
+// in-browser Geocoder accepts them). This action just stores the results.
+export type SaveCoordsInput = {
+  id: string;
+  lat: number;
+  lng: number;
+  address: string;
+};
+
+export async function savePartnerCoords(
+  updates: SaveCoordsInput[],
+): Promise<ActionResult> {
+  await requireReferralUser();
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return { ok: true, message: "Nothing to save." };
+  }
+
+  const admin = createAdminClient();
+  const now = new Date().toISOString();
+  let saved = 0;
+
+  for (const u of updates) {
+    if (
+      !u?.id ||
+      typeof u.lat !== "number" ||
+      typeof u.lng !== "number" ||
+      !Number.isFinite(u.lat) ||
+      !Number.isFinite(u.lng)
+    ) {
+      continue;
+    }
+    const { error } = await admin
+      .from("referral_partners")
+      .update({
+        latitude: u.lat,
+        longitude: u.lng,
+        geocoded_at: now,
+        geocoded_address: (u.address ?? "").trim() || null,
+      })
+      .eq("id", u.id);
+    if (!error) saved++;
+  }
+
+  if (saved > 0) revalidatePath("/crm/referral");
+  return { ok: true, message: `Saved ${saved} location${saved === 1 ? "" : "s"}.` };
+}
+
+// ---------------------------------------------------------------------------
 // Clear all referral stats (destructive — admin only)
 // ---------------------------------------------------------------------------
 export async function clearReferralStats(): Promise<ActionResult> {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ReferralPartner,
   ZONE_DEFINITIONS,
@@ -10,7 +11,7 @@ import {
   partnerName,
   titleCase,
 } from "@/lib/crm/referral-types";
-import { geocodePartners } from "./actions";
+import { savePartnerCoords, type SaveCoordsInput } from "./actions";
 
 // ---------------------------------------------------------------------------
 // Minimal structural typings for the bits of the Google Maps JS API we use.
@@ -37,11 +38,21 @@ interface GMapInstance {
   setZoom(z: number): void;
   addListener(event: string, handler: () => void): void;
 }
+interface GGeocoderResult {
+  geometry: { location: { lat(): number; lng(): number } };
+}
+interface GGeocoder {
+  geocode(
+    request: { address: string },
+    callback: (results: GGeocoderResult[] | null, status: string) => void,
+  ): void;
+}
 interface MapsNamespace {
   Map: new (el: HTMLElement, opts: Record<string, unknown>) => GMapInstance;
   Marker: new (opts: Record<string, unknown>) => GMarker;
   InfoWindow: new (opts?: Record<string, unknown>) => GInfoWindow;
   LatLngBounds: new () => GBounds;
+  Geocoder: new () => GGeocoder;
   SymbolPath: { CIRCLE: number };
   event: { removeListener(l: unknown): void };
 }
@@ -88,6 +99,7 @@ function loadGoogleMaps(apiKey: string): Promise<MapsNamespace> {
       key: apiKey,
       callback: callbackName,
       loading: "async",
+      libraries: "geocoding",
       v: "weekly",
     });
     script.src = `https://maps.googleapis.com/maps/api/js?${params.toString()}`;
@@ -148,7 +160,9 @@ export function PartnerMap({
   const [partnerStatus, setPartnerStatus] = useState("");
   const [search, setSearch] = useState("");
 
-  const [geocoding, startGeocode] = useTransition();
+  const [geocoding, setGeocoding] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
+  const router = useRouter();
 
   const hasCoords = useCallback(
     (p: ReferralPartner) => typeof p.latitude === "number" && typeof p.longitude === "number",
@@ -292,10 +306,65 @@ export function PartnerMap({
   }, [visible, status]);
 
   function runGeocode() {
-    startGeocode(async () => {
-      const r = await geocodePartners();
-      onNotify(r.ok ? r.message : `Geocode error: ${r.error}`);
-    });
+    const maps = mapsRef.current;
+    if (!maps || geocoding) return;
+    const pending = needsGeocode.filter((p) => p.address?.trim());
+    if (pending.length === 0) return;
+
+    const geocoder = new maps.Geocoder();
+    setGeocoding(true);
+    setProgress(`Geocoding 0 / ${pending.length}…`);
+
+    const geocodeOne = (address: string) =>
+      new Promise<{ lat: number; lng: number } | null>((resolve) => {
+        geocoder.geocode({ address }, (results, gStatus) => {
+          if (gStatus === "OK" && results && results[0]) {
+            const loc = results[0].geometry.location;
+            resolve({ lat: loc.lat(), lng: loc.lng() });
+          } else {
+            resolve(null);
+          }
+        });
+      });
+
+    (async () => {
+      let ok = 0;
+      let fail = 0;
+      let buffer: SaveCoordsInput[] = [];
+
+      for (let i = 0; i < pending.length; i++) {
+        const p = pending[i];
+        const address = (p.address as string).trim();
+        setProgress(`Geocoding ${i + 1} / ${pending.length}…`);
+        try {
+          const loc = await geocodeOne(address);
+          if (loc) {
+            buffer.push({ id: p.id, lat: loc.lat, lng: loc.lng, address });
+            ok++;
+          } else {
+            fail++;
+          }
+        } catch {
+          fail++;
+        }
+        // Persist in small batches so progress survives a refresh.
+        if (buffer.length >= 25) {
+          await savePartnerCoords(buffer);
+          buffer = [];
+        }
+        // Throttle to stay within Google's per-second geocoding limits.
+        await new Promise((r) => setTimeout(r, 120));
+      }
+
+      if (buffer.length > 0) await savePartnerCoords(buffer);
+
+      setGeocoding(false);
+      setProgress(null);
+      onNotify(
+        `Plotted ${ok} clinic${ok === 1 ? "" : "s"}.${fail ? ` ${fail} address${fail === 1 ? "" : "es"} couldn't be located.` : ""}`,
+      );
+      router.refresh();
+    })();
   }
 
   const filtersActive = zone || tier || priority || partnerStatus || search;
@@ -366,7 +435,9 @@ export function PartnerMap({
                 disabled={geocoding}
                 className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
               >
-                {geocoding ? "Plotting…" : `📍 Plot ${needsGeocode.length} clinic${needsGeocode.length === 1 ? "" : "s"}`}
+                {geocoding
+                  ? progress ?? "Plotting…"
+                  : `📍 Plot ${needsGeocode.length} clinic${needsGeocode.length === 1 ? "" : "s"}`}
               </button>
             )}
           </div>
