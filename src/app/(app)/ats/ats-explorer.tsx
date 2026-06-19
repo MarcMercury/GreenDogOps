@@ -52,7 +52,6 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
     { label: "Interviews Set", value: String(upcomingInterviews), tone: "text-violet-700" },
     { label: "Hired", value: String(counts.hired ?? 0), tone: "text-indigo-700" },
     { label: "Keep for Future", value: String(counts.future ?? 0), tone: "text-sky-700" },
-    { label: "No Response", value: String(counts.no_response ?? 0), tone: "text-amber-600" },
     { label: "Passed", value: String(counts.passed ?? 0), tone: "text-red-600" },
   ];
 
