@@ -273,6 +273,27 @@ export async function setWeekLocations(
   return { ok: true };
 }
 
+/**
+ * Resolve the role id for a week line: use an existing role id when provided,
+ * otherwise create a new role in the department from a typed name.
+ */
+async function resolveRoleId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  departmentId: string,
+  roleId: string | null,
+  newRoleName: string | null,
+): Promise<{ id: string | null } | { error: string }> {
+  if (roleId) return { id: roleId };
+  if (!newRoleName) return { id: null };
+  const { data, error } = await supabase
+    .from("sched_role")
+    .insert({ department_id: departmentId, name: newRoleName, sort_order: 9999 })
+    .select("id")
+    .single();
+  if (error) return { error: error.message };
+  return { id: (data as { id: string }).id };
+}
+
 /** Add an ad-hoc shift line to a week (not derived from a template). */
 export async function addWeekLine(formData: FormData): Promise<ActionResult> {
   const supabase = await createClient();
@@ -281,16 +302,56 @@ export async function addWeekLine(formData: FormData): Promise<ActionResult> {
   if (!weekId || !departmentId)
     return { ok: false, error: "Missing week or department." };
 
+  const role = await resolveRoleId(
+    supabase,
+    departmentId,
+    str(formData.get("role_id")),
+    str(formData.get("new_role_name")),
+  );
+  if ("error" in role) return { ok: false, error: role.error };
+
   const { error } = await supabase.from("sched_week_line").insert({
     week_id: weekId,
     department_id: departmentId,
-    role_id: str(formData.get("role_id")),
+    role_id: role.id,
     label: str(formData.get("label")),
     start_time: str(formData.get("start_time")),
     end_time: str(formData.get("end_time")),
     sort_order: int(formData.get("sort_order"), 9999),
     is_adhoc: true,
   });
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  return { ok: true };
+}
+
+/** Edit an existing shift line on a week's grid. */
+export async function updateWeekLine(formData: FormData): Promise<ActionResult> {
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const departmentId = str(formData.get("department_id"));
+  if (!id) return { ok: false, error: "Missing line id." };
+  if (!departmentId) return { ok: false, error: "Pick a department." };
+
+  const role = await resolveRoleId(
+    supabase,
+    departmentId,
+    str(formData.get("role_id")),
+    str(formData.get("new_role_name")),
+  );
+  if ("error" in role) return { ok: false, error: role.error };
+
+  const { error } = await supabase
+    .from("sched_week_line")
+    .update({
+      department_id: departmentId,
+      role_id: role.id,
+      label: str(formData.get("label")),
+      start_time: str(formData.get("start_time")),
+      end_time: str(formData.get("end_time")),
+      sort_order: int(formData.get("sort_order"), 9999),
+    })
+    .eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidateAll();
   return { ok: true };

@@ -236,8 +236,6 @@ function Roles({ data }: { data: SetupData }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState<SchedRole | null>(null);
-  const [eligibleFor, setEligibleFor] = useState<SchedRole | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const membersByRole = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -247,18 +245,6 @@ function Roles({ data }: { data: SetupData }) {
     }
     return m;
   }, [data.members]);
-
-  function submit(fd: FormData) {
-    setError(null);
-    start(async () => {
-      const res = await saveRole(fd);
-      if (!res.ok) setError(res.error);
-      else {
-        setEditing(null);
-        router.refresh();
-      }
-    });
-  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -290,7 +276,7 @@ function Roles({ data }: { data: SetupData }) {
                           {r.name}
                         </span>
                         <button
-                          onClick={() => setEligibleFor(r)}
+                          onClick={() => setEditing(r)}
                           className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
                         >
                           {count} eligible
@@ -332,91 +318,41 @@ function Roles({ data }: { data: SetupData }) {
         </div>
       </Card>
 
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">
-          {editing ? "Edit role" : "New role"}
-        </h2>
-        <form action={submit} className="space-y-3" key={editing?.id ?? "new"}>
-          {editing && <input type="hidden" name="id" value={editing.id} />}
-          <label className="block text-xs font-medium text-slate-500">
-            Department
-            <select
-              name="department_id"
-              defaultValue={editing?.department_id ?? ""}
-              required
-              className={`mt-1 w-full ${inputCls}`}
-            >
-              <option value="">Select…</option>
-              {data.departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block text-xs font-medium text-slate-500">
-            Role / title
-            <input
-              name="name"
-              defaultValue={editing?.name ?? ""}
-              required
-              className={`mt-1 w-full ${inputCls}`}
-              placeholder="Surgery Tech"
-            />
-          </label>
-          <label className="block text-xs font-medium text-slate-500">
-            Order
-            <input
-              name="sort_order"
-              type="number"
-              defaultValue={editing?.sort_order ?? 0}
-              className={`mt-1 w-20 ${inputCls}`}
-            />
-          </label>
-          {error && <p className="text-xs text-red-600">{error}</p>}
-          <div className="flex gap-2">
-            <button type="submit" disabled={pending} className={btnPrimary}>
-              {editing ? "Save" : "Add"}
-            </button>
-            {editing && (
-              <button
-                type="button"
-                onClick={() => setEditing(null)}
-                className={btnGhost}
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </Card>
-
-      {eligibleFor && (
-        <EligibilityModal
-          role={eligibleFor}
-          data={data}
-          current={membersByRole.get(eligibleFor.id) ?? new Set()}
-          onClose={() => setEligibleFor(null)}
-        />
-      )}
+      <RoleEditor
+        key={editing?.id ?? "new"}
+        data={data}
+        editing={editing}
+        initialMembers={
+          editing ? membersByRole.get(editing.id) ?? new Set() : new Set()
+        }
+        onCancel={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          router.refresh();
+        }}
+      />
     </div>
   );
 }
 
-function EligibilityModal({
-  role,
+function RoleEditor({
   data,
-  current,
-  onClose,
+  editing,
+  initialMembers,
+  onCancel,
+  onSaved,
 }: {
-  role: SchedRole;
   data: SetupData;
-  current: Set<string>;
-  onClose: () => void;
+  editing: SchedRole | null;
+  initialMembers: Set<string>;
+  onCancel: () => void;
+  onSaved: () => void;
 }) {
-  const router = useRouter();
   const [pending, start] = useTransition();
-  const [selected, setSelected] = useState<Set<string>>(new Set(current));
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(initialMembers),
+  );
   const [q, setQ] = useState("");
 
   const people = useMemo(() => {
@@ -435,63 +371,129 @@ function EligibilityModal({
     });
   }
 
-  function save() {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const fd = new FormData(e.currentTarget);
     start(async () => {
-      await setRoleMembers(role.id, [...selected]);
-      onClose();
-      router.refresh();
+      const res = await saveRole(fd);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      if (editing) {
+        const memRes = await setRoleMembers(editing.id, [...selected]);
+        if (!memRes.ok) {
+          setError(memRes.error);
+          return;
+        }
+      }
+      onSaved();
     });
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 p-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800">
-              Eligible employees
-            </h3>
-            <p className="text-xs text-slate-500">
-              {role.name} · {selected.size} selected
-            </p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            ✕
-          </button>
-        </div>
-        <div className="border-b border-slate-100 p-3">
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold text-slate-700">
+        {editing ? "Edit role" : "New role"}
+      </h2>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {editing && <input type="hidden" name="id" value={editing.id} />}
+        <label className="block text-xs font-medium text-slate-500">
+          Department
+          <select
+            name="department_id"
+            defaultValue={editing?.department_id ?? ""}
+            required
+            className={`mt-1 w-full ${inputCls}`}
+          >
+            <option value="">Select…</option>
+            {data.departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-xs font-medium text-slate-500">
+          Role / title
           <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search employees…"
-            className={`w-full ${inputCls}`}
+            name="name"
+            defaultValue={editing?.name ?? ""}
+            required
+            className={`mt-1 w-full ${inputCls}`}
+            placeholder="Surgery Tech"
           />
-        </div>
-        <ul className="flex-1 overflow-y-auto p-2">
-          {people.map((p) => (
-            <li key={p.id}>
-              <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50">
-                <input
-                  type="checkbox"
-                  checked={selected.has(p.id)}
-                  onChange={() => toggle(p.id)}
-                />
-                <span className="text-sm text-slate-700">{gridName(p)}</span>
-              </label>
-            </li>
-          ))}
-        </ul>
-        <div className="flex justify-end gap-2 border-t border-slate-200 p-3">
-          <button onClick={onClose} className={btnGhost}>
-            Cancel
+        </label>
+        <label className="block text-xs font-medium text-slate-500">
+          Order
+          <input
+            name="sort_order"
+            type="number"
+            defaultValue={editing?.sort_order ?? 0}
+            className={`mt-1 w-20 ${inputCls}`}
+          />
+        </label>
+
+        {editing ? (
+          <div className="space-y-2 border-t border-slate-100 pt-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-600">
+                Eligible employees
+              </p>
+              <span className="text-[11px] text-slate-400">
+                {selected.size} selected
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Only these employees appear when assigning this role on the grid.
+            </p>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search employees…"
+              className={`w-full ${inputCls}`}
+            />
+            <ul className="max-h-56 overflow-y-auto rounded-lg border border-slate-100 p-1">
+              {people.map((p) => (
+                <li key={p.id}>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(p.id)}
+                      onChange={() => toggle(p.id)}
+                    />
+                    <span className="text-sm text-slate-700">{gridName(p)}</span>
+                  </label>
+                </li>
+              ))}
+              {people.length === 0 && (
+                <li className="px-2 py-4 text-center text-xs text-slate-400">
+                  No employees match.
+                </li>
+              )}
+            </ul>
+          </div>
+        ) : (
+          <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
+            Add the role first, then click Edit to choose which employees are
+            eligible for it.
+          </p>
+        )}
+
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <div className="flex gap-2">
+          <button type="submit" disabled={pending} className={btnPrimary}>
+            {editing ? "Save" : "Add"}
           </button>
-          <button onClick={save} disabled={pending} className={btnPrimary}>
-            Save eligibility
-          </button>
+          {editing && (
+            <button type="button" onClick={onCancel} className={btnGhost}>
+              Cancel
+            </button>
+          )}
         </div>
-      </div>
-    </div>
+      </form>
+    </Card>
   );
 }
 

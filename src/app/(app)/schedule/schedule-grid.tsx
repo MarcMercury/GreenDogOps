@@ -17,6 +17,7 @@ import {
   timeRange,
   type AttendanceStatus,
   type SchedAssignment,
+  type SchedDepartment,
   type SchedPerson,
   type SchedRole,
   type SchedWeek,
@@ -31,6 +32,10 @@ import {
   toggleClosure,
   setWeekStatus,
   addWeekLine,
+  updateWeekLine,
+  removeWeekLine,
+  saveDepartment,
+  deleteDepartment,
   applyDefaultTemplate,
 } from "./actions";
 
@@ -151,7 +156,13 @@ export function ScheduleGrid({
   // UI state
   const [picker, setPicker] = useState<CellKey | null>(null);
   const [attMenu, setAttMenu] = useState<string | null>(null);
-  const [addLine, setAddLine] = useState(false);
+  const [lineModal, setLineModal] = useState<{
+    line: SchedWeekLine | null;
+    deptId?: string;
+  } | null>(null);
+  const [deptModal, setDeptModal] = useState<{
+    dept: SchedDepartment | null;
+  } | null>(null);
 
   const colCount = shownLocations.length;
 
@@ -243,28 +254,56 @@ export function ScheduleGrid({
             {grouped.map(({ dept, lines: deptLines }) => (
               <DeptSection
                 key={dept.id}
-                deptName={dept.name}
-                deptColor={dept.color}
+                dept={dept}
                 span={1 + DAYS.length * Math.max(colCount, 1)}
+                onAddLine={() =>
+                  setLineModal({ line: null, deptId: dept.id })
+                }
+                onEditDept={() => setDeptModal({ dept })}
               >
                 {deptLines.map((line) => (
-                  <tr key={line.id} className="hover:bg-slate-50/40">
+                  <tr key={line.id} className="group/line hover:bg-slate-50/40">
                     <th
                       scope="row"
                       className="sticky left-0 z-10 border-b border-r border-slate-100 bg-white px-3 py-1.5 text-left align-top"
                       style={{ borderLeft: `3px solid ${dept.color}` }}
                     >
-                      <span className="block text-[12px] font-medium text-slate-800">
-                        {line.label || roleName(line.role_id) || "Shift"}
-                        {line.is_adhoc && (
-                          <span className="ml-1 rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-700">
-                            +
+                      <div className="flex items-start justify-between gap-1">
+                        <div className="min-w-0">
+                          <span className="block text-[12px] font-medium text-slate-800">
+                            {line.label || roleName(line.role_id) || "Shift"}
+                            {line.is_adhoc && (
+                              <span className="ml-1 rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-700">
+                                +
+                              </span>
+                            )}
                           </span>
-                        )}
-                      </span>
-                      <span className="block font-mono text-[10px] text-slate-400">
-                        {timeRange(line.start_time, line.end_time)}
-                      </span>
+                          <span className="block font-mono text-[10px] text-slate-400">
+                            {timeRange(line.start_time, line.end_time)}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 gap-1 opacity-0 transition group-hover/line:opacity-100 print:hidden">
+                          <button
+                            onClick={() => setLineModal({ line })}
+                            title="Edit shift line"
+                            className="text-[11px] text-slate-400 hover:text-emerald-600"
+                          >
+                            ✎
+                          </button>
+                          <button
+                            onClick={() =>
+                              start(async () => {
+                                await removeWeekLine(line.id);
+                                router.refresh();
+                              })
+                            }
+                            title="Delete this row"
+                            className="text-[11px] text-slate-400 hover:text-red-500"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
                     </th>
                     {DAYS.map((d) =>
                       shownLocations.length === 0 ? (
@@ -355,7 +394,13 @@ export function ScheduleGrid({
             </button>
           )}
           <button
-            onClick={() => setAddLine(true)}
+            onClick={() => setDeptModal({ dept: null })}
+            className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-emerald-400 hover:text-emerald-600"
+          >
+            + Add department
+          </button>
+          <button
+            onClick={() => setLineModal({ line: null })}
             className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-emerald-400 hover:text-emerald-600"
           >
             + Add shift line
@@ -363,14 +408,27 @@ export function ScheduleGrid({
         </div>
       </div>
 
-      {addLine && (
-        <AddLineModal
+      {lineModal && (
+        <LineModal
           weekId={week.id}
           departments={setup.departments}
           roles={setup.roles}
-          onClose={() => setAddLine(false)}
+          line={lineModal.line}
+          defaultDeptId={lineModal.deptId}
+          onClose={() => setLineModal(null)}
           onDone={() => {
-            setAddLine(false);
+            setLineModal(null);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {deptModal && (
+        <DeptModal
+          dept={deptModal.dept}
+          onClose={() => setDeptModal(null)}
+          onDone={() => {
+            setDeptModal(null);
             router.refresh();
           }}
         />
@@ -581,14 +639,16 @@ function WorkflowButtons({
 // ---------------------------------------------------------------------------
 
 function DeptSection({
-  deptName,
-  deptColor,
+  dept,
   span,
+  onAddLine,
+  onEditDept,
   children,
 }: {
-  deptName: string;
-  deptColor: string;
+  dept: SchedDepartment;
   span: number;
+  onAddLine: () => void;
+  onEditDept: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -596,10 +656,26 @@ function DeptSection({
       <tr>
         <td
           colSpan={span}
-          className="sticky left-0 z-10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white"
-          style={{ background: deptColor }}
+          className="group/dept sticky left-0 z-10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white"
+          style={{ background: dept.color }}
         >
-          {deptName}
+          <div className="flex items-center gap-2">
+            <span className="flex-1">{dept.name}</span>
+            <button
+              onClick={onAddLine}
+              title="Add shift line to this department"
+              className="rounded bg-white/20 px-1.5 text-[10px] font-semibold opacity-0 transition hover:bg-white/30 group-hover/dept:opacity-100 print:hidden"
+            >
+              + line
+            </button>
+            <button
+              onClick={onEditDept}
+              title="Edit department"
+              className="text-[11px] opacity-0 transition hover:text-white/80 group-hover/dept:opacity-100 print:hidden"
+            >
+              ✎
+            </button>
+          </div>
         </td>
       </tr>
       {children}
@@ -1022,31 +1098,50 @@ function AttendanceMenu({
 }
 
 // ---------------------------------------------------------------------------
-// Add an ad-hoc shift line to the week
+// Add or edit a shift line on the week's grid
 // ---------------------------------------------------------------------------
 
-function AddLineModal({
+function LineModal({
   weekId,
   departments,
   roles,
+  line,
+  defaultDeptId,
   onClose,
   onDone,
 }: {
   weekId: string;
   departments: SetupData["departments"];
   roles: SetupData["roles"];
+  line: SchedWeekLine | null;
+  defaultDeptId?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
   const [, start] = useTransition();
-  const [deptId, setDeptId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [deptId, setDeptId] = useState(
+    line?.department_id ?? defaultDeptId ?? "",
+  );
+  // "" = any · "__new__" = create role inline · otherwise an existing role id.
+  const [roleSel, setRoleSel] = useState<string>(line?.role_id ?? "");
   const deptRoles = roles.filter((r) => r.department_id === deptId);
 
   function submit(fd: FormData) {
+    setError(null);
     fd.set("week_id", weekId);
+    fd.set("department_id", deptId);
+    if (line) fd.set("id", line.id);
+    if (roleSel === "__new__") {
+      fd.set("role_id", "");
+    } else {
+      fd.set("role_id", roleSel);
+      fd.delete("new_role_name");
+    }
     start(async () => {
-      await addWeekLine(fd);
-      onDone();
+      const res = line ? await updateWeekLine(fd) : await addWeekLine(fd);
+      if (!res.ok) setError(res.error);
+      else onDone();
     });
   }
 
@@ -1058,7 +1153,7 @@ function AddLineModal({
       >
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-800">
-            Add shift line to this week
+            {line ? "Edit shift line" : "Add shift line"}
           </h3>
           <button
             type="button"
@@ -1071,9 +1166,11 @@ function AddLineModal({
         <label className="block text-xs font-medium text-slate-500">
           Department
           <select
-            name="department_id"
             value={deptId}
-            onChange={(e) => setDeptId(e.target.value)}
+            onChange={(e) => {
+              setDeptId(e.target.value);
+              setRoleSel("");
+            }}
             required
             className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
           >
@@ -1088,8 +1185,10 @@ function AddLineModal({
         <label className="block text-xs font-medium text-slate-500">
           Role (eligibility)
           <select
-            name="role_id"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+            value={roleSel}
+            onChange={(e) => setRoleSel(e.target.value)}
+            disabled={!deptId}
+            className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none disabled:bg-slate-50"
           >
             <option value="">— any —</option>
             {deptRoles.map((r) => (
@@ -1097,12 +1196,28 @@ function AddLineModal({
                 {r.name}
               </option>
             ))}
+            <option value="__new__">+ New role…</option>
           </select>
         </label>
+        {roleSel === "__new__" && (
+          <label className="block text-xs font-medium text-slate-500">
+            New role name
+            <input
+              name="new_role_name"
+              required
+              placeholder="e.g. Surgery Tech"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+            <span className="mt-1 block text-[10px] text-slate-400">
+              Set who is eligible for it in Set Up → Roles &amp; Eligibility.
+            </span>
+          </label>
+        )}
         <label className="block text-xs font-medium text-slate-500">
           Label (optional)
           <input
             name="label"
+            defaultValue={line?.label ?? ""}
             placeholder="e.g. Float / Coverage"
             className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
           />
@@ -1113,6 +1228,7 @@ function AddLineModal({
             <input
               name="start_time"
               type="time"
+              defaultValue={line?.start_time ?? ""}
               className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
             />
           </label>
@@ -1121,6 +1237,7 @@ function AddLineModal({
             <input
               name="end_time"
               type="time"
+              defaultValue={line?.end_time ?? ""}
               className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
             />
           </label>
@@ -1129,11 +1246,12 @@ function AddLineModal({
             <input
               name="sort_order"
               type="number"
-              defaultValue={9999}
+              defaultValue={line?.sort_order ?? 9999}
               className="mt-1 w-16 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
             />
           </label>
         </div>
+        {error && <p className="text-xs text-red-600">{error}</p>}
         <div className="flex justify-end gap-2 pt-1">
           <button
             type="button"
@@ -1146,10 +1264,149 @@ function AddLineModal({
             type="submit"
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
           >
-            Add line
+            {line ? "Save" : "Add line"}
           </button>
         </div>
       </form>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add or edit a department directly from the grid
+// ---------------------------------------------------------------------------
+
+function DeptModal({
+  dept,
+  onClose,
+  onDone,
+}: {
+  dept: SchedDepartment | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(fd: FormData) {
+    setError(null);
+    if (dept) fd.set("id", dept.id);
+    start(async () => {
+      const res = await saveDepartment(fd);
+      if (!res.ok) setError(res.error);
+      else onDone();
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <form
+        action={submit}
+        className="w-full max-w-sm space-y-3 rounded-xl bg-white p-4 shadow-xl"
+      >
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-800">
+            {dept ? "Edit department" : "Add department"}
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            ✕
+          </button>
+        </div>
+        <label className="block text-xs font-medium text-slate-500">
+          Name
+          <input
+            name="name"
+            defaultValue={dept?.name ?? ""}
+            required
+            placeholder="e.g. Surgery"
+            className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+          />
+        </label>
+        <div className="flex gap-3">
+          <label className="block text-xs font-medium text-slate-500">
+            Color
+            <input
+              name="color"
+              type="color"
+              defaultValue={dept?.color ?? "#64748b"}
+              className="mt-1 block h-9 w-16 cursor-pointer rounded border border-slate-300"
+            />
+          </label>
+          <label className="block text-xs font-medium text-slate-500">
+            Order
+            <input
+              name="sort_order"
+              type="number"
+              defaultValue={dept?.sort_order ?? 9999}
+              className="mt-1 w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+          </label>
+        </div>
+        <input type="hidden" name="is_active" value="on" />
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <div className="flex items-center justify-between gap-2 pt-1">
+          {dept ? (
+            <DeleteDeptButton dept={dept} onDone={onDone} setError={setError} />
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {dept ? "Save" : "Add"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function DeleteDeptButton({
+  dept,
+  onDone,
+  setError,
+}: {
+  dept: SchedDepartment;
+  onDone: () => void;
+  setError: (s: string | null) => void;
+}) {
+  const [pending, start] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => {
+        if (
+          !confirm(
+            `Delete department "${dept.name}"? Its roles and shift lines will be removed.`,
+          )
+        )
+          return;
+        setError(null);
+        start(async () => {
+          const res = await deleteDepartment(dept.id);
+          if (!res.ok) setError(res.error);
+          else onDone();
+        });
+      }}
+      className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+    >
+      Delete
+    </button>
   );
 }
