@@ -113,6 +113,16 @@ export interface PersonReview {
   updated_at: string;
 }
 
+export interface PersonPtoDay {
+  id: string;
+  person_id: string;
+  pto_date: string;
+  hours: number | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PersonAsset {
   id: string;
   person_id: string;
@@ -163,8 +173,16 @@ export interface PersonRecruitingSummary {
   updated_at: string | null;
 }
 
-export const REVIEW_TYPE_LABELS: Record<string, string> = {
-  annual: "Annual Review",
+/** Standard pay-type options for the compensation dropdown. */
+export const PAY_TYPE_LABELS: Record<string, string> = {
+  Hourly: "Hourly",
+  Salary: "Salary",
+  Commission: "Commission",
+  "Per Diem": "Per Diem",
+  Contract: "Contract (1099)",
+};
+
+export const REVIEW_TYPE_LABELS: Record<string, string> = {  annual: "Annual Review",
   ninety_day: "90-Day Review",
   performance: "Performance Review",
   disciplinary: "Disciplinary",

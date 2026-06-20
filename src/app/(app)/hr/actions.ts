@@ -217,9 +217,52 @@ export async function deleteAsset(
 }
 
 // ---------------------------------------------------------------------------
-// Documents (file uploads go to the private employee-documents Storage bucket)
+// PTO days (itemized list behind the Attendance tab)
 // ---------------------------------------------------------------------------
 
+export async function savePtoDay(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const ptoDate = str(formData.get("pto_date"));
+  if (!ptoDate) return { ok: false, error: "A date is required." };
+
+  const { error } = await supabase.from("person_pto_day").insert({
+    person_id: personId,
+    pto_date: ptoDate,
+    hours: num(formData.get("hours")),
+    note: str(formData.get("note")),
+  });
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+export async function deletePtoDay(
+  personId: string,
+  ptoDayId: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_pto_day")
+    .delete()
+    .eq("id", ptoDayId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Documents (file uploads go to the private employee-documents Storage bucket)
+// ---------------------------------------------------------------------------
 export async function uploadDocument(
   personId: string,
   _prev: SaveResult | null,

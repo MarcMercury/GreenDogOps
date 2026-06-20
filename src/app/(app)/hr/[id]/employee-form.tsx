@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { RosterRow } from "@/lib/hr/types";
+import { PAY_TYPE_LABELS } from "@/lib/hr/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { updateEmployee, type SaveResult } from "../actions";
 
@@ -30,6 +31,49 @@ export function Field({
         step={type === "number" ? "any" : undefined}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
       />
+    </label>
+  );
+}
+
+/** Format a numeric value for display in a currency input (commas, up to 2dp). */
+function formatCurrencyInput(raw: string | number | null | undefined): string {
+  if (raw == null || raw === "") return "";
+  const n =
+    typeof raw === "number" ? raw : Number(String(raw).replace(/[$,\s]/g, ""));
+  if (!Number.isFinite(n)) return typeof raw === "string" ? raw : "";
+  return n.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
+/** A text input that shows a leading "$" and formats with commas on blur. */
+export function CurrencyField({
+  label,
+  name,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | number | null;
+}) {
+  const [value, setValue] = useState(() => formatCurrencyInput(defaultValue));
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+          $
+        </span>
+        <input
+          name={name}
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => setValue(e.target.value.replace(/[^0-9.,]/g, ""))}
+          onBlur={() => setValue(formatCurrencyInput(value))}
+          className="w-full rounded-lg border border-slate-300 py-2 pl-7 pr-3 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      </div>
     </label>
   );
 }
@@ -309,23 +353,27 @@ export function EmployeeForm({
         {canViewComp && (
           <>
             <Section title="Compensation">
-              <Field label="Pay type" name="pay_type" defaultValue={emp?.pay_type} />
-              <Field
+              <Select
+                label="Pay type"
+                name="pay_type"
+                defaultValue={emp?.pay_type}
+                options={Object.entries(PAY_TYPE_LABELS).map(
+                  ([value, label]) => ({ value, label }),
+                )}
+              />
+              <CurrencyField
                 label="Hourly rate"
                 name="current_rate"
-                type="number"
                 defaultValue={emp?.current_rate}
               />
-              <Field
+              <CurrencyField
                 label="Biweekly wage"
                 name="biweekly_wage"
-                type="number"
                 defaultValue={emp?.biweekly_wage}
               />
-              <Field
+              <CurrencyField
                 label="Annual wages"
                 name="annual_wages"
-                type="number"
                 defaultValue={emp?.annual_wages}
               />
               <Field
@@ -342,37 +390,32 @@ export function EmployeeForm({
                 name="benefits_enrolled"
                 defaultChecked={emp?.benefits_enrolled}
               />
-              <Field
+              <CurrencyField
                 label="Monthly cost"
                 name="benefits_monthly"
-                type="number"
                 defaultValue={emp?.benefits_monthly}
               />
-              <Field
+              <CurrencyField
                 label="Annual cost"
                 name="benefits_annual"
-                type="number"
                 defaultValue={emp?.benefits_annual}
               />
             </Section>
 
             <Section title="Continuing Education">
-              <Field
+              <CurrencyField
                 label="CE budget"
                 name="ce_budget"
-                type="number"
                 defaultValue={emp?.ce_budget}
               />
-              <Field
+              <CurrencyField
                 label="CE used"
                 name="ce_used"
-                type="number"
                 defaultValue={emp?.ce_used}
               />
-              <Field
+              <CurrencyField
                 label="CE remaining"
                 name="ce_remaining"
-                type="number"
                 defaultValue={emp?.ce_remaining}
               />
             </Section>

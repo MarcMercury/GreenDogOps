@@ -11,6 +11,7 @@ import type {
   ScheduleLocation,
   SchedAssignment,
   SchedClosure,
+  SchedEvent,
   SchedDepartment,
   SchedEmployeeSetting,
   SchedPerson,
@@ -105,6 +106,7 @@ export interface WeekData {
   lines: SchedWeekLine[];
   weekLocations: SchedWeekLocation[];
   closures: SchedClosure[];
+  events: SchedEvent[];
   assignments: SchedAssignment[];
 }
 
@@ -114,7 +116,7 @@ export async function getWeekData(weekId: string): Promise<WeekData | null> {
   const week = await getWeek(weekId);
   if (!week) return null;
 
-  const [lineRes, locRes, closeRes, asgRes] = await Promise.all([
+  const [lineRes, locRes, closeRes, eventRes, asgRes] = await Promise.all([
     supabase
       .from("sched_week_line")
       .select("*")
@@ -126,6 +128,7 @@ export async function getWeekData(weekId: string): Promise<WeekData | null> {
       .eq("week_id", weekId)
       .order("sort_order"),
     supabase.from("sched_closure").select("*").eq("week_id", weekId),
+    supabase.from("sched_event").select("*").eq("week_id", weekId),
     supabase.from("sched_assignment").select("*").eq("week_id", weekId),
   ]);
 
@@ -134,6 +137,7 @@ export async function getWeekData(weekId: string): Promise<WeekData | null> {
     lines: (lineRes.data ?? []) as SchedWeekLine[],
     weekLocations: (locRes.data ?? []) as SchedWeekLocation[],
     closures: (closeRes.data ?? []) as SchedClosure[],
+    events: (eventRes.data ?? []) as SchedEvent[],
     assignments: (asgRes.data ?? []) as SchedAssignment[],
   };
 }

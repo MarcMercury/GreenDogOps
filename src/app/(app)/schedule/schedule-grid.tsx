@@ -19,6 +19,7 @@ import {
   type AttendanceStatus,
   type SchedAssignment,
   type SchedDepartment,
+  type SchedEvent,
   type SchedPerson,
   type SchedRole,
   type SchedWeek,
@@ -31,6 +32,7 @@ import {
   removeAssignment,
   markAttendance,
   toggleClosure,
+  setEvent,
   setWeekStatus,
   addWeekLine,
   updateWeekLine,
@@ -61,9 +63,8 @@ export function ScheduleGrid({
 }) {
   const router = useRouter();
   const [, start] = useTransition();
-  const { week, lines, weekLocations, closures, assignments } = weekData;
+  const { week, lines, weekLocations, closures, events, assignments } = weekData;
   const isPublished = week.status === "published";
-
   // Locations available + which are toggled on.
   const planLocationIds = useMemo(
     () => new Set(weekLocations.map((w) => w.location_id)),
@@ -138,6 +139,12 @@ export function ScheduleGrid({
     [closures],
   );
 
+  const eventMap = useMemo(() => {
+    const m = new Map<string, SchedEvent>();
+    for (const e of events) m.set(`${e.location_id}|${e.day_of_week}`, e);
+    return m;
+  }, [events]);
+
   // Lines grouped by department, in order.
   const grouped = useMemo(() => {
     const byDept = new Map<string, SchedWeekLine[]>();
@@ -165,6 +172,12 @@ export function ScheduleGrid({
   } | null>(null);
   const [deptModal, setDeptModal] = useState<{
     dept: SchedDepartment | null;
+  } | null>(null);
+
+  const [eventModal, setEventModal] = useState<{
+    locationId: string;
+    day: number;
+    title: string;
   } | null>(null);
 
   const colCount = shownLocations.length;
@@ -195,7 +208,7 @@ export function ScheduleGrid({
           <thead>
             <tr>
               <th
-                rowSpan={2}
+                rowSpan={3}
                 className="sticky left-0 z-20 min-w-[180px] border-b border-r border-slate-300 bg-slate-50 px-3 py-2 text-left align-bottom text-[11px] font-semibold uppercase tracking-wide text-slate-500"
               >
                 Shift
@@ -214,6 +227,58 @@ export function ScheduleGrid({
                   </span>
                 </th>
               ))}
+            </tr>
+            <tr>
+              {DAYS.map((d) =>
+                shownLocations.length === 0 ? (
+                  <th
+                    key={d}
+                    className="border-b border-l-2 border-b-slate-200 border-l-slate-400 bg-slate-50 px-2 py-1"
+                  />
+                ) : (
+                  shownLocations.map((loc, locIdx) => {
+                    const dayStart = locIdx === 0;
+                    const ev = eventMap.get(`${loc.id}|${d}`);
+                    return (
+                      <th
+                        key={`evt-${d}-${loc.id}`}
+                        className={`border-b border-b-slate-200 bg-slate-50 p-0.5 align-middle ${
+                          dayStart
+                            ? "border-l-2 border-l-slate-400"
+                            : "border-l border-l-slate-200"
+                        }`}
+                      >
+                        <button
+                          onClick={() =>
+                            setEventModal({
+                              locationId: loc.id,
+                              day: d,
+                              title: ev?.title ?? "",
+                            })
+                          }
+                          title={
+                            ev
+                              ? `Edit event: ${ev.title}`
+                              : "Add an event for this location/day"
+                          }
+                          className={`flex min-h-[18px] w-full items-center justify-center rounded px-1 py-0.5 text-center text-[9px] font-semibold leading-tight transition ${
+                            ev
+                              ? "text-white"
+                              : "text-transparent hover:text-slate-400 hover:bg-slate-100 print:hidden"
+                          }`}
+                          style={
+                            ev
+                              ? { backgroundColor: loc.color ?? "#64748b" }
+                              : undefined
+                          }
+                        >
+                          {ev ? ev.title : "+ event"}
+                        </button>
+                      </th>
+                    );
+                  })
+                ),
+              )}
             </tr>
             <tr>
               {DAYS.map((d) =>
@@ -445,6 +510,30 @@ export function ScheduleGrid({
             setDeptModal(null);
             router.refresh();
           }}
+        />
+      )}
+
+      {eventModal && (
+        <EventModal
+          location={
+            availableLocations.find((l) => l.id === eventModal.locationId)!
+          }
+          day={eventModal.day}
+          weekStart={week.week_start}
+          initial={eventModal.title}
+          onClose={() => setEventModal(null)}
+          onSave={(title) =>
+            start(async () => {
+              await setEvent(
+                week.id,
+                eventModal.locationId,
+                eventModal.day,
+                title,
+              );
+              setEventModal(null);
+              router.refresh();
+            })
+          }
         />
       )}
 
@@ -1114,6 +1203,89 @@ function AttendanceMenu({
           >
             Clear marking (assume Present)
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Add or edit a per-location/day event banner
+// ---------------------------------------------------------------------------
+
+function EventModal({
+  location,
+  day,
+  weekStart,
+  initial,
+  onClose,
+  onSave,
+}: {
+  location: ScheduleLocation;
+  day: number;
+  weekStart: string;
+  initial: string;
+  onClose: () => void;
+  onSave: (title: string) => void;
+}) {
+  const [title, setTitle] = useState(initial);
+  const dateLabel = new Date(
+    `${dateForDay(weekStart, day)}T00:00:00`,
+  ).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="w-full max-w-sm rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 p-4">
+          <div className="flex items-center gap-2">
+            <span
+              className="inline-block h-3 w-3 rounded-full"
+              style={{ backgroundColor: location.color ?? "#64748b" }}
+            />
+            <div>
+              <h3 className="text-sm font-semibold text-slate-800">
+                Event · {location.name}
+              </h3>
+              <p className="text-xs text-slate-500">{dateLabel}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3 p-4">
+          <input
+            autoFocus
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onSave(title);
+            }}
+            placeholder="e.g. Full Team Meeting, Adoption Event…"
+            className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+          />
+          <div className="flex justify-between gap-2 pt-1">
+            <button
+              onClick={() => onSave("")}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50"
+            >
+              Clear
+            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => onSave(title)}
+                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Save
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

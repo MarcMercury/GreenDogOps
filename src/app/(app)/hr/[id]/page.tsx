@@ -6,6 +6,7 @@ import type {
   RosterRow,
   PersonReview,
   PersonAsset,
+  PersonPtoDay,
   PersonDocument,
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
@@ -82,8 +83,8 @@ export default async function EmployeeDetailPage({
   const recruitingRaw = Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null);
   const recruiting = recruitingRaw as PersonRecruitingSummary | null;
 
-  // Sub-records for the Reviews / Assets / Documents tabs.
-  const [reviewsRes, assetsRes, docsRes] = await Promise.all([
+  // Sub-records for the Reviews / Assets / Documents / Attendance tabs.
+  const [reviewsRes, assetsRes, docsRes, ptoRes] = await Promise.all([
     supabase
       .from("person_review")
       .select("*")
@@ -101,11 +102,17 @@ export default async function EmployeeDetailPage({
       .select("*")
       .eq("person_id", id)
       .order("uploaded_at", { ascending: false }),
+    supabase
+      .from("person_pto_day")
+      .select("*")
+      .eq("person_id", id)
+      .order("pto_date", { ascending: false }),
   ]);
 
   const reviews = (reviewsRes.data ?? []) as PersonReview[];
   const assets = (assetsRes.data ?? []) as PersonAsset[];
   const documents = (docsRes.data ?? []) as PersonDocument[];
+  const ptoDays = (ptoRes.data ?? []) as PersonPtoDay[];
 
   // Schedule attendance rollup for the Attendance tab.
   const attendance = await getPersonAttendance(id);
@@ -168,6 +175,7 @@ export default async function EmployeeDetailPage({
         documents={documentsWithUrls}
         recruiting={recruiting}
         attendance={attendance}
+        ptoDays={ptoDays}
         account={account}
         canViewComp={canViewComp}
         canEdit={canEdit}

@@ -201,6 +201,14 @@ export interface SchedClosure {
   reason: string | null;
 }
 
+export interface SchedEvent {
+  id: string;
+  week_id: string;
+  location_id: string;
+  day_of_week: number;
+  title: string;
+}
+
 export interface SchedAssignment {
   id: string;
   week_id: string;

@@ -8,6 +8,7 @@ import type {
   RosterRow,
   PersonReview,
   PersonAsset,
+  PersonPtoDay,
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
 } from "@/lib/hr/types";
@@ -37,6 +38,8 @@ import {
   deleteReview,
   saveAsset,
   deleteAsset,
+  savePtoDay,
+  deletePtoDay,
   uploadDocument,
   deleteDocument,
   type SaveResult,
@@ -79,6 +82,7 @@ export function EmployeeProfile({
   documents,
   recruiting,
   attendance,
+  ptoDays,
   account,
   canViewComp,
   canEdit,
@@ -89,6 +93,7 @@ export function EmployeeProfile({
   documents: PersonDocumentWithUrl[];
   recruiting: PersonRecruitingSummary | null;
   attendance: PersonAttendanceSummary;
+  ptoDays: PersonPtoDay[];
   account: LinkedAccount | null;
   canViewComp: boolean;
   canEdit: boolean;
@@ -149,7 +154,14 @@ export function EmployeeProfile({
       />
 
       {activeTab === "attendance" && (
-        <SchedAttendancePanel attendance={attendance} />
+        <>
+          <PtoDaysPanel
+            personId={row.id}
+            ptoDays={ptoDays}
+            canEdit={canEdit}
+          />
+          <SchedAttendancePanel attendance={attendance} />
+        </>
       )}
       {activeTab === "reviews" && (
         <ReviewsPanel personId={row.id} reviews={reviews} />
@@ -281,21 +293,49 @@ function SchedAttendancePanel({
   attendance: PersonAttendanceSummary;
 }) {
   const { tally, score, records } = attendance;
+  const [filter, setFilter] = useState<string | null>(null);
 
-  const stats: Array<{ label: string; value: number; tone: string }> = [
-    { label: "Present", value: tally.present, tone: "text-emerald-600" },
+  const groups: Array<{
+    key: string;
+    label: string;
+    value: number;
+    statuses: string[];
+    tone: string;
+  }> = [
     {
+      key: "present",
+      label: "Present",
+      value: tally.present,
+      statuses: ["present"],
+      tone: "text-emerald-600",
+    },
+    {
+      key: "late",
       label: "Late",
       value: tally.late + tally.late_excused,
+      statuses: ["late", "late_excused"],
       tone: "text-amber-600",
     },
     {
+      key: "absent",
       label: "Absent",
       value: tally.absent + tally.absent_excused,
+      statuses: ["absent", "absent_excused"],
       tone: "text-red-600",
     },
-    { label: "No-show", value: tally.no_show, tone: "text-red-700" },
+    {
+      key: "no_show",
+      label: "No-show",
+      value: tally.no_show,
+      statuses: ["no_show"],
+      tone: "text-red-700",
+    },
   ];
+
+  const activeGroup = groups.find((g) => g.key === filter) ?? null;
+  const visibleRecords = activeGroup
+    ? records.filter((r) => activeGroup.statuses.includes(r.status))
+    : records;
 
   return (
     <div className="space-y-5">
@@ -315,26 +355,56 @@ function SchedAttendancePanel({
           </p>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {stats.map((s) => (
-            <div
-              key={s.label}
-              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
-            >
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                {s.label}
-              </p>
-              <p className={`mt-1 text-2xl font-bold ${s.tone}`}>{s.value}</p>
-            </div>
-          ))}
+          {groups.map((g) => {
+            const active = g.key === filter;
+            return (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => setFilter(active ? null : g.key)}
+                aria-pressed={active}
+                className={`rounded-lg border p-3 text-left transition hover:border-slate-300 hover:shadow-sm ${
+                  active
+                    ? "border-slate-400 bg-white ring-1 ring-slate-300"
+                    : "border-slate-200 bg-slate-50"
+                }`}
+              >
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  {g.label}
+                </p>
+                <p className={`mt-1 text-2xl font-bold ${g.tone}`}>{g.value}</p>
+              </button>
+            );
+          })}
         </div>
+        <p className="mt-2 text-xs text-slate-400">
+          Click a tile to see the days it was applied.
+        </p>
       </div>
 
-      <Section title="Attendance history">
+      <Section title={activeGroup ? `${activeGroup.label} days` : "Attendance history"}>
         <div className="sm:col-span-2 lg:col-span-3">
-          {records.length === 0 ? (
+          {activeGroup && (
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs text-slate-500">
+                Showing {visibleRecords.length}{" "}
+                {visibleRecords.length === 1 ? "day" : "days"} marked{" "}
+                <span className="font-medium">{activeGroup.label}</span>.
+              </p>
+              <button
+                type="button"
+                onClick={() => setFilter(null)}
+                className="text-xs font-medium text-emerald-700 hover:text-emerald-900"
+              >
+                Show all
+              </button>
+            </div>
+          )}
+          {visibleRecords.length === 0 ? (
             <EmptyState>
-              No attendance recorded yet. Marks made on a published schedule will
-              appear here.
+              {activeGroup
+                ? `No days marked ${activeGroup.label.toLowerCase()} yet.`
+                : "No attendance recorded yet. Marks made on a published schedule will appear here."}
             </EmptyState>
           ) : (
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -348,7 +418,7 @@ function SchedAttendancePanel({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {records.map((r) => (
+                  {visibleRecords.map((r) => (
                     <tr key={r.assignmentId} className="hover:bg-slate-50/50">
                       <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-800">
                         {fmtDate(r.work_date)}
@@ -378,6 +448,94 @@ function SchedAttendancePanel({
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PTO days (itemized list)
+// ---------------------------------------------------------------------------
+
+function PtoDaysPanel({
+  personId,
+  ptoDays,
+  canEdit,
+}: {
+  personId: string;
+  ptoDays: PersonPtoDay[];
+  canEdit: boolean;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [result, formAction] = useActionState<SaveResult | null, FormData>(
+    (prev, fd) => savePtoDay(personId, prev, fd),
+    null,
+  );
+
+  useEffect(() => {
+    if (result?.ok) formRef.current?.reset();
+  }, [result]);
+
+  return (
+    <div className="space-y-5">
+      {canEdit && (
+        <Section title="Log a PTO day">
+          <form ref={formRef} action={formAction} className="contents">
+            <Field label="Date" name="pto_date" type="date" />
+            <Field
+              label="Hours (optional)"
+              name="hours"
+              type="number"
+              placeholder="Blank = full day"
+            />
+            <Field label="Note" name="note" placeholder="e.g. Vacation, sick" />
+            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-3">
+              <AddButton>Add PTO day</AddButton>
+              {result?.ok === false && (
+                <span className="text-sm text-red-600">{result.error}</span>
+              )}
+            </div>
+          </form>
+        </Section>
+      )}
+
+      <Section title={`PTO days (${ptoDays.length})`}>
+        <div className="sm:col-span-2 lg:col-span-3">
+          {ptoDays.length === 0 ? (
+            <EmptyState>No PTO days logged yet.</EmptyState>
+          ) : (
+            <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              {ptoDays.map((d) => (
+                <li
+                  key={d.id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+                >
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium text-slate-800">
+                      {fmtDate(d.pto_date)}
+                    </span>
+                    {d.hours != null && (
+                      <span className="ml-2 text-xs text-slate-500">
+                        {d.hours} hr{d.hours === 1 ? "" : "s"}
+                      </span>
+                    )}
+                    {d.note && (
+                      <span className="ml-2 text-xs text-slate-500">
+                        · {d.note}
+                      </span>
+                    )}
+                  </div>
+                  {canEdit && (
+                    <DeleteButton
+                      label="this PTO day"
+                      onConfirm={() => deletePtoDay(personId, d.id)}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       </Section>

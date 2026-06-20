@@ -766,6 +766,58 @@ export async function toggleClosure(
 }
 
 // ===========================================================================
+// EVENTS — per location/day banner notes above the grid
+// ===========================================================================
+
+/** Set (or clear, when title is blank) the event note for a location/day cell. */
+export async function setEvent(
+  weekId: string,
+  locationId: string,
+  dayOfWeek: number,
+  title: string,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const clean = title.trim();
+
+  const { data: existing } = await supabase
+    .from("sched_event")
+    .select("id")
+    .eq("week_id", weekId)
+    .eq("location_id", locationId)
+    .eq("day_of_week", dayOfWeek)
+    .maybeSingle();
+
+  if (!clean) {
+    if (existing) {
+      const { error } = await supabase
+        .from("sched_event")
+        .delete()
+        .eq("id", (existing as { id: string }).id);
+      if (error) return { ok: false, error: error.message };
+    }
+    revalidateAll();
+    return { ok: true };
+  }
+
+  const { error } = existing
+    ? await supabase
+        .from("sched_event")
+        .update({ title: clean })
+        .eq("id", (existing as { id: string }).id)
+    : await supabase.from("sched_event").insert({
+        week_id: weekId,
+        location_id: locationId,
+        day_of_week: dayOfWeek,
+        title: clean,
+      });
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  return { ok: true };
+}
+
+// ===========================================================================
 // ASSIGNMENTS — the grid
 // ===========================================================================
 
