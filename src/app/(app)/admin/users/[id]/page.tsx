@@ -31,6 +31,31 @@ export default async function UserDetailPage({
   const user = data as AppUser | null;
   if (!user) notFound();
 
+  // The roster person this login account is linked to, if any.
+  let linkedPerson: { id: string; name: string } | null = null;
+  if (user.person_id) {
+    const { data: personRow } = await admin
+      .from("person")
+      .select("id, full_name, first_name, last_name")
+      .eq("id", user.person_id)
+      .maybeSingle();
+    if (personRow) {
+      const p = personRow as {
+        id: string;
+        full_name: string | null;
+        first_name: string | null;
+        last_name: string | null;
+      };
+      linkedPerson = {
+        id: p.id,
+        name:
+          p.full_name ||
+          [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+          "Roster profile",
+      };
+    }
+  }
+
   const defaultsByRole = Object.fromEntries(
     APP_ROLES.map((r) => [r, new Set(roleDefaultModules(r))]),
   ) as Record<AppRole, Set<string>>;
@@ -51,6 +76,21 @@ export default async function UserDetailPage({
           title={user.full_name ?? user.email}
           description={user.email}
         >
+          {linkedPerson ? (
+            <p className="mb-4 text-sm text-slate-500">
+              Linked roster profile:{" "}
+              <Link
+                href={`/hr/${linkedPerson.id}`}
+                className="font-medium text-emerald-600 hover:text-emerald-700"
+              >
+                {linkedPerson.name} →
+              </Link>
+            </p>
+          ) : (
+            <p className="mb-4 text-sm text-slate-400">
+              Not linked to a roster profile.
+            </p>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-500">

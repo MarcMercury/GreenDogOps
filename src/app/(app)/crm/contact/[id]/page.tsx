@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/session";
+import { isEditorRole } from "@/lib/auth/permissions";
 import {
   type CrmContact,
   crmSectionBySlug,
@@ -18,6 +20,8 @@ export default async function ContactDetailPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const canEdit = current ? isEditorRole(current.appUser.role) : false;
   const { data, error } = await supabase
     .from("crm_contact")
     .select("*")
@@ -38,6 +42,23 @@ export default async function ContactDetailPage({
   const contact = data as CrmContact;
   const section = crmSectionBySlug(crmSlugForContactType(contact.contact_type));
 
+  // If this student was promoted, route to wherever that person now lives:
+  // the HR roster once hired (employee/contractor/former), else the ATS.
+  let promotedHref: string | null = null;
+  if (contact.promoted_person_id) {
+    const { data: promoted } = await supabase
+      .from("person")
+      .select("status")
+      .eq("id", contact.promoted_person_id)
+      .maybeSingle();
+    const status = (promoted as { status?: string } | null)?.status;
+    const inRoster =
+      status === "employee" || status === "contractor" || status === "former";
+    promotedHref = inRoster
+      ? `/hr/${contact.promoted_person_id}`
+      : `/ats/${contact.promoted_person_id}`;
+  }
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link
@@ -56,16 +77,16 @@ export default async function ContactDetailPage({
                 : ""}
             </p>
             <Link
-              href={`/ats/${contact.promoted_person_id}`}
+              href={promotedHref ?? `/ats/${contact.promoted_person_id}`}
               className="shrink-0 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:bg-emerald-50"
             >
-              Open recruiting record →
+              Open record →
             </Link>
           </div>
         ) : (
-          <PromoteToRecruiting contactId={contact.id} />
+          canEdit && <PromoteToRecruiting contactId={contact.id} />
         ))}
-      <ContactForm contact={contact} />
+      <ContactForm contact={contact} canEdit={canEdit} />
     </div>
   );
 }

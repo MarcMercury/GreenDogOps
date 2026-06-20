@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { ensureEditor } from "@/lib/auth/session";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -36,6 +37,8 @@ export async function updateOrganization(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const patch = {
     name: str(formData.get("name")) ?? "Unknown",
@@ -88,6 +91,8 @@ export async function updateContact(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const patch = {
     first_name: str(formData.get("first_name")),
@@ -138,6 +143,8 @@ export async function updateInfluencer(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const patch = {
     contact_name: str(formData.get("contact_name")),
@@ -212,6 +219,8 @@ export async function updateInfluencer(
 export async function promoteStudentToRecruiting(
   contactId: string,
 ): Promise<void> {
+  const gate = await ensureEditor();
+  if (!gate.ok) redirect(`/crm/contact/${contactId}`);
   const supabase = await createClient();
 
   const { data: contact, error: loadErr } = await supabase

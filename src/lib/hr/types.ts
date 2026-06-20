@@ -30,6 +30,7 @@ export interface Person {
   avatar_url: string | null;
   is_active: boolean;
   notes: string | null;
+  source_contact_id: string | null;
   created_at: string;
   updated_at: string;
 }

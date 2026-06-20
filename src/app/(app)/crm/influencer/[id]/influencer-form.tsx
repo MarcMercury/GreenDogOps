@@ -28,7 +28,13 @@ function influencerHeading(i: CrmInfluencer): string {
   return "Influencer";
 }
 
-export function InfluencerForm({ influencer }: { influencer: CrmInfluencer }) {
+export function InfluencerForm({
+  influencer,
+  canEdit = false,
+}: {
+  influencer: CrmInfluencer;
+  canEdit?: boolean;
+}) {
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) => updateInfluencer(influencer.id, prev, fd),
     null,
@@ -55,7 +61,7 @@ export function InfluencerForm({ influencer }: { influencer: CrmInfluencer }) {
           {result?.ok === false && (
             <span className="text-sm text-red-600">{result.error}</span>
           )}
-          <SaveButton />
+          <SaveButton canEdit={canEdit} />
         </div>
       </div>
 
@@ -138,7 +144,7 @@ export function InfluencerForm({ influencer }: { influencer: CrmInfluencer }) {
         {result?.ok === false && (
           <span className="text-sm text-red-600">{result.error}</span>
         )}
-        <SaveButton />
+        <SaveButton canEdit={canEdit} />
       </div>
     </form>
   );

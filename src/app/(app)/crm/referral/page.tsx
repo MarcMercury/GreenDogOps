@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole } from "@/lib/auth/permissions";
+import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
 import type {
   ReferralPartner,
   ClinicVisit,
@@ -24,6 +24,7 @@ export default async function ReferralCrmPage() {
   const supabase = await createClient();
   const current = await getCurrentUser();
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+  const canEdit = current ? canEditModule(current.appUser, "crm_referral") : false;
 
   const [partnersRes, visitsRes, historyRes, contactsRes, notesRes] = await Promise.all([
     supabase.from("referral_partners").select("*").order("name", { ascending: true }),
@@ -107,6 +108,7 @@ export default async function ReferralCrmPage() {
       contacts={contacts}
       notes={notes}
       isAdmin={isAdmin}
+      canEdit={canEdit}
       mapsApiKey={mapsApiKey}
     />
   );

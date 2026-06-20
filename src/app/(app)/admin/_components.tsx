@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
 
 /** A small labelled metric card for the admin dashboard. */
 export function StatCard({
@@ -96,17 +97,18 @@ const ROLE_BADGE: Record<string, string> = {
   owner: "bg-purple-50 text-purple-700 ring-purple-200",
   admin: "bg-emerald-50 text-emerald-700 ring-emerald-200",
   manager: "bg-blue-50 text-blue-700 ring-blue-200",
+  schedule_admin: "bg-amber-50 text-amber-700 ring-amber-200",
   staff: "bg-slate-100 text-slate-700 ring-slate-200",
-  viewer: "bg-amber-50 text-amber-700 ring-amber-200",
 };
 
 export function RoleBadge({ role }: { role: string }) {
   const cls = ROLE_BADGE[role] ?? ROLE_BADGE.staff;
+  const label = ROLE_LABELS[role as AppRole] ?? role;
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ${cls}`}
     >
-      {role}
+      {label}
     </span>
   );
 }

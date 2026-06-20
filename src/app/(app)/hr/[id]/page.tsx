@@ -12,8 +12,9 @@ import type {
 } from "@/lib/hr/types";
 import { redactCompensation } from "@/lib/hr/types";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole } from "@/lib/auth/permissions";
-import { EmployeeProfile } from "./employee-profile";
+import { canViewAllCompensation, canEditModule } from "@/lib/auth/permissions";
+import { getPersonAttendance } from "../../schedule/data";
+import { EmployeeProfile, type LinkedAccount } from "./employee-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -25,14 +26,20 @@ export default async function EmployeeDetailPage({
   const { id } = await params;
   const supabase = await createClient();
   const current = await getCurrentUser();
-  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+  // Compensation is visible to Owner/Admin/Manager-HR for everyone, and to any
+  // user for their own linked record. Editing follows the HR module rule.
+  const canViewComp = current
+    ? canViewAllCompensation(current.appUser.role) ||
+      current.appUser.person_id === id
+    : false;
+  const canEdit = current ? canEditModule(current.appUser, "hr") : false;
 
   const { data, error } = await supabase
     .from("person")
     .select(
       `id, status, first_name, last_name, preferred_name, grid_name, full_name,
        email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
-     opportunity_type, avatar_url, is_active, notes, status_changed_at, created_at, updated_at,
+     opportunity_type, avatar_url, is_active, notes, source_contact_id, status_changed_at, created_at, updated_at,
        person_employment (
          person_id, position_id, location_id, offer_title, adp_job_title,
          flsa_status, work_schedule, days_per_week, hire_date, original_hire_date,
@@ -70,7 +77,7 @@ export default async function EmployeeDetailPage({
     ...data,
     person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
   } as RosterRow;
-  const row = isAdmin ? rawRow : redactCompensation(rawRow);
+  const row = canViewComp ? rawRow : redactCompensation(rawRow);
 
   const recruitingRaw = Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null);
   const recruiting = recruitingRaw as PersonRecruitingSummary | null;
@@ -99,6 +106,18 @@ export default async function EmployeeDetailPage({
   const reviews = (reviewsRes.data ?? []) as PersonReview[];
   const assets = (assetsRes.data ?? []) as PersonAsset[];
   const documents = (docsRes.data ?? []) as PersonDocument[];
+
+  // Schedule attendance rollup for the Attendance tab.
+  const attendance = await getPersonAttendance(id);
+
+  // Linked login account (app_user), if this person has one.
+  const adminClient = createAdminClient();
+  const { data: accountRow } = await adminClient
+    .from("app_user")
+    .select("id, role, is_active")
+    .eq("person_id", id)
+    .maybeSingle();
+  const account = (accountRow as LinkedAccount | null) ?? null;
 
   // Generate short-lived signed URLs for private documents.
   let documentsWithUrls: PersonDocumentWithUrl[] = documents.map((d) => ({
@@ -129,13 +148,29 @@ export default async function EmployeeDetailPage({
       >
         ← Back to roster
       </Link>
+      {row.source_contact_id && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-3">
+          <p className="text-sm font-medium text-violet-900">
+            🎓 Originated from the Student CRM
+          </p>
+          <Link
+            href={`/crm/contact/${row.source_contact_id}`}
+            className="shrink-0 rounded-lg border border-violet-300 bg-white px-4 py-2 text-sm font-semibold text-violet-700 shadow-sm transition hover:bg-violet-50"
+          >
+            View student record →
+          </Link>
+        </div>
+      )}
       <EmployeeProfile
         row={row}
         reviews={reviews}
         assets={assets}
         documents={documentsWithUrls}
         recruiting={recruiting}
-        isAdmin={isAdmin}
+        attendance={attendance}
+        account={account}
+        canViewComp={canViewComp}
+        canEdit={canEdit}
       />
     </div>
   );

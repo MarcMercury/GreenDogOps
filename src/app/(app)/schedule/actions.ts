@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, ensureCanEdit } from "@/lib/auth/session";
 import type { AttendanceStatus, ScheduleStatus } from "@/lib/schedule/types";
 import { dateForDay } from "@/lib/schedule/types";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
@@ -45,6 +45,8 @@ function revalidateAll() {
 // ===========================================================================
 
 export async function saveDepartment(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("id"));
   const patch = {
@@ -65,6 +67,8 @@ export async function saveDepartment(formData: FormData): Promise<ActionResult> 
 }
 
 export async function deleteDepartment(id: string): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase.from("sched_department").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
@@ -77,6 +81,8 @@ export async function deleteDepartment(id: string): Promise<ActionResult> {
 // ===========================================================================
 
 export async function saveRole(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("id"));
   const patch = {
@@ -97,6 +103,8 @@ export async function saveRole(formData: FormData): Promise<ActionResult> {
 }
 
 export async function deleteRole(id: string): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase.from("sched_role").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
@@ -109,6 +117,8 @@ export async function setRoleMembers(
   roleId: string,
   personIds: string[],
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error: delErr } = await supabase
     .from("sched_role_member")
@@ -132,6 +142,8 @@ export async function setRoleMembers(
 export async function saveShiftTemplate(
   formData: FormData,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("id"));
   const patch = {
@@ -154,6 +166,8 @@ export async function saveShiftTemplate(
 }
 
 export async function deleteShiftTemplate(id: string): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
     .from("sched_shift_template")
@@ -174,6 +188,8 @@ export async function saveEmployeeSetting(
   isSchedulable: boolean,
   defaultLocationId: string | null,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase.from("sched_employee_setting").upsert(
     {
@@ -198,6 +214,8 @@ export async function saveEmployeeSetting(
  * the active locations into week locations (the Planning Guide starting point).
  */
 export async function createWeek(weekStart: string): Promise<ActionResult<string>> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const me = await actor();
 
@@ -263,6 +281,8 @@ export async function createWeek(weekStart: string): Promise<ActionResult<string
 export async function copyPreviousWeek(
   weekStart: string,
 ): Promise<ActionResult<string>> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const me = await actor();
 
@@ -414,6 +434,8 @@ export async function setWeekLocations(
   weekId: string,
   locationIds: string[],
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   await supabase.from("sched_week_location").delete().eq("week_id", weekId);
   if (locationIds.length > 0) {
@@ -452,6 +474,8 @@ async function resolveRoleId(
 
 /** Add an ad-hoc shift line to a week (not derived from a template). */
 export async function addWeekLine(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const weekId = str(formData.get("week_id"));
   const departmentId = str(formData.get("department_id"));
@@ -483,6 +507,8 @@ export async function addWeekLine(formData: FormData): Promise<ActionResult> {
 
 /** Edit an existing shift line on a week's grid. */
 export async function updateWeekLine(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("id"));
   const departmentId = str(formData.get("department_id"));
@@ -514,6 +540,8 @@ export async function updateWeekLine(formData: FormData): Promise<ActionResult> 
 }
 
 export async function removeWeekLine(lineId: string): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
     .from("sched_week_line")
@@ -531,6 +559,8 @@ export async function removeWeekLine(lineId: string): Promise<ActionResult> {
 export async function syncWeekLinesFromTemplates(
   weekId: string,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const [{ data: lines }, { data: templates }] = await Promise.all([
     supabase.from("sched_week_line").select("template_id").eq("week_id", weekId),
@@ -573,6 +603,8 @@ export async function syncWeekLinesFromTemplates(
 export async function applyDefaultTemplate(
   weekId: string,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
 
   // 1. Ensure every template department exists.
@@ -704,6 +736,8 @@ export async function toggleClosure(
   locationId: string,
   dayOfWeek: number,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { data: existing } = await supabase
     .from("sched_closure")
@@ -763,6 +797,8 @@ export async function assignPerson(
   dayOfWeek: number,
   personId: string,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const me = await actor();
 
@@ -841,6 +877,8 @@ export async function assignPerson(
 export async function removeAssignment(
   assignmentId: string,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
 
   const { data: asg } = await supabase
@@ -934,6 +972,8 @@ export async function markAttendance(
   status: AttendanceStatus,
   note: string | null,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const me = await actor();
 
@@ -971,6 +1011,8 @@ export async function setWeekStatus(
   weekId: string,
   status: ScheduleStatus,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const me = await actor();
   const now = new Date().toISOString();
@@ -1004,6 +1046,8 @@ export async function updateWeekMeta(
   title: string | null,
   notes: string | null,
 ): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
     .from("sched_week")
@@ -1015,6 +1059,8 @@ export async function updateWeekMeta(
 }
 
 export async function deleteWeek(weekId: string): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase.from("sched_week").delete().eq("id", weekId);
   if (error) return { ok: false, error: error.message };

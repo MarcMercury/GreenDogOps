@@ -124,12 +124,14 @@ export function EmployeeForm({
   row,
   activeTab,
   hidden,
-  isAdmin,
+  canViewComp,
+  canEdit,
 }: {
   row: RosterRow;
   activeTab: FieldTab;
   hidden: boolean;
-  isAdmin: boolean;
+  canViewComp: boolean;
+  canEdit: boolean;
 }) {
   const emp = row.person_employment;
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -303,8 +305,8 @@ export function EmployeeForm({
         </Section>
       </div>
 
-      <div className={activeTab === "comp" && isAdmin ? "space-y-5" : "hidden"}>
-        {isAdmin && (
+      <div className={activeTab === "comp" && canViewComp ? "space-y-5" : "hidden"}>
+        {canViewComp && (
           <>
             <Section title="Compensation">
               <Field label="Pay type" name="pay_type" defaultValue={emp?.pay_type} />
@@ -409,7 +411,11 @@ export function EmployeeForm({
         {result?.ok === false && (
           <span className="text-sm text-red-600">{result.error}</span>
         )}
-        <SaveBar />
+        {canEdit ? (
+          <SaveBar />
+        ) : (
+          <span className="text-sm text-slate-400">Read-only access</span>
+        )}
       </div>
     </form>
   );

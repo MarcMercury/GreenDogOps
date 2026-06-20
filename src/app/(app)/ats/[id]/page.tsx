@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole } from "@/lib/auth/permissions";
+import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
 import type { CandidateRow, PersonInterview } from "@/lib/ats/types";
 import { CandidateProfile } from "./candidate-profile";
 
@@ -17,6 +17,7 @@ export default async function CandidateDetailPage({
   const supabase = await createClient();
   const current = await getCurrentUser();
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+  const canEdit = current ? canEditModule(current.appUser, "ats") : false;
 
   const { data, error } = await supabase
     .from("person")
@@ -76,7 +77,12 @@ export default async function CandidateDetailPage({
           </Link>
         </div>
       )}
-      <CandidateProfile row={row} interviews={interviews} isAdmin={isAdmin} />
+      <CandidateProfile
+        row={row}
+        interviews={interviews}
+        isAdmin={isAdmin}
+        canEdit={canEdit}
+      />
     </div>
   );
 }

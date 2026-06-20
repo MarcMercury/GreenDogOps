@@ -72,6 +72,7 @@ export function ReferralCrm({
   contacts,
   notes,
   isAdmin,
+  canEdit = false,
   mapsApiKey,
 }: {
   partners: ReferralPartner[];
@@ -81,6 +82,7 @@ export function ReferralCrm({
   contacts: PartnerContact[];
   notes: PartnerNote[];
   isAdmin: boolean;
+  canEdit?: boolean;
   mapsApiKey: string;
 }) {
   const [tab, setTab] = useState<TabKey>("list");
@@ -163,6 +165,11 @@ export function ReferralCrm({
 
   return (
     <div className="space-y-6">
+      {!canEdit && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          You have read-only access to the Referral CRM. Changes are disabled.
+        </div>
+      )}
       <PageHeader
         eyebrow="CRM"
         title="Referral CRM"

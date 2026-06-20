@@ -175,8 +175,11 @@ export function Section({
   );
 }
 
-export function SaveButton() {
+export function SaveButton({ canEdit = true }: { canEdit?: boolean }) {
   const { pending } = useFormStatus();
+  if (!canEdit) {
+    return <span className="text-sm text-slate-400">Read-only access</span>;
+  }
   return (
     <button
       type="submit"

@@ -1,30 +1,38 @@
 // Roles, modules, and permission helpers for Green Dog Ops.
 // auth.users is shared with EmployeeGMGDD; `app_user` is the GDO allow-list.
 
-export type AppRole = "owner" | "admin" | "manager" | "staff" | "viewer";
+export type AppRole =
+  | "owner"
+  | "admin"
+  | "manager"
+  | "schedule_admin"
+  | "staff";
 
 export const APP_ROLES: AppRole[] = [
   "owner",
   "admin",
   "manager",
+  "schedule_admin",
   "staff",
-  "viewer",
 ];
 
 export const ROLE_LABELS: Record<AppRole, string> = {
   owner: "Owner",
   admin: "Admin",
-  manager: "Manager",
+  manager: "Manager/HR",
+  schedule_admin: "Schedule Admin",
   staff: "Staff",
-  viewer: "Viewer",
 };
 
 export const ROLE_DESCRIPTIONS: Record<AppRole, string> = {
-  owner: "Full control, including billing and other owners.",
-  admin: "Manage users, settings, and all modules.",
-  manager: "Manage day-to-day operations across modules.",
-  staff: "Use assigned modules; limited editing.",
-  viewer: "Read-only access to assigned modules.",
+  owner: "Full control, including billing, other owners, and the Admin panel.",
+  admin: "Full control of users, settings, and every module.",
+  manager:
+    "Manage and edit everything except the Admin panel; can view all compensation.",
+  schedule_admin:
+    "Read-only everywhere like Staff, but can fully edit the Schedule.",
+  staff:
+    "Read-only access to everything except the Admin panel; sees only their own compensation.",
 };
 
 // Module slugs that can be permissioned independently.
@@ -66,12 +74,16 @@ export const MODULES: ModuleDef[] = [
 const ALL_MODULES = MODULES.map((m) => m.key);
 
 // Default module access per role. Used when a user has no explicit override.
+// Everyone except owners/admins is locked out of the Admin module. Managers,
+// schedule admins, and staff can all *see* every other module; what differs is
+// whether they can edit (see canEditModule) and view compensation.
+const NON_ADMIN_MODULES = ALL_MODULES.filter((m) => m !== "admin");
 const ROLE_DEFAULT_MODULES: Record<AppRole, ModuleKey[]> = {
   owner: ALL_MODULES,
   admin: ALL_MODULES,
-  manager: ALL_MODULES.filter((m) => m !== "admin"),
-  staff: ["dashboard", "hr", "ats", "schedule", "resources"],
-  viewer: ["dashboard", "resources"],
+  manager: NON_ADMIN_MODULES,
+  schedule_admin: NON_ADMIN_MODULES,
+  staff: NON_ADMIN_MODULES,
 };
 
 export interface AppUser {
@@ -83,6 +95,7 @@ export interface AppUser {
   is_active: boolean;
   module_access: Record<string, boolean>;
   notes: string | null;
+  person_id: string | null;
   last_seen_at: string | null;
   created_at: string;
   updated_at: string;
@@ -90,6 +103,32 @@ export interface AppUser {
 
 export function isAdminRole(role: AppRole): boolean {
   return role === "owner" || role === "admin";
+}
+
+/**
+ * Roles that may edit general (non-schedule) modules: Owner, Admin, and
+ * Manager/HR. Staff and Schedule Admins are read-only outside the Schedule.
+ */
+export function isEditorRole(role: AppRole): boolean {
+  return role === "owner" || role === "admin" || role === "manager";
+}
+
+/**
+ * Can this user make edits within the given module?
+ * - owner/admin/manager: edit any module they can access.
+ * - schedule_admin: edit only the Schedule module (read-only elsewhere).
+ * - staff: read-only everywhere.
+ */
+export function canEditModule(user: AppUser, key: ModuleKey): boolean {
+  if (!canAccessModule(user, key)) return false;
+  if (isEditorRole(user.role)) return true;
+  if (user.role === "schedule_admin") return key === "schedule";
+  return false;
+}
+
+/** Roles allowed to view every employee's compensation/benefits data. */
+export function canViewAllCompensation(role: AppRole): boolean {
+  return isEditorRole(role);
 }
 
 /** Resolve effective module access: per-user overrides win over role defaults. */

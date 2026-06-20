@@ -1,6 +1,12 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { LOCATION_COLUMNS } from "@/lib/shared/locations";
+import {
+  effectiveAttendance,
+  reliabilityScore,
+  type AttendanceStatus,
+  type ReliabilityTally,
+} from "@/lib/schedule/types";
 import type {
   ScheduleLocation,
   SchedAssignment,
@@ -179,4 +185,97 @@ export async function getAttendanceData(): Promise<{
   );
 
   return { rows, people };
+}
+
+function emptyTally(): ReliabilityTally {
+  return {
+    total: 0,
+    present: 0,
+    late: 0,
+    late_excused: 0,
+    absent: 0,
+    absent_excused: 0,
+    no_show: 0,
+    pto: 0,
+    scheduled: 0,
+  };
+}
+
+/** A single resolved shift for one employee, for the HR Attendance tab. */
+export interface PersonAttendanceRecord {
+  assignmentId: string;
+  work_date: string;
+  week_start: string;
+  status: AttendanceStatus;
+  note: string | null;
+  location_name: string | null;
+  auto_absent: boolean;
+}
+
+export interface PersonAttendanceSummary {
+  tally: ReliabilityTally;
+  score: number | null;
+  records: PersonAttendanceRecord[];
+}
+
+/**
+ * Attendance rolled up for a single employee from published schedules.
+ * Mirrors the Scheduling → Attendance & Reliability view, scoped to one person.
+ */
+export async function getPersonAttendance(
+  personId: string,
+): Promise<PersonAttendanceSummary> {
+  const supabase = await createClient();
+  const [asgRes, weekRes, locRes] = await Promise.all([
+    supabase
+      .from("sched_assignment")
+      .select("*")
+      .eq("person_id", personId)
+      .order("work_date", { ascending: false }),
+    supabase.from("sched_week").select("id, week_start, status"),
+    supabase.from("location").select("id, name, display_name, short_code"),
+  ]);
+
+  const weekById = new Map(
+    (
+      (weekRes.data ?? []) as { id: string; week_start: string; status: string }[]
+    ).map((w) => [w.id, w]),
+  );
+  const locById = new Map(
+    (
+      (locRes.data ?? []) as {
+        id: string;
+        name: string | null;
+        display_name: string | null;
+        short_code: string | null;
+      }[]
+    ).map((l) => [l.id, l]),
+  );
+
+  const tally = emptyTally();
+  const records: PersonAttendanceRecord[] = [];
+
+  for (const a of (asgRes.data ?? []) as SchedAssignment[]) {
+    const week = weekById.get(a.week_id);
+    const published = week?.status === "published";
+    const status = effectiveAttendance(a, published) as AttendanceStatus;
+    tally[status] += 1;
+    if (status !== "scheduled") tally.total += 1;
+
+    // Only surface resolved shifts (skip future/unmarked "scheduled").
+    if (status === "scheduled") continue;
+    const loc = locById.get(a.location_id);
+    records.push({
+      assignmentId: a.id,
+      work_date: a.work_date,
+      week_start: week?.week_start ?? "",
+      status,
+      note: a.attendance_note,
+      location_name:
+        loc?.display_name || loc?.name || loc?.short_code || null,
+      auto_absent: a.auto_absent,
+    });
+  }
+
+  return { tally, score: reliabilityScore(tally), records };
 }

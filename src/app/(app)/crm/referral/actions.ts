@@ -6,7 +6,7 @@ import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser, requireAdmin, recordAudit } from "@/lib/auth/session";
-import { canAccessModule } from "@/lib/auth/permissions";
+import { canEditModule } from "@/lib/auth/permissions";
 import { redirect } from "next/navigation";
 
 // ---------------------------------------------------------------------------
@@ -30,9 +30,12 @@ function arr(formData: FormData, name: string): string[] {
   return formData.getAll(name).map((v) => String(v)).filter(Boolean);
 }
 
+// Every action in this file mutates referral data, so it requires *edit*
+// rights on the Referral CRM (Owner/Admin/Manager-HR). Staff and Schedule
+// Admins are read-only and get redirected away.
 async function requireReferralUser() {
   const current = await requireUser();
-  if (!canAccessModule(current.appUser, "crm_referral")) redirect("/");
+  if (!canEditModule(current.appUser, "crm_referral")) redirect("/");
   return current;
 }
 

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser, recordAudit } from "@/lib/auth/session";
+import { getCurrentUser, ensureCanEdit, recordAudit } from "@/lib/auth/session";
 import { isAdminRole } from "@/lib/auth/permissions";
 
 function str(v: FormDataEntryValue | null): string | null {
@@ -30,6 +30,8 @@ export async function updateCandidate(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
 
   const personPatch = {
@@ -80,6 +82,8 @@ export async function saveInterview(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("interview_id"));
 
@@ -129,6 +133,8 @@ export async function deleteInterview(
   personId: string,
   interviewId: string,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
     .from("person_interview")
@@ -140,7 +146,11 @@ export async function deleteInterview(
 }
 
 // Convert a candidate into an employee: flip status + seed an employment row.
+// The person status trigger cascades the rest (scheduling eligibility, a
+// schedule settings row, and any linked login account).
 export async function hireCandidate(personId: string): Promise<void> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) redirect(`/ats/${personId}`);
   const supabase = await createClient();
   await supabase
     .from("person")
@@ -151,6 +161,8 @@ export async function hireCandidate(personId: string): Promise<void> {
     .upsert({ person_id: personId }, { onConflict: "person_id" });
   revalidatePath("/ats");
   revalidatePath("/hr");
+  revalidatePath("/schedule");
+  revalidatePath("/schedule/setup");
   redirect(`/hr/${personId}`);
 }
 

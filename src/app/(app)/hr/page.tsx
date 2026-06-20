@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { RosterRow } from "@/lib/hr/types";
 import { redactCompensation } from "@/lib/hr/types";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole } from "@/lib/auth/permissions";
+import { canViewAllCompensation } from "@/lib/auth/permissions";
 import { RosterGrid } from "./roster-grid";
 
 export const dynamic = "force-dynamic";
@@ -10,14 +10,17 @@ export const dynamic = "force-dynamic";
 export default async function HrRosterPage() {
   const supabase = await createClient();
   const current = await getCurrentUser();
-  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+  const viewAllComp = current
+    ? canViewAllCompensation(current.appUser.role)
+    : false;
+  const ownPersonId = current?.appUser.person_id ?? null;
 
   const { data, error } = await supabase
     .from("person")
     .select(
       `id, status, first_name, last_name, preferred_name, grid_name, full_name,
        email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
-     opportunity_type, avatar_url, is_active, notes, status_changed_at, created_at, updated_at,
+     opportunity_type, avatar_url, is_active, notes, source_contact_id, status_changed_at, created_at, updated_at,
        person_employment (
          person_id, position_id, location_id, offer_title, adp_job_title,
          flsa_status, work_schedule, days_per_week, hire_date, original_hire_date,
@@ -49,7 +52,9 @@ export default async function HrRosterPage() {
       ...r,
       person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
     } as RosterRow;
-    return isAdmin ? row : redactCompensation(row);
+    return viewAllComp || row.id === ownPersonId
+      ? row
+      : redactCompensation(row);
   });
 
   return <RosterGrid rows={rows} />;

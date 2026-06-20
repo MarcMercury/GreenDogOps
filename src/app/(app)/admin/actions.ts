@@ -41,6 +41,17 @@ export async function grantAccess(formData: FormData): Promise<void> {
   const fullName =
     (authUser.user_metadata?.full_name as string | undefined) ?? null;
 
+  // Link to the roster person with the same email, when there's exactly one,
+  // so the login account and the HR record stay connected.
+  let personId: string | null = null;
+  const { data: matches } = await admin
+    .from("person")
+    .select("id")
+    .ilike("email", authUser.email);
+  if (matches && matches.length === 1) {
+    personId = (matches[0] as { id: string }).id;
+  }
+
   await admin.from("app_user").upsert(
     {
       id,
@@ -49,6 +60,7 @@ export async function grantAccess(formData: FormData): Promise<void> {
       role,
       is_active: true,
       created_by: current.authId,
+      ...(personId ? { person_id: personId } : {}),
     },
     { onConflict: "id" },
   );

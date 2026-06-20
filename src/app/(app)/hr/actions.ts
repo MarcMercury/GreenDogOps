@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole } from "@/lib/auth/permissions";
+import { ensureCanEdit } from "@/lib/auth/session";
+import { canViewAllCompensation } from "@/lib/auth/permissions";
 
 const DOCUMENTS_BUCKET = "employee-documents";
 
@@ -32,10 +32,11 @@ export async function updateEmployee(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
 
-  const current = await getCurrentUser();
-  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+  const isAdmin = canViewAllCompensation(gate.current.appUser.role);
 
   const personPatch = {
     first_name: str(formData.get("first_name")),
@@ -104,6 +105,11 @@ export async function updateEmployee(
 
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/hr");
+  // A status change cascades (in the DB) into scheduling eligibility and any
+  // linked login account — revalidate those views so they reflect it too.
+  revalidatePath("/schedule");
+  revalidatePath("/schedule/setup");
+  revalidatePath("/admin/users");
   return { ok: true };
 }
 
@@ -116,6 +122,8 @@ export async function saveReview(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("review_id"));
 
@@ -143,6 +151,8 @@ export async function deleteReview(
   personId: string,
   reviewId: string,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
     .from("person_review")
@@ -162,6 +172,8 @@ export async function saveAsset(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("asset_id"));
   const assetName = str(formData.get("asset_name"));
@@ -192,6 +204,8 @@ export async function deleteAsset(
   personId: string,
   assetId: string,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
     .from("person_asset")
@@ -211,6 +225,8 @@ export async function uploadDocument(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
     return { ok: false, error: "Please choose a file to upload." };
@@ -258,6 +274,8 @@ export async function deleteDocument(
   documentId: string,
   storagePath: string,
 ): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
   const admin = createAdminClient();
 
   await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);

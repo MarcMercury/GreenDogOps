@@ -3,8 +3,8 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { AppUser } from "./permissions";
-import { isAdminRole } from "./permissions";
+import type { AppUser, ModuleKey } from "./permissions";
+import { isAdminRole, canEditModule, isEditorRole } from "./permissions";
 
 export interface CurrentUser {
   authId: string;
@@ -49,6 +49,43 @@ export async function requireAdmin(): Promise<CurrentUser> {
   const current = await requireUser();
   if (!isAdminRole(current.appUser.role)) redirect("/");
   return current;
+}
+
+/** Discriminated result for edit-permission gates used inside server actions. */
+export type EditGate =
+  | { ok: true; current: CurrentUser }
+  | { ok: false; error: string };
+
+const NO_EDIT_MESSAGE =
+  "You do not have permission to make changes here.";
+
+/**
+ * Gate a mutating server action by module edit permission. The failure shape
+ * (`{ ok: false, error }`) is compatible with the action result types used
+ * across the app, so callers can `return gate` directly on denial.
+ */
+export async function ensureCanEdit(moduleKey: ModuleKey): Promise<EditGate> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "You are not signed in." };
+  if (!canEditModule(current.appUser, moduleKey)) {
+    return { ok: false, error: NO_EDIT_MESSAGE };
+  }
+  return { ok: true, current };
+}
+
+/**
+ * Gate a mutating server action that applies to a general (non-schedule)
+ * module without a single fixed module key — e.g. the shared CRM actions.
+ * Only Owner/Admin/Manager-HR may edit; Staff and Schedule Admins are
+ * read-only here.
+ */
+export async function ensureEditor(): Promise<EditGate> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "You are not signed in." };
+  if (isEditorRole(current.appUser.role)) {
+    return { ok: true, current };
+  }
+  return { ok: false, error: NO_EDIT_MESSAGE };
 }
 
 /** Best-effort "last seen" touch — never blocks the request. */

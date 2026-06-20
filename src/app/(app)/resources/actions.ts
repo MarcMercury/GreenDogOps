@@ -96,14 +96,19 @@ async function searchInternal(term: string): Promise<{
   const ats: SearchHit[] = [];
   for (const p of people.data ?? []) {
     const name = personName(p);
-    const isEmployee = p.status === "employee" || p.status === "former";
+    // Employees, contractors, and former staff live in the HR roster; only
+    // prospects/applicants are still in the recruiting pipeline.
+    const inRoster =
+      p.status === "employee" ||
+      p.status === "contractor" ||
+      p.status === "former";
     const hit: SearchHit = {
       id: p.id,
       label: name,
       sublabel: p.email || p.status,
-      href: isEmployee ? `/hr/${p.id}` : `/ats/${p.id}`,
+      href: inRoster ? `/hr/${p.id}` : `/ats/${p.id}`,
     };
-    (isEmployee ? hr : ats).push(hit);
+    (inRoster ? hr : ats).push(hit);
   }
 
   const orgHits: SearchHit[] = (orgs.data ?? []).map((o) => ({

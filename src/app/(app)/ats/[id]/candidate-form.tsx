@@ -173,10 +173,12 @@ function DeleteButton({ personId }: { personId: string }) {
 export function CandidateForm({
   row,
   isAdmin = false,
+  canEdit = false,
   hidden = false,
 }: {
   row: CandidateRow;
   isAdmin?: boolean;
+  canEdit?: boolean;
   hidden?: boolean;
 }) {
   const rec = row.person_recruiting;
@@ -198,8 +200,12 @@ export function CandidateForm({
           label="Copy candidate summary"
           getText={() => buildCandidateSummary(row)}
         />
-        <HireButton personId={row.id} />
-        <SaveButton />
+        {canEdit && (
+          <>
+            <HireButton personId={row.id} />
+            <SaveButton />
+          </>
+        )}
       </div>
 
       <Section title="Candidate">
@@ -239,8 +245,12 @@ export function CandidateForm({
 
       <div className="flex justify-end gap-3 pb-8">
         {isAdmin && <DeleteButton personId={row.id} />}
-        <HireButton personId={row.id} />
-        <SaveButton />
+        {canEdit && (
+          <>
+            <HireButton personId={row.id} />
+            <SaveButton />
+          </>
+        )}
       </div>
     </form>
   );

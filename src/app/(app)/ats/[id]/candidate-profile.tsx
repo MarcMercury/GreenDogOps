@@ -28,10 +28,12 @@ export function CandidateProfile({
   row,
   interviews,
   isAdmin = false,
+  canEdit = false,
 }: {
   row: CandidateRow;
   interviews: PersonInterview[];
   isAdmin?: boolean;
+  canEdit?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("profile");
   const rec = row.person_recruiting;
@@ -82,10 +84,15 @@ export function CandidateProfile({
       </div>
 
       {/* Profile form stays mounted so unsaved edits survive a tab switch. */}
-      <CandidateForm row={row} isAdmin={isAdmin} hidden={activeTab !== "profile"} />
+      <CandidateForm
+        row={row}
+        isAdmin={isAdmin}
+        canEdit={canEdit}
+        hidden={activeTab !== "profile"}
+      />
 
       {activeTab === "interviews" && (
-        <InterviewsPanel row={row} interviews={interviews} />
+        <InterviewsPanel row={row} interviews={interviews} canEdit={canEdit} />
       )}
     </div>
   );
@@ -212,9 +219,11 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 function InterviewsPanel({
   row,
   interviews,
+  canEdit = false,
 }: {
   row: CandidateRow;
   interviews: PersonInterview[];
+  canEdit?: boolean;
 }) {
   const personId = row.id;
   const formRef = useRef<HTMLFormElement>(null);
@@ -246,6 +255,7 @@ function InterviewsPanel({
 
   return (
     <div className="space-y-5">
+      {canEdit && (
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
           Add an interview
@@ -314,13 +324,14 @@ function InterviewsPanel({
           </div>
         </form>
       </section>
+      )}
 
       {interviews.length === 0 ? (
         <EmptyState>No interviews logged yet.</EmptyState>
       ) : (
         <ul className="space-y-3">
           {interviews.map((iv) => (
-            <InterviewCard key={iv.id} row={row} interview={iv} />
+            <InterviewCard key={iv.id} row={row} interview={iv} canEdit={canEdit} />
           ))}
         </ul>
       )}
@@ -331,9 +342,11 @@ function InterviewsPanel({
 function InterviewCard({
   row,
   interview,
+  canEdit = false,
 }: {
   row: CandidateRow;
   interview: PersonInterview;
+  canEdit?: boolean;
 }) {
   const personId = row.id;
   const [open, setOpen] = useState(false);
@@ -375,10 +388,12 @@ function InterviewCard({
             label="Copy summary"
             getText={() => buildInterviewSummary(row, interview)}
           />
-          <DeleteButton
-            label="this interview"
-            onConfirm={() => deleteInterview(personId, interview.id)}
-          />
+          {canEdit && (
+            <DeleteButton
+              label="this interview"
+              onConfirm={() => deleteInterview(personId, interview.id)}
+            />
+          )}
         </div>
       </div>
 

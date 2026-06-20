@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
+import Link from "next/link";
 import type {
   RosterRow,
   PersonReview,
@@ -17,6 +18,20 @@ import {
   DOCUMENT_CATEGORY_LABELS,
   STATUS_LABELS,
 } from "@/lib/hr/types";
+import {
+  ATTENDANCE_LABELS,
+  ATTENDANCE_TONE,
+  reliabilityTone,
+} from "@/lib/schedule/types";
+import type { PersonAttendanceSummary } from "../../schedule/data";
+import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
+
+/** A linked Green Dog Ops login account, surfaced read-only on the profile. */
+export interface LinkedAccount {
+  id: string;
+  role: AppRole;
+  is_active: boolean;
+}
 import {
   saveReview,
   deleteReview,
@@ -63,18 +78,24 @@ export function EmployeeProfile({
   assets,
   documents,
   recruiting,
-  isAdmin,
+  attendance,
+  account,
+  canViewComp,
+  canEdit,
 }: {
   row: RosterRow;
   reviews: PersonReview[];
   assets: PersonAsset[];
   documents: PersonDocumentWithUrl[];
   recruiting: PersonRecruitingSummary | null;
-  isAdmin: boolean;
+  attendance: PersonAttendanceSummary;
+  account: LinkedAccount | null;
+  canViewComp: boolean;
+  canEdit: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
 
-  const tabs = isAdmin ? TABS : TABS.filter((t) => t.key !== "comp");
+  const tabs = canViewComp ? TABS : TABS.filter((t) => t.key !== "comp");
 
   const heading =
     row.full_name ||
@@ -88,9 +109,12 @@ export function EmployeeProfile({
         <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
           {heading}
         </h1>
-        <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
-          {STATUS_LABELS[row.status] ?? row.status}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <AccountChip account={account} isAdmin={canViewComp} />
+          <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
+            {STATUS_LABELS[row.status] ?? row.status}
+          </span>
+        </div>
       </div>
 
       <div className="overflow-x-auto border-b border-slate-200">
@@ -120,9 +144,13 @@ export function EmployeeProfile({
         row={row}
         activeTab={isFieldTab(activeTab) ? activeTab : "general"}
         hidden={!isFieldTab(activeTab)}
-        isAdmin={isAdmin}
+        canViewComp={canViewComp}
+        canEdit={canEdit}
       />
 
+      {activeTab === "attendance" && (
+        <SchedAttendancePanel attendance={attendance} />
+      )}
       {activeTab === "reviews" && (
         <ReviewsPanel personId={row.id} reviews={reviews} />
       )}
@@ -196,6 +224,164 @@ function EmptyState({ children }: { children: React.ReactNode }) {
     <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
       {children}
     </p>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Linked login account chip
+// ---------------------------------------------------------------------------
+
+function AccountChip({
+  account,
+  isAdmin,
+}: {
+  account: LinkedAccount | null;
+  isAdmin: boolean;
+}) {
+  if (!account) {
+    return (
+      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-500">
+        No login account
+      </span>
+    );
+  }
+
+  const label = `${ROLE_LABELS[account.role]}${
+    account.is_active ? "" : " · inactive"
+  }`;
+  const tone = account.is_active
+    ? "bg-sky-100 text-sky-800"
+    : "bg-slate-100 text-slate-500";
+
+  if (!isAdmin) {
+    return (
+      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>
+        User · {label}
+      </span>
+    );
+  }
+
+  return (
+    <Link
+      href={`/admin/users/${account.id}`}
+      className={`rounded-full px-3 py-1 text-xs font-semibold transition hover:opacity-80 ${tone}`}
+    >
+      User · {label}
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Schedule attendance (read-only rollup from published schedules)
+// ---------------------------------------------------------------------------
+
+function SchedAttendancePanel({
+  attendance,
+}: {
+  attendance: PersonAttendanceSummary;
+}) {
+  const { tally, score, records } = attendance;
+
+  const stats: Array<{ label: string; value: number; tone: string }> = [
+    { label: "Present", value: tally.present, tone: "text-emerald-600" },
+    {
+      label: "Late",
+      value: tally.late + tally.late_excused,
+      tone: "text-amber-600",
+    },
+    {
+      label: "Absent",
+      value: tally.absent + tally.absent_excused,
+      tone: "text-red-600",
+    },
+    { label: "No-show", value: tally.no_show, tone: "text-red-700" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Reliability
+            </p>
+            <p className={`text-3xl font-bold ${reliabilityTone(score)}`}>
+              {score == null ? "—" : `${score}%`}
+            </p>
+          </div>
+          <p className="text-sm text-slate-500">
+            {tally.total} resolved {tally.total === 1 ? "shift" : "shifts"} on
+            published schedules
+          </p>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {stats.map((s) => (
+            <div
+              key={s.label}
+              className="rounded-lg border border-slate-200 bg-slate-50 p-3"
+            >
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                {s.label}
+              </p>
+              <p className={`mt-1 text-2xl font-bold ${s.tone}`}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Section title="Attendance history">
+        <div className="sm:col-span-2 lg:col-span-3">
+          {records.length === 0 ? (
+            <EmptyState>
+              No attendance recorded yet. Marks made on a published schedule will
+              appear here.
+            </EmptyState>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-400">
+                    <th className="px-3 py-2 font-medium">Date</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">Location</th>
+                    <th className="px-3 py-2 font-medium">Note</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {records.map((r) => (
+                    <tr key={r.assignmentId} className="hover:bg-slate-50/50">
+                      <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-800">
+                        {fmtDate(r.work_date)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                            ATTENDANCE_TONE[r.status]
+                          }`}
+                        >
+                          {ATTENDANCE_LABELS[r.status]}
+                        </span>
+                        {r.auto_absent && (
+                          <span className="ml-1.5 text-xs text-slate-400">
+                            auto
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {r.location_name ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {r.note || "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Section>
+    </div>
   );
 }
 

@@ -33,9 +33,11 @@ const ZONE_OPTIONS = ZONE_DEFINITIONS.map((z) => ({
 export function OrganizationForm({
   org,
   locations,
+  canEdit = false,
 }: {
   org: CrmOrganization;
   locations: LocationOption[];
+  canEdit?: boolean;
 }) {
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) => updateOrganization(org.id, prev, fd),
@@ -61,7 +63,7 @@ export function OrganizationForm({
           {result?.ok === false && (
             <span className="text-sm text-red-600">{result.error}</span>
           )}
-          <SaveButton />
+          <SaveButton canEdit={canEdit} />
         </div>
       </div>
 
@@ -131,7 +133,7 @@ export function OrganizationForm({
         {result?.ok === false && (
           <span className="text-sm text-red-600">{result.error}</span>
         )}
-        <SaveButton />
+        <SaveButton canEdit={canEdit} />
       </div>
     </form>
   );

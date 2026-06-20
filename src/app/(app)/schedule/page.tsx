@@ -2,6 +2,8 @@ import { getSetupData, getWeeks, getWeekData } from "./data";
 import { ScheduleGrid } from "./schedule-grid";
 import { WeekPicker } from "./week-picker";
 import { PageHeader } from "../_components/ui";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canEditModule } from "@/lib/auth/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +13,12 @@ export default async function SchedulePage({
   searchParams: Promise<{ week?: string }>;
 }) {
   const { week: weekParam } = await searchParams;
-  const [weeks, setup] = await Promise.all([getWeeks(), getSetupData()]);
+  const [weeks, setup, current] = await Promise.all([
+    getWeeks(),
+    getSetupData(),
+    getCurrentUser(),
+  ]);
+  const canEdit = current ? canEditModule(current.appUser, "schedule") : false;
 
   const selectedId = weekParam ?? weeks[0]?.id ?? null;
   const weekData = selectedId ? await getWeekData(selectedId) : null;
@@ -34,5 +41,5 @@ export default async function SchedulePage({
     );
   }
 
-  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} />;
+  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} canEdit={canEdit} />;
 }

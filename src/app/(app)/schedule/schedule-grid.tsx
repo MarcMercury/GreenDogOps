@@ -52,10 +52,12 @@ export function ScheduleGrid({
   weeks,
   weekData,
   setup,
+  canEdit = false,
 }: {
   weeks: SchedWeek[];
   weekData: WeekData;
   setup: SetupData;
+  canEdit?: boolean;
 }) {
   const router = useRouter();
   const [, start] = useTransition();
@@ -169,6 +171,11 @@ export function ScheduleGrid({
 
   return (
     <div className="space-y-3">
+      {!canEdit && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          You have read-only access to the schedule. Changes are disabled.
+        </div>
+      )}
       <Toolbar
         week={week}
         weeks={weeks}

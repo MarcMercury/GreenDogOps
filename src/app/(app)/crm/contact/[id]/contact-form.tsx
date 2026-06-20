@@ -21,7 +21,13 @@ import {
   SaveButton,
 } from "../../form-fields";
 
-export function ContactForm({ contact }: { contact: CrmContact }) {
+export function ContactForm({
+  contact,
+  canEdit = false,
+}: {
+  contact: CrmContact;
+  canEdit?: boolean;
+}) {
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) => updateContact(contact.id, prev, fd),
     null,
@@ -51,7 +57,7 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
           {result?.ok === false && (
             <span className="text-sm text-red-600">{result.error}</span>
           )}
-          <SaveButton />
+          <SaveButton canEdit={canEdit} />
         </div>
       </div>
 
@@ -119,7 +125,7 @@ export function ContactForm({ contact }: { contact: CrmContact }) {
         {result?.ok === false && (
           <span className="text-sm text-red-600">{result.error}</span>
         )}
-        <SaveButton />
+        <SaveButton canEdit={canEdit} />
       </div>
     </form>
   );

@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/session";
+import { isEditorRole } from "@/lib/auth/permissions";
 import {
   type CrmOrganization,
   crmSectionBySlug,
@@ -19,6 +21,8 @@ export default async function OrganizationDetailPage({
 }) {
   const { id } = await params;
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const canEdit = current ? isEditorRole(current.appUser.role) : false;
   const { data, error } = await supabase
     .from("crm_organization")
     .select("*")
@@ -57,7 +61,7 @@ export default async function OrganizationDetailPage({
       >
         ← Back to {section?.title ?? "CRM"}
       </Link>
-      <OrganizationForm org={org} locations={locationOptions} />
+      <OrganizationForm org={org} locations={locationOptions} canEdit={canEdit} />
     </div>
   );
 }
