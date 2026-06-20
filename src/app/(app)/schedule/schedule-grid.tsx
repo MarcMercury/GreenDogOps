@@ -180,6 +180,17 @@ export function ScheduleGrid({
     title: string;
   } | null>(null);
 
+  const [collapsedDepts, setCollapsedDepts] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const toggleDept = (id: string) =>
+    setCollapsedDepts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
   const colCount = shownLocations.length;
 
   return (
@@ -334,12 +345,17 @@ export function ScheduleGrid({
                 key={dept.id}
                 dept={dept}
                 span={1 + DAYS.length * Math.max(colCount, 1)}
+                collapsed={collapsedDepts.has(dept.id)}
+                lineCount={deptLines.length}
+                onToggle={() => toggleDept(dept.id)}
                 onAddLine={() =>
                   setLineModal({ line: null, deptId: dept.id })
                 }
                 onEditDept={() => setDeptModal({ dept })}
               >
-                {deptLines.map((line) => (
+                {collapsedDepts.has(dept.id)
+                  ? null
+                  : deptLines.map((line) => (
                   <tr key={line.id} className="group/line hover:bg-slate-50/40">
                     <th
                       scope="row"
@@ -744,12 +760,18 @@ function WorkflowButtons({
 function DeptSection({
   dept,
   span,
+  collapsed,
+  lineCount,
+  onToggle,
   onAddLine,
   onEditDept,
   children,
 }: {
   dept: SchedDepartment;
   span: number;
+  collapsed: boolean;
+  lineCount: number;
+  onToggle: () => void;
   onAddLine: () => void;
   onEditDept: () => void;
   children: React.ReactNode;
@@ -763,7 +785,26 @@ function DeptSection({
           style={{ background: dept.color }}
         >
           <div className="flex items-center gap-2">
-            <span className="flex-1">{dept.name}</span>
+            <button
+              onClick={onToggle}
+              title={collapsed ? "Expand department" : "Collapse department"}
+              aria-expanded={!collapsed}
+              className="flex flex-1 items-center gap-1.5 text-left hover:text-white/90"
+            >
+              <span
+                className={`inline-block text-[9px] transition-transform ${
+                  collapsed ? "-rotate-90" : ""
+                }`}
+              >
+                ▼
+              </span>
+              <span>{dept.name}</span>
+              {collapsed && lineCount > 0 && (
+                <span className="rounded bg-white/20 px-1.5 text-[9px] font-semibold">
+                  {lineCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={onAddLine}
               title="Add shift line to this department"
