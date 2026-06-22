@@ -67,7 +67,8 @@ export async function updateEmployee(
     offer_title: str(formData.get("offer_title")),
     flsa_status: str(formData.get("flsa_status")),
     work_schedule: str(formData.get("work_schedule")),
-    days_per_week: num(formData.get("days_per_week")),
+    // days_per_week is sourced from Schedule → Setup (sched_employee_setting
+    // .weekly_shift_target) and shown read-only on HR, so it is not written here.
     hire_date: str(formData.get("hire_date")),
     original_hire_date: str(formData.get("original_hire_date")),
     pto_policy_allotment: num(formData.get("pto_policy_allotment")),

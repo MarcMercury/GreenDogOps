@@ -166,6 +166,7 @@ export function EmployeeProfile({
         hidden={!isFieldTab(activeTab)}
         canViewComp={canViewComp}
         canEdit={canEdit}
+        weeklyShiftTarget={scheduleSettings.weeklyTarget}
       />
 
       {activeTab === "attendance" && (

@@ -35,7 +35,29 @@ export function Field({
   );
 }
 
-/** Format a numeric value for display in a currency input (commas, up to 2dp). */
+/**
+ * A non-editable field whose value lives in another module (the source of
+ * truth). Renders no form input, so it is never submitted/overwritten here.
+ */
+function ReadOnlyField({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+  hint?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+        {value == null || value === "" ? "—" : value}
+      </div>
+      {hint ? <span className="text-[11px] text-slate-400">{hint}</span> : null}
+    </label>
+  );
+}
 function formatCurrencyInput(raw: string | number | null | undefined): string {
   if (raw == null || raw === "") return "";
   const n =
@@ -170,12 +192,15 @@ export function EmployeeForm({
   hidden,
   canViewComp,
   canEdit,
+  weeklyShiftTarget,
 }: {
   row: RosterRow;
   activeTab: FieldTab;
   hidden: boolean;
   canViewComp: boolean;
   canEdit: boolean;
+  /** Days per week, sourced from Schedule → Setup (sched_employee_setting). */
+  weeklyShiftTarget: number | null;
 }) {
   const emp = row.person_employment;
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -284,11 +309,10 @@ export function EmployeeForm({
               { value: "contractor", label: "Contractor" },
             ]}
           />
-          <Field
+          <ReadOnlyField
             label="Days per week"
-            name="days_per_week"
-            type="number"
-            defaultValue={emp?.days_per_week}
+            value={weeklyShiftTarget}
+            hint="From Schedule → Setup → Employees"
           />
           <Field
             label="Hire date"
