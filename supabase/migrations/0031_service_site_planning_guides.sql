@@ -178,13 +178,13 @@ end $$;
 do $$
 declare gid uuid; c_ex uuid;
 begin
-  if exists (select 1 from greendogops.planning_guide where name = 'Exotics — Daily Guide') then
-    raise notice 'skip %', 'Exotics — Daily Guide';
+  if exists (select 1 from greendogops.planning_guide where name = 'THE VALLEY - Exotics') then
+    raise notice 'skip %', 'THE VALLEY - Exotics';
   else
     insert into greendogops.planning_guide
       (name, location_id, department_id, service_label, day_model, weekdays,
        start_minute, end_minute, slot_minutes, sort_order, notes)
-    values ('Exotics — Daily Guide', null, 'ab45bd0e-ff3f-4416-8b47-a6e8c149df33', 'Exotics', 'Standard exotics day', '{}',
+    values ('THE VALLEY - Exotics', '4f74355f-d56c-44bb-93f0-99008eb97b14', 'ab45bd0e-ff3f-4416-8b47-a6e8c149df33', 'Exotics', 'Standard exotics day', '{}',
        540, 1050, 30, 120, 'Exotics service site (own planning guide).')
     returning id into gid;
     insert into greendogops.planning_guide_column (guide_id, name, color, capacity_note, sort_order)
