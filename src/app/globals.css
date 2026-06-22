@@ -77,3 +77,33 @@ body {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
+
+/* ----------------------------------------------------------------------------
+   Schedule printing
+   Two print layouts share one page: the full grid (default) and the
+   per-employee export (one page per employee). A wrapper class on the grid
+   root decides which one the print dialog renders.
+---------------------------------------------------------------------------- */
+.sched-employee-print {
+  display: none;
+}
+
+@media print {
+  /* Per-employee export: hide the grid, reveal the employee pages. */
+  .sched-print-employee .sched-grid-print {
+    display: none !important;
+  }
+  .sched-print-employee .sched-employee-print {
+    display: block !important;
+  }
+
+  /* One employee per printed page. */
+  .sched-emp-page {
+    break-after: page;
+    page-break-after: always;
+  }
+  .sched-emp-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+}
