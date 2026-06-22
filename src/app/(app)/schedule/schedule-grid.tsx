@@ -61,6 +61,33 @@ function timeToMinutes(t: string | null | undefined): number | null {
 }
 
 /**
+ * 12-hour clock label with AM/PM ("8:30 AM", "5:00 PM"), matching the format
+ * When I Work uses in its shift entry form. Returns "" for missing times.
+ */
+function formatClock(t: string | null): string {
+  if (!t) return "";
+  const [hStr, mStr] = t.split(":");
+  let h = Number(hStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return "";
+  const ampm = h >= 12 ? "PM" : "AM";
+  if (h === 0) h = 12;
+  else if (h > 12) h -= 12;
+  return `${h}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+/** "YYYY-MM-DD" → "M/D/YYYY" for spreadsheet-friendly CSV output. */
+function csvDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
+}
+
+/** Quote/escape a single CSV cell per RFC 4180. */
+function csvCell(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/**
  * Decide whether two same-day assignments for the same person collide — i.e.
  * the person would have to be in two places at once. The same shift line is
  * always a collision (an exact duplicate). Otherwise the lines' time windows
@@ -250,6 +277,97 @@ export function ScheduleGrid({
     }));
   }, [lines, setup.departments]);
 
+  // Per-employee shift list for the "Export per employee" printout: every
+  // active assignment grouped by person, then sorted by date and start time so
+  // each printed page reads top-to-bottom through the week.
+  const perEmployee = useMemo(() => {
+    const lineById = new Map(lines.map((l) => [l.id, l]));
+    const locationById = new Map(setup.locations.map((l) => [l.id, l]));
+    const roleById = new Map(setup.roles.map((r) => [r.id, r]));
+    type EmpShift = {
+      day: number;
+      date: string;
+      start: string | null;
+      end: string | null;
+      location: string;
+      position: string;
+    };
+    const byPerson = new Map<
+      string,
+      { person: SchedPerson; shifts: EmpShift[] }
+    >();
+    for (const a of assignments) {
+      if (a.removed_post_publish) continue;
+      const person = personById.get(a.person_id);
+      if (!person) continue;
+      const line = lineById.get(a.line_id);
+      const loc = locationById.get(a.location_id);
+      const role = line?.role_id ? roleById.get(line.role_id) : null;
+      const entry = byPerson.get(a.person_id) ?? { person, shifts: [] };
+      entry.shifts.push({
+        day: a.day_of_week,
+        date: a.work_date || dateForDay(week.week_start, a.day_of_week),
+        start: line?.start_time ?? null,
+        end: line?.end_time ?? null,
+        location: loc ? loc.name : "—",
+        position: line?.label || role?.name || "Shift",
+      });
+      byPerson.set(a.person_id, entry);
+    }
+    const list = [...byPerson.values()];
+    for (const e of list) {
+      e.shifts.sort((x, y) =>
+        x.date === y.date
+          ? (x.start ?? "").localeCompare(y.start ?? "")
+          : x.date.localeCompare(y.date),
+      );
+    }
+    list.sort((a, b) => gridName(a.person).localeCompare(gridName(b.person)));
+    return list;
+  }, [assignments, lines, personById, setup.locations, setup.roles, week.week_start]);
+
+  // Build a When I Work-friendly CSV (one row per shift) and trigger a download.
+  // When I Work has no shift-import file format, so this mirrors its shift entry
+  // fields (Schedule, Position, Employee, Date, Start, End) to make manual
+  // re-keying or copy/paste as painless as possible.
+  const downloadWiwCsv = () => {
+    const header = [
+      "Employee",
+      "Day",
+      "Date",
+      "Start Time",
+      "End Time",
+      "Position",
+      "Schedule",
+    ];
+    const rows = [header];
+    for (const { person, shifts } of perEmployee) {
+      for (const s of shifts) {
+        rows.push([
+          gridName(person),
+          DAY_LABELS[s.day],
+          csvDate(s.date),
+          formatClock(s.start),
+          formatClock(s.end),
+          s.position,
+          s.location,
+        ]);
+      }
+    }
+    const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
+    const blob = new Blob(["\uFEFF" + csv], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `schedule-${week.week_start}-wheniwork.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
   // UI state
   const [picker, setPicker] = useState<CellKey | null>(null);
   const [attMenu, setAttMenu] = useState<string | null>(null);
@@ -270,6 +388,19 @@ export function ScheduleGrid({
   const [collapsedDepts, setCollapsedDepts] = useState<Set<string>>(
     () => new Set(),
   );
+
+  // Printing: `null` = nothing pending; "grid" prints the schedule as-is,
+  // "employee" swaps in the per-employee pages. The effect fires the browser
+  // print dialog once the DOM reflects the chosen mode, then resets.
+  const [printMode, setPrintMode] = useState<"grid" | "employee" | null>(null);
+  useEffect(() => {
+    if (!printMode) return;
+    const reset = () => setPrintMode(null);
+    window.addEventListener("afterprint", reset, { once: true });
+    window.print();
+    return () => window.removeEventListener("afterprint", reset);
+  }, [printMode]);
+
   const toggleDept = (id: string) =>
     setCollapsedDepts((prev) => {
       const next = new Set(prev);
@@ -309,7 +440,11 @@ export function ScheduleGrid({
   };
 
   return (
-    <div className="space-y-3">
+    <div
+      className={`space-y-3 ${
+        printMode === "employee" ? "sched-print-employee" : "sched-print-grid"
+      }`}
+    >
       {!canEdit && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
           You have read-only access to the schedule. Changes are disabled.
@@ -321,6 +456,9 @@ export function ScheduleGrid({
         availableLocations={availableLocations}
         enabled={enabled}
         setEnabled={setEnabled}
+        onPrintGrid={() => setPrintMode("grid")}
+        onPrintEmployee={() => setPrintMode("employee")}
+        onExportCsv={downloadWiwCsv}
         onStatus={(s) =>
           start(async () => {
             await setWeekStatus(week.id, s);
@@ -341,7 +479,7 @@ export function ScheduleGrid({
       <div
         ref={gridScrollRef}
         onScroll={syncFromGrid}
-        className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:overflow-visible print:border-0 print:shadow-none"
+        className="sched-grid-print overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:overflow-visible print:border-0 print:shadow-none"
       >
         <table
           className="min-w-full border-collapse text-xs"
@@ -625,6 +763,8 @@ export function ScheduleGrid({
         </table>
       </div>
 
+      <PerEmployeePrintout weekStart={week.week_start} employees={perEmployee} />
+
       <div className="flex items-center justify-between gap-3 print:hidden">
         <Legend />
         <div className="flex shrink-0 items-center gap-2">
@@ -773,6 +913,9 @@ function Toolbar({
   availableLocations,
   enabled,
   setEnabled,
+  onPrintGrid,
+  onPrintEmployee,
+  onExportCsv,
   onStatus,
 }: {
   week: SchedWeek;
@@ -780,6 +923,9 @@ function Toolbar({
   availableLocations: ScheduleLocation[];
   enabled: Set<string>;
   setEnabled: (s: Set<string>) => void;
+  onPrintGrid: () => void;
+  onPrintEmployee: () => void;
+  onExportCsv: () => void;
   onStatus: (s: SchedWeek["status"]) => void;
 }) {
   function toggle(id: string) {
@@ -802,7 +948,13 @@ function Toolbar({
             {SCHEDULE_STATUS_LABELS[week.status]}
           </span>
         </div>
-        <WorkflowButtons status={week.status} onStatus={onStatus} />
+        <WorkflowButtons
+          status={week.status}
+          onStatus={onStatus}
+          onPrintGrid={onPrintGrid}
+          onPrintEmployee={onPrintEmployee}
+          onExportCsv={onExportCsv}
+        />
       </div>
 
       <WeekPicker weeks={weeks} selectedId={week.id} />
@@ -840,9 +992,15 @@ function Toolbar({
 function WorkflowButtons({
   status,
   onStatus,
+  onPrintGrid,
+  onPrintEmployee,
+  onExportCsv,
 }: {
   status: SchedWeek["status"];
   onStatus: (s: SchedWeek["status"]) => void;
+  onPrintGrid: () => void;
+  onPrintEmployee: () => void;
+  onExportCsv: () => void;
 }) {
   const btn =
     "rounded-lg px-3 py-1.5 text-sm font-medium transition disabled:opacity-50";
@@ -891,10 +1049,25 @@ function WorkflowButtons({
       {status === "published" && (
         <>
           <button
-            onClick={() => window.print()}
+            onClick={onPrintGrid}
             className={`${btn} bg-slate-900 text-white hover:bg-slate-800`}
+            title="Print the schedule grid exactly as shown"
           >
-            Print
+            Print Grid
+          </button>
+          <button
+            onClick={onPrintEmployee}
+            className={`${btn} bg-slate-700 text-white hover:bg-slate-800`}
+            title="Print one page per employee listing all of their shifts (optimized for entering into When I Work)"
+          >
+            Export Per Employee
+          </button>
+          <button
+            onClick={onExportCsv}
+            className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
+            title="Download a CSV laid out like When I Work shift fields (Date, Start, End, Position, Schedule)"
+          >
+            CSV for When I Work
           </button>
           <button
             onClick={() => onStatus("draft")}
@@ -904,6 +1077,88 @@ function WorkflowButtons({
           </button>
         </>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per-employee printout: one page per employee, hidden on screen, revealed
+// only when the grid root carries the `sched-print-employee` class.
+// ---------------------------------------------------------------------------
+
+type EmployeeSchedule = {
+  person: SchedPerson;
+  shifts: {
+    day: number;
+    date: string;
+    start: string | null;
+    end: string | null;
+    location: string;
+    position: string;
+  }[];
+};
+
+function PerEmployeePrintout({
+  weekStart,
+  employees,
+}: {
+  weekStart: string;
+  employees: EmployeeSchedule[];
+}) {
+  const fmtDate = (iso: string) =>
+    new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+
+  return (
+    <div className="sched-employee-print">
+      {employees.map(({ person, shifts }) => (
+        <section key={person.id} className="sched-emp-page mb-8">
+          <div className="mb-3 flex items-baseline justify-between border-b-2 border-slate-800 pb-2">
+            <h2 className="text-xl font-bold text-slate-900">
+              {gridName(person)}
+            </h2>
+            <span className="text-sm font-medium text-slate-600">
+              Week of {formatWeekRange(weekStart)}
+            </span>
+          </div>
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-slate-400 text-left">
+                <th className="py-1.5 pr-4 font-semibold text-slate-700">Date</th>
+                <th className="py-1.5 pr-4 font-semibold text-slate-700">
+                  Start
+                </th>
+                <th className="py-1.5 pr-4 font-semibold text-slate-700">End</th>
+                <th className="py-1.5 pr-4 font-semibold text-slate-700">
+                  Position
+                </th>
+                <th className="py-1.5 font-semibold text-slate-700">Schedule</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shifts.map((s, i) => (
+                <tr key={i} className="border-b border-slate-200">
+                  <td className="py-1.5 pr-4">{fmtDate(s.date)}</td>
+                  <td className="py-1.5 pr-4 font-mono">
+                    {formatClock(s.start) || "—"}
+                  </td>
+                  <td className="py-1.5 pr-4 font-mono">
+                    {formatClock(s.end) || "—"}
+                  </td>
+                  <td className="py-1.5 pr-4">{s.position}</td>
+                  <td className="py-1.5">{s.location}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="mt-3 text-sm font-semibold text-slate-700">
+            Total shifts: {shifts.length}
+          </p>
+        </section>
+      ))}
     </div>
   );
 }
