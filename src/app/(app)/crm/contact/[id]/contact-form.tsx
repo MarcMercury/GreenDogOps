@@ -9,7 +9,7 @@ import {
   HIRE_INTEREST_OPTIONS,
   PROGRAM_TYPE_SUGGESTIONS,
 } from "@/lib/crm/types";
-import { updateContact, type SaveResult } from "../../actions";
+import { updateContact, deleteContact, type SaveResult } from "../../actions";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import {
   Field,
@@ -19,6 +19,7 @@ import {
   ComboField,
   Section,
   SaveButton,
+  DeleteButton,
 } from "../../form-fields";
 
 export function ContactForm({
@@ -118,14 +119,24 @@ export function ContactForm({
         <TextArea label="Notes" name="notes" defaultValue={contact.notes} />
       </Section>
 
-      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
-        {result?.ok === true && (
-          <span className="text-sm text-emerald-700">Saved ✓</span>
+      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-between gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
+        {canEdit ? (
+          <DeleteButton
+            recordLabel={heading}
+            onDelete={() => deleteContact(contact.id)}
+          />
+        ) : (
+          <span />
         )}
-        {result?.ok === false && (
-          <span className="text-sm text-red-600">{result.error}</span>
-        )}
-        <SaveButton canEdit={canEdit} />
+        <div className="flex items-center gap-3">
+          {result?.ok === true && (
+            <span className="text-sm text-emerald-700">Saved ✓</span>
+          )}
+          {result?.ok === false && (
+            <span className="text-sm text-red-600">{result.error}</span>
+          )}
+          <SaveButton canEdit={canEdit} />
+        </div>
       </div>
     </form>
   );

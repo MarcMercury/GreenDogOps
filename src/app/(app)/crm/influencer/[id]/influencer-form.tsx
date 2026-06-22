@@ -11,7 +11,7 @@ import {
   COLLABORATION_TYPE_OPTIONS,
   COMPENSATION_TYPE_OPTIONS,
 } from "@/lib/crm/types";
-import { updateInfluencer, type SaveResult } from "../../actions";
+import { updateInfluencer, deleteInfluencer, type SaveResult } from "../../actions";
 import {
   Field,
   TextArea,
@@ -19,6 +19,7 @@ import {
   Select,
   Section,
   SaveButton,
+  DeleteButton,
 } from "../../form-fields";
 
 function influencerHeading(i: CrmInfluencer): string {
@@ -137,14 +138,24 @@ export function InfluencerForm({
         <TextArea label="Notes" name="notes" defaultValue={i.notes} />
       </Section>
 
-      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
-        {result?.ok === true && (
-          <span className="text-sm text-emerald-700">Saved ✓</span>
+      <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-between gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
+        {canEdit ? (
+          <DeleteButton
+            recordLabel={influencerHeading(i)}
+            onDelete={() => deleteInfluencer(i.id)}
+          />
+        ) : (
+          <span />
         )}
-        {result?.ok === false && (
-          <span className="text-sm text-red-600">{result.error}</span>
-        )}
-        <SaveButton canEdit={canEdit} />
+        <div className="flex items-center gap-3">
+          {result?.ok === true && (
+            <span className="text-sm text-emerald-700">Saved ✓</span>
+          )}
+          {result?.ok === false && (
+            <span className="text-sm text-red-600">{result.error}</span>
+          )}
+          <SaveButton canEdit={canEdit} />
+        </div>
       </div>
     </form>
   );

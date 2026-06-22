@@ -1,6 +1,7 @@
 "use client";
 
 import { useFormStatus } from "react-dom";
+import { useState, useTransition } from "react";
 
 export function Field({
   label,
@@ -188,5 +189,48 @@ export function SaveButton({ canEdit = true }: { canEdit?: boolean }) {
     >
       {pending ? "Saving…" : "Save changes"}
     </button>
+  );
+}
+
+/**
+ * Delete control for a CRM record. Asks for confirmation, then runs the given
+ * server action (which redirects to the list view on success). Rendered as a
+ * plain button so it can live inside the surrounding edit <form> without
+ * submitting it.
+ */
+export function DeleteButton({
+  recordLabel,
+  onDelete,
+}: {
+  recordLabel: string;
+  onDelete: () => Promise<{ ok: true } | { ok: false; error: string }>;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <div className="flex items-center gap-3">
+      {error && <span className="text-sm text-red-600">{error}</span>}
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          if (
+            !window.confirm(
+              `Delete "${recordLabel}"? This permanently removes the record and cannot be undone.`,
+            )
+          )
+            return;
+          setError(null);
+          startTransition(async () => {
+            const result = await onDelete();
+            if (result && !result.ok) setError(result.error);
+          });
+        }}
+        className="rounded-lg border border-red-300 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm transition hover:bg-red-50 disabled:opacity-50"
+      >
+        {pending ? "Deleting…" : "Delete"}
+      </button>
+    </div>
   );
 }

@@ -5,11 +5,13 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { isEditorRole } from "@/lib/auth/permissions";
 import {
   type CrmContact,
+  type CrmCeAttendance,
   crmSectionBySlug,
   crmSlugForContactType,
 } from "@/lib/crm/types";
 import { ContactForm } from "./contact-form";
 import { PromoteToRecruiting } from "./promote-controls";
+import { CeAttendanceManager } from "./ce-attendance";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +43,17 @@ export default async function ContactDetailPage({
 
   const contact = data as CrmContact;
   const section = crmSectionBySlug(crmSlugForContactType(contact.contact_type));
+
+  // CE attendees track the continuing-education events they're tied to.
+  let ceAttendance: CrmCeAttendance[] = [];
+  if (contact.contact_type === "ce_attendee") {
+    const { data: ceRows } = await supabase
+      .from("crm_ce_attendance")
+      .select("*")
+      .eq("contact_id", contact.id)
+      .order("ce_date", { ascending: false });
+    ceAttendance = (ceRows ?? []) as CrmCeAttendance[];
+  }
 
   // If this student was promoted, route to wherever that person now lives:
   // the HR roster once hired (employee/contractor/former), else the ATS.
@@ -87,6 +100,15 @@ export default async function ContactDetailPage({
           canEdit && <PromoteToRecruiting contactId={contact.id} />
         ))}
       <ContactForm contact={contact} canEdit={canEdit} />
+      {contact.contact_type === "ce_attendee" && (
+        <div className="mt-5">
+          <CeAttendanceManager
+            contactId={contact.id}
+            records={ceAttendance}
+            canEdit={canEdit}
+          />
+        </div>
+      )}
     </div>
   );
 }

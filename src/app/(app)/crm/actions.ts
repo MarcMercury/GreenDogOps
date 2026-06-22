@@ -4,6 +4,12 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { ensureEditor } from "@/lib/auth/session";
+import {
+  crmSlugForOrgType,
+  crmSlugForContactType,
+  type OrgType,
+  type ContactType,
+} from "@/lib/crm/types";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -207,6 +213,65 @@ export async function updateInfluencer(
   revalidatePath(`/crm/influencer/${id}`);
   revalidatePath("/crm", "layout");
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Delete actions — remove a CRM record and redirect back to its list view.
+// Each returns a SaveResult only on failure; on success it redirects.
+// ---------------------------------------------------------------------------
+export async function deleteOrganization(id: string): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { data: org } = await supabase
+    .from("crm_organization")
+    .select("org_type")
+    .eq("id", id)
+    .maybeSingle();
+  const { error } = await supabase
+    .from("crm_organization")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  const slug = org
+    ? crmSlugForOrgType((org as { org_type: OrgType }).org_type)
+    : null;
+  revalidatePath("/crm", "layout");
+  redirect(slug ? `/crm/${slug}` : "/crm");
+}
+
+export async function deleteContact(id: string): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { data: contact } = await supabase
+    .from("crm_contact")
+    .select("contact_type")
+    .eq("id", id)
+    .maybeSingle();
+  const { error } = await supabase
+    .from("crm_contact")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  const slug = contact
+    ? crmSlugForContactType((contact as { contact_type: ContactType }).contact_type)
+    : null;
+  revalidatePath("/crm", "layout");
+  redirect(slug ? `/crm/${slug}` : "/crm");
+}
+
+export async function deleteInfluencer(id: string): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_influencers")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm", "layout");
+  redirect("/crm/influencer");
 }
 
 // ---------------------------------------------------------------------------

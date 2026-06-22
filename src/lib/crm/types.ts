@@ -421,3 +421,21 @@ export function crmSlugForContactType(t: ContactType): CrmSlug {
     CRM_SECTIONS.find((s) => s.contactTypes?.includes(t))?.slug ?? "student"
   );
 }
+
+// ---------------------------------------------------------------------------
+// CE attendance — per-attendee log of the continuing-education events a CE lead
+// is attending, with their preparation + payment status for each event.
+// ---------------------------------------------------------------------------
+export interface CrmCeAttendance {
+  id: string;
+  contact_id: string;
+  ce_name: string;
+  ce_date: string | null;
+  confirmed_date: string | null;
+  paid: boolean;
+  showed_up: boolean;
+  materials_prepared: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
