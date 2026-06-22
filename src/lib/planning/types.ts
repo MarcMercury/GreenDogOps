@@ -210,14 +210,43 @@ export function minutesToLabel(min: number): string {
   return m === 0 ? `${h}${ampm}` : `${h}:${String(m).padStart(2, "0")}${ampm}`;
 }
 
-/** The list of time buckets (minutes) for a guide's grid rows. */
+/** Fixed visual grid resolution: the day is always drawn in 15-minute windows,
+ *  with heavier markers at the half-hour and hour. */
+export const GRID_STEP_MINUTES = 15;
+
+/** The list of time buckets (minutes) for a guide's grid rows. Rows are always
+ *  15-minute windows so the day reads at a consistent rhythm regardless of the
+ *  guide's slot length. */
 export function timeBuckets(guide: PlanningGuide): number[] {
-  const step = Math.max(5, guide.slot_minutes);
   const out: number[] = [];
-  for (let t = guide.start_minute; t < guide.end_minute; t += step) {
+  for (let t = guide.start_minute; t < guide.end_minute; t += GRID_STEP_MINUTES) {
     out.push(t);
   }
   return out;
+}
+
+/** Visual weight for a grid row, used to draw hour / half-hour / quarter markers. */
+export function bucketMarker(min: number): "hour" | "half" | "quarter" {
+  const m = ((min % 60) + 60) % 60;
+  if (m === 0) return "hour";
+  if (m === 30) return "half";
+  return "quarter";
+}
+
+/** Strip an embedded clock time from a slot label (e.g. "VE 9:30" → "VE").
+ *  The slot's position in the grid already conveys the time, so we don't repeat
+ *  it inside the chip. */
+export function displaySlotLabel(label: string | null | undefined): string {
+  if (!label) return "";
+  return label
+    // "9:30", "9:30a", "10:00 AM", "12:15 p.m."
+    .replace(/\b\d{1,2}:\d{2}\s*(?:[ap]\.?m\.?)?/gi, "")
+    // "9a", "10 pm", "9 a.m."
+    .replace(/\b\d{1,2}\s*[ap]\.?m\.?(?=\b|\s|$)/gi, "")
+    // trim leftover separators left behind by the removal
+    .replace(/^[\s·\-–—,@]+|[\s·\-–—,@]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 }
 
 /** Total bookable (non block/lunch/open) slots in a guide. */

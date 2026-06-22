@@ -9,9 +9,12 @@ import {
   COLUMN_PRESETS,
   DAY_LABELS,
   DAY_SHORT,
+  GRID_STEP_MINUTES,
   apptChipStyle,
   apptType,
+  bucketMarker,
   countBookable,
+  displaySlotLabel,
   minutesToInput,
   minutesToLabel,
   parseMinutes,
@@ -230,6 +233,11 @@ function GuideList({
     return [...byLoc.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [guides, locName]);
 
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const toggleGroup = useCallback((loc: string) => {
+    setCollapsed((prev) => ({ ...prev, [loc]: !prev[loc] }));
+  }, []);
+
   if (!guides.length) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
@@ -240,11 +248,34 @@ function GuideList({
 
   return (
     <div className="space-y-4">
-      {groups.map(([loc, list]) => (
+      {groups.map(([loc, list]) => {
+        const isCollapsed = collapsed[loc] ?? false;
+        return (
         <div key={loc}>
-          <p className="px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            {loc}
-          </p>
+          <button
+            type="button"
+            onClick={() => toggleGroup(loc)}
+            aria-expanded={!isCollapsed}
+            className="flex w-full items-center gap-1.5 px-1 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400 transition hover:text-slate-600"
+          >
+            <svg
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              aria-hidden="true"
+              className={`h-3 w-3 shrink-0 transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+            >
+              <path
+                fillRule="evenodd"
+                d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.168l3.71-3.938a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span className="truncate">{loc}</span>
+            <span className="ml-auto rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+              {list.length}
+            </span>
+          </button>
+          {isCollapsed ? null : (
           <div className="space-y-1.5">
             {list.map((g) => {
               const active = g.id === selectedId;
@@ -283,8 +314,10 @@ function GuideList({
               );
             })}
           </div>
+          )}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -327,9 +360,9 @@ function GuideEditor({
     null,
   );
 
-  // index slots by column + bucket
+  // index slots by column + bucket (rows are fixed 15-minute windows)
   const slotsByCell = useMemo(() => {
-    const step = Math.max(5, guide.slot_minutes);
+    const step = GRID_STEP_MINUTES;
     const map = new Map<string, PlanningGuideSlot[]>();
     for (const s of slots) {
       const bucket =
@@ -344,7 +377,7 @@ function GuideEditor({
       arr.sort((a, b) => a.start_minute - b.start_minute || a.sort_order - b.sort_order);
     }
     return map;
-  }, [slots, guide.slot_minutes, guide.start_minute]);
+  }, [slots, guide.start_minute]);
 
   const subtitle = [
     locName(guide.location_id),
@@ -367,7 +400,7 @@ function GuideEditor({
           ) : null}
           <p className="mt-1 text-xs text-slate-400">
             {weekdaysLabel(guide.weekdays)} · {minutesToLabel(guide.start_minute)}–
-            {minutesToLabel(guide.end_minute)} · {guide.slot_minutes}-min rows ·{" "}
+            {minutesToLabel(guide.end_minute)} · {guide.slot_minutes}-min slots ·{" "}
             <span className="font-medium text-slate-500">
               {countBookable(slots)} bookable slots
             </span>
@@ -423,14 +456,14 @@ function GuideEditor({
           <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 w-16 bg-white px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <th className="sticky left-0 z-20 w-14 bg-slate-50 px-2 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
                   Time
                 </th>
                 {columns.map((col) => (
                   <th
                     key={col.id}
-                    className="border-b border-slate-100 px-2 py-2 text-left align-top"
-                    style={{ minWidth: 150 }}
+                    className="border-b-2 border-slate-200 bg-slate-50 px-2 py-2 text-left align-top"
+                    style={{ minWidth: 150, borderTop: `3px solid ${col.color}` }}
                   >
                     <div className="flex items-start justify-between gap-1">
                       <div className="min-w-0">
@@ -465,50 +498,67 @@ function GuideEditor({
               </tr>
             </thead>
             <tbody>
-              {buckets.map((bucket) => (
-                <tr key={bucket} className="align-top">
-                  <td className="sticky left-0 z-10 bg-white px-2 py-1 text-right text-xs font-medium text-slate-400">
-                    {minutesToLabel(bucket)}
-                  </td>
-                  {columns.map((col) => {
-                    const cellSlots = slotsByCell.get(`${col.id}:${bucket}`) ?? [];
-                    return (
-                      <td
-                        key={col.id}
-                        className="border-b border-l border-slate-50 px-1.5 py-1"
-                      >
-                        <div className="flex flex-col gap-1">
-                          {cellSlots.map((s) => (
-                            <SlotChip
-                              key={s.id}
-                              slot={s}
-                              canEdit={canEdit}
-                              onClick={() =>
-                                canEdit && setSlotEdit({ mode: "edit", slot: s })
-                              }
-                            />
-                          ))}
-                          {canEdit ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setSlotEdit({
-                                  mode: "new",
-                                  columnId: col.id,
-                                  startMinute: bucket,
-                                })
-                              }
-                              className="rounded border border-dashed border-slate-200 px-1.5 py-0.5 text-left text-[11px] text-slate-300 transition hover:border-emerald-300 hover:text-emerald-500"
-                            >
-                              + add
-                            </button>
-                          ) : null}
-                        </div>
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {buckets.map((bucket) => {
+                const marker = bucketMarker(bucket);
+                const rowBorder =
+                  marker === "hour"
+                    ? "border-t-2 border-slate-300"
+                    : marker === "half"
+                      ? "border-t border-slate-200"
+                      : "border-t border-dashed border-slate-100";
+                const timeText =
+                  marker === "hour"
+                    ? "text-[13px] font-bold text-slate-600"
+                    : marker === "half"
+                      ? "text-xs font-semibold text-slate-400"
+                      : "text-[10px] font-medium text-slate-300";
+                return (
+                  <tr key={bucket} className="align-top">
+                    <td
+                      className={`sticky left-0 z-10 bg-white px-2 py-1 text-right tabular-nums ${rowBorder} ${timeText}`}
+                    >
+                      {minutesToLabel(bucket)}
+                    </td>
+                    {columns.map((col) => {
+                      const cellSlots = slotsByCell.get(`${col.id}:${bucket}`) ?? [];
+                      return (
+                        <td
+                          key={col.id}
+                          className={`group border-l border-slate-100 px-1.5 py-1 transition hover:bg-slate-50/60 ${rowBorder}`}
+                        >
+                          <div className="flex min-h-[1.5rem] flex-col gap-1">
+                            {cellSlots.map((s) => (
+                              <SlotChip
+                                key={s.id}
+                                slot={s}
+                                canEdit={canEdit}
+                                onClick={() =>
+                                  canEdit && setSlotEdit({ mode: "edit", slot: s })
+                                }
+                              />
+                            ))}
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSlotEdit({
+                                    mode: "new",
+                                    columnId: col.id,
+                                    startMinute: bucket,
+                                  })
+                                }
+                                className="rounded border border-dashed border-transparent px-1.5 py-0.5 text-left text-[11px] text-slate-300 opacity-0 transition hover:border-emerald-300 hover:text-emerald-500 focus:opacity-100 group-hover:opacity-100"
+                              >
+                                + add
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -593,6 +643,7 @@ function SlotChip({
   onClick: () => void;
 }) {
   const t = apptType(slot.type_code);
+  const display = displaySlotLabel(slot.label);
   return (
     <button
       type="button"
@@ -602,11 +653,11 @@ function SlotChip({
       className={`rounded border px-1.5 py-0.5 text-left text-xs font-medium leading-tight ${
         canEdit ? "cursor-pointer hover:brightness-95" : "cursor-default"
       }`}
-      title={`${t.label}${slot.label ? ` — ${slot.label}` : ""}`}
+      title={`${t.label}${display ? ` — ${display}` : ""}`}
     >
       <span className="block truncate">
-        {slot.label || t.short}
-        {slot.label ? (
+        {display || t.short}
+        {display ? (
           <span className="ml-1 opacity-60">{t.short}</span>
         ) : null}
       </span>
@@ -1228,7 +1279,7 @@ function SlotDialog({
               className={`mt-1 ${fieldClass}`}
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="VE 9:30"
+              placeholder="VE (no time needed)"
             />
           </div>
           <div>
