@@ -6,6 +6,7 @@ import type { SetupData } from "../data";
 import {
   gridName,
   timeRange,
+  DAY_SHORT,
   type SchedDepartment,
   type SchedRole,
   type SchedShiftTemplate,
@@ -719,15 +720,31 @@ function Employees({ data }: { data: SetupData }) {
 
   function update(
     personId: string,
-    patch: { target?: number; schedulable?: boolean; loc?: string | null },
+    patch: {
+      target?: number;
+      schedulable?: boolean;
+      loc?: string | null;
+      eligibleLocs?: string[];
+      days?: number[];
+    },
   ) {
     const cur = settingByPerson.get(personId);
     const target = patch.target ?? cur?.weekly_shift_target ?? 5;
     const schedulable = patch.schedulable ?? cur?.is_schedulable ?? true;
     const loc =
       patch.loc !== undefined ? patch.loc : cur?.default_location_id ?? null;
+    const eligibleLocs =
+      patch.eligibleLocs ?? cur?.eligible_location_ids ?? [];
+    const days = patch.days ?? cur?.available_days ?? [];
     start(async () => {
-      await saveEmployeeSetting(personId, target, schedulable, loc);
+      await saveEmployeeSetting(
+        personId,
+        target,
+        schedulable,
+        loc,
+        eligibleLocs,
+        days,
+      );
       router.refresh();
     });
   }
@@ -752,6 +769,8 @@ function Employees({ data }: { data: SetupData }) {
               <th className="py-2 pr-4 font-medium">Employee</th>
               <th className="py-2 pr-4 font-medium">Weekly target</th>
               <th className="py-2 pr-4 font-medium">Default location</th>
+              <th className="py-2 pr-4 font-medium">Eligible locations</th>
+              <th className="py-2 pr-4 font-medium">Available days</th>
               <th className="py-2 pr-4 font-medium">Schedulable</th>
             </tr>
           </thead>
@@ -790,6 +809,73 @@ function Employees({ data }: { data: SetupData }) {
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <div className="flex flex-wrap gap-1">
+                      {data.locations.map((l) => {
+                        const on = (s?.eligible_location_ids ?? []).includes(
+                          l.id,
+                        );
+                        return (
+                          <button
+                            key={l.id}
+                            type="button"
+                            onClick={() => {
+                              const cur = s?.eligible_location_ids ?? [];
+                              const next = on
+                                ? cur.filter((x) => x !== l.id)
+                                : [...cur, l.id];
+                              update(p.id, { eligibleLocs: next });
+                            }}
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
+                              on
+                                ? "bg-emerald-600 text-white"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            }`}
+                            title={
+                              on
+                                ? `Eligible at ${l.name}`
+                                : `Not eligible at ${l.name}`
+                            }
+                          >
+                            {l.short_code || l.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      None = any location
+                    </p>
+                  </td>
+                  <td className="py-2 pr-4">
+                    <div className="flex flex-wrap gap-1">
+                      {DAY_SHORT.map((label, day) => {
+                        const on = (s?.available_days ?? []).includes(day);
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            onClick={() => {
+                              const cur = s?.available_days ?? [];
+                              const next = on
+                                ? cur.filter((x) => x !== day)
+                                : [...cur, day];
+                              update(p.id, { days: next });
+                            }}
+                            className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium transition ${
+                              on
+                                ? "bg-emerald-600 text-white"
+                                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      None = any day
+                    </p>
                   </td>
                   <td className="py-2 pr-4">
                     <input

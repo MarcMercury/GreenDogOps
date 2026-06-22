@@ -142,6 +142,10 @@ export interface SchedEmployeeSetting {
   weekly_shift_target: number;
   is_schedulable: boolean;
   default_location_id: string | null;
+  /** Locations this employee may be scheduled at; empty = all locations. */
+  eligible_location_ids: string[];
+  /** Weekdays available, 0=Sun..6=Sat; empty = any day. */
+  available_days: number[];
   notes: string | null;
 }
 
@@ -308,6 +312,43 @@ export function formatWeekRange(weekStart: string): string {
     undefined,
     { ...opts, year: "numeric" },
   )}`;
+}
+
+// ---------------------------------------------------------------------------
+// Time-off overlay (employee-entered PTO / Vacation / Time-off)
+// ---------------------------------------------------------------------------
+
+/** Per-person, per-day time-off status for a single week. "approved" wins. */
+export type WeekTimeOff = Map<string, Map<number, "requested" | "approved">>;
+
+interface TimeOffRow {
+  person_id: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+}
+
+/** Build the per-day time-off overlay for the seven days of `weekStart`. */
+export function buildWeekTimeOff(
+  rows: TimeOffRow[],
+  weekStart: string,
+): WeekTimeOff {
+  const map: WeekTimeOff = new Map();
+  for (const r of rows) {
+    if (r.status !== "requested" && r.status !== "approved") continue;
+    for (let day = 0; day < 7; day++) {
+      const date = dateForDay(weekStart, day);
+      if (date < r.start_date || date > r.end_date) continue;
+      let byDay = map.get(r.person_id);
+      if (!byDay) {
+        byDay = new Map();
+        map.set(r.person_id, byDay);
+      }
+      // "approved" takes precedence over a "requested" overlap.
+      if (byDay.get(day) !== "approved") byDay.set(day, r.status);
+    }
+  }
+  return map;
 }
 
 // ---------------------------------------------------------------------------

@@ -11,6 +11,7 @@ import {
   MARKABLE_ATTENDANCE,
   SCHEDULE_STATUS_LABELS,
   SCHEDULE_STATUS_TONE,
+  buildWeekTimeOff,
   dateForDay,
   effectiveAttendance,
   formatWeekRange,
@@ -25,9 +26,9 @@ import {
   type SchedWeek,
   type SchedWeekLine,
   type ScheduleLocation,
+  type WeekTimeOff,
 } from "@/lib/schedule/types";
-import { WeekPicker } from "./week-picker";
-import {
+import { WeekPicker } from "./week-picker";import {
   assignPerson,
   removeAssignment,
   markAttendance,
@@ -54,11 +55,13 @@ export function ScheduleGrid({
   weeks,
   weekData,
   setup,
+  timeOff,
   canEdit = false,
 }: {
   weeks: SchedWeek[];
   weekData: WeekData;
   setup: SetupData;
+  timeOff: { person_id: string; status: string; start_date: string; end_date: string }[];
   canEdit?: boolean;
 }) {
   const router = useRouter();
@@ -106,6 +109,12 @@ export function ScheduleGrid({
   const activeAssignments = useMemo(
     () => assignments.filter((a) => !a.removed_post_publish),
     [assignments],
+  );
+
+  // Per-person, per-day time-off overlay for this week.
+  const weekTimeOff = useMemo(
+    () => buildWeekTimeOff(timeOff, week.week_start),
+    [timeOff, week.week_start],
   );
 
   const weeklyCount = useMemo(() => {
@@ -565,6 +574,7 @@ export function ScheduleGrid({
           roles={setup.roles}
           weeklyCount={weeklyCount}
           scheduledByDay={scheduledByDay}
+          weekTimeOff={weekTimeOff}
           assignedHere={new Set(
             (cellMap.get(
               `${picker.lineId}|${picker.locationId}|${picker.day}`,
@@ -979,6 +989,7 @@ function EligiblePicker({
   roles,
   weeklyCount,
   scheduledByDay,
+  weekTimeOff,
   assignedHere,
   onClose,
   onPick,
@@ -993,6 +1004,7 @@ function EligiblePicker({
   roles: SchedRole[];
   weeklyCount: Map<string, number>;
   scheduledByDay: Map<number, Set<string>>;
+  weekTimeOff: WeekTimeOff;
   assignedHere: Set<string>;
   onClose: () => void;
   onPick: (personId: string) => void;
@@ -1023,9 +1035,23 @@ function EligiblePicker({
       const s = settingByPerson.get(p.id);
       if (s && !s.is_schedulable) return false;
       if (roleMembers && !roleMembers.has(p.id)) return false;
+      // Location eligibility: empty list = any location.
+      if (
+        s &&
+        s.eligible_location_ids.length > 0 &&
+        !s.eligible_location_ids.includes(cell.locationId)
+      )
+        return false;
+      // Day availability: empty list = any day.
+      if (
+        s &&
+        s.available_days.length > 0 &&
+        !s.available_days.includes(cell.day)
+      )
+        return false;
       return true;
     });
-  }, [people, line.role_id, membersByRole, settingByPerson]);
+  }, [people, line.role_id, membersByRole, settingByPerson, cell.locationId, cell.day]);
 
   // Quick-filter chips: only roles represented among eligible people.
   const availableRoles = useMemo(() => {
@@ -1041,6 +1067,11 @@ function EligiblePicker({
 
   const eligible = useMemo(() => {
     const term = q.trim().toLowerCase();
+    const offRank = (id: string) => {
+      const off = weekTimeOff.get(id)?.get(cell.day);
+      // Available first, then pending time-off, then approved time-off.
+      return off === "approved" ? 2 : off === "requested" ? 1 : 0;
+    };
     return baseEligible
       .filter((p) => {
         if (roleFilter && !rolesByPerson.get(p.id)?.has(roleFilter))
@@ -1049,12 +1080,15 @@ function EligiblePicker({
         return true;
       })
       .sort((a, b) => {
+        const oa = offRank(a.id);
+        const ob = offRank(b.id);
+        if (oa !== ob) return oa - ob; // available before time-off
         const ca = weeklyCount.get(a.id) ?? 0;
         const cb = weeklyCount.get(b.id) ?? 0;
         if (ca !== cb) return ca - cb; // least-loaded first
         return gridName(a).localeCompare(gridName(b));
       });
-  }, [baseEligible, roleFilter, rolesByPerson, q, weeklyCount]);
+  }, [baseEligible, roleFilter, rolesByPerson, q, weeklyCount, weekTimeOff, cell.day]);
 
   const dayScheduled = scheduledByDay.get(cell.day) ?? new Set<string>();
 
@@ -1124,6 +1158,7 @@ function EligiblePicker({
             const here = assignedHere.has(p.id);
             const elsewhere = !here && dayScheduled.has(p.id);
             const atTarget = count >= target;
+            const off = weekTimeOff.get(p.id)?.get(cell.day);
             return (
               <li key={p.id}>
                 <button
@@ -1137,6 +1172,22 @@ function EligiblePicker({
                 >
                   <span className="flex-1 truncate text-slate-700">
                     {gridName(p)}
+                    {off && (
+                      <span
+                        className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                          off === "approved"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                        title={
+                          off === "approved"
+                            ? "Approved time off"
+                            : "Pending time-off request"
+                        }
+                      >
+                        {off === "approved" ? "Off" : "Off?"}
+                      </span>
+                    )}
                     {elsewhere && (
                       <span
                         className="ml-1.5 text-[10px] font-medium text-amber-600"

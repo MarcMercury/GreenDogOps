@@ -261,6 +261,89 @@ export async function deletePtoDay(
 }
 
 // ---------------------------------------------------------------------------
+// Time-off requests (PTO / Vacation / Time off) — employee-level input that
+// feeds the scheduler's color coding (requested=amber, approved=green).
+// ---------------------------------------------------------------------------
+
+const TIME_OFF_KINDS = ["pto", "vacation", "time_off"] as const;
+
+export async function saveTimeOff(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const start = str(formData.get("start_date"));
+  const end = str(formData.get("end_date")) ?? start;
+  if (!start) return { ok: false, error: "A start date is required." };
+  if (end && end < start)
+    return { ok: false, error: "End date cannot be before the start date." };
+
+  const kindRaw = str(formData.get("kind"));
+  const kind = TIME_OFF_KINDS.includes(kindRaw as (typeof TIME_OFF_KINDS)[number])
+    ? kindRaw
+    : "pto";
+
+  const { error } = await supabase.from("person_time_off").insert({
+    person_id: personId,
+    kind,
+    status: "requested",
+    start_date: start,
+    end_date: end,
+    note: str(formData.get("note")),
+    requested_by: gate.current.appUser.person_id ?? null,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  revalidatePath("/schedule");
+  return { ok: true };
+}
+
+export async function reviewTimeOff(
+  personId: string,
+  timeOffId: string,
+  status: "approved" | "denied" | "requested",
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const reviewed = status === "requested";
+  const { error } = await supabase
+    .from("person_time_off")
+    .update({
+      status,
+      reviewed_by: reviewed ? null : (gate.current.appUser.person_id ?? null),
+      reviewed_at: reviewed ? null : new Date().toISOString(),
+    })
+    .eq("id", timeOffId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/hr/${personId}`);
+  revalidatePath("/schedule");
+  return { ok: true };
+}
+
+export async function deleteTimeOff(
+  personId: string,
+  timeOffId: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_time_off")
+    .delete()
+    .eq("id", timeOffId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/hr/${personId}`);
+  revalidatePath("/schedule");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Documents (file uploads go to the private employee-documents Storage bucket)
 // ---------------------------------------------------------------------------
 export async function uploadDocument(

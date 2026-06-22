@@ -123,6 +123,43 @@ export interface PersonPtoDay {
   updated_at: string;
 }
 
+export type TimeOffKind = "pto" | "vacation" | "time_off";
+export type TimeOffStatus = "requested" | "approved" | "denied";
+
+export interface PersonTimeOff {
+  id: string;
+  person_id: string;
+  kind: TimeOffKind;
+  status: TimeOffStatus;
+  start_date: string;
+  end_date: string;
+  note: string | null;
+  requested_by: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const TIME_OFF_KIND_LABELS: Record<TimeOffKind, string> = {
+  pto: "PTO",
+  vacation: "Vacation",
+  time_off: "Time Off",
+};
+
+export const TIME_OFF_STATUS_LABELS: Record<TimeOffStatus, string> = {
+  requested: "Pending",
+  approved: "Approved",
+  denied: "Denied",
+};
+
+/** Tone for the HR profile chips. */
+export const TIME_OFF_STATUS_TONE: Record<TimeOffStatus, string> = {
+  requested: "bg-amber-100 text-amber-800",
+  approved: "bg-emerald-100 text-emerald-700",
+  denied: "bg-slate-200 text-slate-500",
+};
+
 export interface PersonAsset {
   id: string;
   person_id: string;

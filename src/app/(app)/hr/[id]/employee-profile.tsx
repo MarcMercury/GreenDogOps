@@ -9,6 +9,7 @@ import type {
   PersonReview,
   PersonAsset,
   PersonPtoDay,
+  PersonTimeOff,
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
 } from "@/lib/hr/types";
@@ -18,6 +19,9 @@ import {
   ASSET_STATUS_LABELS,
   DOCUMENT_CATEGORY_LABELS,
   STATUS_LABELS,
+  TIME_OFF_KIND_LABELS,
+  TIME_OFF_STATUS_LABELS,
+  TIME_OFF_STATUS_TONE,
 } from "@/lib/hr/types";
 import {
   ATTENDANCE_LABELS,
@@ -40,6 +44,9 @@ import {
   deleteAsset,
   savePtoDay,
   deletePtoDay,
+  saveTimeOff,
+  reviewTimeOff,
+  deleteTimeOff,
   uploadDocument,
   deleteDocument,
   type SaveResult,
@@ -83,6 +90,7 @@ export function EmployeeProfile({
   recruiting,
   attendance,
   ptoDays,
+  timeOff,
   account,
   canViewComp,
   canEdit,
@@ -94,6 +102,7 @@ export function EmployeeProfile({
   recruiting: PersonRecruitingSummary | null;
   attendance: PersonAttendanceSummary;
   ptoDays: PersonPtoDay[];
+  timeOff: PersonTimeOff[];
   account: LinkedAccount | null;
   canViewComp: boolean;
   canEdit: boolean;
@@ -155,6 +164,11 @@ export function EmployeeProfile({
 
       {activeTab === "attendance" && (
         <>
+          <TimeOffPanel
+            personId={row.id}
+            timeOff={timeOff}
+            canEdit={canEdit}
+          />
           <PtoDaysPanel
             personId={row.id}
             ptoDays={ptoDays}
@@ -448,6 +462,143 @@ function SchedAttendancePanel({
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Time off (PTO / Vacation / Time-off requests) — feeds scheduler color coding
+// ---------------------------------------------------------------------------
+
+function TimeOffPanel({
+  personId,
+  timeOff,
+  canEdit,
+}: {
+  personId: string;
+  timeOff: PersonTimeOff[];
+  canEdit: boolean;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [pending, start] = useTransition();
+  const [result, formAction] = useActionState<SaveResult | null, FormData>(
+    (prev, fd) => saveTimeOff(personId, prev, fd),
+    null,
+  );
+
+  useEffect(() => {
+    if (result?.ok) formRef.current?.reset();
+  }, [result]);
+
+  return (
+    <div className="space-y-5">
+      {canEdit && (
+        <Section title="Request time off">
+          <form ref={formRef} action={formAction} className="contents">
+            <Select
+              label="Type"
+              name="kind"
+              defaultValue="pto"
+              options={[
+                { value: "pto", label: "PTO" },
+                { value: "vacation", label: "Vacation" },
+                { value: "time_off", label: "Time Off" },
+              ]}
+            />
+            <Field label="From" name="start_date" type="date" />
+            <Field label="To" name="end_date" type="date" />
+            <Field
+              label="Note"
+              name="note"
+              placeholder="Optional reason / details"
+            />
+            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-3">
+              <AddButton>Add request</AddButton>
+              {result?.ok === false && (
+                <span className="text-sm text-red-600">{result.error}</span>
+              )}
+            </div>
+          </form>
+        </Section>
+      )}
+
+      <Section title={`Time off (${timeOff.length})`}>
+        <div className="sm:col-span-2 lg:col-span-3">
+          {timeOff.length === 0 ? (
+            <EmptyState>No time off requested yet.</EmptyState>
+          ) : (
+            <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              {timeOff.map((t) => {
+                const range =
+                  t.start_date === t.end_date
+                    ? fmtDate(t.start_date)
+                    : `${fmtDate(t.start_date)} – ${fmtDate(t.end_date)}`;
+                return (
+                  <li
+                    key={t.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <span className="text-sm font-medium text-slate-800">
+                        {range}
+                      </span>
+                      <span className="ml-2 text-xs font-medium text-slate-500">
+                        {TIME_OFF_KIND_LABELS[t.kind]}
+                      </span>
+                      {t.note && (
+                        <span className="ml-2 text-xs text-slate-500">
+                          · {t.note}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${TIME_OFF_STATUS_TONE[t.status]}`}
+                      >
+                        {TIME_OFF_STATUS_LABELS[t.status]}
+                      </span>
+                      {canEdit && t.status !== "approved" && (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() =>
+                            start(async () => {
+                              await reviewTimeOff(personId, t.id, "approved");
+                            })
+                          }
+                          className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                        >
+                          Approve
+                        </button>
+                      )}
+                      {canEdit && t.status !== "denied" && (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() =>
+                            start(async () => {
+                              await reviewTimeOff(personId, t.id, "denied");
+                            })
+                          }
+                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                        >
+                          Deny
+                        </button>
+                      )}
+                      {canEdit && (
+                        <DeleteButton
+                          label="this time-off request"
+                          onConfirm={() => deleteTimeOff(personId, t.id)}
+                        />
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </Section>

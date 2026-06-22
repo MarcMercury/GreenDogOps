@@ -187,6 +187,8 @@ export async function saveEmployeeSetting(
   weeklyTarget: number,
   isSchedulable: boolean,
   defaultLocationId: string | null,
+  eligibleLocationIds: string[] = [],
+  availableDays: number[] = [],
 ): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
@@ -197,6 +199,8 @@ export async function saveEmployeeSetting(
       weekly_shift_target: weeklyTarget,
       is_schedulable: isSchedulable,
       default_location_id: defaultLocationId,
+      eligible_location_ids: eligibleLocationIds,
+      available_days: availableDays,
     },
     { onConflict: "person_id" },
   );

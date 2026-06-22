@@ -1,4 +1,4 @@
-import { getSetupData, getWeeks, getWeekData } from "./data";
+import { getSetupData, getWeeks, getWeekData, getWeekTimeOff } from "./data";
 import { ScheduleGrid } from "./schedule-grid";
 import { WeekPicker } from "./week-picker";
 import { PageHeader } from "../_components/ui";
@@ -22,7 +22,6 @@ export default async function SchedulePage({
 
   const selectedId = weekParam ?? weeks[0]?.id ?? null;
   const weekData = selectedId ? await getWeekData(selectedId) : null;
-
   if (!weekData) {
     return (
       <div className="space-y-5">
@@ -41,5 +40,7 @@ export default async function SchedulePage({
     );
   }
 
-  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} canEdit={canEdit} />;
+  const timeOff = await getWeekTimeOff(weekData.week.week_start);
+
+  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} timeOff={timeOff} canEdit={canEdit} />;
 }
