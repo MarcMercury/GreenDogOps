@@ -219,7 +219,15 @@ function GuideList({
       arr.push(g);
       byLoc.set(key, arr);
     }
-    return [...byLoc.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    // Guides within each location: ascending by name (active before archived).
+    for (const arr of byLoc.values()) {
+      arr.sort(
+        (a, b) =>
+          a.status.localeCompare(b.status) || a.name.localeCompare(b.name),
+      );
+    }
+    // Location group headers: alphabetical descending.
+    return [...byLoc.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [guides, locName]);
 
   if (!guides.length) {
