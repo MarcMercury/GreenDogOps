@@ -1,12 +1,14 @@
 import { createClient } from "@/lib/supabase/server";
 import type { CrmContact, CrmCeAttendance } from "@/lib/crm/types";
+import { getCurrentUser } from "@/lib/auth/session";
+import { isEditorRole } from "@/lib/auth/permissions";
 import { CeCrmTabs } from "./ce-tabs";
 
 export const dynamic = "force-dynamic";
 
 export default async function CeLeadsCrmPage() {
   const supabase = await createClient();
-  const [contactsRes, attendanceRes] = await Promise.all([
+  const [contactsRes, attendanceRes, current] = await Promise.all([
     supabase
       .from("crm_contact")
       .select("*")
@@ -18,7 +20,10 @@ export default async function CeLeadsCrmPage() {
       .select("*")
       .order("ce_date", { ascending: false })
       .limit(20000),
+    getCurrentUser(),
   ]);
+
+  const canEdit = current ? isEditorRole(current.appUser.role) : false;
 
   if (contactsRes.error) {
     return (
@@ -35,6 +40,7 @@ export default async function CeLeadsCrmPage() {
     <CeCrmTabs
       contacts={(contactsRes.data ?? []) as CrmContact[]}
       attendance={(attendanceRes.data ?? []) as CrmCeAttendance[]}
+      canEdit={canEdit}
     />
   );
 }

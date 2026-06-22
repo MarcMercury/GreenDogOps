@@ -1,10 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type { CrmContact, CrmCeAttendance } from "@/lib/crm/types";
 import { ContactListView } from "../crm-views";
+import { setCeAttendanceField } from "../actions";
 
 type AttendeeRow = CrmCeAttendance & { attendeeName: string; contactId: string };
+
+type ToggleField =
+  | "paid"
+  | "showed_up"
+  | "materials_prepared"
+  | "confirmed_date";
 
 function fmtDate(d: string | null): string {
   if (!d) return "—";
@@ -32,12 +39,45 @@ function Check({ on }: { on: boolean }) {
   );
 }
 
+/** Interactive check-in toggle for a boolean field. */
+function ToggleCell({
+  on,
+  busy,
+  canEdit,
+  onToggle,
+}: {
+  on: boolean;
+  busy: boolean;
+  canEdit: boolean;
+  onToggle: () => void;
+}) {
+  if (!canEdit) return <Check on={on} />;
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={busy}
+      aria-pressed={on}
+      className={`mx-auto flex h-6 w-6 items-center justify-center rounded-md border text-sm transition disabled:opacity-50 print:hidden ${
+        on
+          ? "border-emerald-500 bg-emerald-500 text-white hover:bg-emerald-600"
+          : "border-slate-300 bg-white text-transparent hover:border-emerald-400 hover:bg-emerald-50"
+      }`}
+    >
+      ✓
+    </button>
+  );
+}
+
+
 function CeEventsView({
   contacts,
   attendance,
+  canEdit,
 }: {
   contacts: CrmContact[];
   attendance: CrmCeAttendance[];
+  canEdit: boolean;
 }) {
   const nameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -45,26 +85,76 @@ function CeEventsView({
     return m;
   }, [contacts]);
 
+  // Local copy of attendance so check-in toggles update the grid instantly.
+  // Re-sync whenever the server sends fresh data (after revalidation).
+  const [rows, setRows] = useState<CrmCeAttendance[]>(attendance);
+  useEffect(() => setRows(attendance), [attendance]);
+
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [, startTransition] = useTransition();
+
+  function toggle(row: CrmCeAttendance, field: ToggleField) {
+    const key = `${row.id}:${field}`;
+    const currentlyOn =
+      field === "confirmed_date" ? !!row.confirmed_date : !!row[field];
+    const next = !currentlyOn;
+    // Optimistic update.
+    setRows((prev) =>
+      prev.map((r) =>
+        r.id === row.id
+          ? field === "confirmed_date"
+            ? {
+                ...r,
+                confirmed_date: next ? new Date().toISOString().slice(0, 10) : null,
+              }
+            : { ...r, [field]: next }
+          : r,
+      ),
+    );
+    setPending((p) => ({ ...p, [key]: true }));
+    startTransition(async () => {
+      const res = await setCeAttendanceField(row.id, field, next);
+      setPending((p) => {
+        const { [key]: _omit, ...rest } = p;
+        return rest;
+      });
+      if (!res.ok) {
+        // Revert on failure.
+        setRows((prev) =>
+          prev.map((r) =>
+            r.id === row.id
+              ? field === "confirmed_date"
+                ? { ...r, confirmed_date: row.confirmed_date }
+                : { ...r, [field]: currentlyOn }
+              : r,
+          ),
+        );
+        alert(`Could not update: ${res.error}`);
+      }
+    });
+  }
+
   // Group attendance rows by CE event name.
   const events = useMemo(() => {
     const groups = new Map<string, AttendeeRow[]>();
-    for (const a of attendance) {
+    for (const a of rows) {
       const key = a.ce_name || "Untitled CE";
-      const rows = groups.get(key) ?? [];
-      rows.push({
+      const list = groups.get(key) ?? [];
+      list.push({
         ...a,
         contactId: a.contact_id,
         attendeeName: nameById.get(a.contact_id) ?? "Unknown",
       });
-      groups.set(key, rows);
+      groups.set(key, list);
     }
     return Array.from(groups.entries())
-      .map(([name, rows]) => ({
+      .map(([name, list]) => ({
         name,
-        rows: rows.sort((a, b) => a.attendeeName.localeCompare(b.attendeeName)),
+        rows: list.sort((a, b) => a.attendeeName.localeCompare(b.attendeeName)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [attendance, nameById]);
+  }, [rows, nameById]);
+
 
   const [selected, setSelected] = useState<string | null>(
     events[0]?.name ?? null,
@@ -160,16 +250,59 @@ function CeEventsView({
                       {fmtDate(r.ce_date)}
                     </td>
                     <td className="px-3 py-2.5 text-slate-600">
-                      {fmtDate(r.confirmed_date)}
+                      <span className="print:hidden">
+                        {canEdit ? (
+                          <span className="flex items-center gap-2">
+                            <ToggleCell
+                              on={!!r.confirmed_date}
+                              busy={!!pending[`${r.id}:confirmed_date`]}
+                              canEdit={canEdit}
+                              onToggle={() => toggle(r, "confirmed_date")}
+                            />
+                            <span className="text-xs text-slate-500">
+                              {r.confirmed_date ? fmtDate(r.confirmed_date) : ""}
+                            </span>
+                          </span>
+                        ) : (
+                          fmtDate(r.confirmed_date)
+                        )}
+                      </span>
+                      <span className="hidden print:inline">
+                        {fmtDate(r.confirmed_date)}
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <Check on={r.paid} />
+                      <ToggleCell
+                        on={r.paid}
+                        busy={!!pending[`${r.id}:paid`]}
+                        canEdit={canEdit}
+                        onToggle={() => toggle(r, "paid")}
+                      />
+                      <span className="hidden print:inline">
+                        <Check on={r.paid} />
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <Check on={r.showed_up} />
+                      <ToggleCell
+                        on={r.showed_up}
+                        busy={!!pending[`${r.id}:showed_up`]}
+                        canEdit={canEdit}
+                        onToggle={() => toggle(r, "showed_up")}
+                      />
+                      <span className="hidden print:inline">
+                        <Check on={r.showed_up} />
+                      </span>
                     </td>
                     <td className="px-3 py-2.5 text-center">
-                      <Check on={r.materials_prepared} />
+                      <ToggleCell
+                        on={r.materials_prepared}
+                        busy={!!pending[`${r.id}:materials_prepared`]}
+                        canEdit={canEdit}
+                        onToggle={() => toggle(r, "materials_prepared")}
+                      />
+                      <span className="hidden print:inline">
+                        <Check on={r.materials_prepared} />
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -185,9 +318,11 @@ function CeEventsView({
 export function CeCrmTabs({
   contacts,
   attendance,
+  canEdit,
 }: {
   contacts: CrmContact[];
   attendance: CrmCeAttendance[];
+  canEdit: boolean;
 }) {
   const [tab, setTab] = useState<"leads" | "events">("leads");
 
@@ -227,7 +362,7 @@ export function CeCrmTabs({
           variant="ce"
         />
       ) : (
-        <CeEventsView contacts={contacts} attendance={attendance} />
+        <CeEventsView contacts={contacts} attendance={attendance} canEdit={canEdit} />
       )}
     </div>
   );

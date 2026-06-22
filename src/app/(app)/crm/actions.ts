@@ -343,6 +343,41 @@ export async function deleteCeAttendance(
   return { ok: true };
 }
 
+// Quick-toggle a single field on an attendance row — used by the live CE Events
+// check-in grid. Booleans flip directly; `confirmed_date` is set to today when
+// turned on and cleared when turned off.
+const CE_TOGGLE_FIELDS = [
+  "paid",
+  "showed_up",
+  "materials_prepared",
+  "confirmed_date",
+] as const;
+type CeToggleField = (typeof CE_TOGGLE_FIELDS)[number];
+
+export async function setCeAttendanceField(
+  id: string,
+  field: CeToggleField,
+  value: boolean,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  if (!CE_TOGGLE_FIELDS.includes(field)) {
+    return { ok: false, error: "Invalid field" };
+  }
+  const patch =
+    field === "confirmed_date"
+      ? { confirmed_date: value ? new Date().toISOString().slice(0, 10) : null }
+      : { [field]: value };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_attendance")
+    .update(patch)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Promote a student (crm_contact) into the Recruiting CRM (ATS).
 // Creates a unified greendogops.person (status='applicant') + a person_recruiting
