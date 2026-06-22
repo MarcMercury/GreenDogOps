@@ -30,6 +30,7 @@ export default async function StudentCrmPage() {
       description="Students, externs, and program participants"
       icon="🎓"
       variant="student"
+      addHref="/crm/contact/new?type=student"
     />
   );
 }

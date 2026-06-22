@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { RosterRow } from "@/lib/hr/types";
 import { redactCompensation } from "@/lib/hr/types";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canViewAllCompensation } from "@/lib/auth/permissions";
+import { canViewAllCompensation, canEditModule } from "@/lib/auth/permissions";
 import { RosterGrid } from "./roster-grid";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +13,7 @@ export default async function HrRosterPage() {
   const viewAllComp = current
     ? canViewAllCompensation(current.appUser.role)
     : false;
+  const canEdit = current ? canEditModule(current.appUser, "hr") : false;
   const ownPersonId = current?.appUser.person_id ?? null;
 
   const { data, error } = await supabase
@@ -57,5 +58,5 @@ export default async function HrRosterPage() {
       : redactCompensation(row);
   });
 
-  return <RosterGrid rows={rows} />;
+  return <RosterGrid rows={rows} canEdit={canEdit} />;
 }

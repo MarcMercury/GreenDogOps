@@ -7,6 +7,8 @@ import { ensureEditor } from "@/lib/auth/session";
 import {
   crmSlugForOrgType,
   crmSlugForContactType,
+  ORG_TYPE_LABELS,
+  CONTACT_TYPE_LABELS,
   type OrgType,
   type ContactType,
 } from "@/lib/crm/types";
@@ -38,15 +40,8 @@ function bool(v: FormDataEntryValue | null): boolean {
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
 
-export async function updateOrganization(
-  id: string,
-  _prev: SaveResult | null,
-  formData: FormData,
-): Promise<SaveResult> {
-  const gate = await ensureEditor();
-  if (!gate.ok) return gate;
-  const supabase = await createClient();
-  const patch = {
+function organizationPatch(formData: FormData) {
+  return {
     name: str(formData.get("name")) ?? "Unknown",
     subtype: str(formData.get("subtype")),
     status: str(formData.get("status")),
@@ -82,6 +77,17 @@ export async function updateOrganization(
     last_contact_date: str(formData.get("last_contact_date")),
     notes: str(formData.get("notes")),
   };
+}
+
+export async function updateOrganization(
+  id: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const patch = organizationPatch(formData);
   const { error } = await supabase
     .from("crm_organization")
     .update(patch)
@@ -92,15 +98,29 @@ export async function updateOrganization(
   return { ok: true };
 }
 
-export async function updateContact(
-  id: string,
+export async function createOrganization(
+  defaultOrgType: OrgType,
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
   const gate = await ensureEditor();
   if (!gate.ok) return gate;
+  const requested = str(formData.get("org_type")) as OrgType | null;
+  const orgType =
+    requested && requested in ORG_TYPE_LABELS ? requested : defaultOrgType;
   const supabase = await createClient();
-  const patch = {
+  const { data, error } = await supabase
+    .from("crm_organization")
+    .insert({ ...organizationPatch(formData), org_type: orgType, source: "manual" })
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm", "layout");
+  redirect(`/crm/org/${(data as { id: string }).id}`);
+}
+
+function contactPatch(formData: FormData) {
+  return {
     first_name: str(formData.get("first_name")),
     last_name: str(formData.get("last_name")),
     email: str(formData.get("email")),
@@ -134,6 +154,17 @@ export async function updateContact(
     lead_source: str(formData.get("lead_source")),
     notes: str(formData.get("notes")),
   };
+}
+
+export async function updateContact(
+  id: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const patch = contactPatch(formData);
   const { error } = await supabase
     .from("crm_contact")
     .update(patch)
@@ -144,15 +175,28 @@ export async function updateContact(
   return { ok: true };
 }
 
-export async function updateInfluencer(
-  id: string,
+export async function createContact(
+  contactType: ContactType,
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
   const gate = await ensureEditor();
   if (!gate.ok) return gate;
+  const type =
+    contactType in CONTACT_TYPE_LABELS ? contactType : "student";
   const supabase = await createClient();
-  const patch = {
+  const { data, error } = await supabase
+    .from("crm_contact")
+    .insert({ ...contactPatch(formData), contact_type: type, source: "manual" })
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm", "layout");
+  redirect(`/crm/contact/${(data as { id: string }).id}`);
+}
+
+function influencerPatch(formData: FormData) {
+  return {
     contact_name: str(formData.get("contact_name")),
     pet_name: str(formData.get("pet_name")),
     email: str(formData.get("email")),
@@ -205,6 +249,17 @@ export async function updateInfluencer(
     bio: str(formData.get("bio")),
     notes: str(formData.get("notes")),
   };
+}
+
+export async function updateInfluencer(
+  id: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const patch = influencerPatch(formData);
   const { error } = await supabase
     .from("marketing_influencers")
     .update(patch)
@@ -213,6 +268,23 @@ export async function updateInfluencer(
   revalidatePath(`/crm/influencer/${id}`);
   revalidatePath("/crm", "layout");
   return { ok: true };
+}
+
+export async function createInfluencer(
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("marketing_influencers")
+    .insert({ ...influencerPatch(formData), source: "manual" })
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm", "layout");
+  redirect(`/crm/influencer/${(data as { id: string }).id}`);
 }
 
 // ---------------------------------------------------------------------------

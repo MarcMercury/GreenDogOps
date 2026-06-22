@@ -8,7 +8,7 @@
  */
 
 import { useMemo, useRef, useState } from "react";
-
+import Link from "next/link";
 // ---------------------------------------------------------------------------
 // Number / text helpers
 // ---------------------------------------------------------------------------
@@ -184,6 +184,8 @@ export function ModuleHeader({
   onExport,
   onImport,
   importAccept = ".csv",
+  addHref,
+  addLabel = "Add New",
   actions,
 }: {
   icon?: string;
@@ -195,6 +197,8 @@ export function ModuleHeader({
   onExport?: () => void;
   onImport?: (file: File) => void;
   importAccept?: string;
+  addHref?: string;
+  addLabel?: string;
   actions?: React.ReactNode;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
@@ -220,6 +224,14 @@ export function ModuleHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {addHref ? (
+          <Link
+            href={addHref}
+            className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+          >
+            + {addLabel}
+          </Link>
+        ) : null}
         {onImport ? (
           <>
             <input

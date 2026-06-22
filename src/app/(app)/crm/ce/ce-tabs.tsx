@@ -494,6 +494,7 @@ export function CeCrmTabs({
           description="Continuing-education event attendees & leads"
           icon="📋"
           variant="ce"
+          addHref="/crm/contact/new?type=ce_attendee"
         />
       ) : (
         <CeEventsView contacts={contacts} attendance={attendance} canEdit={canEdit} />

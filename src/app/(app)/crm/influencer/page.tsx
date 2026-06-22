@@ -23,5 +23,10 @@ export default async function InfluencerCrmPage() {
     );
   }
 
-  return <InfluencerListView influencers={(data ?? []) as CrmInfluencer[]} />;
+  return (
+    <InfluencerListView
+      influencers={(data ?? []) as CrmInfluencer[]}
+      addHref="/crm/influencer/new"
+    />
+  );
 }

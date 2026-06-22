@@ -29,6 +29,7 @@ export default async function VendorCrmPage() {
       title="Vendor CRM"
       description="Med-ops, facility, and marketing/office vendors"
       icon="🔧"
+      addHref="/crm/org/new?section=vendor"
     />
   );
 }

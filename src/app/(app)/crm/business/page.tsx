@@ -29,6 +29,7 @@ export default async function BusinessCrmPage() {
       title="Business CRM"
       description="Business & marketing partners"
       icon="🤝"
+      addHref="/crm/org/new?section=business"
     />
   );
 }

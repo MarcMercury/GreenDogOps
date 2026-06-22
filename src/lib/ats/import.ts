@@ -1,0 +1,433 @@
+import "server-only";
+import { inflateRawSync } from "node:zlib";
+import * as XLSX from "xlsx";
+import {
+  emptyCandidate,
+  candidateHasIdentity,
+  type ParsedCandidate,
+} from "./import-types";
+
+// ---------------------------------------------------------------------------
+// Header mapping — map arbitrary spreadsheet/CSV column names onto our fields.
+// ---------------------------------------------------------------------------
+
+type FieldKey =
+  | "first_name"
+  | "last_name"
+  | "full_name"
+  | "email"
+  | "phone_mobile"
+  | "target_title"
+  | "pipeline"
+  | "stage"
+  | "source"
+  | "score"
+  | "notes"
+  | "status_notes";
+
+function normalizeHeader(h: string): string {
+  return h
+    .toLowerCase()
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+// Ordered alias list: first matching alias (substring or exact) wins.
+const HEADER_ALIASES: { field: FieldKey; aliases: string[] }[] = [
+  { field: "full_name", aliases: ["full name", "applicant", "candidate", "name"] },
+  { field: "first_name", aliases: ["first name", "first", "given name", "fname"] },
+  { field: "last_name", aliases: ["last name", "last", "surname", "family name", "lname"] },
+  { field: "email", aliases: ["email", "e mail", "email address"] },
+  {
+    field: "phone_mobile",
+    aliases: ["phone", "mobile", "cell", "telephone", "phone number", "contact number"],
+  },
+  {
+    field: "target_title",
+    aliases: ["position", "title", "role", "job title", "applying for", "target title", "desired position"],
+  },
+  { field: "pipeline", aliases: ["pipeline", "department", "team", "group"] },
+  { field: "stage", aliases: ["stage", "status", "disposition"] },
+  { field: "source", aliases: ["source", "found on", "referral source", "lead source", "applied via"] },
+  { field: "score", aliases: ["score", "rating", "grade"] },
+  { field: "status_notes", aliases: ["status notes", "status note"] },
+  { field: "notes", aliases: ["notes", "note", "comments", "comment", "summary"] },
+];
+
+function matchHeader(raw: string): FieldKey | null {
+  const norm = normalizeHeader(raw);
+  if (!norm) return null;
+  // Exact match first.
+  for (const { field, aliases } of HEADER_ALIASES) {
+    if (aliases.includes(norm)) return field;
+  }
+  // Substring fallback.
+  for (const { field, aliases } of HEADER_ALIASES) {
+    if (aliases.some((a) => norm.includes(a))) return field;
+  }
+  return null;
+}
+
+function splitFullName(full: string): { first: string | null; last: string | null } {
+  const cleaned = full.replace(/\s+/g, " ").trim();
+  if (!cleaned) return { first: null, last: null };
+  // "Last, First" convention.
+  if (cleaned.includes(",")) {
+    const [last, first] = cleaned.split(",", 2).map((s) => s.trim());
+    return { first: first || null, last: last || null };
+  }
+  const parts = cleaned.split(" ");
+  if (parts.length === 1) return { first: parts[0], last: null };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
+}
+
+function cleanCell(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || s.toLowerCase() === "nan" || s.toLowerCase() === "none") return null;
+  return s;
+}
+
+function toScore(v: string | null): number | null {
+  if (v == null) return null;
+  const n = Number(v.replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Turn a matrix of cells (row 0 = headers) into candidates. Junk/divider rows
+ * with no usable identity are skipped. Returns warnings for skipped rows and
+ * unmapped columns.
+ */
+export function rowsToCandidates(rows: string[][]): {
+  candidates: ParsedCandidate[];
+  warnings: string[];
+} {
+  const warnings: string[] = [];
+  if (rows.length < 2) {
+    return { candidates: [], warnings: ["No data rows were found in the file."] };
+  }
+
+  const headerRow = rows[0];
+  const fieldByCol = headerRow.map((h) => matchHeader(h));
+  const unmapped = headerRow.filter((h, i) => h.trim() && fieldByCol[i] === null);
+  if (unmapped.length) {
+    warnings.push(`Ignored unrecognized columns: ${unmapped.join(", ")}.`);
+  }
+  if (!fieldByCol.some(Boolean)) {
+    return {
+      candidates: [],
+      warnings: [
+        "Could not match any columns to candidate fields. Expected headers like Name, Email, Phone, Position.",
+      ],
+    };
+  }
+
+  const candidates: ParsedCandidate[] = [];
+  let skipped = 0;
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row || !row.some((c) => cleanCell(c))) continue;
+    const c = emptyCandidate();
+    for (let col = 0; col < fieldByCol.length; col++) {
+      const field = fieldByCol[col];
+      if (!field) continue;
+      const val = cleanCell(row[col]);
+      if (val == null) continue;
+      if (field === "score") c.score = toScore(val);
+      else c[field] = val;
+    }
+    // Derive first/last from a single full-name column when needed.
+    if (c.full_name && !c.first_name && !c.last_name) {
+      const { first, last } = splitFullName(c.full_name);
+      c.first_name = first;
+      c.last_name = last;
+    } else if (!c.full_name && (c.first_name || c.last_name)) {
+      c.full_name = [c.first_name, c.last_name].filter(Boolean).join(" ") || null;
+    }
+    if (!candidateHasIdentity(c)) {
+      skipped++;
+      continue;
+    }
+    candidates.push(c);
+  }
+  if (skipped > 0) {
+    warnings.push(`Skipped ${skipped} row${skipped === 1 ? "" : "s"} with no name or email.`);
+  }
+  return { candidates, warnings };
+}
+
+/** Parse a CSV/XLS/XLSX buffer into a header+rows matrix using SheetJS. */
+export function workbookToRows(buffer: Buffer): string[][] {
+  const wb = XLSX.read(buffer, { type: "buffer" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return [];
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    blankrows: false,
+    defval: "",
+    raw: false,
+  });
+  return matrix.map((row) => (row as unknown[]).map((c) => (c == null ? "" : String(c))));
+}
+
+// ---------------------------------------------------------------------------
+// DOCX text extraction — DOCX is a ZIP; pull word/document.xml and strip tags.
+// Implemented with Node's zlib so we avoid adding a dependency.
+// ---------------------------------------------------------------------------
+
+const ZIP_LOCAL_SIG = 0x04034b50;
+
+export function extractDocxText(buffer: Buffer): string | null {
+  try {
+    let offset = 0;
+    while (offset + 30 <= buffer.length) {
+      if (buffer.readUInt32LE(offset) !== ZIP_LOCAL_SIG) break;
+      const method = buffer.readUInt16LE(offset + 8);
+      const compressedSize = buffer.readUInt32LE(offset + 18);
+      const nameLen = buffer.readUInt16LE(offset + 26);
+      const extraLen = buffer.readUInt16LE(offset + 28);
+      const nameStart = offset + 30;
+      const name = buffer.toString("utf-8", nameStart, nameStart + nameLen);
+      const dataStart = nameStart + nameLen + extraLen;
+
+      if (name === "word/document.xml") {
+        let xmlBuf: Buffer;
+        if (method === 0) {
+          xmlBuf = buffer.subarray(dataStart, dataStart + compressedSize);
+        } else if (method === 8) {
+          // inflateRaw stops at the end of the deflate stream, so trailing
+          // archive bytes are harmless even when the size field is zero.
+          xmlBuf = inflateRawSync(buffer.subarray(dataStart));
+        } else {
+          return null;
+        }
+        return docxXmlToText(xmlBuf.toString("utf-8"));
+      }
+
+      if (compressedSize === 0) break; // streamed entry we can't skip safely
+      offset = dataStart + compressedSize;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function docxXmlToText(xml: string): string {
+  return xml
+    .replace(/<w:p[ >]/g, "\n<w:p ") // paragraph breaks
+    .replace(/<w:tab\b[^>]*\/?>/g, "\t")
+    .replace(/<w:br\b[^>]*\/?>/g, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+// ---------------------------------------------------------------------------
+// OpenAI extraction — used for resumes (any format) and for PDF list imports.
+// ---------------------------------------------------------------------------
+
+type AiContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file"; file: { filename: string; file_data: string } };
+
+const EXTRACTION_SCHEMA_HINT = `Return ONLY JSON. Each candidate object uses these keys (use null when unknown):
+{
+  "first_name": string|null,
+  "last_name": string|null,
+  "full_name": string|null,
+  "email": string|null,
+  "phone_mobile": string|null,
+  "target_title": string|null,   // role/position they are applying for or most recent job title
+  "source": string|null,         // where they applied from, if stated
+  "notes": string|null           // 1-3 sentence summary: years of experience, key skills, certifications
+}`;
+
+async function callOpenAI(
+  systemPrompt: string,
+  userParts: AiContentPart[],
+): Promise<{ ok: true; content: string } | { ok: false; error: string }> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) {
+    return { ok: false, error: "Resume parsing is unavailable (no OpenAI API key configured)." };
+  }
+  const base = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+        ...(process.env.OPENAI_PROJECT_ID
+          ? { "OpenAI-Project": process.env.OPENAI_PROJECT_ID }
+          : {}),
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userParts },
+        ],
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => "");
+      return {
+        ok: false,
+        error: `Extraction failed (HTTP ${res.status})${detail ? `: ${detail.slice(0, 200)}` : ""}.`,
+      };
+    }
+    const data = await res.json();
+    const content: string = data?.choices?.[0]?.message?.content ?? "";
+    if (!content.trim()) return { ok: false, error: "The model returned no data." };
+    return { ok: true, content };
+  } catch {
+    return { ok: false, error: "Extraction request failed. Check the network/API configuration." };
+  }
+}
+
+function coerceCandidate(raw: Record<string, unknown>): ParsedCandidate {
+  const c = emptyCandidate();
+  const get = (k: string): string | null => {
+    const v = raw[k];
+    if (v == null) return null;
+    const s = String(v).trim();
+    return s ? s : null;
+  };
+  c.first_name = get("first_name");
+  c.last_name = get("last_name");
+  c.full_name = get("full_name") ?? ([c.first_name, c.last_name].filter(Boolean).join(" ") || null);
+  if (c.full_name && !c.first_name && !c.last_name) {
+    const { first, last } = splitFullName(c.full_name);
+    c.first_name = first;
+    c.last_name = last;
+  }
+  c.email = get("email");
+  c.phone_mobile = get("phone_mobile") ?? get("phone");
+  c.target_title = get("target_title") ?? get("title");
+  c.source = get("source");
+  c.notes = get("notes") ?? get("summary");
+  return c;
+}
+
+/** Build the OpenAI content part for an uploaded document of any type. */
+function fileToContentParts(
+  filename: string,
+  mime: string,
+  buffer: Buffer,
+): AiContentPart[] | { error: string } {
+  const lower = filename.toLowerCase();
+  const isImage = mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/.test(lower);
+  const isPdf = mime === "application/pdf" || lower.endsWith(".pdf");
+  const isDocx = lower.endsWith(".docx") || mime.includes("officedocument.wordprocessing");
+  const isText = mime.startsWith("text/") || /\.(txt|md|csv|rtf)$/.test(lower);
+
+  if (isImage) {
+    const dataUrl = `data:${mime || "image/png"};base64,${buffer.toString("base64")}`;
+    return [{ type: "image_url", image_url: { url: dataUrl } }];
+  }
+  if (isPdf) {
+    const dataUrl = `data:application/pdf;base64,${buffer.toString("base64")}`;
+    return [{ type: "file", file: { filename, file_data: dataUrl } }];
+  }
+  if (isDocx) {
+    const text = extractDocxText(buffer);
+    if (!text) return { error: "Could not read text from this Word document." };
+    return [{ type: "text", text }];
+  }
+  if (isText) {
+    return [{ type: "text", text: buffer.toString("utf-8").slice(0, 200_000) }];
+  }
+  return {
+    error: "Unsupported resume format. Upload a PDF, Word doc, image, or text file.",
+  };
+}
+
+/** Extract a single candidate from a resume of any supported format. */
+export async function extractResumeCandidate(
+  filename: string,
+  mime: string,
+  buffer: Buffer,
+): Promise<{ ok: true; candidate: ParsedCandidate } | { ok: false; error: string }> {
+  const parts = fileToContentParts(filename, mime, buffer);
+  if ("error" in parts) return { ok: false, error: parts.error };
+
+  const result = await callOpenAI(
+    `You extract structured candidate data from a resume for an applicant tracking system at Green Dog, a veterinary company. ${EXTRACTION_SCHEMA_HINT}
+Return a single JSON object with key "candidate" holding one candidate object.`,
+    [
+      {
+        type: "text",
+        text: "Extract the candidate's contact details and a short professional summary from this resume.",
+      },
+      ...parts,
+    ],
+  );
+  if (!result.ok) return result;
+
+  try {
+    const parsed = JSON.parse(result.content);
+    const obj = (parsed.candidate ?? parsed) as Record<string, unknown>;
+    const candidate = coerceCandidate(obj);
+    if (!candidateHasIdentity(candidate)) {
+      return { ok: false, error: "No name or email could be read from this resume." };
+    }
+    return { ok: true, candidate };
+  } catch {
+    return { ok: false, error: "The model returned data that could not be parsed." };
+  }
+}
+
+/** Extract a list of candidates from a PDF/image roster the parser can't read. */
+export async function extractListCandidates(
+  filename: string,
+  mime: string,
+  buffer: Buffer,
+): Promise<{ ok: true; candidates: ParsedCandidate[] } | { ok: false; error: string }> {
+  const parts = fileToContentParts(filename, mime, buffer);
+  if ("error" in parts) return { ok: false, error: parts.error };
+
+  const result = await callOpenAI(
+    `You extract a list of job candidates from an uploaded document for an applicant tracking system at Green Dog, a veterinary company. ${EXTRACTION_SCHEMA_HINT}
+Return a single JSON object with key "candidates" holding an array of candidate objects (one per person listed).`,
+    [
+      {
+        type: "text",
+        text: "Extract every distinct candidate listed in this document. Do not invent people.",
+      },
+      ...parts,
+    ],
+  );
+  if (!result.ok) return result;
+
+  try {
+    const parsed = JSON.parse(result.content);
+    const arr: unknown[] = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.candidates)
+        ? parsed.candidates
+        : [];
+    const candidates = arr
+      .map((o) => coerceCandidate(o as Record<string, unknown>))
+      .filter(candidateHasIdentity);
+    if (!candidates.length) {
+      return { ok: false, error: "No candidates could be read from this document." };
+    }
+    return { ok: true, candidates };
+  } catch {
+    return { ok: false, error: "The model returned data that could not be parsed." };
+  }
+}

@@ -11,7 +11,7 @@ import {
   COLLABORATION_TYPE_OPTIONS,
   COMPENSATION_TYPE_OPTIONS,
 } from "@/lib/crm/types";
-import { updateInfluencer, deleteInfluencer, type SaveResult } from "../../actions";
+import { updateInfluencer, createInfluencer, deleteInfluencer, type SaveResult } from "../../actions";
 import {
   Field,
   TextArea,
@@ -32,27 +32,34 @@ function influencerHeading(i: CrmInfluencer): string {
 export function InfluencerForm({
   influencer,
   canEdit = false,
+  mode = "edit",
 }: {
-  influencer: CrmInfluencer;
+  influencer?: CrmInfluencer | null;
   canEdit?: boolean;
+  mode?: "edit" | "create";
 }) {
+  const isCreate = mode === "create";
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
-    (prev, fd) => updateInfluencer(influencer.id, prev, fd),
+    (prev, fd) =>
+      isCreate
+        ? createInfluencer(prev, fd)
+        : updateInfluencer(influencer!.id, prev, fd),
     null,
   );
 
-  const i = influencer;
+  const i = influencer ?? ({} as CrmInfluencer);
 
   return (
     <form action={formAction} className="mt-3 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-            {influencerHeading(i)}
+            {isCreate ? "New Influencer" : influencerHeading(i)}
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
-            Influencer · {i.tier ?? "untiered"}
-            {i.status ? ` · ${i.status}` : ""}
+            {isCreate
+              ? "Complete the blank profile below, then save to add it."
+              : `Influencer · ${i.tier ?? "untiered"}${i.status ? ` · ${i.status}` : ""}`}
           </p>
         </div>
         <div className="hidden items-center gap-3 sm:flex">
@@ -62,7 +69,7 @@ export function InfluencerForm({
           {result?.ok === false && (
             <span className="text-sm text-red-600">{result.error}</span>
           )}
-          <SaveButton canEdit={canEdit} />
+          <SaveButton canEdit={canEdit} label={isCreate ? "Create" : undefined} />
         </div>
       </div>
 
@@ -139,7 +146,7 @@ export function InfluencerForm({
       </Section>
 
       <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-between gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
-        {canEdit ? (
+        {canEdit && !isCreate ? (
           <DeleteButton
             recordLabel={influencerHeading(i)}
             onDelete={() => deleteInfluencer(i.id)}
@@ -154,7 +161,7 @@ export function InfluencerForm({
           {result?.ok === false && (
             <span className="text-sm text-red-600">{result.error}</span>
           )}
-          <SaveButton canEdit={canEdit} />
+          <SaveButton canEdit={canEdit} label={isCreate ? "Create" : undefined} />
         </div>
       </div>
     </form>

@@ -20,6 +20,7 @@ import {
 } from "../_components/data-views";
 import { OpportunityBadge } from "../_components/opportunity-type-field";
 import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
+import { NewEmployeeWizard } from "./new-employee-wizard";
 
 const STATUS_BADGE: Record<EmploymentStatus, string> = {
   prospect: "bg-amber-100 text-amber-800",
@@ -51,7 +52,13 @@ function formatHireDate(raw: string | null | undefined): string {
   });
 }
 
-export function RosterGrid({ rows }: { rows: RosterRow[] }) {
+export function RosterGrid({
+  rows,
+  canEdit,
+}: {
+  rows: RosterRow[];
+  canEdit: boolean;
+}) {
   const router = useRouter();
 
   const counts: Record<string, number> = {};
@@ -153,6 +160,7 @@ export function RosterGrid({ rows }: { rows: RosterRow[] }) {
         countLabel="people"
         onExport={() => exportColumnsCsv("hr-roster", columns, rows)}
         onImport={(f) => previewCsvImport(f, "person")}
+        actions={canEdit ? <NewEmployeeWizard /> : null}
       />
 
       <StatGrid stats={stats} />

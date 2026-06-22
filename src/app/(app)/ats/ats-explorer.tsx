@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   type CandidateRow,
@@ -15,10 +16,10 @@ import {
   DataTable,
   ModuleHeader,
   exportColumnsCsv,
-  previewCsvImport,
 } from "../_components/data-views";
 import { OpportunityBadge } from "../_components/opportunity-type-field";
 import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
+import { ImportDialog } from "./import-dialog";
 
 function candidateName(r: CandidateRow): string {
   if (r.full_name) return r.full_name;
@@ -35,6 +36,7 @@ function fmtDate(d: string | null | undefined): string | null {
 
 export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
   const router = useRouter();
+  const [importOpen, setImportOpen] = useState(false);
 
   const counts: Record<string, number> = {};
   for (const r of rows) {
@@ -167,8 +169,17 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
         count={rows.length}
         countLabel="candidates"
         onExport={() => exportColumnsCsv("recruiting-ats", columns, rows)}
-        onImport={(f) => previewCsvImport(f, "candidate")}
+        actions={
+          <button
+            onClick={() => setImportOpen(true)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            ⬆ Import
+          </button>
+        }
       />
+
+      <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
 
       <StatGrid stats={stats} />
 

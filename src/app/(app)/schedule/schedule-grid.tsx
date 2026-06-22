@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { SetupData, WeekData } from "./data";
 import {
@@ -280,6 +280,34 @@ export function ScheduleGrid({
 
   const colCount = shownLocations.length;
 
+  // Synchronized horizontal scrollbars (top + bottom) for the grid table.
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const gridScrollRef = useRef<HTMLDivElement>(null);
+  const [scrollWidth, setScrollWidth] = useState(0);
+
+  useEffect(() => {
+    const grid = gridScrollRef.current;
+    if (!grid) return;
+    const update = () => setScrollWidth(grid.scrollWidth);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(grid);
+    const table = grid.querySelector("table");
+    if (table) observer.observe(table);
+    return () => observer.disconnect();
+  }, [shownLocations.length, week.id]);
+
+  const syncFromTop = () => {
+    if (topScrollRef.current && gridScrollRef.current) {
+      gridScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+    }
+  };
+  const syncFromGrid = () => {
+    if (topScrollRef.current && gridScrollRef.current) {
+      topScrollRef.current.scrollLeft = gridScrollRef.current.scrollLeft;
+    }
+  };
+
   return (
     <div className="space-y-3">
       {!canEdit && (
@@ -301,7 +329,20 @@ export function ScheduleGrid({
         }
       />
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:overflow-visible print:border-0 print:shadow-none">
+      <div
+        ref={topScrollRef}
+        onScroll={syncFromTop}
+        className="overflow-x-auto print:hidden"
+        aria-hidden
+      >
+        <div style={{ width: scrollWidth, height: 1 }} />
+      </div>
+
+      <div
+        ref={gridScrollRef}
+        onScroll={syncFromGrid}
+        className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:overflow-visible print:border-0 print:shadow-none"
+      >
         <table className="min-w-full border-collapse text-xs">
           <thead>
             <tr>

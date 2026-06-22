@@ -176,7 +176,7 @@ export function Section({
   );
 }
 
-export function SaveButton({ canEdit = true }: { canEdit?: boolean }) {
+export function SaveButton({ canEdit = true, label }: { canEdit?: boolean; label?: string }) {
   const { pending } = useFormStatus();
   if (!canEdit) {
     return <span className="text-sm text-slate-400">Read-only access</span>;
@@ -187,7 +187,7 @@ export function SaveButton({ canEdit = true }: { canEdit?: boolean }) {
       disabled={pending}
       className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
     >
-      {pending ? "Saving…" : "Save changes"}
+      {pending ? "Saving…" : (label ?? "Save changes")}
     </button>
   );
 }

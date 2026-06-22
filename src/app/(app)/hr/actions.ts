@@ -27,6 +27,92 @@ function bool(v: FormDataEntryValue | null): boolean {
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
 
+export type CreateResult =
+  | { ok: true; id: string }
+  | { ok: false; error: string };
+
+/**
+ * Create a brand-new person + employment record from the "Add New Employee"
+ * wizard. Returns the new person id so the caller can navigate to the profile.
+ */
+export async function createEmployee(
+  formData: FormData,
+): Promise<CreateResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const isAdmin = canViewAllCompensation(gate.current.appUser.role);
+
+  const firstName = str(formData.get("first_name"));
+  const lastName = str(formData.get("last_name"));
+  if (!firstName && !lastName) {
+    return { ok: false, error: "A first or last name is required." };
+  }
+
+  const fullName = [firstName, lastName].filter(Boolean).join(" ") || null;
+
+  const personInsert = {
+    first_name: firstName,
+    last_name: lastName,
+    preferred_name: str(formData.get("preferred_name")),
+    grid_name: str(formData.get("grid_name")),
+    full_name: fullName,
+    email: str(formData.get("email")),
+    phone_mobile: str(formData.get("phone_mobile")),
+    phone_home: str(formData.get("phone_home")),
+    phone_other: str(formData.get("phone_other")),
+    date_of_birth: str(formData.get("date_of_birth")),
+    postal_code: str(formData.get("postal_code")),
+    work_location_type: str(formData.get("work_location_type")),
+    opportunity_type: str(formData.get("opportunity_type")),
+    status: str(formData.get("status")) ?? "employee",
+    notes: str(formData.get("notes")),
+  };
+
+  const { data: person, error: pErr } = await supabase
+    .from("person")
+    .insert(personInsert)
+    .select("id")
+    .single();
+
+  if (pErr) return { ok: false, error: pErr.message };
+  const personId = person.id as string;
+
+  const empInsert = {
+    person_id: personId,
+    adp_job_title: str(formData.get("adp_job_title")),
+    offer_title: str(formData.get("offer_title")),
+    flsa_status: str(formData.get("flsa_status")),
+    work_schedule: str(formData.get("work_schedule")),
+    hire_date: str(formData.get("hire_date")),
+    original_hire_date:
+      str(formData.get("original_hire_date")) ?? str(formData.get("hire_date")),
+    ...(isAdmin
+      ? {
+          pay_type: str(formData.get("pay_type")),
+          current_rate: num(formData.get("current_rate")),
+          annual_wages: num(formData.get("annual_wages")),
+        }
+      : {}),
+  };
+
+  const { error: eErr } = await supabase
+    .from("person_employment")
+    .insert(empInsert);
+
+  if (eErr) {
+    // Roll back the orphaned person so we don't leave a half-created record.
+    await supabase.from("person").delete().eq("id", personId);
+    return { ok: false, error: eErr.message };
+  }
+
+  revalidatePath("/hr");
+  revalidatePath("/schedule");
+  revalidatePath("/schedule/setup");
+  return { ok: true, id: personId };
+}
+
 export async function updateEmployee(
   personId: string,
   _prev: SaveResult | null,

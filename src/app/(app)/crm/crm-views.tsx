@@ -48,11 +48,13 @@ export function OrgListView({
   title,
   description,
   icon,
+  addHref,
 }: {
   organizations: CrmOrganization[];
   title: string;
   description: string;
   icon: string;
+  addHref?: string;
 }) {
   const router = useRouter();
 
@@ -109,6 +111,7 @@ export function OrgListView({
         title={title}
         description={description}
         count={organizations.length}
+        addHref={addHref}
         onExport={() =>
           exportColumnsCsv(title.toLowerCase().replace(/\s+/g, "-"), columns, organizations)
         }
@@ -136,12 +139,14 @@ export function ContactListView({
   description,
   icon,
   variant,
+  addHref,
 }: {
   contacts: CrmContact[];
   title: string;
   description: string;
   icon: string;
   variant: "student" | "ce";
+  addHref?: string;
 }) {
   const router = useRouter();
 
@@ -260,6 +265,7 @@ export function ContactListView({
         title={title}
         description={description}
         count={contacts.length}
+        addHref={addHref}
         onExport={() =>
           exportColumnsCsv(title.toLowerCase().replace(/\s+/g, "-"), columns, contacts)
         }
@@ -314,8 +320,10 @@ const TIER_STYLES: Record<string, string> = {
 
 export function InfluencerListView({
   influencers,
+  addHref,
 }: {
   influencers: CrmInfluencer[];
+  addHref?: string;
 }) {
   const router = useRouter();
 
@@ -412,6 +420,7 @@ export function InfluencerListView({
         title="Influencer CRM"
         description="Influencer partnerships, campaigns & performance"
         count={total}
+        addHref={addHref}
         onExport={() => exportColumnsCsv("influencer-crm", columns, influencers)}
         onImport={(f) => previewCsvImport(f, "influencer")}
       />
