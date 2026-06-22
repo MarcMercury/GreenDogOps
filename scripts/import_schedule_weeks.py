@@ -175,7 +175,9 @@ def resolve_week_start(header_row, cursor):
     return cursor
 
 
-def main():
+def main(pdf_path=PDF, grid_pages=GRID_PAGES, anchor=ANCHOR, out_sql=OUT_SQL,
+         out_exc=OUT_EXC, part_dir_path=".data/import_weeks",
+         status_override=None):
     # Prefer active staff; fall back to former (historical schedule includes
     # people who have since left). Two tiers also disambiguate duplicate
     # name records that differ only by status.
@@ -226,13 +228,13 @@ def main():
         name_cache[key] = pid
         return pid
 
-    pdf = pdfplumber.open(PDF)
-    cursor = ANCHOR
+    pdf = pdfplumber.open(pdf_path)
+    cursor = anchor
     last_start = date.min
     weeks = []            # list of dicts: week_start, status, title, assigns[]
     exceptions = []       # (week_start, day, label, fragment, reason)
 
-    for pno in GRID_PAGES:
+    for pno in grid_pages:
         table = pdf.pages[pno].extract_table(TABLE_SETTINGS)
         if not table:
             continue
@@ -249,7 +251,8 @@ def main():
                     continue
                 last_start = week_start
                 cursor = week_start + timedelta(days=7)
-                status = resolve_status(row[1] if len(row) > 1 else "")
+                status = status_override or resolve_status(
+                    row[1] if len(row) > 1 else "")
                 cur_week = {
                     "week_start": week_start,
                     "status": status,
@@ -318,7 +321,7 @@ def main():
     ]
     weeks = [w for w in weeks if w["assigns"]]
     total_assigns = 0
-    part_dir = Path(".data/import_weeks")
+    part_dir = Path(part_dir_path)
     part_dir.mkdir(parents=True, exist_ok=True)
     for old in part_dir.glob("week_*.sql"):
         old.unlink()
@@ -354,12 +357,12 @@ def main():
         out.extend(block[1:])  # combined file: skip per-part search_path repeat
         out.append("")
         (part_dir / f"week_{wi:02d}_{ws}.sql").write_text("\n".join(block) + "\n")
-    Path(OUT_SQL).write_text("\n".join(out) + "\n")
+    Path(out_sql).write_text("\n".join(out) + "\n")
 
     # --- Exceptions ---------------------------------------------------------
     elines = [f"{ws}\tday{d}\t{lbl}\t{frag}\t{reason}"
               for ws, d, lbl, frag, reason in exceptions]
-    Path(OUT_EXC).write_text("\n".join(elines) + "\n")
+    Path(out_exc).write_text("\n".join(elines) + "\n")
 
     # --- Report -------------------------------------------------------------
     by_reason = defaultdict(int)
@@ -378,5 +381,36 @@ def main():
         print(f"  {n:5}  {r}")
 
 
+def _parse_pages(spec):
+    """'8-36' -> range(8,37); '0-3' -> range(0,4); also accepts single ints."""
+    a, _, b = spec.partition("-")
+    lo = int(a)
+    hi = int(b) if b else lo
+    return range(lo, hi + 1)
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--pdf", default=PDF, help="source schedule PDF")
+    ap.add_argument("--pages", default="8-36",
+                    help="0-indexed grid page range, e.g. '0-3' (default 8-36)")
+    ap.add_argument("--anchor", default=ANCHOR.isoformat(),
+                    help="YYYY-MM-DD cursor seed (a few days before week 1)")
+    ap.add_argument("--status", default=None,
+                    help="force a status for every week (e.g. 'published')")
+    ap.add_argument("--out-sql", default=OUT_SQL)
+    ap.add_argument("--out-exc", default=OUT_EXC)
+    ap.add_argument("--part-dir", default=".data/import_weeks")
+    args = ap.parse_args()
+
+    main(
+        pdf_path=args.pdf,
+        grid_pages=_parse_pages(args.pages),
+        anchor=date.fromisoformat(args.anchor),
+        out_sql=args.out_sql,
+        out_exc=args.out_exc,
+        part_dir_path=args.part_dir,
+        status_override=args.status,
+    )

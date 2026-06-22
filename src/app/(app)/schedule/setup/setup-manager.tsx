@@ -829,9 +829,12 @@ function Employees({ data }: { data: SetupData }) {
                   <td className="py-2 pr-4">
                     <div className="flex flex-wrap gap-1">
                       {(() => {
-                        const eligible = s?.eligible_location_ids?.length
-                          ? s.eligible_location_ids
-                          : defaultEligibleLocIds;
+                        const schedulable = s?.is_schedulable ?? true;
+                        const eligible = !schedulable
+                          ? []
+                          : s?.eligible_location_ids?.length
+                            ? s.eligible_location_ids
+                            : defaultEligibleLocIds;
                         return data.locations.map((l) => {
                           const on = eligible.includes(l.id);
                           return (
@@ -900,7 +903,12 @@ function Employees({ data }: { data: SetupData }) {
                       type="checkbox"
                       defaultChecked={s?.is_schedulable ?? true}
                       onChange={(e) =>
-                        update(p.id, { schedulable: e.target.checked })
+                        update(
+                          p.id,
+                          e.target.checked
+                            ? { schedulable: true }
+                            : { schedulable: false, eligibleLocs: [] },
+                        )
                       }
                     />
                   </td>
