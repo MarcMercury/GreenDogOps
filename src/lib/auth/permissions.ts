@@ -46,6 +46,7 @@ export type ModuleKey =
   | "crm_student"
   | "crm_ce"
   | "crm_influencer"
+  | "planning"
   | "schedule"
   | "resources"
   | "admin";
@@ -66,6 +67,7 @@ export const MODULES: ModuleDef[] = [
   { key: "crm_student", label: "Student CRM", href: "/crm/student" },
   { key: "crm_ce", label: "CE Leads", href: "/crm/ce" },
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
+  { key: "planning", label: "Planning Guides", href: "/planning" },
   { key: "schedule", label: "Scheduling", href: "/schedule" },
   { key: "resources", label: "Resources", href: "/resources" },
   { key: "admin", label: "Admin", href: "/admin" },
@@ -122,7 +124,8 @@ export function isEditorRole(role: AppRole): boolean {
 export function canEditModule(user: AppUser, key: ModuleKey): boolean {
   if (!canAccessModule(user, key)) return false;
   if (isEditorRole(user.role)) return true;
-  if (user.role === "schedule_admin") return key === "schedule";
+  if (user.role === "schedule_admin")
+    return key === "schedule" || key === "planning";
   return false;
 }
 

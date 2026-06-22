@@ -26,6 +26,7 @@ const CRM_NAV: NavItem[] = CRM_SECTIONS.map((s) => ({
 
 /** Remaining top-level modules, after the CRM group. */
 const MODULES_BOTTOM: NavItem[] = [
+  { key: "planning", href: "/planning", label: "Planning Guides", icon: "🧭" },
   { key: "schedule", href: "/schedule", label: "Scheduling", icon: "🗓️" },
   { key: "resources", href: "/resources", label: "Resources", icon: "📚" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
