@@ -262,7 +262,7 @@ export async function createWeek(weekStart: string): Promise<ActionResult<string
   // Snapshot active locations -> week locations.
   const { data: locs } = await supabase
     .from("location")
-    .select("id, sort_order")
+    .select("id, short_code, sort_order")
     .eq("is_active", true)
     .order("sort_order");
   const weekLocs = (locs ?? []).map((l: Record<string, unknown>) => ({
@@ -273,15 +273,23 @@ export async function createWeek(weekStart: string): Promise<ActionResult<string
   if (weekLocs.length > 0)
     await supabase.from("sched_week_location").insert(weekLocs);
 
-  // Default every location to closed on Sundays (day_of_week 0).
-  const sundayClosures = (locs ?? []).map((l: Record<string, unknown>) => ({
-    week_id: weekId,
-    location_id: l.id,
-    day_of_week: 0,
-    reason: null,
-  }));
-  if (sundayClosures.length > 0)
-    await supabase.from("sched_closure").insert(sundayClosures);
+  // Default closures:
+  //  - every location closed on Sundays (day_of_week 0)
+  //  - Sherman Oaks (SO) also closed on Tuesdays (2) and Wednesdays (3)
+  const defaultClosures = (locs ?? []).flatMap(
+    (l: Record<string, unknown>) => {
+      const days = [0];
+      if ((l.short_code as string | null) === "SO") days.push(2, 3);
+      return days.map((day_of_week) => ({
+        week_id: weekId,
+        location_id: l.id,
+        day_of_week,
+        reason: null,
+      }));
+    },
+  );
+  if (defaultClosures.length > 0)
+    await supabase.from("sched_closure").insert(defaultClosures);
 
   revalidateAll();
   return { ok: true, data: weekId };
@@ -1031,6 +1039,142 @@ export async function removeAssignment(
   }
   revalidateAll();
   return { ok: true };
+}
+
+/**
+ * Move an existing assignment to a different (line, location, day) cell.
+ * Drives the drag-and-drop interaction. All mutations run behind the same
+ * `ensureCanEdit("schedule")` gate as the rest of the grid, and the source
+ * assignment is re-validated server-side so a client can never relocate a row
+ * it has no business touching.
+ *
+ * On a draft week the row is simply re-pointed at the target cell. On a
+ * published week the move is delegated to the existing publish-aware
+ * `assignPerson` / `removeAssignment` helpers so absence/relocation rules and
+ * the change log stay consistent with manual edits.
+ */
+export async function moveAssignment(
+  assignmentId: string,
+  targetLineId: string,
+  targetLocationId: string,
+  targetDay: number,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  // Re-load the source row server-side — never trust client-supplied context.
+  const { data: src } = await supabase
+    .from("sched_assignment")
+    .select(
+      "id, week_id, line_id, location_id, day_of_week, person_id, removed_post_publish, added_post_publish",
+    )
+    .eq("id", assignmentId)
+    .maybeSingle();
+  if (!src) return { ok: false, error: "Assignment not found." };
+  const a = src as {
+    id: string;
+    week_id: string;
+    line_id: string;
+    location_id: string;
+    day_of_week: number;
+    person_id: string;
+    removed_post_publish: boolean;
+    added_post_publish: boolean;
+  };
+
+  // A row already removed post-publish is an absence record, not a live shift.
+  if (a.removed_post_publish)
+    return { ok: false, error: "That assignment is no longer active." };
+
+  // No-op if dropped back onto its own cell.
+  if (
+    a.line_id === targetLineId &&
+    a.location_id === targetLocationId &&
+    a.day_of_week === targetDay
+  )
+    return { ok: true };
+
+  const { data: week } = await supabase
+    .from("sched_week")
+    .select("week_start, status")
+    .eq("id", a.week_id)
+    .single();
+  if (!week) return { ok: false, error: "Week not found." };
+  const w = week as { week_start: string; status: ScheduleStatus };
+  const isPublished = w.status === "published";
+
+  // Validate the target line + location actually belong to this week so a
+  // crafted request can't relocate someone onto an unrelated week/shift.
+  const { data: targetLine } = await supabase
+    .from("sched_week_line")
+    .select("id")
+    .eq("id", targetLineId)
+    .eq("week_id", a.week_id)
+    .maybeSingle();
+  if (!targetLine) return { ok: false, error: "Invalid target shift." };
+
+  const targetDate = dateForDay(w.week_start, targetDay);
+
+  // Already an active row for this person in the target cell? Treat the drag
+  // as a consolidation: drop the source so we don't create a duplicate.
+  const { data: dupe } = await supabase
+    .from("sched_assignment")
+    .select("id")
+    .eq("line_id", targetLineId)
+    .eq("location_id", targetLocationId)
+    .eq("day_of_week", targetDay)
+    .eq("person_id", a.person_id)
+    .eq("removed_post_publish", false)
+    .neq("id", a.id)
+    .maybeSingle();
+
+  // Draft week (or a row added after publish): re-point the row in place,
+  // preserving its history. If it would collide with an existing row, delete
+  // the source instead.
+  if (!isPublished || a.added_post_publish) {
+    if (dupe) {
+      const { error } = await supabase
+        .from("sched_assignment")
+        .delete()
+        .eq("id", a.id);
+      if (error) return { ok: false, error: error.message };
+    } else {
+      const { error } = await supabase
+        .from("sched_assignment")
+        .update({
+          line_id: targetLineId,
+          location_id: targetLocationId,
+          day_of_week: targetDay,
+          work_date: targetDate,
+        })
+        .eq("id", a.id);
+      if (error) return { ok: false, error: error.message };
+      if (isPublished)
+        await logChange(
+          a.week_id,
+          "relocated",
+          "Moved via drag-and-drop",
+          a.person_id,
+          a.id,
+        );
+    }
+    revalidateAll();
+    return { ok: true };
+  }
+
+  // Published week, original row: delegate to the publish-aware helpers so the
+  // target gets a properly flagged add and the source applies relocation /
+  // auto-absence rules and change-log entries exactly like a manual edit.
+  const placed = await assignPerson(
+    a.week_id,
+    targetLineId,
+    targetLocationId,
+    targetDay,
+    a.person_id,
+  );
+  if (!placed.ok) return placed;
+  return removeAssignment(a.id);
 }
 
 /** Mark attendance for an assignment (post-publish). */

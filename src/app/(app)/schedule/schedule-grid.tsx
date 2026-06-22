@@ -31,6 +31,7 @@ import {
 import { WeekPicker } from "./week-picker";import {
   assignPerson,
   removeAssignment,
+  moveAssignment,
   markAttendance,
   toggleClosure,
   setEvent,
@@ -49,6 +50,41 @@ interface CellKey {
   lineId: string;
   locationId: string;
   day: number;
+}
+
+/** Parse an "HH:MM[:SS]" time into minutes since midnight, or null. */
+function timeToMinutes(t: string | null | undefined): number | null {
+  if (!t) return null;
+  const [h, m] = t.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+/**
+ * Decide whether two same-day assignments for the same person collide — i.e.
+ * the person would have to be in two places at once. The same shift line is
+ * always a collision (an exact duplicate). Otherwise the lines' time windows
+ * are compared; when times are missing we only flag when the locations differ.
+ */
+function assignmentsOverlap(
+  a: SchedAssignment,
+  b: SchedAssignment,
+  lineById: Map<string, SchedWeekLine>,
+): boolean {
+  if (a.line_id === b.line_id) return true;
+  const la = lineById.get(a.line_id);
+  const lb = lineById.get(b.line_id);
+  const s1 = timeToMinutes(la?.start_time);
+  const e1 = timeToMinutes(la?.end_time);
+  const s2 = timeToMinutes(lb?.start_time);
+  const e2 = timeToMinutes(lb?.end_time);
+  if (s1 === null || e1 === null || s2 === null || e2 === null) {
+    // Times unknown: flag only cross-location double-bookings (can't be two
+    // places at once); same-location split shifts are left alone.
+    return a.location_id !== b.location_id;
+  }
+  // Half-open interval overlap test.
+  return s1 < e2 && s2 < e1;
 }
 
 export function ScheduleGrid({
@@ -146,6 +182,44 @@ export function ScheduleGrid({
     }
     return m;
   }, [assignments]);
+
+  // Double-booking detection: a person cannot be in two overlapping shifts on
+  // the same day. We flag (not block) the offending assignments so the grid can
+  // highlight them in red with a reason in the tooltip.
+  const conflictReasons = useMemo(() => {
+    const lineById = new Map(lines.map((l) => [l.id, l]));
+    const locLabel = (id: string) => {
+      const l = setup.locations.find((x) => x.id === id);
+      return l ? l.short_code ?? l.name : "another location";
+    };
+    const reasons = new Map<string, string[]>();
+    const byPersonDay = new Map<string, SchedAssignment[]>();
+    for (const a of activeAssignments) {
+      const key = `${a.person_id}|${a.day_of_week}`;
+      if (!byPersonDay.has(key)) byPersonDay.set(key, []);
+      byPersonDay.get(key)!.push(a);
+    }
+    const note = (a: SchedAssignment, other: SchedAssignment) => {
+      const line = lineById.get(other.line_id);
+      const time = timeRange(line?.start_time ?? null, line?.end_time ?? null);
+      const where = locLabel(other.location_id);
+      const label = [where, time].filter(Boolean).join(" ");
+      const list = reasons.get(a.id) ?? [];
+      list.push(label);
+      reasons.set(a.id, list);
+    };
+    for (const list of byPersonDay.values()) {
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          if (assignmentsOverlap(list[i], list[j], lineById)) {
+            note(list[i], list[j]);
+            note(list[j], list[i]);
+          }
+        }
+      }
+    }
+    return reasons;
+  }, [activeAssignments, lines, setup.locations]);
 
   const closureSet = useMemo(
     () => new Set(closures.map((c) => `${c.location_id}|${c.day_of_week}`)),
@@ -432,7 +506,10 @@ export function ScheduleGrid({
                               assignments={cellAsgs}
                               personById={personById}
                               weeklyCount={weeklyCount}
+                              conflictReasons={conflictReasons}
+                              weekTimeOff={weekTimeOff}
                               isPublished={isPublished}
+                              canEdit={canEdit}
                               onAdd={() =>
                                 setPicker({
                                   lineId: line.id,
@@ -443,6 +520,17 @@ export function ScheduleGrid({
                               onRemove={(id) =>
                                 start(async () => {
                                   await removeAssignment(id);
+                                  router.refresh();
+                                })
+                              }
+                              onMovePerson={(assignmentId) =>
+                                start(async () => {
+                                  await moveAssignment(
+                                    assignmentId,
+                                    line.id,
+                                    loc.id,
+                                    d,
+                                  );
                                   router.refresh();
                                 })
                               }
@@ -852,9 +940,13 @@ function Cell({
   assignments,
   personById,
   weeklyCount,
+  conflictReasons,
+  weekTimeOff,
   isPublished,
+  canEdit,
   onAdd,
   onRemove,
+  onMovePerson,
   onAttendance,
 }: {
   closed: boolean;
@@ -863,11 +955,16 @@ function Cell({
   assignments: SchedAssignment[];
   personById: Map<string, SchedPerson>;
   weeklyCount: Map<string, number>;
+  conflictReasons: Map<string, string[]>;
+  weekTimeOff: WeekTimeOff;
   isPublished: boolean;
+  canEdit: boolean;
   onAdd: () => void;
   onRemove: (id: string) => void;
+  onMovePerson: (assignmentId: string) => void;
   onAttendance: (id: string) => void;
 }) {
+  const [dragOver, setDragOver] = useState(false);
   const dayBorder = isDayStart
     ? "border-l-2 border-l-slate-400"
     : "border-l border-l-slate-200";
@@ -886,31 +983,105 @@ function Cell({
   const visible = assignments.filter((a) => !a.removed_post_publish);
   const removed = assignments.filter((a) => a.removed_post_publish);
 
+  // Drag-and-drop is gated on edit permission. The drop handler ignores rows
+  // that already live in this cell so re-dropping in place is a clean no-op.
+  const idsHere = new Set(visible.map((a) => a.id));
+
   return (
     <td
-      className={`group border-b border-b-slate-200 ${dayBorder} align-top`}
+      className={`group border-b border-b-slate-200 ${dayBorder} align-top ${
+        dragOver ? "outline outline-2 -outline-offset-2 outline-emerald-400" : ""
+      }`}
       style={{
         minWidth: 96,
-        backgroundColor: `${accent}14`,
+        backgroundColor: dragOver ? `${accent}33` : `${accent}14`,
         ...(isDayStart ? {} : { borderLeftColor: `${accent}55` }),
       }}
+      onDragOver={
+        canEdit
+          ? (e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+              if (!dragOver) setDragOver(true);
+            }
+          : undefined
+      }
+      onDragLeave={canEdit ? () => setDragOver(false) : undefined}
+      onDrop={
+        canEdit
+          ? (e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const id = e.dataTransfer.getData("text/plain");
+              if (id && !idsHere.has(id)) onMovePerson(id);
+            }
+          : undefined
+      }
     >
       <div className="flex min-h-[34px] flex-col gap-0.5 p-1">
         {visible.map((a) => {
           const p = personById.get(a.person_id);
           const att = effectiveAttendance(a, isPublished);
           const marked = att !== "scheduled";
+          const conflicts = conflictReasons.get(a.id);
+          const hasConflict = !!conflicts?.length;
+          const conflictTitle = hasConflict
+            ? `Double-booked — also scheduled at: ${conflicts!.join("; ")}`
+            : undefined;
+          // Time-off clash: scheduled on a day this person has requested or
+          // approved time off. Skip when the shift was already marked PTO —
+          // that means the scheduler has already acknowledged it.
+          const off = weekTimeOff.get(a.person_id)?.get(a.day_of_week);
+          const hasTimeOff = !!off && att !== "pto";
+          const timeOffTitle = hasTimeOff
+            ? `Time off ${off === "approved" ? "approved" : "requested"} for this day`
+            : undefined;
           return (
             <div
               key={a.id}
+              draggable={canEdit}
+              onDragStart={
+                canEdit
+                  ? (e) => {
+                      e.dataTransfer.setData("text/plain", a.id);
+                      e.dataTransfer.effectAllowed = "move";
+                    }
+                  : undefined
+              }
               className={`flex items-center gap-1 rounded px-1 py-0.5 text-[11px] ${
-                marked ? ATTENDANCE_TONE[att] : "bg-slate-100 text-slate-700"
-              } ${a.added_post_publish ? "ring-1 ring-sky-400" : ""}`}
+                hasConflict
+                  ? "bg-red-100 text-red-700 ring-1 ring-red-500"
+                  : hasTimeOff
+                    ? "bg-violet-100 text-violet-700 ring-1 ring-violet-500"
+                    : marked
+                      ? ATTENDANCE_TONE[att]
+                      : "bg-slate-100 text-slate-700"
+              } ${a.added_post_publish ? "ring-1 ring-sky-400" : ""} ${
+                canEdit ? "cursor-grab active:cursor-grabbing" : ""
+              }`}
+              title={
+                conflictTitle ??
+                timeOffTitle ??
+                (canEdit
+                  ? `${p ? gridName(p) : ""} — drag to move`
+                  : p
+                    ? gridName(p)
+                    : "")
+              }
             >
+              {hasConflict ? (
+                <span className="shrink-0 text-red-600" aria-hidden>
+                  ⚠
+                </span>
+              ) : hasTimeOff ? (
+                <span className="shrink-0 text-violet-600" aria-hidden>
+                  🌴
+                </span>
+              ) : null}
               <button
                 onClick={() => isPublished && onAttendance(a.id)}
-                className={`flex-1 truncate text-left ${isPublished ? "cursor-pointer hover:underline" : ""}`}
-                title={p ? gridName(p) : ""}
+                className={`flex-1 truncate text-left ${hasConflict || hasTimeOff ? "font-semibold" : ""} ${isPublished ? "cursor-pointer hover:underline" : ""}`}
+                title={conflictTitle ?? timeOffTitle ?? (p ? gridName(p) : "")}
               >
                 {p ? gridName(p) : "—"}
               </button>
@@ -970,6 +1141,14 @@ function Legend() {
       </span>
       <span className="flex items-center gap-1">
         <span className="h-3 w-3 rounded bg-violet-100" /> PTO
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="h-3 w-3 rounded bg-red-100 ring-1 ring-red-500" />
+        <span className="text-red-600">⚠</span> Double-booked
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="h-3 w-3 rounded bg-violet-100 ring-1 ring-violet-500" />
+        <span className="text-violet-600">🌴</span> Scheduled on time off
       </span>
       <span className="ml-2">
         Number next to a name = shifts already assigned that week.
