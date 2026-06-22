@@ -733,6 +733,17 @@ function Employees({ data }: { data: SetupData }) {
     return m;
   }, [data.settings]);
 
+  // Default eligibility for employees with no explicit selection: every
+  // location except MPMV (i.e. SO, VEN, VAN). Mirrors the schedule grid which
+  // also excludes MPMV.
+  const defaultEligibleLocIds = useMemo(
+    () =>
+      data.locations
+        .filter((l) => (l.short_code ?? l.name).toUpperCase() !== "MPMV")
+        .map((l) => l.id),
+    [data.locations],
+  );
+
   const people = useMemo(() => {
     const term = q.trim().toLowerCase();
     return data.people
@@ -790,7 +801,6 @@ function Employees({ data }: { data: SetupData }) {
             <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
               <th className="py-2 pr-4 font-medium">Employee</th>
               <th className="py-2 pr-4 font-medium">Weekly target</th>
-              <th className="py-2 pr-4 font-medium">Default location</th>
               <th className="py-2 pr-4 font-medium">Eligible locations</th>
               <th className="py-2 pr-4 font-medium">Available days</th>
               <th className="py-2 pr-4 font-medium">Schedulable</th>
@@ -817,36 +827,21 @@ function Employees({ data }: { data: SetupData }) {
                     />
                   </td>
                   <td className="py-2 pr-4">
-                    <select
-                      defaultValue={s?.default_location_id ?? ""}
-                      onChange={(e) =>
-                        update(p.id, { loc: e.target.value || null })
-                      }
-                      className={inputCls}
-                    >
-                      <option value="">—</option>
-                      {data.locations.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="py-2 pr-4">
                     <div className="flex flex-wrap gap-1">
-                      {data.locations.map((l) => {
-                        const on = (s?.eligible_location_ids ?? []).includes(
-                          l.id,
-                        );
-                        return (
+                      {(() => {
+                        const eligible = s?.eligible_location_ids?.length
+                          ? s.eligible_location_ids
+                          : defaultEligibleLocIds;
+                        return data.locations.map((l) => {
+                          const on = eligible.includes(l.id);
+                          return (
                           <button
                             key={l.id}
                             type="button"
                             onClick={() => {
-                              const cur = s?.eligible_location_ids ?? [];
                               const next = on
-                                ? cur.filter((x) => x !== l.id)
-                                : [...cur, l.id];
+                                ? eligible.filter((x) => x !== l.id)
+                                : [...eligible, l.id];
                               update(p.id, { eligibleLocs: next });
                             }}
                             className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
@@ -862,8 +857,9 @@ function Employees({ data }: { data: SetupData }) {
                           >
                             {l.short_code || l.name}
                           </button>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                     </div>
                     <p className="mt-1 text-[10px] text-slate-400">
                       None = any location

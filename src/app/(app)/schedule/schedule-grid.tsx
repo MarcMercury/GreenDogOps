@@ -81,10 +81,14 @@ export function ScheduleGrid({
     [setup.locations, planLocationIds],
   );
   const [enabled, setEnabled] = useState<Set<string>>(() => {
-    const init = planLocationIds.size
-      ? planLocationIds
-      : new Set(availableLocations.slice(0, 1).map((l) => l.id));
-    return new Set(init);
+    const base = planLocationIds.size
+      ? availableLocations.filter((l) => planLocationIds.has(l.id))
+      : availableLocations.slice(0, 1);
+    // MPMV is hidden from the default view (still available to toggle on).
+    const init = base.filter(
+      (l) => (l.short_code ?? l.name).toUpperCase() !== "MPMV",
+    );
+    return new Set(init.map((l) => l.id));
   });
   const shownLocations = availableLocations.filter((l) => enabled.has(l.id));
 

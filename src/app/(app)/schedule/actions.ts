@@ -273,6 +273,16 @@ export async function createWeek(weekStart: string): Promise<ActionResult<string
   if (weekLocs.length > 0)
     await supabase.from("sched_week_location").insert(weekLocs);
 
+  // Default every location to closed on Sundays (day_of_week 0).
+  const sundayClosures = (locs ?? []).map((l: Record<string, unknown>) => ({
+    week_id: weekId,
+    location_id: l.id,
+    day_of_week: 0,
+    reason: null,
+  }));
+  if (sundayClosures.length > 0)
+    await supabase.from("sched_closure").insert(sundayClosures);
+
   revalidateAll();
   return { ok: true, data: weekId };
 }

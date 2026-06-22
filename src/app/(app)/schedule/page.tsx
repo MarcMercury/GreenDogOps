@@ -4,6 +4,7 @@ import { WeekPicker } from "./week-picker";
 import { PageHeader } from "../_components/ui";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
+import { weekStartFor } from "@/lib/schedule/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,15 @@ export default async function SchedulePage({
   ]);
   const canEdit = current ? canEditModule(current.appUser, "schedule") : false;
 
-  const selectedId = weekParam ?? weeks[0]?.id ?? null;
+  // Default to the current week (or the most recent week on/before today),
+  // falling back to the newest week if everything is in the future.
+  const currentWeekStart = weekStartFor(new Date());
+  const defaultWeek =
+    weeks.find((w) => w.week_start === currentWeekStart) ??
+    weeks.find((w) => w.week_start <= currentWeekStart) ??
+    weeks[weeks.length - 1] ??
+    null;
+  const selectedId = weekParam ?? defaultWeek?.id ?? null;
   const weekData = selectedId ? await getWeekData(selectedId) : null;
   if (!weekData) {
     return (
