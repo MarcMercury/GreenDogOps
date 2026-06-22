@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   reliabilityTone,
   type ReliabilityTally,
@@ -104,7 +105,13 @@ export function AttendanceTable({
             {filtered.map((e) => (
               <tr key={e.personId} className="hover:bg-slate-50/50">
                 <td className="px-3 py-2 font-medium text-slate-800">
-                  {e.name}
+                  <Link
+                    href={`/hr/${e.personId}`}
+                    className="text-slate-800 hover:text-emerald-700 hover:underline"
+                    title="Open HR profile"
+                  >
+                    {e.name}
+                  </Link>
                 </td>
                 <td className="px-3 py-2 text-center">
                   <span

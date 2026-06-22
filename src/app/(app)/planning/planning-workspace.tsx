@@ -33,6 +33,7 @@ import {
   deleteGuide,
   deleteSlot,
   duplicateGuide,
+  moveSlot,
   reorderColumns,
   updateColumn,
   updateGuide,
@@ -359,6 +360,20 @@ function GuideEditor({
   const [columnEdit, setColumnEdit] = useState<PlanningGuideColumn | "new" | null>(
     null,
   );
+  const [dragSlot, setDragSlot] = useState<PlanningGuideSlot | null>(null);
+  const [dropCell, setDropCell] = useState<string | null>(null);
+
+  const handleSlotDrop = useCallback(
+    (columnId: string, bucket: number) => {
+      setDropCell(null);
+      const s = dragSlot;
+      setDragSlot(null);
+      if (!s) return;
+      if (s.column_id === columnId && s.start_minute === bucket) return;
+      run(moveSlot, { id: s.id, column_id: columnId, start_minute: bucket });
+    },
+    [dragSlot, run],
+  );
 
   // index slots by column + bucket (rows are fixed 15-minute windows)
   const slotsByCell = useMemo(() => {
@@ -387,6 +402,20 @@ function GuideEditor({
     .filter(Boolean)
     .join(" · ");
 
+  // Tally of appointment types on this day (excludes empty "open" slots),
+  // ordered by the canonical appointment-type palette.
+  const typeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const s of slots) {
+      if (s.type_code === "open") continue;
+      counts.set(s.type_code, (counts.get(s.type_code) ?? 0) + 1);
+    }
+    return APPOINTMENT_TYPES.filter((t) => counts.has(t.code)).map((t) => ({
+      type: t,
+      count: counts.get(t.code) ?? 0,
+    }));
+  }, [slots]);
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
       {/* Toolbar */}
@@ -405,6 +434,23 @@ function GuideEditor({
               {countBookable(slots)} bookable slots
             </span>
           </p>
+          {typeCounts.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {typeCounts.map(({ type, count }) => (
+                <span
+                  key={type.code}
+                  style={apptChipStyle(type.color)}
+                  className="inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold"
+                  title={`${type.label}: ${count}`}
+                >
+                  {type.short}
+                  <span className="rounded bg-white/70 px-1 text-[10px] font-bold tabular-nums">
+                    {count}
+                  </span>
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
         {canEdit ? (
           <div className="flex shrink-0 flex-wrap gap-2">
@@ -521,10 +567,46 @@ function GuideEditor({
                     </td>
                     {columns.map((col) => {
                       const cellSlots = slotsByCell.get(`${col.id}:${bucket}`) ?? [];
+                      const cellKey = `${col.id}:${bucket}`;
+                      const isDropTarget = canEdit && dropCell === cellKey;
                       return (
                         <td
                           key={col.id}
-                          className={`group border-l border-slate-100 px-1.5 py-1 transition hover:bg-slate-50/60 ${rowBorder}`}
+                          onDragOver={
+                            canEdit && dragSlot
+                              ? (e) => {
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = "move";
+                                  if (dropCell !== cellKey) setDropCell(cellKey);
+                                }
+                              : undefined
+                          }
+                          onDragLeave={
+                            canEdit && dragSlot
+                              ? (e) => {
+                                  if (
+                                    !e.currentTarget.contains(
+                                      e.relatedTarget as Node | null,
+                                    )
+                                  ) {
+                                    setDropCell((c) => (c === cellKey ? null : c));
+                                  }
+                                }
+                              : undefined
+                          }
+                          onDrop={
+                            canEdit && dragSlot
+                              ? (e) => {
+                                  e.preventDefault();
+                                  handleSlotDrop(col.id, bucket);
+                                }
+                              : undefined
+                          }
+                          className={`group border-l border-slate-100 px-1.5 py-1 transition ${rowBorder} ${
+                            isDropTarget
+                              ? "bg-emerald-50 ring-2 ring-inset ring-emerald-300"
+                              : "hover:bg-slate-50/60"
+                          }`}
                         >
                           <div className="flex min-h-[1.5rem] flex-col gap-1">
                             {cellSlots.map((s) => (
@@ -532,6 +614,12 @@ function GuideEditor({
                                 key={s.id}
                                 slot={s}
                                 canEdit={canEdit}
+                                dragging={dragSlot?.id === s.id}
+                                onDragStart={() => setDragSlot(s)}
+                                onDragEnd={() => {
+                                  setDragSlot(null);
+                                  setDropCell(null);
+                                }}
                                 onClick={() =>
                                   canEdit && setSlotEdit({ mode: "edit", slot: s })
                                 }
@@ -637,10 +725,16 @@ function SlotChip({
   slot,
   canEdit,
   onClick,
+  dragging,
+  onDragStart,
+  onDragEnd,
 }: {
   slot: PlanningGuideSlot;
   canEdit: boolean;
   onClick: () => void;
+  dragging?: boolean;
+  onDragStart?: () => void;
+  onDragEnd?: () => void;
 }) {
   const t = apptType(slot.type_code);
   const display = displaySlotLabel(slot.label);
@@ -649,10 +743,21 @@ function SlotChip({
       type="button"
       onClick={onClick}
       disabled={!canEdit}
+      draggable={canEdit}
+      onDragStart={
+        canEdit
+          ? (e) => {
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", slot.id);
+              onDragStart?.();
+            }
+          : undefined
+      }
+      onDragEnd={canEdit ? () => onDragEnd?.() : undefined}
       style={apptChipStyle(t.color)}
       className={`rounded border px-1.5 py-0.5 text-left text-xs font-medium leading-tight ${
-        canEdit ? "cursor-pointer hover:brightness-95" : "cursor-default"
-      }`}
+        canEdit ? "cursor-grab hover:brightness-95 active:cursor-grabbing" : "cursor-default"
+      } ${dragging ? "opacity-40" : ""}`}
       title={`${t.label}${display ? ` — ${display}` : ""}`}
     >
       <span className="block truncate">

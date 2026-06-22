@@ -27,8 +27,12 @@ import {
   ATTENDANCE_LABELS,
   ATTENDANCE_TONE,
   reliabilityTone,
+  DAY_SHORT,
 } from "@/lib/schedule/types";
-import type { PersonAttendanceSummary } from "../../schedule/data";
+import type {
+  PersonAttendanceSummary,
+  PersonScheduleSettings,
+} from "../../schedule/data";
 import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
 
 /** A linked Green Dog Ops login account, surfaced read-only on the profile. */
@@ -89,6 +93,7 @@ export function EmployeeProfile({
   documents,
   recruiting,
   attendance,
+  scheduleSettings,
   ptoDays,
   timeOff,
   account,
@@ -101,6 +106,7 @@ export function EmployeeProfile({
   documents: PersonDocumentWithUrl[];
   recruiting: PersonRecruitingSummary | null;
   attendance: PersonAttendanceSummary;
+  scheduleSettings: PersonScheduleSettings;
   ptoDays: PersonPtoDay[];
   timeOff: PersonTimeOff[];
   account: LinkedAccount | null;
@@ -164,6 +170,7 @@ export function EmployeeProfile({
 
       {activeTab === "attendance" && (
         <>
+          <SchedSettingsPanel settings={scheduleSettings} />
           <TimeOffPanel
             personId={row.id}
             timeOff={timeOff}
@@ -294,6 +301,164 @@ function AccountChip({
     >
       User · {label}
     </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling settings (read-only mirror of Schedule → Setup → Employees)
+// ---------------------------------------------------------------------------
+
+function SchedSettingsPanel({
+  settings,
+}: {
+  settings: PersonScheduleSettings;
+}) {
+  const {
+    hasSetting,
+    isSchedulable,
+    weeklyTarget,
+    defaultLocationName,
+    eligibleLocationNames,
+    availableDays,
+    roleNames,
+    notes,
+  } = settings;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-700">
+          Scheduling settings
+        </h3>
+        <Link
+          href="/schedule/setup"
+          className="text-xs font-medium text-emerald-700 hover:underline"
+        >
+          Manage in Schedule → Setup → Employees
+        </Link>
+      </div>
+      <p className="mb-4 text-xs text-slate-400">
+        Read-only. These drive how this employee appears on the schedule grid and
+        are edited centrally in the Scheduling module so both stay in sync.
+      </p>
+
+      {!hasSetting ? (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+          No scheduling settings saved yet. Defaults apply (schedulable, any
+          location, any day).
+        </p>
+      ) : (
+        <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Schedulable
+            </dt>
+            <dd className="mt-1">
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  isSchedulable
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {isSchedulable ? "Yes" : "No"}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Weekly shift target
+            </dt>
+            <dd className="mt-1 text-sm text-slate-800">
+              {weeklyTarget == null ? "—" : weeklyTarget}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Scheduling roles
+            </dt>
+            <dd className="mt-1 text-sm text-slate-800">
+              {roleNames.length === 0 ? (
+                <span className="text-slate-400">None assigned</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {roleNames.map((r) => (
+                    <span
+                      key={r}
+                      className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                    >
+                      {r}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Default location
+            </dt>
+            <dd className="mt-1 text-sm text-slate-800">
+              {defaultLocationName ?? <span className="text-slate-400">—</span>}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Eligible locations
+            </dt>
+            <dd className="mt-1 text-sm text-slate-800">
+              {eligibleLocationNames.length === 0 ? (
+                <span className="text-slate-400">Any location</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {eligibleLocationNames.map((l) => (
+                    <span
+                      key={l}
+                      className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
+                    >
+                      {l}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Available days
+            </dt>
+            <dd className="mt-1 text-sm text-slate-800">
+              {availableDays.length === 0 ? (
+                <span className="text-slate-400">Any day</span>
+              ) : (
+                <div className="flex flex-wrap gap-1">
+                  {[...availableDays]
+                    .sort((a, b) => a - b)
+                    .map((d) => (
+                      <span
+                        key={d}
+                        className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                      >
+                        {DAY_SHORT[d]}
+                      </span>
+                    ))}
+                </div>
+              )}
+            </dd>
+          </div>
+          {notes && (
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                Scheduling notes
+              </dt>
+              <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
+                {notes}
+              </dd>
+            </div>
+          )}
+        </dl>
+      )}
+    </div>
   );
 }
 

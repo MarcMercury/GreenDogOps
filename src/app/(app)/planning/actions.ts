@@ -374,6 +374,25 @@ export async function updateSlot(formData: FormData): Promise<ActionResult> {
   return { ok: true };
 }
 
+export async function moveSlot(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureCanEdit("planning");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const columnId = str(formData.get("column_id"));
+  const startMinute = int(formData.get("start_minute"), -1);
+  if (!id || !columnId || startMinute < 0) {
+    return { ok: false, error: "Missing move parameters." };
+  }
+  const { error } = await supabase
+    .from("planning_guide_slot")
+    .update({ column_id: columnId, start_minute: startMinute })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}
+
 export async function deleteSlot(formData: FormData): Promise<ActionResult> {
   const gate = await ensureCanEdit("planning");
   if (!gate.ok) return gate;

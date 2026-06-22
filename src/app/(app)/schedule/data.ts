@@ -303,3 +303,79 @@ export async function getPersonAttendance(
 
   return { tally, score: reliabilityScore(tally), records };
 }
+
+/**
+ * Read-only snapshot of a single employee's scheduling configuration, resolved
+ * into display-ready labels for the HR profile. The source of truth stays in
+ * Schedule → Setup → Employees; this just surfaces it so the same employee data
+ * is visible everywhere it's referenced.
+ */
+export interface PersonScheduleSettings {
+  hasSetting: boolean;
+  isSchedulable: boolean;
+  weeklyTarget: number | null;
+  defaultLocationName: string | null;
+  /** Empty list means "any location" (no explicit restriction). */
+  eligibleLocationNames: string[];
+  /** Weekday numbers 0=Sun..6=Sat. Empty means "any day". */
+  availableDays: number[];
+  roleNames: string[];
+  notes: string | null;
+}
+
+export async function getPersonScheduleSettings(
+  personId: string,
+): Promise<PersonScheduleSettings> {
+  const supabase = await createClient();
+  const [setRes, locRes, memRes, roleRes] = await Promise.all([
+    supabase
+      .from("sched_employee_setting")
+      .select("*")
+      .eq("person_id", personId)
+      .maybeSingle(),
+    supabase.from("location").select("id, name, display_name, short_code"),
+    supabase.from("sched_role_member").select("role_id").eq("person_id", personId),
+    supabase.from("sched_role").select("id, name"),
+  ]);
+
+  const setting = (setRes.data as SchedEmployeeSetting | null) ?? null;
+  const locById = new Map(
+    (
+      (locRes.data ?? []) as {
+        id: string;
+        name: string | null;
+        display_name: string | null;
+        short_code: string | null;
+      }[]
+    ).map((l) => [l.id, l]),
+  );
+  const locName = (id: string | null): string | null => {
+    if (!id) return null;
+    const l = locById.get(id);
+    return l?.display_name || l?.name || l?.short_code || null;
+  };
+
+  const roleById = new Map(
+    ((roleRes.data ?? []) as { id: string; name: string }[]).map((r) => [
+      r.id,
+      r.name,
+    ]),
+  );
+  const roleNames = ((memRes.data ?? []) as { role_id: string }[])
+    .map((m) => roleById.get(m.role_id))
+    .filter((n): n is string => Boolean(n))
+    .sort((a, b) => a.localeCompare(b));
+
+  return {
+    hasSetting: setting != null,
+    isSchedulable: setting?.is_schedulable ?? true,
+    weeklyTarget: setting?.weekly_shift_target ?? null,
+    defaultLocationName: locName(setting?.default_location_id ?? null),
+    eligibleLocationNames: (setting?.eligible_location_ids ?? [])
+      .map((id) => locName(id))
+      .filter((n): n is string => Boolean(n)),
+    availableDays: setting?.available_days ?? [],
+    roleNames,
+    notes: setting?.notes ?? null,
+  };
+}

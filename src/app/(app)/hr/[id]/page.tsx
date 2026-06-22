@@ -15,7 +15,10 @@ import type {
 import { redactCompensation } from "@/lib/hr/types";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canViewAllCompensation, canEditModule } from "@/lib/auth/permissions";
-import { getPersonAttendance } from "../../schedule/data";
+import {
+  getPersonAttendance,
+  getPersonScheduleSettings,
+} from "../../schedule/data";
 import { EmployeeProfile, type LinkedAccount } from "./employee-profile";
 
 export const dynamic = "force-dynamic";
@@ -121,8 +124,12 @@ export default async function EmployeeDetailPage({
   const ptoDays = (ptoRes.data ?? []) as PersonPtoDay[];
   const timeOff = (timeOffRes.data ?? []) as PersonTimeOff[];
 
-  // Schedule attendance rollup for the Attendance tab.
-  const attendance = await getPersonAttendance(id);
+  // Schedule attendance rollup + read-only scheduling settings for the
+  // Attendance tab. Editing stays in Schedule → Setup → Employees.
+  const [attendance, scheduleSettings] = await Promise.all([
+    getPersonAttendance(id),
+    getPersonScheduleSettings(id),
+  ]);
 
   // Linked login account (app_user), if this person has one.
   const adminClient = createAdminClient();
@@ -182,6 +189,7 @@ export default async function EmployeeDetailPage({
         documents={documentsWithUrls}
         recruiting={recruiting}
         attendance={attendance}
+        scheduleSettings={scheduleSettings}
         ptoDays={ptoDays}
         timeOff={timeOff}
         account={account}

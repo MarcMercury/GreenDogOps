@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { SetupData } from "../data";
 import {
   gridName,
@@ -812,7 +813,13 @@ function Employees({ data }: { data: SetupData }) {
               return (
                 <tr key={p.id} className={pending ? "opacity-70" : ""}>
                   <td className="py-2 pr-4 font-medium text-slate-800">
-                    {gridName(p)}
+                    <Link
+                      href={`/hr/${p.id}`}
+                      className="text-slate-800 hover:text-emerald-700 hover:underline"
+                      title="Open HR profile"
+                    >
+                      {gridName(p)}
+                    </Link>
                   </td>
                   <td className="py-2 pr-4">
                     <input
