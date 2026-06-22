@@ -116,6 +116,7 @@ export interface SchedDepartment {
   color: string;
   sort_order: number;
   is_active: boolean;
+  show_in_planning: boolean;
   created_at: string;
   updated_at: string;
 }

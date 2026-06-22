@@ -28,6 +28,7 @@ export async function getPlanningSetup(): Promise<PlanningSetup> {
       .from("sched_department")
       .select("*")
       .eq("is_active", true)
+      .eq("show_in_planning", true)
       .order("sort_order")
       .order("name"),
   ]);

@@ -124,6 +124,14 @@ function Departments({ data }: { data: SetupData }) {
               {!d.is_active && (
                 <span className="text-xs text-slate-400">inactive</span>
               )}
+              {d.show_in_planning && (
+                <span
+                  className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700"
+                  title="Appears in the Planning Guides department dropdown"
+                >
+                  Planning
+                </span>
+              )}
               <button
                 onClick={() => setEditing(d)}
                 className="text-xs font-medium text-emerald-700 hover:underline"
@@ -207,6 +215,20 @@ function Departments({ data }: { data: SetupData }) {
               defaultChecked={editing?.is_active ?? true}
             />
             Active
+          </label>
+          <label className="flex items-start gap-2 text-xs font-medium text-slate-600">
+            <input
+              type="checkbox"
+              name="show_in_planning"
+              defaultChecked={editing?.show_in_planning ?? false}
+              className="mt-0.5"
+            />
+            <span>
+              Planning Guide
+              <span className="block font-normal text-slate-400">
+                Show this department in the Planning Guides dropdown.
+              </span>
+            </span>
           </label>
           {error && <p className="text-xs text-red-600">{error}</p>}
           <div className="flex gap-2">

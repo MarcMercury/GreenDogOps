@@ -55,6 +55,7 @@ export async function saveDepartment(formData: FormData): Promise<ActionResult> 
     color: str(formData.get("color")) ?? "#64748b",
     sort_order: int(formData.get("sort_order")),
     is_active: formData.has("is_active") ? bool(formData.get("is_active")) : true,
+    show_in_planning: bool(formData.get("show_in_planning")),
   };
   if (!patch.name) return { ok: false, error: "Department name is required." };
 
