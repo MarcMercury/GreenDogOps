@@ -275,6 +275,75 @@ export async function deleteInfluencer(id: string): Promise<SaveResult> {
 }
 
 // ---------------------------------------------------------------------------
+// CE attendance — each CE lead can be tied to one or more continuing-education
+// events, with prep/payment status tracked per event.
+// ---------------------------------------------------------------------------
+function ceAttendancePatch(formData: FormData) {
+  return {
+    ce_name: str(formData.get("ce_name")) ?? "Untitled CE",
+    ce_date: str(formData.get("ce_date")),
+    confirmed_date: str(formData.get("confirmed_date")),
+    paid: bool(formData.get("paid")),
+    showed_up: bool(formData.get("showed_up")),
+    materials_prepared: bool(formData.get("materials_prepared")),
+    notes: str(formData.get("notes")),
+  };
+}
+
+export async function addCeAttendance(
+  contactId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_attendance")
+    .insert({ contact_id: contactId, ...ceAttendancePatch(formData) });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/contact/${contactId}`);
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+export async function updateCeAttendance(
+  id: string,
+  contactId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_attendance")
+    .update(ceAttendancePatch(formData))
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/contact/${contactId}`);
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+export async function deleteCeAttendance(
+  id: string,
+  contactId: string,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_attendance")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/contact/${contactId}`);
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Promote a student (crm_contact) into the Recruiting CRM (ATS).
 // Creates a unified greendogops.person (status='applicant') + a person_recruiting
 // row, copying the student's details so nothing is lost, and links the records
