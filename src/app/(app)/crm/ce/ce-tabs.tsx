@@ -13,6 +13,14 @@ type ToggleField =
   | "materials_prepared"
   | "confirmed_date";
 
+type SortKey =
+  | "attendeeName"
+  | "ce_date"
+  | "confirmed_date"
+  | "paid"
+  | "showed_up"
+  | "materials_prepared";
+
 function fmtDate(d: string | null): string {
   if (!d) return "—";
   const parsed = new Date(`${d}T00:00:00`);
@@ -66,6 +74,43 @@ function ToggleCell({
     >
       ✓
     </button>
+  );
+}
+
+/** Clickable, sortable column header. */
+function SortHeader({
+  label,
+  sortKey,
+  activeKey,
+  dir,
+  onSort,
+  center,
+}: {
+  label: string;
+  sortKey: SortKey;
+  activeKey: SortKey;
+  dir: "asc" | "desc";
+  onSort: (key: SortKey) => void;
+  center?: boolean;
+}) {
+  const isActive = activeKey === sortKey;
+  return (
+    <th
+      className={`px-3 py-2.5 font-semibold ${center ? "text-center" : ""}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={`inline-flex items-center gap-1 uppercase tracking-wide transition hover:text-slate-700 ${
+          isActive ? "text-slate-700" : "text-slate-500"
+        } ${center ? "mx-auto" : ""}`}
+      >
+        {label}
+        <span className="text-[10px] leading-none">
+          {isActive ? (dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
   );
 }
 
@@ -161,6 +206,47 @@ function CeEventsView({
   );
   const active = events.find((e) => e.name === selected) ?? events[0] ?? null;
 
+  const [sortKey, setSortKey] = useState<SortKey>("attendeeName");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function onSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const sortedRows = useMemo(() => {
+    if (!active) return [];
+    const dir = sortDir === "asc" ? 1 : -1;
+    const val = (r: AttendeeRow): string | number => {
+      switch (sortKey) {
+        case "attendeeName":
+          return r.attendeeName.toLowerCase();
+        case "ce_date":
+          return r.ce_date ?? "";
+        case "confirmed_date":
+          return r.confirmed_date ?? "";
+        case "paid":
+          return r.paid ? 1 : 0;
+        case "showed_up":
+          return r.showed_up ? 1 : 0;
+        case "materials_prepared":
+          return r.materials_prepared ? 1 : 0;
+      }
+    };
+    return [...active.rows].sort((a, b) => {
+      const av = val(a);
+      const bv = val(b);
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      // Stable tie-breaker by name.
+      return a.attendeeName.localeCompare(b.attendeeName);
+    });
+  }, [active, sortKey, sortDir]);
+
   if (events.length === 0) {
     return (
       <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
@@ -225,20 +311,68 @@ function CeEventsView({
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <th className="px-5 py-2.5 font-semibold">Attendee</th>
-                  <th className="px-3 py-2.5 font-semibold">CE date</th>
-                  <th className="px-3 py-2.5 font-semibold">Confirmed</th>
-                  <th className="px-3 py-2.5 text-center font-semibold">Paid</th>
-                  <th className="px-3 py-2.5 text-center font-semibold">
-                    Showed
+                  <th className="px-5 py-2.5 font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => onSort("attendeeName")}
+                      className={`inline-flex items-center gap-1 uppercase tracking-wide transition hover:text-slate-700 ${
+                        sortKey === "attendeeName"
+                          ? "text-slate-700"
+                          : "text-slate-500"
+                      }`}
+                    >
+                      Attendee
+                      <span className="text-[10px] leading-none">
+                        {sortKey === "attendeeName"
+                          ? sortDir === "asc"
+                            ? "▲"
+                            : "▼"
+                          : "↕"}
+                      </span>
+                    </button>
                   </th>
-                  <th className="px-3 py-2.5 text-center font-semibold">
-                    Materials
-                  </th>
+                  <SortHeader
+                    label="CE date"
+                    sortKey="ce_date"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={onSort}
+                  />
+                  <SortHeader
+                    label="Confirmed"
+                    sortKey="confirmed_date"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={onSort}
+                  />
+                  <SortHeader
+                    label="Paid"
+                    sortKey="paid"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={onSort}
+                    center
+                  />
+                  <SortHeader
+                    label="Showed"
+                    sortKey="showed_up"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={onSort}
+                    center
+                  />
+                  <SortHeader
+                    label="Materials"
+                    sortKey="materials_prepared"
+                    activeKey={sortKey}
+                    dir={sortDir}
+                    onSort={onSort}
+                    center
+                  />
                 </tr>
               </thead>
               <tbody>
-                {active.rows.map((r) => (
+                {sortedRows.map((r) => (
                   <tr
                     key={r.id}
                     className="border-b border-slate-100 last:border-0"
