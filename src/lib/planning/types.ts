@@ -25,6 +25,12 @@ export interface PlanningGuide {
   weekdays: number[];
   /** Number of DVMs this guide's capacity is designed for; null = manual only. */
   dvm_count: number | null;
+  /** Target support-role headcounts for the staffing key; null = wildcard. */
+  tech_count: number | null;
+  lead_count: number | null;
+  dental_count: number | null;
+  da_count: number | null;
+  float_count: number | null;
   start_minute: number;
   end_minute: number;
   slot_minutes: number;

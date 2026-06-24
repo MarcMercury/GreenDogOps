@@ -37,7 +37,7 @@ export default async function CapacityPage({
       <PageHeader
         eyebrow="Scheduling"
         title="Daily Capacity"
-        description="The planning guide for each day follows from how many DVMs are staffed. Build the schedule first; the matching guide and bookable-appointment totals resolve here."
+        description="Each day's staffing summary — DVMs, Techs, Leads, Dentals, DAs and Floats — rolled up per location. Build the schedule first; the matching planning guide and bookable-appointment totals resolve here from the day's full staffing."
       />
       <WeekPicker
         weeks={weeks}

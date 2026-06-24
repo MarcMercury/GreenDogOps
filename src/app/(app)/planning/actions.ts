@@ -30,6 +30,15 @@ function dvmCount(v: FormDataEntryValue | null): number | null {
   return n;
 }
 
+/** Parse an optional support-role staffing count (0–20); null = wildcard. */
+function staffCount(v: FormDataEntryValue | null): number | null {
+  const s = str(v);
+  if (s == null) return null;
+  const n = parseInt(s, 10);
+  if (!Number.isFinite(n) || n < 0 || n > 20) return null;
+  return n;
+}
+
 const VALID_TYPE_CODES = new Set(APPOINTMENT_TYPES.map((t) => t.code));
 
 function revalidate() {
@@ -71,6 +80,11 @@ export async function createGuide(
       day_model: str(formData.get("day_model")),
       weekdays,
       dvm_count: dvmCount(formData.get("dvm_count")),
+      tech_count: staffCount(formData.get("tech_count")),
+      lead_count: staffCount(formData.get("lead_count")),
+      dental_count: staffCount(formData.get("dental_count")),
+      da_count: staffCount(formData.get("da_count")),
+      float_count: staffCount(formData.get("float_count")),
       start_minute: start,
       end_minute: end,
       slot_minutes: Math.max(5, int(formData.get("slot_minutes"), 30)),
@@ -117,6 +131,11 @@ export async function updateGuide(formData: FormData): Promise<ActionResult> {
       day_model: str(formData.get("day_model")),
       weekdays,
       dvm_count: dvmCount(formData.get("dvm_count")),
+      tech_count: staffCount(formData.get("tech_count")),
+      lead_count: staffCount(formData.get("lead_count")),
+      dental_count: staffCount(formData.get("dental_count")),
+      da_count: staffCount(formData.get("da_count")),
+      float_count: staffCount(formData.get("float_count")),
       start_minute: start,
       end_minute: end,
       slot_minutes: Math.max(5, int(formData.get("slot_minutes"), 30)),
@@ -169,6 +188,11 @@ export async function duplicateGuide(
       day_model: src.day_model,
       weekdays: src.weekdays,
       dvm_count: src.dvm_count,
+      tech_count: src.tech_count,
+      lead_count: src.lead_count,
+      dental_count: src.dental_count,
+      da_count: src.da_count,
+      float_count: src.float_count,
       start_minute: src.start_minute,
       end_minute: src.end_minute,
       slot_minutes: src.slot_minutes,

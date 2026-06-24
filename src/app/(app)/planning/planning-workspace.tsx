@@ -59,6 +59,18 @@ function buildForm(fields: Fields): FormData {
   return fd;
 }
 
+/** A compact label of a guide's staffing key, e.g. "2 DVM · 3 Tech · 1 DA". */
+function staffingKeyLabel(guide: PlanningGuide): string {
+  const parts: string[] = [];
+  if (guide.dvm_count != null) parts.push(`${guide.dvm_count} DVM`);
+  if (guide.tech_count != null) parts.push(`${guide.tech_count} Tech`);
+  if (guide.lead_count != null) parts.push(`${guide.lead_count} Lead`);
+  if (guide.dental_count != null) parts.push(`${guide.dental_count} Dental`);
+  if (guide.da_count != null) parts.push(`${guide.da_count} DA`);
+  if (guide.float_count != null) parts.push(`${guide.float_count} Float`);
+  return parts.length ? `${parts.join(" · ")} staffing key` : "Manual only";
+}
+
 // ---------------------------------------------------------------------------
 // Workspace shell
 // ---------------------------------------------------------------------------
@@ -437,7 +449,7 @@ function GuideEditor({
               <>
                 {" · "}
                 <span className="font-medium text-emerald-600">
-                  {guide.dvm_count}-DVM staffing key
+                  {staffingKeyLabel(guide)}
                 </span>
               </>
             ) : null}
@@ -906,6 +918,21 @@ function GuideFormDialog({
   const [dvmCount, setDvmCount] = useState(
     guide?.dvm_count != null ? String(guide.dvm_count) : "",
   );
+  const [techCount, setTechCount] = useState(
+    guide?.tech_count != null ? String(guide.tech_count) : "",
+  );
+  const [leadCount, setLeadCount] = useState(
+    guide?.lead_count != null ? String(guide.lead_count) : "",
+  );
+  const [dentalCount, setDentalCount] = useState(
+    guide?.dental_count != null ? String(guide.dental_count) : "",
+  );
+  const [daCount, setDaCount] = useState(
+    guide?.da_count != null ? String(guide.da_count) : "",
+  );
+  const [floatCount, setFloatCount] = useState(
+    guide?.float_count != null ? String(guide.float_count) : "",
+  );
   const [weekdays, setWeekdays] = useState<number[]>(guide?.weekdays ?? []);
   const [start, setStart] = useState(minutesToInput(guide?.start_minute ?? 540));
   const [end, setEnd] = useState(minutesToInput(guide?.end_minute ?? 1020));
@@ -930,6 +957,11 @@ function GuideFormDialog({
       day_model: dayModel || undefined,
       weekdays,
       dvm_count: dvmCount || undefined,
+      tech_count: techCount === "" ? undefined : techCount,
+      lead_count: leadCount === "" ? undefined : leadCount,
+      dental_count: dentalCount === "" ? undefined : dentalCount,
+      da_count: daCount === "" ? undefined : daCount,
+      float_count: floatCount === "" ? undefined : floatCount,
       start_minute: startMin ?? 540,
       end_minute: endMin ?? 1020,
       slot_minutes: interval,
@@ -1079,6 +1111,43 @@ function GuideFormDialog({
           <p className="mt-1 text-[11px] text-slate-400">
             The schedule auto-selects this guide when this many doctors are
             staffed for the matching location &amp; department on a given day.
+          </p>
+        </div>
+
+        <div>
+          <label className={labelClass}>
+            Support staffing key (optional)
+          </label>
+          <div className="mt-1 grid grid-cols-5 gap-2">
+            {(
+              [
+                ["Tech", techCount, setTechCount],
+                ["Lead", leadCount, setLeadCount],
+                ["Dental", dentalCount, setDentalCount],
+                ["DA", daCount, setDaCount],
+                ["Float", floatCount, setFloatCount],
+              ] as const
+            ).map(([label, value, setValue]) => (
+              <div key={label}>
+                <span className="block text-center text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  {label}
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={20}
+                  inputMode="numeric"
+                  placeholder="any"
+                  className={`mt-0.5 ${fieldClass} text-center`}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Leave blank to ignore a role. When set, the schedule prefers a guide
+            whose support headcount (location-wide) best matches the day.
           </p>
         </div>
 

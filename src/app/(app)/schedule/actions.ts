@@ -6,6 +6,7 @@ import { getCurrentUser, ensureCanEdit } from "@/lib/auth/session";
 import type { AttendanceStatus, ScheduleStatus } from "@/lib/schedule/types";
 import { dateForDay } from "@/lib/schedule/types";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
+import { classifyRole, emptyStaffing } from "@/lib/planning/resolve";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -1302,14 +1303,14 @@ export async function generateGuideFromDay(
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
-  // Count distinct DVMs staffed in this cell.
+  // Read the day's full staffing signature for this location: distinct DVMs in
+  // the target department, plus location-wide support headcounts by category.
   const [roleRes, lineRes, asgRes, locRes, deptRes] = await Promise.all([
-    supabase.from("sched_role").select("id, name").eq("department_id", departmentId),
+    supabase.from("sched_role").select("id, name"),
     supabase
       .from("sched_week_line")
-      .select("id, role_id")
-      .eq("week_id", weekId)
-      .eq("department_id", departmentId),
+      .select("id, role_id, department_id")
+      .eq("week_id", weekId),
     supabase
       .from("sched_assignment")
       .select("person_id, line_id, removed_post_publish")
@@ -1320,26 +1321,53 @@ export async function generateGuideFromDay(
     supabase.from("sched_department").select("name").eq("id", departmentId).maybeSingle(),
   ]);
 
-  const dvmRoleIds = new Set(
-    ((roleRes.data ?? []) as { id: string; name: string }[])
-      .filter((r) => /\bdvm\b/i.test(r.name))
-      .map((r) => r.id),
+  const roleById = new Map(
+    ((roleRes.data ?? []) as { id: string; name: string }[]).map((r) => [
+      r.id,
+      r,
+    ]),
   );
-  const dvmLineIds = new Set(
-    ((lineRes.data ?? []) as { id: string; role_id: string | null }[])
-      .filter((l) => l.role_id && dvmRoleIds.has(l.role_id))
-      .map((l) => l.id),
+  const lineById = new Map(
+    (
+      (lineRes.data ?? []) as {
+        id: string;
+        role_id: string | null;
+        department_id: string | null;
+      }[]
+    ).map((l) => [l.id, l]),
   );
-  const people = new Set(
-    ((asgRes.data ?? []) as {
-      person_id: string;
-      line_id: string;
-      removed_post_publish: boolean;
-    }[])
-      .filter((a) => !a.removed_post_publish && dvmLineIds.has(a.line_id))
-      .map((a) => a.person_id),
-  );
-  const dvmCount = Math.max(1, people.size);
+
+  // Distinct people per staffing category (location-wide) and DVMs in the
+  // target department.
+  const staffSets = new Map<string, Set<string>>();
+  const deptDvms = new Set<string>();
+  for (const a of (asgRes.data ?? []) as {
+    person_id: string;
+    line_id: string;
+    removed_post_publish: boolean;
+  }[]) {
+    if (a.removed_post_publish) continue;
+    const line = lineById.get(a.line_id);
+    if (!line) continue;
+    const role = line.role_id ? roleById.get(line.role_id) : null;
+    const cat = classifyRole(role?.name);
+    if (!cat) continue;
+    let set = staffSets.get(cat);
+    if (!set) {
+      set = new Set<string>();
+      staffSets.set(cat, set);
+    }
+    set.add(a.person_id);
+    if (cat === "dvm" && line.department_id === departmentId) {
+      deptDvms.add(a.person_id);
+    }
+  }
+
+  const staffing = emptyStaffing();
+  for (const [cat, set] of staffSets) {
+    staffing[cat as keyof typeof staffing] = set.size;
+  }
+  const dvmCount = Math.max(1, deptDvms.size);
 
   const loc = (locRes.data as { short_code: string | null; name: string | null } | null) ?? null;
   const dept = (deptRes.data as { name: string | null } | null) ?? null;
@@ -1359,6 +1387,11 @@ export async function generateGuideFromDay(
       day_model: `${dvmCount}-DVM day (from schedule)`,
       weekdays: [day],
       dvm_count: dvmCount,
+      tech_count: staffing.tech || null,
+      lead_count: staffing.lead || null,
+      dental_count: staffing.dental || null,
+      da_count: staffing.da || null,
+      float_count: staffing.float || null,
       start_minute: START,
       end_minute: END,
       slot_minutes: 30,
