@@ -433,6 +433,14 @@ function GuideEditor({
             <span className="font-medium text-slate-500">
               {countBookable(slots)} bookable slots
             </span>
+            {guide.dvm_count != null ? (
+              <>
+                {" · "}
+                <span className="font-medium text-emerald-600">
+                  {guide.dvm_count}-DVM staffing key
+                </span>
+              </>
+            ) : null}
           </p>
           {typeCounts.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -895,6 +903,9 @@ function GuideFormDialog({
   const [departmentId, setDepartmentId] = useState(guide?.department_id ?? "");
   const [serviceLabel, setServiceLabel] = useState(guide?.service_label ?? "");
   const [dayModel, setDayModel] = useState(guide?.day_model ?? "");
+  const [dvmCount, setDvmCount] = useState(
+    guide?.dvm_count != null ? String(guide.dvm_count) : "",
+  );
   const [weekdays, setWeekdays] = useState<number[]>(guide?.weekdays ?? []);
   const [start, setStart] = useState(minutesToInput(guide?.start_minute ?? 540));
   const [end, setEnd] = useState(minutesToInput(guide?.end_minute ?? 1020));
@@ -918,6 +929,7 @@ function GuideFormDialog({
       service_label: serviceLabel || undefined,
       day_model: dayModel || undefined,
       weekdays,
+      dvm_count: dvmCount || undefined,
       start_minute: startMin ?? 540,
       end_minute: endMin ?? 1020,
       slot_minutes: interval,
@@ -1048,6 +1060,26 @@ function GuideFormDialog({
               );
             })}
           </div>
+        </div>
+
+        <div>
+          <label className={labelClass}>Staffing key — DVMs (optional)</label>
+          <select
+            className={`mt-1 ${fieldClass}`}
+            value={dvmCount}
+            onChange={(e) => setDvmCount(e.target.value)}
+          >
+            <option value="">— Manual only —</option>
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>
+                {n} DVM{n > 1 ? "s" : ""}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-slate-400">
+            The schedule auto-selects this guide when this many doctors are
+            staffed for the matching location &amp; department on a given day.
+          </p>
         </div>
 
         <div className="grid grid-cols-3 gap-3">

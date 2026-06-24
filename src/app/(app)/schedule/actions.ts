@@ -1278,3 +1278,145 @@ export async function deleteWeek(weekId: string): Promise<ActionResult> {
   revalidateAll();
   return { ok: true };
 }
+
+// ===========================================================================
+// PLANNING GUIDE — generate from a scheduled day's staffing
+// ===========================================================================
+
+const DVM_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#db2777", "#ea580c", "#16a34a"];
+
+/**
+ * Reverse the old flow: read how many DVMs are staffed for a (location,
+ * department, day) and scaffold a matching planning guide — one exam track per
+ * doctor plus a shared Urgent Care lane, with a default NAD/UC slot skeleton.
+ * The guide is keyed by `dvm_count` so it auto-resolves the next time that
+ * staffing level recurs. Returns the new guide id for navigation.
+ */
+export async function generateGuideFromDay(
+  weekId: string,
+  day: number,
+  locationId: string,
+  departmentId: string,
+): Promise<ActionResult<{ id: string }>> {
+  const gate = await ensureCanEdit("planning");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  // Count distinct DVMs staffed in this cell.
+  const [roleRes, lineRes, asgRes, locRes, deptRes] = await Promise.all([
+    supabase.from("sched_role").select("id, name").eq("department_id", departmentId),
+    supabase
+      .from("sched_week_line")
+      .select("id, role_id")
+      .eq("week_id", weekId)
+      .eq("department_id", departmentId),
+    supabase
+      .from("sched_assignment")
+      .select("person_id, line_id, removed_post_publish")
+      .eq("week_id", weekId)
+      .eq("day_of_week", day)
+      .eq("location_id", locationId),
+    supabase.from("location").select("short_code, name").eq("id", locationId).maybeSingle(),
+    supabase.from("sched_department").select("name").eq("id", departmentId).maybeSingle(),
+  ]);
+
+  const dvmRoleIds = new Set(
+    ((roleRes.data ?? []) as { id: string; name: string }[])
+      .filter((r) => /\bdvm\b/i.test(r.name))
+      .map((r) => r.id),
+  );
+  const dvmLineIds = new Set(
+    ((lineRes.data ?? []) as { id: string; role_id: string | null }[])
+      .filter((l) => l.role_id && dvmRoleIds.has(l.role_id))
+      .map((l) => l.id),
+  );
+  const people = new Set(
+    ((asgRes.data ?? []) as {
+      person_id: string;
+      line_id: string;
+      removed_post_publish: boolean;
+    }[])
+      .filter((a) => !a.removed_post_publish && dvmLineIds.has(a.line_id))
+      .map((a) => a.person_id),
+  );
+  const dvmCount = Math.max(1, people.size);
+
+  const loc = (locRes.data as { short_code: string | null; name: string | null } | null) ?? null;
+  const dept = (deptRes.data as { name: string | null } | null) ?? null;
+  const locLabel = loc?.short_code || loc?.name || "Location";
+  const deptLabel = dept?.name || "Service";
+
+  // Create the guide shell.
+  const START = 540; // 9:00
+  const END = 1020; // 17:00
+  const LUNCH = 720; // 12:00
+  const { data: guideRow, error: gErr } = await supabase
+    .from("planning_guide")
+    .insert({
+      name: `${locLabel} — ${deptLabel} ${dvmCount}-DVM`,
+      location_id: locationId,
+      department_id: departmentId,
+      day_model: `${dvmCount}-DVM day (from schedule)`,
+      weekdays: [day],
+      dvm_count: dvmCount,
+      start_minute: START,
+      end_minute: END,
+      slot_minutes: 30,
+      notes: "Generated from the schedule's staffing for this day. Edit the slots to match the day's appointment plan.",
+      created_by: gate.current.authId,
+    })
+    .select("id")
+    .single();
+  if (gErr) return { ok: false, error: gErr.message };
+  const guideId = guideRow.id as string;
+
+  // One exam column per doctor, plus a shared Urgent Care lane.
+  const columnRows = [
+    ...Array.from({ length: dvmCount }, (_, i) => ({
+      guide_id: guideId,
+      name: `DVM ${i + 1} — Exam`,
+      color: DVM_COLORS[i % DVM_COLORS.length],
+      capacity_note: null as string | null,
+      sort_order: i * 10,
+    })),
+    {
+      guide_id: guideId,
+      name: "Urgent Care",
+      color: "#d97706",
+      capacity_note: null as string | null,
+      sort_order: dvmCount * 10,
+    },
+  ];
+  const { data: cols, error: cErr } = await supabase
+    .from("planning_guide_column")
+    .insert(columnRows)
+    .select("id, name, sort_order");
+  if (cErr) return { ok: false, error: cErr.message };
+
+  // Skeleton slots: 30-minute NAD blocks per exam track, UC blocks in the UC
+  // lane, with a lunch break at noon.
+  const slotRows: Record<string, unknown>[] = [];
+  for (const col of (cols ?? []) as { id: string; name: string }[]) {
+    const isUc = col.name === "Urgent Care";
+    for (let t = START; t < END; t += 30) {
+      const isLunch = t === LUNCH;
+      slotRows.push({
+        guide_id: guideId,
+        column_id: col.id,
+        start_minute: t,
+        duration_minutes: 30,
+        type_code: isLunch ? "lunch" : isUc ? "uc" : "nad",
+        label: isLunch ? "Lunch" : null,
+        sort_order: 0,
+      });
+    }
+  }
+  if (slotRows.length) {
+    await supabase.from("planning_guide_slot").insert(slotRows);
+  }
+
+  revalidatePath("/planning");
+  revalidatePath("/schedule");
+  return { ok: true, data: { id: guideId } };
+}
+

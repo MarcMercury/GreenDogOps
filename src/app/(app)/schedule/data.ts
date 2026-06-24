@@ -24,6 +24,8 @@ import type {
   SchedWeekLine,
   SchedWeekLocation,
 } from "@/lib/schedule/types";
+import type { GuideWithCapacity } from "@/lib/planning/resolve";
+import type { PlanningGuide } from "@/lib/planning/types";
 
 const PERSON_COLS =
   "id, first_name, last_name, preferred_name, grid_name, full_name";
@@ -378,4 +380,42 @@ export async function getPersonScheduleSettings(
     roleNames,
     notes: setting?.notes ?? null,
   };
+}
+
+/**
+ * Active planning guides enriched with their bookable-slot total, so the
+ * schedule can resolve and roll up each staffed day's appointment capacity.
+ * Bookable = slots that are not structural (open / block / lunch).
+ */
+export async function getActiveGuides(): Promise<GuideWithCapacity[]> {
+  const supabase = await createClient();
+  const [guideRes, colRes, slotRes] = await Promise.all([
+    supabase
+      .from("planning_guide")
+      .select("*")
+      .eq("status", "active")
+      .order("sort_order")
+      .order("name"),
+    supabase.from("planning_guide_column").select("id, guide_id"),
+    supabase.from("planning_guide_slot").select("guide_id, type_code"),
+  ]);
+
+  const guides = (guideRes.data ?? []) as PlanningGuide[];
+  const columns = (colRes.data ?? []) as { id: string; guide_id: string }[];
+  const slots = (slotRes.data ?? []) as { guide_id: string; type_code: string }[];
+
+  const STRUCTURAL = new Set(["open", "block", "lunch"]);
+  const colCount = new Map<string, number>();
+  for (const c of columns) colCount.set(c.guide_id, (colCount.get(c.guide_id) ?? 0) + 1);
+  const bookable = new Map<string, number>();
+  for (const s of slots) {
+    if (STRUCTURAL.has(s.type_code)) continue;
+    bookable.set(s.guide_id, (bookable.get(s.guide_id) ?? 0) + 1);
+  }
+
+  return guides.map((g) => ({
+    ...g,
+    bookable: bookable.get(g.id) ?? 0,
+    columns: colCount.get(g.id) ?? 0,
+  }));
 }

@@ -21,6 +21,15 @@ function int(v: FormDataEntryValue | null, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+/** Parse the optional DVM-count staffing key (1–6); null = unspecified. */
+function dvmCount(v: FormDataEntryValue | null): number | null {
+  const s = str(v);
+  if (s == null) return null;
+  const n = parseInt(s, 10);
+  if (!Number.isFinite(n) || n < 1 || n > 6) return null;
+  return n;
+}
+
 const VALID_TYPE_CODES = new Set(APPOINTMENT_TYPES.map((t) => t.code));
 
 function revalidate() {
@@ -61,6 +70,7 @@ export async function createGuide(
       service_label: str(formData.get("service_label")),
       day_model: str(formData.get("day_model")),
       weekdays,
+      dvm_count: dvmCount(formData.get("dvm_count")),
       start_minute: start,
       end_minute: end,
       slot_minutes: Math.max(5, int(formData.get("slot_minutes"), 30)),
@@ -106,6 +116,7 @@ export async function updateGuide(formData: FormData): Promise<ActionResult> {
       service_label: str(formData.get("service_label")),
       day_model: str(formData.get("day_model")),
       weekdays,
+      dvm_count: dvmCount(formData.get("dvm_count")),
       start_minute: start,
       end_minute: end,
       slot_minutes: Math.max(5, int(formData.get("slot_minutes"), 30)),
@@ -157,6 +168,7 @@ export async function duplicateGuide(
       service_label: src.service_label,
       day_model: src.day_model,
       weekdays: src.weekdays,
+      dvm_count: src.dvm_count,
       start_minute: src.start_minute,
       end_minute: src.end_minute,
       slot_minutes: src.slot_minutes,

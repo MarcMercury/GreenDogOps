@@ -1,9 +1,13 @@
 // Domain types and helpers for the Planning Guides module.
 //
-// A planning guide is STEP 1 of building a schedule: a per-location /
-// per-service grid that defines, hour-by-hour, which appointment slots are
-// bookable. Columns are appointment tracks (NAD/Clinic, Urgent Care, Internal
-// Med, Dental, Exotics …); rows are time buckets; slots are the cells.
+// A planning guide is the appointment-capacity OUTPUT of a scheduled day: the
+// Schedule is authored first, and the guide that applies to a given day follows
+// from how many doctors are staffed. Each guide is a reusable template keyed by
+// a staffing signature — (location + department + dvm_count) — that the schedule
+// resolver matches against the DVMs actually scheduled. A guide itself is a
+// per-location / per-service grid that defines, hour-by-hour, which appointment
+// slots are bookable. Columns are appointment tracks (NAD/Clinic, Urgent Care,
+// Internal Med, Dental, Exotics …); rows are time buckets; slots are the cells.
 
 // ---------------------------------------------------------------------------
 // Row shapes (mirror the DB tables).
@@ -19,6 +23,8 @@ export interface PlanningGuide {
   service_label: string | null;
   day_model: string | null;
   weekdays: number[];
+  /** Number of DVMs this guide's capacity is designed for; null = manual only. */
+  dvm_count: number | null;
   start_minute: number;
   end_minute: number;
   slot_minutes: number;

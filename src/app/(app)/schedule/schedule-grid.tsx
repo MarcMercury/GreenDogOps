@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import type { SetupData, WeekData } from "./data";
 import {
   ATTENDANCE_LABELS,
@@ -42,7 +43,13 @@ import { WeekPicker } from "./week-picker";import {
   saveDepartment,
   deleteDepartment,
   applyDefaultTemplate,
+  generateGuideFromDay,
 } from "./actions";
+import {
+  computeWeekCapacity,
+  type DayLocationCapacity,
+  type GuideWithCapacity,
+} from "@/lib/planning/resolve";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -119,12 +126,14 @@ export function ScheduleGrid({
   weekData,
   setup,
   timeOff,
+  guides,
   canEdit = false,
 }: {
   weeks: SchedWeek[];
   weekData: WeekData;
   setup: SetupData;
   timeOff: { person_id: string; status: string; start_date: string; end_date: string }[];
+  guides: GuideWithCapacity[];
   canEdit?: boolean;
 }) {
   const router = useRouter();
@@ -411,6 +420,21 @@ export function ScheduleGrid({
 
   const colCount = shownLocations.length;
 
+  // Per (day, location) appointment-capacity rollup: count staffed DVMs and
+  // resolve the matching planning guide. The guide is the OUTPUT of the day's
+  // staffing, so this updates live as assignments change.
+  const capacity = useMemo(
+    () =>
+      computeWeekCapacity(
+        assignments,
+        lines,
+        setup.roles,
+        setup.departments,
+        guides,
+      ),
+    [assignments, lines, setup.roles, setup.departments, guides],
+  );
+
   // Synchronized horizontal scrollbars (top + bottom) for the grid table.
   const topScrollRef = useRef<HTMLDivElement>(null);
   const gridScrollRef = useRef<HTMLDivElement>(null);
@@ -465,6 +489,13 @@ export function ScheduleGrid({
             router.refresh();
           })
         }
+      />
+
+      <CapacityPanel
+        capacity={capacity}
+        shownLocations={shownLocations}
+        weekId={week.id}
+        canEdit={canEdit}
       />
 
       <div
@@ -2185,5 +2216,131 @@ function DeleteDeptButton({
     >
       Delete
     </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Daily Capacity — the planning guide resolved from each day's staffed DVMs.
+// The schedule is authored first; this panel surfaces the appointment-capacity
+// output that follows from it, and lets a scheduler scaffold a guide for any
+// staffing level that doesn't have one yet.
+// ---------------------------------------------------------------------------
+function CapacityPanel({
+  capacity,
+  shownLocations,
+  weekId,
+  canEdit,
+}: {
+  capacity: Map<string, DayLocationCapacity>;
+  shownLocations: ScheduleLocation[];
+  weekId: string;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  if (capacity.size === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm print:hidden">
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <h3 className="text-[12px] font-bold uppercase tracking-wide text-slate-600">
+          Daily Capacity
+        </h3>
+        <span className="text-[11px] text-slate-400">
+          Planning guide resolved from each day&apos;s staffed DVMs
+        </span>
+      </div>
+      <div className="grid grid-cols-7 gap-2">
+        {DAYS.map((d) => {
+          const cells = shownLocations
+            .map((loc) => ({ loc, cell: capacity.get(`${d}|${loc.id}`) }))
+            .filter((x) => x.cell);
+          return (
+            <div key={d} className="space-y-1">
+              <div className="text-[11px] font-bold uppercase text-slate-500">
+                {DAY_SHORT[d]}
+              </div>
+              {cells.length === 0 ? (
+                <div className="text-[10px] text-slate-300">—</div>
+              ) : (
+                cells.map(({ loc, cell }) =>
+                  cell!.entries.map((e) => {
+                    const busyKey = `${d}|${loc.id}|${e.departmentId}`;
+                    return (
+                      <div
+                        key={busyKey}
+                        className="rounded-md border bg-slate-50/60 px-2 py-1"
+                        style={{ borderColor: `${e.departmentColor}55` }}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="truncate text-[10px] font-semibold text-slate-600">
+                            {loc.short_code ?? loc.name} · {e.departmentName}
+                          </span>
+                          <span
+                            className="shrink-0 rounded px-1 text-[9px] font-bold text-white"
+                            style={{ backgroundColor: e.departmentColor }}
+                          >
+                            {e.dvmCount} DVM
+                          </span>
+                        </div>
+                        {e.guide ? (
+                          <Link
+                            href={`/planning?guide=${e.guide.id}`}
+                            className="mt-0.5 flex items-center justify-between gap-1 text-[10px] text-emerald-700 hover:underline"
+                            title={
+                              e.exact
+                                ? e.guide.name
+                                : `Closest match (designed for ${e.guide.dvm_count} DVM) — ${e.guide.name}`
+                            }
+                          >
+                            <span className="truncate">
+                              {!e.exact && "≈ "}
+                              {e.guide.name}
+                            </span>
+                            <span className="shrink-0 font-semibold">
+                              {e.bookable} appt
+                            </span>
+                          </Link>
+                        ) : canEdit ? (
+                          <button
+                            disabled={pending}
+                            onClick={() => {
+                              setBusy(busyKey);
+                              start(async () => {
+                                const res = await generateGuideFromDay(
+                                  weekId,
+                                  d,
+                                  loc.id,
+                                  e.departmentId,
+                                );
+                                setBusy(null);
+                                if (res.ok && res.data) {
+                                  router.push(`/planning?guide=${res.data.id}`);
+                                } else {
+                                  router.refresh();
+                                }
+                              });
+                            }}
+                            className="mt-0.5 w-full rounded bg-emerald-600 px-1 py-0.5 text-[10px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {busy === busyKey ? "Generating…" : "+ Generate guide"}
+                          </button>
+                        ) : (
+                          <span className="mt-0.5 block text-[10px] text-slate-400">
+                            No guide
+                          </span>
+                        )}
+                      </div>
+                    );
+                  }),
+                )
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
