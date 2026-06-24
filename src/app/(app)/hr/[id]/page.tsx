@@ -18,6 +18,7 @@ import { canViewAllCompensation, canEditModule } from "@/lib/auth/permissions";
 import {
   getPersonAttendance,
   getPersonScheduleSettings,
+  getPersonEligibility,
 } from "../../schedule/data";
 import { EmployeeProfile, type LinkedAccount } from "./employee-profile";
 
@@ -38,6 +39,9 @@ export default async function EmployeeDetailPage({
       current.appUser.person_id === id
     : false;
   const canEdit = current ? canEditModule(current.appUser, "hr") : false;
+  const canEditSchedule = current
+    ? canEditModule(current.appUser, "schedule")
+    : false;
 
   const { data, error } = await supabase
     .from("person")
@@ -126,9 +130,11 @@ export default async function EmployeeDetailPage({
 
   // Schedule attendance rollup + read-only scheduling settings for the
   // Attendance tab. Editing stays in Schedule → Setup → Employees.
-  const [attendance, scheduleSettings] = await Promise.all([
+  // Eligibility is editable here and writes the same rows as Schedule → Setup.
+  const [attendance, scheduleSettings, eligibility] = await Promise.all([
     getPersonAttendance(id),
     getPersonScheduleSettings(id),
+    getPersonEligibility(id),
   ]);
 
   // Linked login account (app_user), if this person has one.
@@ -190,11 +196,13 @@ export default async function EmployeeDetailPage({
         recruiting={recruiting}
         attendance={attendance}
         scheduleSettings={scheduleSettings}
+        eligibility={eligibility}
         ptoDays={ptoDays}
         timeOff={timeOff}
         account={account}
         canViewComp={canViewComp}
         canEdit={canEdit}
+        canEditSchedule={canEditSchedule}
       />
     </div>
   );

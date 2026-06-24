@@ -32,6 +32,7 @@ import {
 import type {
   PersonAttendanceSummary,
   PersonScheduleSettings,
+  PersonRoleEligibility,
 } from "../../schedule/data";
 import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
 
@@ -55,6 +56,7 @@ import {
   deleteDocument,
   type SaveResult,
 } from "../actions";
+import { setPersonRoles } from "../../schedule/actions";
 import {
   EmployeeForm,
   Field,
@@ -65,6 +67,7 @@ import {
 
 type TabKey =
   | FieldTab
+  | "eligibility"
   | "reviews"
   | "documents"
   | "assets"
@@ -74,6 +77,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "general", label: "General" },
   { key: "comp", label: "Compensation & Benefits" },
   { key: "attendance", label: "Attendance" },
+  { key: "eligibility", label: "Shift Eligibility" },
   { key: "reviews", label: "Reviews" },
   { key: "documents", label: "Documents" },
   { key: "assets", label: "Assets" },
@@ -94,11 +98,13 @@ export function EmployeeProfile({
   recruiting,
   attendance,
   scheduleSettings,
+  eligibility,
   ptoDays,
   timeOff,
   account,
   canViewComp,
   canEdit,
+  canEditSchedule,
 }: {
   row: RosterRow;
   reviews: PersonReview[];
@@ -107,11 +113,13 @@ export function EmployeeProfile({
   recruiting: PersonRecruitingSummary | null;
   attendance: PersonAttendanceSummary;
   scheduleSettings: PersonScheduleSettings;
+  eligibility: PersonRoleEligibility;
   ptoDays: PersonPtoDay[];
   timeOff: PersonTimeOff[];
   account: LinkedAccount | null;
   canViewComp: boolean;
   canEdit: boolean;
+  canEditSchedule: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
 
@@ -184,6 +192,13 @@ export function EmployeeProfile({
           />
           <SchedAttendancePanel attendance={attendance} />
         </>
+      )}
+      {activeTab === "eligibility" && (
+        <EligibilityPanel
+          personId={row.id}
+          eligibility={eligibility}
+          canEdit={canEditSchedule}
+        />
       )}
       {activeTab === "reviews" && (
         <ReviewsPanel personId={row.id} reviews={reviews} />
@@ -308,6 +323,140 @@ function AccountChip({
 // ---------------------------------------------------------------------------
 // Scheduling settings (read-only mirror of Schedule → Setup → Employees)
 // ---------------------------------------------------------------------------
+
+function EligibilityPanel({
+  personId,
+  eligibility,
+  canEdit,
+}: {
+  personId: string;
+  eligibility: PersonRoleEligibility;
+  canEdit: boolean;
+}) {
+  const { departments, roles } = eligibility;
+  const initial = eligibility.selectedRoleIds;
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(initial),
+  );
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const dirty =
+    selected.size !== initial.length ||
+    initial.some((id) => !selected.has(id));
+
+  function toggle(roleId: string) {
+    setSaved(false);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(roleId)) next.delete(roleId);
+      else next.add(roleId);
+      return next;
+    });
+  }
+
+  function save() {
+    setError(null);
+    setSaved(false);
+    start(async () => {
+      const res = await setPersonRoles(personId, [...selected]);
+      if (res.ok) setSaved(true);
+      else setError(res.error);
+    });
+  }
+
+  // Roles grouped under their department, departments in configured order.
+  const groups = departments
+    .map((d) => ({
+      department: d,
+      roles: roles.filter((r) => r.department_id === d.id),
+    }))
+    .filter((g) => g.roles.length > 0);
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-700">
+          Shift eligibility
+        </h3>
+        <Link
+          href="/schedule/setup"
+          className="text-xs font-medium text-emerald-700 hover:underline"
+        >
+          Also editable in Schedule → Setup → Roles & Eligibility
+        </Link>
+      </div>
+      <p className="mb-4 text-xs text-slate-400">
+        Check every role this employee is eligible to be scheduled for. Changes
+        here update the same eligibility used across the Scheduling module, and
+        edits made in Schedule → Setup show up here.
+      </p>
+
+      {groups.length === 0 ? (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+          No roles have been configured yet. Add roles in Schedule → Setup →
+          Roles & Eligibility first.
+        </p>
+      ) : (
+        <div className="space-y-5">
+          {groups.map((g) => (
+            <div key={g.department.id}>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                {g.department.name}
+              </h4>
+              <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+                {g.roles.map((r) => (
+                  <label
+                    key={r.id}
+                    className={`flex items-center gap-2 text-sm ${
+                      canEdit
+                        ? "cursor-pointer text-slate-700"
+                        : "text-slate-600"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      disabled={!canEdit || pending}
+                      onChange={() => toggle(r.id)}
+                      className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
+                    />
+                    {r.name}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+
+          {canEdit && (
+            <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
+              <button
+                type="button"
+                onClick={save}
+                disabled={!dirty || pending}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {pending ? "Saving…" : "Save eligibility"}
+              </button>
+              {error && <span className="text-sm text-red-600">{error}</span>}
+              {saved && !dirty && (
+                <span className="text-sm text-emerald-700">Saved.</span>
+              )}
+            </div>
+          )}
+
+          {!canEdit && (
+            <p className="border-t border-slate-100 pt-4 text-xs text-slate-400">
+              You don’t have permission to edit scheduling. This view is
+              read-only.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SchedSettingsPanel({
   settings,

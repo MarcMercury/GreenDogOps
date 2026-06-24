@@ -383,6 +383,54 @@ export async function getPersonScheduleSettings(
 }
 
 /**
+ * Editable shift-role eligibility for a single employee, grouped by department.
+ * Mirrors the "Roles & Eligibility" data in Schedule → Setup so the employee
+ * profile can manage the same `sched_role_member` rows. `selectedRoleIds` is the
+ * set of roles this person is currently eligible for.
+ */
+export interface PersonRoleEligibility {
+  departments: { id: string; name: string }[];
+  roles: { id: string; department_id: string; name: string }[];
+  selectedRoleIds: string[];
+}
+
+export async function getPersonEligibility(
+  personId: string,
+): Promise<PersonRoleEligibility> {
+  const supabase = await createClient();
+  const [deptRes, roleRes, memRes] = await Promise.all([
+    supabase
+      .from("sched_department")
+      .select("id, name")
+      .eq("is_active", true)
+      .order("sort_order")
+      .order("name"),
+    supabase
+      .from("sched_role")
+      .select("id, department_id, name")
+      .eq("is_active", true)
+      .order("sort_order")
+      .order("name"),
+    supabase
+      .from("sched_role_member")
+      .select("role_id")
+      .eq("person_id", personId),
+  ]);
+
+  return {
+    departments: (deptRes.data ?? []) as { id: string; name: string }[],
+    roles: (roleRes.data ?? []) as {
+      id: string;
+      department_id: string;
+      name: string;
+    }[],
+    selectedRoleIds: ((memRes.data ?? []) as { role_id: string }[]).map(
+      (m) => m.role_id,
+    ),
+  };
+}
+
+/**
  * Active planning guides enriched with their bookable-slot total, so the
  * schedule can resolve and roll up each staffed day's appointment capacity.
  * Bookable = slots that are not structural (open / block / lunch).

@@ -137,6 +137,35 @@ export async function setRoleMembers(
   return { ok: true };
 }
 
+/**
+ * Replace the full set of roles a single person is eligible for. This is the
+ * person-centric counterpart to {@link setRoleMembers}; both write the same
+ * `sched_role_member` table, so editing eligibility from the employee profile
+ * and from Schedule → Setup stays in sync automatically.
+ */
+export async function setPersonRoles(
+  personId: string,
+  roleIds: string[],
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error: delErr } = await supabase
+    .from("sched_role_member")
+    .delete()
+    .eq("person_id", personId);
+  if (delErr) return { ok: false, error: delErr.message };
+
+  if (roleIds.length > 0) {
+    const rows = roleIds.map((rid) => ({ role_id: rid, person_id: personId }));
+    const { error } = await supabase.from("sched_role_member").insert(rows);
+    if (error) return { ok: false, error: error.message };
+  }
+  revalidateAll();
+  revalidatePath("/hr");
+  return { ok: true };
+}
+
 // ===========================================================================
 // SETUP — shift templates
 // ===========================================================================
