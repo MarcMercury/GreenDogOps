@@ -499,6 +499,23 @@ function GuideEditor({
             >
               Settings
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (
+                  !confirm(
+                    `Delete "${guide.name}" and all its columns and slots? This cannot be undone.`,
+                  )
+                )
+                  return;
+                run(deleteGuide, { id: guide.id }, () => {
+                  router.push("/planning", { scroll: false });
+                });
+              }}
+              className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50"
+            >
+              Delete
+            </button>
           </div>
         ) : null}
       </div>
