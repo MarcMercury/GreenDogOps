@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CRM_SECTIONS } from "@/lib/crm/types";
@@ -8,6 +8,29 @@ import type { AppRole, ModuleKey } from "@/lib/auth/permissions";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
 
 type NavItem = { key: ModuleKey; href: string; label: string; icon: string };
+
+// Desktop sidebar collapsed preference, persisted in localStorage and read via
+// useSyncExternalStore so it stays in sync without a setState-in-effect.
+const SIDEBAR_KEY = "gdo:sidebar-collapsed";
+const SIDEBAR_EVENT = "gdo:sidebar-collapsed-change";
+
+function subscribeSidebar(onChange: () => void): () => void {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(SIDEBAR_EVENT, onChange);
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(SIDEBAR_EVENT, onChange);
+  };
+}
+
+function getSidebarCollapsed(): boolean {
+  return window.localStorage.getItem(SIDEBAR_KEY) === "1";
+}
+
+function setSidebarCollapsed(value: boolean): void {
+  window.localStorage.setItem(SIDEBAR_KEY, value ? "1" : "0");
+  window.dispatchEvent(new Event(SIDEBAR_EVENT));
+}
 
 /** Top-level modules of Green Dog Ops, before the CRM group. */
 const MODULES_TOP: NavItem[] = [
@@ -240,23 +263,12 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = useSyncExternalStore(
+    subscribeSidebar,
+    getSidebarCollapsed,
+    () => false,
+  );
   const allowed = new Set<ModuleKey>(modules);
-
-  // Restore the desktop collapsed preference.
-  useEffect(() => {
-    setCollapsed(
-      window.localStorage.getItem("gdo:sidebar-collapsed") === "1",
-    );
-  }, []);
-
-  // Persist the desktop collapsed preference.
-  useEffect(() => {
-    window.localStorage.setItem(
-      "gdo:sidebar-collapsed",
-      collapsed ? "1" : "0",
-    );
-  }, [collapsed]);
 
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -317,7 +329,7 @@ export function AppShell({
         {/* Desktop collapse / expand toggle — pinned to the right border */}
         <button
           type="button"
-          onClick={() => setCollapsed((c) => !c)}
+          onClick={() => setSidebarCollapsed(!collapsed)}
           aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
           title={collapsed ? "Expand navigation" : "Collapse navigation"}
           className="absolute right-0 top-20 z-10 hidden h-7 w-7 translate-x-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-emerald-300 hover:text-emerald-600 lg:flex"
