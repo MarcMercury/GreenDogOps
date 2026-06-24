@@ -1337,10 +1337,8 @@ export async function generateGuideFromDay(
     ).map((l) => [l.id, l]),
   );
 
-  // Distinct people per staffing category (location-wide) and DVMs in the
-  // target department.
+  // Distinct people per staffing category staffed within this department.
   const staffSets = new Map<string, Set<string>>();
-  const deptDvms = new Set<string>();
   for (const a of (asgRes.data ?? []) as {
     person_id: string;
     line_id: string;
@@ -1348,7 +1346,7 @@ export async function generateGuideFromDay(
   }[]) {
     if (a.removed_post_publish) continue;
     const line = lineById.get(a.line_id);
-    if (!line) continue;
+    if (!line || line.department_id !== departmentId) continue;
     const role = line.role_id ? roleById.get(line.role_id) : null;
     const cat = classifyRole(role?.name);
     if (!cat) continue;
@@ -1358,16 +1356,13 @@ export async function generateGuideFromDay(
       staffSets.set(cat, set);
     }
     set.add(a.person_id);
-    if (cat === "dvm" && line.department_id === departmentId) {
-      deptDvms.add(a.person_id);
-    }
   }
 
   const staffing = emptyStaffing();
   for (const [cat, set] of staffSets) {
     staffing[cat as keyof typeof staffing] = set.size;
   }
-  const dvmCount = Math.max(1, deptDvms.size);
+  const dvmCount = Math.max(1, staffing.dvm);
 
   const loc = (locRes.data as { short_code: string | null; name: string | null } | null) ?? null;
   const dept = (deptRes.data as { name: string | null } | null) ?? null;

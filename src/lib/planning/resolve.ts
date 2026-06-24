@@ -68,7 +68,8 @@ export interface CapacityEntry {
   departmentId: string;
   departmentName: string;
   departmentColor: string;
-  dvmCount: number;
+  /** Headcount per staffing category staffed in this department for the day. */
+  staffing: StaffingCounts;
   guide: GuideWithCapacity | null;
   /** True when every staffing key the guide defines matches the staffing. */
   exact: boolean;
@@ -79,8 +80,6 @@ export interface CapacityEntry {
 export interface DayLocationCapacity {
   day: number; // 0=Sun .. 6=Sat
   locationId: string;
-  /** Location-wide headcount per staffing category for the day. */
-  staffing: StaffingCounts;
   entries: CapacityEntry[];
   totalBookable: number;
 }
@@ -200,10 +199,11 @@ function addToSet<K>(map: Map<K, Set<string>>, key: K, value: string): void {
 
 /**
  * Build the per-(day, location) appointment-capacity rollup for a week from its
- * staffed assignments. Each cell carries the location-wide staffing headcount
- * (DVM/Tech/Lead/Dental/DA/Float) plus, for every planning department that has
- * at least one DVM staffed, the best-matching guide. DVMs are counted within
- * their department; support roles are counted location-wide.
+ * staffed assignments. Each planning department that has any clinical staff is
+ * surfaced as its own entry carrying its staffing headcount
+ * (DVM/Tech/Lead/Dental/DA/Float) and the best-matching guide. Staffing is
+ * counted strictly within the department — the staffing in each department is
+ * what drives that department's appointment capacity.
  */
 export function computeWeekCapacity(
   assignments: AssignmentRow[],
@@ -216,11 +216,8 @@ export function computeWeekCapacity(
   const roleById = new Map(roles.map((r) => [r.id, r]));
   const deptById = new Map(departments.map((d) => [d.id, d]));
 
-  // Distinct people per (day | location | category) — location-wide — and
-  // distinct DVMs per (day | location | department) for guide matching.
-  const locStaff = new Map<string, Set<string>>();
-  const deptDvms = new Map<string, Set<string>>();
-
+  // Distinct people per (day | location | department | category).
+  const staffSets = new Map<string, Set<string>>();
   for (const a of assignments) {
     if (a.removed_post_publish) continue;
     const line = lineById.get(a.line_id);
@@ -228,67 +225,54 @@ export function computeWeekCapacity(
     const role = line.role_id ? roleById.get(line.role_id) : null;
     const cat = classifyRole(role?.name);
     if (!cat) continue;
-    addToSet(locStaff, `${a.day_of_week}|${a.location_id}|${cat}`, a.person_id);
-    if (cat === "dvm") {
-      addToSet(
-        deptDvms,
-        `${a.day_of_week}|${a.location_id}|${line.department_id}`,
-        a.person_id,
-      );
+    addToSet(
+      staffSets,
+      `${a.day_of_week}|${a.location_id}|${line.department_id}|${cat}`,
+      a.person_id,
+    );
+  }
+
+  // Aggregate the per-category sets into a staffing signature per department.
+  const deptStaffing = new Map<string, StaffingCounts>();
+  for (const [key, people] of staffSets) {
+    const [day, locationId, departmentId, cat] = key.split("|");
+    const dk = `${day}|${locationId}|${departmentId}`;
+    let s = deptStaffing.get(dk);
+    if (!s) {
+      s = emptyStaffing();
+      deptStaffing.set(dk, s);
     }
+    s[cat as StaffCategory] = people.size;
   }
 
   const out = new Map<string, DayLocationCapacity>();
-  const cellFor = (day: number, locationId: string): DayLocationCapacity => {
-    const key = `${day}|${locationId}`;
-    let c = out.get(key);
-    if (!c) {
-      c = {
-        day,
-        locationId,
-        staffing: emptyStaffing(),
-        entries: [],
-        totalBookable: 0,
-      };
-      out.set(key, c);
-    }
-    return c;
-  };
-
-  // Location-wide staffing summary per cell.
-  for (const [key, people] of locStaff) {
-    const [dayStr, locationId, cat] = key.split("|");
-    cellFor(Number(dayStr), locationId).staffing[cat as StaffCategory] =
-      people.size;
-  }
-
-  // Per-department DVM entries, each matched to its best guide.
-  for (const [key, people] of deptDvms) {
-    const [dayStr, locationId, departmentId] = key.split("|");
+  for (const [dk, staffing] of deptStaffing) {
+    const [dayStr, locationId, departmentId] = dk.split("|");
     const dept = deptById.get(departmentId);
     if (!dept || !dept.show_in_planning) continue;
     const day = Number(dayStr);
-    const cell = cellFor(day, locationId);
-    const signature: StaffingSignature = {
-      ...cell.staffing,
-      dvm: people.size,
-    };
     const match = resolveGuide(
       locationId,
       departmentId,
       day,
-      signature,
+      staffing,
       guides,
     );
     const entry: CapacityEntry = {
       departmentId,
       departmentName: dept.name,
       departmentColor: dept.color,
-      dvmCount: people.size,
+      staffing,
       guide: match?.guide ?? null,
       exact: match?.exact ?? false,
       bookable: match?.guide.bookable ?? 0,
     };
+    const cellKey = `${day}|${locationId}`;
+    let cell = out.get(cellKey);
+    if (!cell) {
+      cell = { day, locationId, entries: [], totalBookable: 0 };
+      out.set(cellKey, cell);
+    }
     cell.entries.push(entry);
     cell.totalBookable += entry.bookable;
   }

@@ -81,42 +81,41 @@ export function CapacityView({
                     <div className="truncate text-[11px] font-bold text-slate-700">
                       {loc.short_code ?? loc.name}
                     </div>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {STAFF_CATEGORIES.map(({ key, label }) => {
-                        const n = cell!.staffing[key];
-                        return (
-                          <span
-                            key={key}
-                            title={`${label}: ${n}`}
-                            className={`rounded px-1 py-0.5 text-[9px] font-semibold tabular-nums ${
-                              n > 0
-                                ? "bg-slate-200 text-slate-700"
-                                : "bg-slate-100 text-slate-300"
-                            }`}
-                          >
-                            {label} {n}
-                          </span>
-                        );
-                      })}
-                    </div>
                     {cell!.entries.map((e) => {
                       const busyKey = `${d}|${loc.id}|${e.departmentId}`;
                       return (
                         <div
                           key={busyKey}
-                          className="mt-1.5 rounded border border-dashed bg-white px-1.5 py-1"
+                          className="mt-1.5 rounded border bg-white px-1.5 py-1"
                           style={{ borderColor: `${e.departmentColor}55` }}
                         >
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="truncate text-[11px] font-semibold text-slate-600">
+                          <div className="flex items-center gap-1">
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: e.departmentColor }}
+                              aria-hidden
+                            />
+                            <span className="truncate text-[11px] font-semibold text-slate-700">
                               {e.departmentName}
                             </span>
-                            <span
-                              className="shrink-0 rounded px-1 text-[9px] font-bold text-white"
-                              style={{ backgroundColor: e.departmentColor }}
-                            >
-                              {e.dvmCount} DVM
-                            </span>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {STAFF_CATEGORIES.map(({ key, label }) => {
+                              const n = e.staffing[key];
+                              return (
+                                <span
+                                  key={key}
+                                  title={`${label}: ${n}`}
+                                  className={`rounded px-1 py-0.5 text-[9px] font-semibold tabular-nums ${
+                                    n > 0
+                                      ? "bg-slate-200 text-slate-700"
+                                      : "bg-slate-100 text-slate-300"
+                                  }`}
+                                >
+                                  {label} {n}
+                                </span>
+                              );
+                            })}
                           </div>
                           {e.guide ? (
                             <Link
