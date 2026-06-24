@@ -14,9 +14,11 @@ import { copyPreviousWeek, createWeek } from "./actions";
 export function WeekPicker({
   weeks,
   selectedId,
+  basePath = "/schedule",
 }: {
   weeks: SchedWeek[];
   selectedId: string | null;
+  basePath?: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -24,7 +26,7 @@ export function WeekPicker({
   const [error, setError] = useState<string | null>(null);
 
   function go(id: string) {
-    router.push(`/schedule?week=${id}`);
+    router.push(`${basePath}?week=${id}`);
   }
 
   function create() {

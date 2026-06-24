@@ -1,4 +1,4 @@
-import { getSetupData, getWeeks, getWeekData, getWeekTimeOff, getActiveGuides } from "./data";
+import { getSetupData, getWeeks, getWeekData, getWeekTimeOff } from "./data";
 import { ScheduleGrid } from "./schedule-grid";
 import { WeekPicker } from "./week-picker";
 import { PageHeader } from "../_components/ui";
@@ -14,11 +14,10 @@ export default async function SchedulePage({
   searchParams: Promise<{ week?: string }>;
 }) {
   const { week: weekParam } = await searchParams;
-  const [weeks, setup, current, guides] = await Promise.all([
+  const [weeks, setup, current] = await Promise.all([
     getWeeks(),
     getSetupData(),
     getCurrentUser(),
-    getActiveGuides(),
   ]);
   const canEdit = current ? canEditModule(current.appUser, "schedule") : false;
 
@@ -52,5 +51,5 @@ export default async function SchedulePage({
 
   const timeOff = await getWeekTimeOff(weekData.week.week_start);
 
-  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} timeOff={timeOff} guides={guides} canEdit={canEdit} />;
+  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} timeOff={timeOff} canEdit={canEdit} />;
 }
