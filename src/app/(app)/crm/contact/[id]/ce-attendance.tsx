@@ -3,7 +3,7 @@
 import { useActionState, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import type { CrmCeAttendance } from "@/lib/crm/types";
+import type { CrmCeAttendance, CrmCeEvent } from "@/lib/crm/types";
 import {
   addCeAttendance,
   updateCeAttendance,
@@ -78,16 +78,57 @@ function CheckBox({
   );
 }
 
-function AttendanceFields({ record }: { record?: CrmCeAttendance }) {
+function AttendanceFields({
+  record,
+  events,
+}: {
+  record?: CrmCeAttendance;
+  events: CrmCeEvent[];
+}) {
+  const [eventId, setEventId] = useState(record?.ce_event_id ?? "");
+  const [ceName, setCeName] = useState(record?.ce_name ?? "");
+  const [ceDate, setCeDate] = useState(record?.ce_date ?? "");
+
+  function onPickEvent(id: string) {
+    setEventId(id);
+    const ev = events.find((e) => e.id === id);
+    if (ev) {
+      setCeName(ev.name);
+      setCeDate(ev.event_date ?? "");
+    }
+  }
+
   return (
     <>
+      <input type="hidden" name="ce_event_id" value={eventId} />
+      {events.length > 0 && (
+        <label className="mb-3 flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-500">
+            Link to CE event
+          </span>
+          <select
+            value={eventId}
+            onChange={(e) => onPickEvent(e.target.value)}
+            className={inputCls}
+          >
+            <option value="">— New / unlisted CE —</option>
+            {events.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+                {e.event_date ? ` (${e.event_date})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1 lg:col-span-2">
           <span className="text-xs font-medium text-slate-500">CE name</span>
           <input
             name="ce_name"
             required
-            defaultValue={record?.ce_name ?? ""}
+            value={ceName}
+            onChange={(e) => setCeName(e.target.value)}
             placeholder="e.g. Spring Dental CE"
             className={inputCls}
           />
@@ -97,7 +138,8 @@ function AttendanceFields({ record }: { record?: CrmCeAttendance }) {
           <input
             name="ce_date"
             type="date"
-            defaultValue={record?.ce_date ?? ""}
+            value={ceDate}
+            onChange={(e) => setCeDate(e.target.value)}
             className={inputCls}
           />
         </label>
@@ -132,9 +174,11 @@ function AttendanceFields({ record }: { record?: CrmCeAttendance }) {
 
 function ExistingRow({
   record,
+  events,
   canEdit,
 }: {
   record: CrmCeAttendance;
+  events: CrmCeEvent[];
   canEdit: boolean;
 }) {
   const [editing, setEditing] = useState(false);
@@ -154,7 +198,7 @@ function ExistingRow({
         }}
         className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4"
       >
-        <AttendanceFields record={record} />
+        <AttendanceFields record={record} events={events} />
         {result?.ok === false && (
           <p className="mt-2 text-sm text-red-600">{result.error}</p>
         )}
@@ -219,10 +263,12 @@ function ExistingRow({
 export function CeAttendanceManager({
   contactId,
   records,
+  events,
   canEdit = false,
 }: {
   contactId: string;
   records: CrmCeAttendance[];
+  events: CrmCeEvent[];
   canEdit?: boolean;
 }) {
   const [adding, setAdding] = useState(false);
@@ -256,7 +302,7 @@ export function CeAttendanceManager({
 
       <div className="space-y-3">
         {records.map((r) => (
-          <ExistingRow key={r.id} record={r} canEdit={canEdit} />
+          <ExistingRow key={r.id} record={r} events={events} canEdit={canEdit} />
         ))}
       </div>
 
@@ -268,7 +314,7 @@ export function CeAttendanceManager({
           }}
           className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4"
         >
-          <AttendanceFields />
+          <AttendanceFields events={events} />
           {result?.ok === false && (
             <p className="mt-2 text-sm text-red-600">{result.error}</p>
           )}

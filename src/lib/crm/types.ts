@@ -429,6 +429,7 @@ export function crmSlugForContactType(t: ContactType): CrmSlug {
 export interface CrmCeAttendance {
   id: string;
   contact_id: string;
+  ce_event_id: string | null;
   ce_name: string;
   ce_date: string | null;
   confirmed_date: string | null;
@@ -439,3 +440,65 @@ export interface CrmCeAttendance {
   created_at: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// CE event — a first-class continuing-education event with its own scheduling
+// and logistics details. CE leads are rostered against it via crm_ce_attendance.
+// ---------------------------------------------------------------------------
+export interface CrmCeEvent {
+  id: string;
+  name: string;
+  event_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  location: string | null;
+  subject: string | null;
+  presenters: string | null;
+  description: string | null;
+  cost_type: string;
+  cost_amount: number | null;
+  audience: string | null;
+  status: string;
+  capacity: number | null;
+  registration_url: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const CE_COST_TYPE_OPTIONS = [
+  { value: "free", label: "Free" },
+  { value: "paid", label: "Paid" },
+] as const;
+
+export const CE_AUDIENCE_OPTIONS = [
+  { value: "dvm", label: "DVM / Veterinarian" },
+  { value: "tech", label: "Technician" },
+  { value: "assistant", label: "Assistant" },
+  { value: "manager", label: "Practice Manager" },
+  { value: "csr", label: "Client Service Rep" },
+  { value: "student", label: "Student" },
+  { value: "anyone", label: "Anyone / All Staff" },
+] as const;
+
+export const CE_STATUS_OPTIONS = [
+  { value: "planned", label: "Planned" },
+  { value: "scheduled", label: "Scheduled" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+] as const;
+
+export const CE_SUBJECT_SUGGESTIONS = [
+  "Dentistry",
+  "Ultrasound / Imaging",
+  "Surgery",
+  "Internal Medicine",
+  "Emergency & Critical Care",
+  "Cardiology",
+  "Dermatology",
+  "Anesthesia",
+  "Nutrition",
+  "Behavior",
+  "Practice Management",
+  "Client Communication",
+] as const;

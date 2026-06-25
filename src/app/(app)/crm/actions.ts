@@ -352,6 +352,7 @@ export async function deleteInfluencer(id: string): Promise<SaveResult> {
 // ---------------------------------------------------------------------------
 function ceAttendancePatch(formData: FormData) {
   return {
+    ce_event_id: str(formData.get("ce_event_id")),
     ce_name: str(formData.get("ce_name")) ?? "Untitled CE",
     ce_date: str(formData.get("ce_date")),
     confirmed_date: str(formData.get("confirmed_date")),
@@ -451,7 +452,105 @@ export async function setCeAttendanceField(
 }
 
 // ---------------------------------------------------------------------------
-// Promote a student (crm_contact) into the Recruiting CRM (ATS).
+// CE event — a first-class continuing-education event with its own scheduling
+// and logistics details that CE leads can be rostered against.
+// ---------------------------------------------------------------------------
+function ceEventPatch(formData: FormData) {
+  return {
+    name: str(formData.get("name")) ?? "Untitled CE Event",
+    event_date: str(formData.get("event_date")),
+    start_time: str(formData.get("start_time")),
+    end_time: str(formData.get("end_time")),
+    location: str(formData.get("location")),
+    subject: str(formData.get("subject")),
+    presenters: str(formData.get("presenters")),
+    description: str(formData.get("description")),
+    cost_type: str(formData.get("cost_type")) ?? "free",
+    cost_amount: num(formData.get("cost_amount")),
+    audience: str(formData.get("audience")),
+    status: str(formData.get("status")) ?? "planned",
+    capacity: num(formData.get("capacity")),
+    registration_url: str(formData.get("registration_url")),
+    notes: str(formData.get("notes")),
+  };
+}
+
+export async function createCeEvent(
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_event")
+    .insert(ceEventPatch(formData));
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+export async function updateCeEvent(
+  id: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const patch = ceEventPatch(formData);
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_event")
+    .update(patch)
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  // Keep already-rostered attendance rows in sync with the event's name/date.
+  await supabase
+    .from("crm_ce_attendance")
+    .update({ ce_name: patch.name, ce_date: patch.event_date })
+    .eq("ce_event_id", id);
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+export async function deleteCeEvent(id: string): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase.from("crm_ce_event").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+// Roster an existing CE lead onto a CE event (creates a linked attendance row).
+export async function assignLeadToCeEvent(
+  eventId: string,
+  contactId: string,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { data: event, error: evErr } = await supabase
+    .from("crm_ce_event")
+    .select("name, event_date")
+    .eq("id", eventId)
+    .single();
+  if (evErr) return { ok: false, error: evErr.message };
+  const ev = event as { name: string; event_date: string | null };
+  const { error } = await supabase.from("crm_ce_attendance").insert({
+    contact_id: contactId,
+    ce_event_id: eventId,
+    ce_name: ev.name,
+    ce_date: ev.event_date,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  revalidatePath(`/crm/contact/${contactId}`);
+  return { ok: true };
+}
+
+
 // Creates a unified greendogops.person (status='applicant') + a person_recruiting
 // row, copying the student's details so nothing is lost, and links the records
 // in both directions. Idempotent: re-promoting just returns the existing record.

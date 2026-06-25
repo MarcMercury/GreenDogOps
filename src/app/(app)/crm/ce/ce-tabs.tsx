@@ -1,11 +1,36 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import type { CrmContact, CrmCeAttendance } from "@/lib/crm/types";
+import type { CrmContact, CrmCeAttendance, CrmCeEvent } from "@/lib/crm/types";
+import {
+  CE_AUDIENCE_OPTIONS,
+  CE_COST_TYPE_OPTIONS,
+  CE_STATUS_OPTIONS,
+} from "@/lib/crm/types";
 import { ContactListView } from "../crm-views";
-import { setCeAttendanceField } from "../actions";
+import {
+  setCeAttendanceField,
+  deleteCeEvent,
+  assignLeadToCeEvent,
+} from "../actions";
+import { CeEventForm } from "./ce-event-form";
 
 type AttendeeRow = CrmCeAttendance & { attendeeName: string; contactId: string };
+
+type EventEntry = {
+  key: string;
+  name: string;
+  event: CrmCeEvent | null;
+  rows: AttendeeRow[];
+};
+
+function labelFor(
+  options: ReadonlyArray<{ value: string; label: string }>,
+  value: string | null,
+): string | null {
+  if (!value) return null;
+  return options.find((o) => o.value === value)?.label ?? value;
+}
 
 type ToggleField =
   | "paid"
@@ -118,10 +143,12 @@ function SortHeader({
 function CeEventsView({
   contacts,
   attendance,
+  events: eventEntities,
   canEdit,
 }: {
   contacts: CrmContact[];
   attendance: CrmCeAttendance[];
+  events: CrmCeEvent[];
   canEdit: boolean;
 }) {
   const nameById = useMemo(() => {
@@ -179,32 +206,71 @@ function CeEventsView({
     });
   }
 
-  // Group attendance rows by CE event name.
-  const events = useMemo(() => {
-    const groups = new Map<string, AttendeeRow[]>();
+  // Build the event list: every CE event entity (so it shows even with zero
+  // attendees), each with its rostered attendees, plus any legacy name-only
+  // groups (attendance rows not linked to an entity) that don't match one.
+  const events = useMemo<EventEntry[]>(() => {
+    const toRow = (a: CrmCeAttendance): AttendeeRow => ({
+      ...a,
+      contactId: a.contact_id,
+      attendeeName: nameById.get(a.contact_id) ?? "Unknown",
+    });
+    const byName = new Map<string, CrmCeEvent>();
+    for (const ev of eventEntities) byName.set(ev.name, ev);
+
+    const byEventId = new Map<string, AttendeeRow[]>();
+    const leftover = new Map<string, AttendeeRow[]>();
     for (const a of rows) {
-      const key = a.ce_name || "Untitled CE";
-      const list = groups.get(key) ?? [];
-      list.push({
-        ...a,
-        contactId: a.contact_id,
-        attendeeName: nameById.get(a.contact_id) ?? "Unknown",
-      });
-      groups.set(key, list);
+      const matchId =
+        a.ce_event_id && eventEntities.some((e) => e.id === a.ce_event_id)
+          ? a.ce_event_id
+          : !a.ce_event_id && byName.has(a.ce_name)
+            ? byName.get(a.ce_name)!.id
+            : null;
+      if (matchId) {
+        const list = byEventId.get(matchId) ?? [];
+        list.push(toRow(a));
+        byEventId.set(matchId, list);
+      } else {
+        const key = a.ce_name || "Untitled CE";
+        const list = leftover.get(key) ?? [];
+        list.push(toRow(a));
+        leftover.set(key, list);
+      }
     }
-    return Array.from(groups.entries())
-      .map(([name, list]) => ({
+
+    const sortRows = (list: AttendeeRow[]) =>
+      list.sort((a, b) => a.attendeeName.localeCompare(b.attendeeName));
+
+    const entityEntries: EventEntry[] = eventEntities.map((ev) => ({
+      key: ev.id,
+      name: ev.name,
+      event: ev,
+      rows: sortRows(byEventId.get(ev.id) ?? []),
+    }));
+
+    const legacyEntries: EventEntry[] = Array.from(leftover.entries()).map(
+      ([name, list]) => ({
+        key: `legacy:${name}`,
         name,
-        rows: list.sort((a, b) => a.attendeeName.localeCompare(b.attendeeName)),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows, nameById]);
+        event: null,
+        rows: sortRows(list),
+      }),
+    );
+
+    return [...entityEntries, ...legacyEntries].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [rows, nameById, eventEntities]);
 
 
   const [selected, setSelected] = useState<string | null>(
-    events[0]?.name ?? null,
+    events[0]?.key ?? null,
   );
-  const active = events.find((e) => e.name === selected) ?? events[0] ?? null;
+  const active = events.find((e) => e.key === selected) ?? events[0] ?? null;
+
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const [sortKey, setSortKey] = useState<SortKey>("attendeeName");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -247,11 +313,43 @@ function CeEventsView({
     });
   }, [active, sortKey, sortDir]);
 
+  if (creating) {
+    return (
+      <CeEventForm
+        onDone={() => setCreating(false)}
+        onCancel={() => setCreating(false)}
+      />
+    );
+  }
+
+  if (editing && active?.event) {
+    return (
+      <CeEventForm
+        event={active.event}
+        onDone={() => setEditing(false)}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
+
   if (events.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-        No CE events recorded yet. Add CE events from a lead’s profile to roster
-        attendees here.
+      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+        <p className="text-sm text-slate-500">
+          No CE events yet.{" "}
+          {canEdit
+            ? "Create one to start rostering CE leads."
+            : "CE events will appear here once created."}
+        </p>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+          >
+            + New CE Event
+          </button>
+        )}
       </div>
     );
   }
@@ -260,17 +358,28 @@ function CeEventsView({
     <div className="grid gap-5 lg:grid-cols-[240px_1fr]">
       {/* Event selector */}
       <div className="print:hidden">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          CE Events
-        </p>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            CE Events
+          </p>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              + New
+            </button>
+          )}
+        </div>
         <div className="space-y-1.5">
           {events.map((e) => (
             <button
-              key={e.name}
+              key={e.key}
               type="button"
-              onClick={() => setSelected(e.name)}
+              onClick={() => setSelected(e.key)}
               className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
-                active?.name === e.name
+                active?.key === e.key
                   ? "border-emerald-300 bg-emerald-50 font-semibold text-emerald-800"
                   : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
               }`}
@@ -287,10 +396,11 @@ function CeEventsView({
       {/* Roster for selected event */}
       {active && (
         <div className="rounded-xl border border-slate-200 bg-white shadow-sm print:border-0 print:shadow-none">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4 print:border-0">
-            <div>
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 print:border-0">
+            <div className="min-w-0">
               <h2 className="text-lg font-bold text-slate-900">{active.name}</h2>
-              <p className="mt-0.5 text-sm text-slate-500">
+              {active.event && <EventDetails event={active.event} />}
+              <p className="mt-1 text-sm text-slate-500">
                 {active.rows.length} attendee
                 {active.rows.length === 1 ? "" : "s"}
                 {" · "}
@@ -299,13 +409,30 @@ function CeEventsView({
                 {active.rows.filter((r) => r.materials_prepared).length} prepped
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => window.print()}
+            <div className="flex shrink-0 items-center gap-2 print:hidden">
+              {canEdit && active.event && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+                  >
+                    Edit
+                  </button>
+                  <DeleteEventButton
+                    eventId={active.event.id}
+                    eventName={active.event.name}
+                  />
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => window.print()}
               className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 print:hidden"
             >
               Print list
             </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -443,8 +570,405 @@ function CeEventsView({
               </tbody>
             </table>
           </div>
+          {active.rows.length === 0 && (
+            <p className="px-5 py-6 text-center text-sm text-slate-500 print:hidden">
+              No attendees yet. Assign a CE lead below to roster them.
+            </p>
+          )}
+          {canEdit && (
+            <AssignLead
+              event={active.event}
+              eventName={active.name}
+              contacts={contacts}
+              rosteredIds={new Set(active.rows.map((r) => r.contactId))}
+            />
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Compact one-line summary of a CE event's logistics + details. */
+function EventDetails({ event }: { event: CrmCeEvent }) {
+  const time =
+    event.start_time && event.end_time
+      ? `${event.start_time}–${event.end_time}`
+      : event.start_time || event.end_time || null;
+  const cost =
+    event.cost_type === "paid"
+      ? event.cost_amount != null
+        ? `Paid · $${event.cost_amount}`
+        : "Paid"
+      : labelFor(CE_COST_TYPE_OPTIONS, event.cost_type);
+  const bits = [
+    fmtDate(event.event_date) !== "—" ? fmtDate(event.event_date) : null,
+    time,
+    event.location,
+    event.subject,
+    event.presenters ? `Presenter: ${event.presenters}` : null,
+    labelFor(CE_AUDIENCE_OPTIONS, event.audience)
+      ? `For: ${labelFor(CE_AUDIENCE_OPTIONS, event.audience)}`
+      : null,
+    cost,
+    labelFor(CE_STATUS_OPTIONS, event.status),
+  ].filter(Boolean);
+  return (
+    <div className="mt-1 space-y-1">
+      <p className="text-sm text-slate-600">{bits.join(" · ")}</p>
+      {event.description && (
+        <p className="text-sm text-slate-500">{event.description}</p>
+      )}
+      {event.registration_url && (
+        <a
+          href={event.registration_url}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-block text-sm font-medium text-emerald-700 hover:underline print:hidden"
+        >
+          Registration link
+        </a>
+      )}
+    </div>
+  );
+}
+
+/** Delete a CE event after confirmation. */
+function DeleteEventButton({
+  eventId,
+  eventName,
+}: {
+  eventId: string;
+  eventName: string;
+}) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => {
+        if (
+          !window.confirm(
+            `Delete "${eventName}"? Rostered attendees are kept but detached from this event.`,
+          )
+        )
+          return;
+        startTransition(async () => {
+          const res = await deleteCeEvent(eventId);
+          if (!res.ok) alert(`Could not delete: ${res.error}`);
+        });
+      }}
+      className="rounded-lg border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 shadow-sm transition hover:bg-red-50 disabled:opacity-50"
+    >
+      {pending ? "Deleting…" : "Delete"}
+    </button>
+  );
+}
+
+/** Roster an existing CE lead onto the selected event. */
+function AssignLead({
+  event,
+  eventName,
+  contacts,
+  rosteredIds,
+}: {
+  event: CrmCeEvent | null;
+  eventName: string;
+  contacts: CrmContact[];
+  rosteredIds: Set<string>;
+}) {
+  const [contactId, setContactId] = useState("");
+  const [pending, startTransition] = useTransition();
+
+  const available = useMemo(
+    () =>
+      contacts
+        .filter((c) => !rosteredIds.has(c.id))
+        .map((c) => ({ id: c.id, name: contactName(c) }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [contacts, rosteredIds],
+  );
+
+  if (!event) {
+    return (
+      <p className="border-t border-slate-200 px-5 py-3 text-xs text-slate-400 print:hidden">
+        “{eventName}” is a legacy event. Open a lead’s profile to manage their CE
+        records.
+      </p>
+    );
+  }
+
+  function add() {
+    if (!contactId || !event) return;
+    const id = contactId;
+    startTransition(async () => {
+      const res = await assignLeadToCeEvent(event.id, id);
+      if (!res.ok) alert(`Could not assign: ${res.error}`);
+      else setContactId("");
+    });
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 px-5 py-3 print:hidden">
+      <span className="text-sm font-medium text-slate-600">Assign CE lead:</span>
+      <select
+        value={contactId}
+        onChange={(e) => setContactId(e.target.value)}
+        className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      >
+        <option value="">Select a lead…</option>
+        {available.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={add}
+        disabled={!contactId || pending}
+        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+      >
+        {pending ? "Adding…" : "Add"}
+      </button>
+    </div>
+  );
+}
+
+/** Stat summary card. */
+function StatCard({
+  label,
+  value,
+  sub,
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+      {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
+    </div>
+  );
+}
+
+/** Basic stats sheet: running totals across CE events plus repeat attendees. */
+function CeStatsView({
+  contacts,
+  attendance,
+  events: eventEntities,
+}: {
+  contacts: CrmContact[];
+  attendance: CrmCeAttendance[];
+  events: CrmCeEvent[];
+}) {
+  const nameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of contacts) m.set(c.id, contactName(c));
+    return m;
+  }, [contacts]);
+
+  const { eventStats, totals, repeats } = useMemo(() => {
+    const byName = new Map<string, CrmCeEvent>();
+    for (const ev of eventEntities) byName.set(ev.name, ev);
+
+    type Group = {
+      key: string;
+      name: string;
+      isFree: boolean;
+      rows: CrmCeAttendance[];
+    };
+    const groups = new Map<string, Group>();
+    const getGroup = (key: string, name: string, ev: CrmCeEvent | null) => {
+      let g = groups.get(key);
+      if (!g) {
+        g = { key, name, isFree: ev ? ev.cost_type === "free" : false, rows: [] };
+        groups.set(key, g);
+      }
+      return g;
+    };
+
+    // Seed every real event so it shows even with zero attendees.
+    for (const ev of eventEntities) getGroup(ev.id, ev.name, ev);
+
+    // Track the distinct events each contact attended (for repeat detection).
+    const eventsByContact = new Map<string, Set<string>>();
+
+    for (const a of attendance) {
+      const matchId =
+        a.ce_event_id && eventEntities.some((e) => e.id === a.ce_event_id)
+          ? a.ce_event_id
+          : !a.ce_event_id && byName.has(a.ce_name)
+            ? byName.get(a.ce_name)!.id
+            : null;
+      let key: string;
+      if (matchId) {
+        const ev = eventEntities.find((e) => e.id === matchId)!;
+        key = matchId;
+        getGroup(key, ev.name, ev).rows.push(a);
+      } else {
+        const name = a.ce_name || "Untitled CE";
+        key = `legacy:${name}`;
+        getGroup(key, name, null).rows.push(a);
+      }
+      const set = eventsByContact.get(a.contact_id) ?? new Set<string>();
+      set.add(key);
+      eventsByContact.set(a.contact_id, set);
+    }
+
+    const eventStats = Array.from(groups.values())
+      .map((g) => ({
+        key: g.key,
+        name: g.name,
+        isFree: g.isFree,
+        onList: g.rows.length,
+        paid: g.rows.filter((r) => r.paid).length,
+        checkedIn: g.rows.filter((r) => r.showed_up).length,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const totals = {
+      events: eventStats.length,
+      onList: attendance.length,
+      paid: attendance.filter((r) => r.paid).length,
+      checkedIn: attendance.filter((r) => r.showed_up).length,
+    };
+
+    const repeats = Array.from(eventsByContact.entries())
+      .filter(([, set]) => set.size > 1)
+      .map(([contactId, set]) => ({
+        contactId,
+        name: nameById.get(contactId) ?? "Unknown",
+        count: set.size,
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+    return { eventStats, totals, repeats };
+  }, [attendance, eventEntities, nameById]);
+
+  return (
+    <div className="space-y-6">
+      {/* Running totals */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="CE Events" value={totals.events} />
+        <StatCard
+          label="On the list"
+          value={totals.onList}
+          sub="total roster entries"
+        />
+        <StatCard
+          label="Checked in"
+          value={totals.checkedIn}
+          sub={
+            totals.onList
+              ? `${Math.round((totals.checkedIn / totals.onList) * 100)}% of list`
+              : undefined
+          }
+        />
+        <StatCard label="Paid" value={totals.paid} sub="across all events" />
+      </div>
+
+      {/* Per-event breakdown */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-3">
+          <h2 className="text-sm font-semibold text-slate-900">By event</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                <th className="px-5 py-2.5 font-semibold">Event</th>
+                <th className="px-3 py-2.5 text-center font-semibold">On list</th>
+                <th className="px-3 py-2.5 text-center font-semibold">Paid</th>
+                <th className="px-3 py-2.5 text-center font-semibold">
+                  Checked in
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventStats.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-5 py-6 text-center text-slate-500"
+                  >
+                    No CE events yet.
+                  </td>
+                </tr>
+              ) : (
+                eventStats.map((e) => (
+                  <tr
+                    key={e.key}
+                    className="border-b border-slate-100 last:border-0"
+                  >
+                    <td className="px-5 py-2.5 font-medium text-slate-900">
+                      {e.name}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-slate-700">
+                      {e.onList}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-slate-700">
+                      {e.isFree ? (
+                        <span className="text-slate-400">N/A</span>
+                      ) : (
+                        e.paid
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-center text-slate-700">
+                      {e.checkedIn}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {eventStats.length > 0 && (
+              <tfoot>
+                <tr className="border-t border-slate-200 bg-slate-50 text-sm font-semibold text-slate-900">
+                  <td className="px-5 py-2.5">Total</td>
+                  <td className="px-3 py-2.5 text-center">{totals.onList}</td>
+                  <td className="px-3 py-2.5 text-center">{totals.paid}</td>
+                  <td className="px-3 py-2.5 text-center">{totals.checkedIn}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </div>
+
+      {/* Repeat attendees */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-5 py-3">
+          <h2 className="text-sm font-semibold text-slate-900">
+            Multiple-event attendees
+          </h2>
+          <p className="mt-0.5 text-xs text-slate-500">
+            People who appear on more than one CE event roster
+          </p>
+        </div>
+        {repeats.length === 0 ? (
+          <p className="px-5 py-6 text-center text-sm text-slate-500">
+            No one has attended multiple events yet.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {repeats.map((r) => (
+              <li
+                key={r.contactId}
+                className="flex items-center justify-between px-5 py-2.5 text-sm"
+              >
+                <span className="font-medium text-slate-900">{r.name}</span>
+                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                  {r.count} events
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
@@ -452,13 +976,15 @@ function CeEventsView({
 export function CeCrmTabs({
   contacts,
   attendance,
+  events,
   canEdit,
 }: {
   contacts: CrmContact[];
   attendance: CrmCeAttendance[];
+  events: CrmCeEvent[];
   canEdit: boolean;
 }) {
-  const [tab, setTab] = useState<"leads" | "events">("leads");
+  const [tab, setTab] = useState<"leads" | "events" | "stats">("leads");
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -485,6 +1011,17 @@ export function CeCrmTabs({
         >
           CE Events
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("stats")}
+          className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
+            tab === "stats"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          Stats
+        </button>
       </div>
 
       {tab === "leads" ? (
@@ -496,8 +1033,15 @@ export function CeCrmTabs({
           variant="ce"
           addHref="/crm/contact/new?type=ce_attendee"
         />
+      ) : tab === "events" ? (
+        <CeEventsView
+          contacts={contacts}
+          attendance={attendance}
+          events={events}
+          canEdit={canEdit}
+        />
       ) : (
-        <CeEventsView contacts={contacts} attendance={attendance} canEdit={canEdit} />
+        <CeStatsView contacts={contacts} attendance={attendance} events={events} />
       )}
     </div>
   );

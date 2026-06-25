@@ -6,6 +6,7 @@ import { isEditorRole } from "@/lib/auth/permissions";
 import {
   type CrmContact,
   type CrmCeAttendance,
+  type CrmCeEvent,
   crmSectionBySlug,
   crmSlugForContactType,
 } from "@/lib/crm/types";
@@ -46,13 +47,22 @@ export default async function ContactDetailPage({
 
   // CE attendees track the continuing-education events they're tied to.
   let ceAttendance: CrmCeAttendance[] = [];
+  let ceEvents: CrmCeEvent[] = [];
   if (contact.contact_type === "ce_attendee") {
-    const { data: ceRows } = await supabase
-      .from("crm_ce_attendance")
-      .select("*")
-      .eq("contact_id", contact.id)
-      .order("ce_date", { ascending: false });
-    ceAttendance = (ceRows ?? []) as CrmCeAttendance[];
+    const [ceRowsRes, ceEventsRes] = await Promise.all([
+      supabase
+        .from("crm_ce_attendance")
+        .select("*")
+        .eq("contact_id", contact.id)
+        .order("ce_date", { ascending: false }),
+      supabase
+        .from("crm_ce_event")
+        .select("*")
+        .order("event_date", { ascending: false })
+        .limit(5000),
+    ]);
+    ceAttendance = (ceRowsRes.data ?? []) as CrmCeAttendance[];
+    ceEvents = (ceEventsRes.data ?? []) as CrmCeEvent[];
   }
 
   // If this student was promoted, route to wherever that person now lives:
@@ -105,6 +115,7 @@ export default async function ContactDetailPage({
           <CeAttendanceManager
             contactId={contact.id}
             records={ceAttendance}
+            events={ceEvents}
             canEdit={canEdit}
           />
         </div>
