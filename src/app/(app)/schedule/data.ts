@@ -171,18 +171,44 @@ export interface AttendanceRow {
   published: boolean;
 }
 
+/**
+ * Fetch every row matching a `week_id IN (...)` filter, paging past PostgREST's
+ * `max_rows` cap (1000). Without this the attendance rollup silently loses the
+ * oldest published shifts once the schedule grows beyond a single page.
+ */
+async function fetchAllAssignmentsForWeeks(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  weekIds: string[],
+): Promise<SchedAssignment[]> {
+  if (weekIds.length === 0) return [];
+  const PAGE = 1000;
+  const all: SchedAssignment[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("sched_assignment")
+      .select("*")
+      .in("week_id", weekIds)
+      .order("work_date", { ascending: false })
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error || !data || data.length === 0) break;
+    all.push(...(data as SchedAssignment[]));
+    if (data.length < PAGE) break;
+  }
+  return all;
+}
+
 /** Resolved-attendance assignments across published weeks, for the rollup. */
 export async function getAttendanceData(): Promise<{
   rows: AttendanceRow[];
   people: SchedPerson[];
 }> {
   const supabase = await createClient();
-  const [asgRes, weekRes, peopleRes] = await Promise.all([
+  const [weekRes, peopleRes] = await Promise.all([
     supabase
-      .from("sched_assignment")
-      .select("*")
-      .order("work_date", { ascending: false }),
-    supabase.from("sched_week").select("id, week_start, status"),
+      .from("sched_week")
+      .select("id, week_start, status")
+      .eq("status", "published"),
     supabase
       .from("person")
       .select(PERSON_COLS)
@@ -192,23 +218,27 @@ export async function getAttendanceData(): Promise<{
 
   const people = (peopleRes.data ?? []) as SchedPerson[];
   const personById = new Map(people.map((p) => [p.id, p]));
-  const weekById = new Map(
-    (
-      (weekRes.data ?? []) as { id: string; week_start: string; status: string }[]
-    ).map((w) => [w.id, w]),
+  const weeks = (weekRes.data ?? []) as {
+    id: string;
+    week_start: string;
+    status: string;
+  }[];
+  const weekById = new Map(weeks.map((w) => [w.id, w]));
+
+  const assignments = await fetchAllAssignmentsForWeeks(
+    supabase,
+    weeks.map((w) => w.id),
   );
 
-  const rows: AttendanceRow[] = ((asgRes.data ?? []) as SchedAssignment[]).map(
-    (a) => {
-      const week = weekById.get(a.week_id);
-      return {
-        assignment: a,
-        person: personById.get(a.person_id) ?? null,
-        week_start: week?.week_start ?? "",
-        published: week?.status === "published",
-      };
-    },
-  );
+  const rows: AttendanceRow[] = assignments.map((a) => {
+    const week = weekById.get(a.week_id);
+    return {
+      assignment: a,
+      person: personById.get(a.person_id) ?? null,
+      week_start: week?.week_start ?? "",
+      published: true,
+    };
+  });
 
   return { rows, people };
 }

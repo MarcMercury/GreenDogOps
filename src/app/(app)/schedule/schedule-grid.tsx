@@ -1506,6 +1506,11 @@ function EligiblePicker({
     [settings],
   );
 
+  const roleById = useMemo(
+    () => new Map(roles.map((r) => [r.id, r] as const)),
+    [roles],
+  );
+
   // Roles each person belongs to (inverted membersByRole) for quick filters.
   const rolesByPerson = useMemo(() => {
     const m = new Map<string, Set<string>>();
@@ -1517,6 +1522,22 @@ function EligiblePicker({
     }
     return m;
   }, [membersByRole]);
+
+  // Distinct role *names* each person belongs to. Multiple role records can
+  // share a display name (e.g. several "DVM" roles), so we collapse by name to
+  // avoid duplicate filter options.
+  const roleNamesByPerson = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const [pid, ids] of rolesByPerson) {
+      const names = new Set<string>();
+      for (const id of ids) {
+        const name = roleById.get(id)?.name;
+        if (name) names.add(name);
+      }
+      m.set(pid, names);
+    }
+    return m;
+  }, [rolesByPerson, roleById]);
 
   // People eligible for this shift before role/search filters apply.
   const baseEligible = useMemo(() => {
@@ -1543,17 +1564,29 @@ function EligiblePicker({
     });
   }, [people, line.role_id, membersByRole, settingByPerson, cell.locationId, cell.day]);
 
-  // Quick-filter chips: only roles represented among eligible people.
+  // Role filter options: distinct role names represented among eligible
+  // people, sorted by the lowest sort_order of any role record with that name.
   const availableRoles = useMemo(() => {
-    const ids = new Set<string>();
+    const byName = new Map<string, number>();
     for (const p of baseEligible) {
-      const r = rolesByPerson.get(p.id);
-      if (r) for (const id of r) ids.add(id);
+      const names = roleNamesByPerson.get(p.id);
+      if (!names) continue;
+      for (const name of names) {
+        for (const r of roles) {
+          if (r.name !== name) continue;
+          const existing = byName.get(name);
+          if (existing === undefined || r.sort_order < existing) {
+            byName.set(name, r.sort_order);
+          }
+        }
+      }
     }
-    return roles
-      .filter((r) => ids.has(r.id))
-      .sort((a, b) => a.sort_order - b.sort_order);
-  }, [baseEligible, rolesByPerson, roles]);
+    return [...byName.entries()]
+      .map(([name, sort_order]) => ({ name, sort_order }))
+      .sort(
+        (a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name),
+      );
+  }, [baseEligible, roleNamesByPerson, roles]);
 
   const eligible = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -1564,7 +1597,7 @@ function EligiblePicker({
     };
     return baseEligible
       .filter((p) => {
-        if (roleFilter && !rolesByPerson.get(p.id)?.has(roleFilter))
+        if (roleFilter && !roleNamesByPerson.get(p.id)?.has(roleFilter))
           return false;
         if (term && !gridName(p).toLowerCase().includes(term)) return false;
         return true;
@@ -1578,7 +1611,15 @@ function EligiblePicker({
         if (ca !== cb) return ca - cb; // least-loaded first
         return gridName(a).localeCompare(gridName(b));
       });
-  }, [baseEligible, roleFilter, rolesByPerson, q, weeklyCount, weekTimeOff, cell.day]);
+  }, [
+    baseEligible,
+    roleFilter,
+    roleNamesByPerson,
+    q,
+    weeklyCount,
+    weekTimeOff,
+    cell.day,
+  ]);
 
   const dayScheduled = scheduledByDay.get(cell.day) ?? new Set<string>();
 
@@ -1624,12 +1665,12 @@ function EligiblePicker({
               </button>
               {availableRoles.map((r) => (
                 <button
-                  key={r.id}
+                  key={r.name}
                   onClick={() =>
-                    setRoleFilter((cur) => (cur === r.id ? null : r.id))
+                    setRoleFilter((cur) => (cur === r.name ? null : r.name))
                   }
                   className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
-                    roleFilter === r.id
+                    roleFilter === r.name
                       ? "bg-emerald-600 text-white"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}

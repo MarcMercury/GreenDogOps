@@ -48,6 +48,10 @@ next-env.d.ts
 # Local source data (PII — never commit)
 /.data/
 
+# ezyVet source exports dropped into public/ (PII — never commit or deploy;
+# served publicly by Next.js from public/. Data is loaded into the DB instead).
+/public/*.csv
+
 # Python cache
 __pycache__/
 *.pyc

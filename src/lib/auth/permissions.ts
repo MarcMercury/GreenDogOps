@@ -46,6 +46,8 @@ export type ModuleKey =
   | "crm_student"
   | "crm_ce"
   | "crm_influencer"
+  | "reporting"
+  | "ezyvet"
   | "planning"
   | "schedule"
   | "resources"
@@ -67,6 +69,8 @@ export const MODULES: ModuleDef[] = [
   { key: "crm_student", label: "Student CRM", href: "/crm/student" },
   { key: "crm_ce", label: "CE Leads", href: "/crm/ce" },
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
+  { key: "ezyvet", label: "ezyVet CRM", href: "/ezyvet" },
+  { key: "reporting", label: "Reporting", href: "/reporting" },
   { key: "planning", label: "Planning Guides", href: "/planning" },
   { key: "schedule", label: "Scheduling", href: "/schedule" },
   { key: "resources", label: "Resources", href: "/resources" },
