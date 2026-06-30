@@ -38,25 +38,28 @@ async function requireReportingAccess() {
  */
 export async function getStaffBreakdown(
   staffMember: string,
+  year?: number,
 ): Promise<StaffBreakdown> {
   await requireReportingAccess();
   if (!staffMember || typeof staffMember !== "string") {
     return { topGroups: [], topProducts: [] };
   }
   const supabase = await createClient();
+  let groupsQuery = supabase
+    .from("report_staff_product_group")
+    .select("product_group, line_count, revenue")
+    .eq("staff_member", staffMember);
+  let productsQuery = supabase
+    .from("report_staff_product")
+    .select("product_name, product_group, line_count, qty, revenue")
+    .eq("staff_member", staffMember);
+  if (typeof year === "number" && Number.isFinite(year)) {
+    groupsQuery = groupsQuery.eq("year", year);
+    productsQuery = productsQuery.eq("year", year);
+  }
   const [groupsRes, productsRes] = await Promise.all([
-    supabase
-      .from("report_staff_product_group")
-      .select("product_group, line_count, revenue")
-      .eq("staff_member", staffMember)
-      .order("revenue", { ascending: false })
-      .limit(8),
-    supabase
-      .from("report_staff_product")
-      .select("product_name, product_group, line_count, qty, revenue")
-      .eq("staff_member", staffMember)
-      .order("revenue", { ascending: false })
-      .limit(12),
+    groupsQuery.order("revenue", { ascending: false }).limit(8),
+    productsQuery.order("revenue", { ascending: false }).limit(12),
   ]);
   return {
     topGroups: (groupsRes.data ?? []) as StaffProductGroupRow[],

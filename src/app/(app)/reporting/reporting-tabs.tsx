@@ -41,6 +41,7 @@ const TABS: { key: TabKey; label: string }[] = [
 ];
 
 export interface ReportingTabsProps {
+  year: number;
   overview: ReportOverview | null;
   monthly: MonthlyRow[];
   locations: LocationRow[];
@@ -139,6 +140,7 @@ function LocationMatrix({
 export function ReportingTabs(props: ReportingTabsProps) {
   const [tab, setTab] = useState<TabKey>("revenue");
   const {
+    year,
     overview,
     monthly,
     locations,
@@ -533,14 +535,14 @@ export function ReportingTabs(props: ReportingTabsProps) {
             title="Doctors by production"
             description="Revenue, appointments, and consults attributed to each veterinarian."
           >
-            <StaffTable rows={doctors} />
+            <StaffTable rows={doctors} year={year} />
           </SectionCard>
 
           <SectionCard
             title="Support staff by production"
             description="Non-veterinarian salespeople and technicians."
           >
-            <StaffTable rows={supportStaff} />
+            <StaffTable rows={supportStaff} year={year} />
           </SectionCard>
 
           <SectionCard
@@ -679,7 +681,7 @@ export function ReportingTabs(props: ReportingTabsProps) {
 }
 
 /** Staff production table shared by the Doctors and Support Staff sections. */
-function StaffTable({ rows }: { rows: StaffRow[] }) {
+function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
   const [selected, setSelected] = useState<StaffRow | null>(null);
   const [breakdown, setBreakdown] = useState<StaffBreakdown | null>(null);
   const [loading, setLoading] = useState(false);
@@ -698,7 +700,7 @@ function StaffTable({ rows }: { rows: StaffRow[] }) {
     setBreakdown(null);
     setLoading(true);
     try {
-      const data = await getStaffBreakdown(row.staff_member);
+      const data = await getStaffBreakdown(row.staff_member, year);
       setBreakdown(data);
     } finally {
       setLoading(false);

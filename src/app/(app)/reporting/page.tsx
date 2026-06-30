@@ -26,10 +26,15 @@ import { SectionCard, fmtNumber, fmtDate } from "./charts";
 import { InvoiceUploader } from "./invoice-uploader";
 import { ImportHistory } from "./import-history";
 import { ReportingTabs } from "./reporting-tabs";
+import { YearToggle } from "./year-toggle";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportingPage() {
+export default async function ReportingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ year?: string }>;
+}) {
   const current = await getCurrentUser();
 
   // Biz Dev / Reporting is admin-only by default. Block direct navigation by
@@ -59,6 +64,20 @@ export default async function ReportingPage() {
   const isAdmin = isAdminRole(current.appUser.role);
   const canEdit = canEditModule(current.appUser, "reporting");
 
+  // Available years (newest first) drive the toggle. The selected year filters
+  // every invoice-derived view; client/CRM views are a current snapshot and
+  // stay un-scoped. Defaults to the latest year with data.
+  const { year: yearParam } = await searchParams;
+  const yearsRes = await supabase.from("report_years").select("year");
+  const years = ((yearsRes.data ?? []) as { year: number }[])
+    .map((r) => r.year)
+    .sort((a, b) => b - a);
+  const requestedYear = yearParam ? Number(yearParam) : NaN;
+  const selectedYear =
+    Number.isFinite(requestedYear) && years.includes(requestedYear)
+      ? requestedYear
+      : (years[0] ?? new Date().getFullYear());
+
   const [
     overviewRes,
     monthlyRes,
@@ -76,16 +95,16 @@ export default async function ReportingPage() {
     clientDivisionRes,
     importsRes,
   ] = await Promise.all([
-    supabase.from("report_overview").select("*").maybeSingle(),
-    supabase.from("report_monthly").select("*"),
-    supabase.from("report_by_location").select("*"),
-    supabase.from("report_location_monthly").select("*"),
-    supabase.from("report_by_species").select("*"),
-    supabase.from("report_top_product_group").select("*").limit(12),
-    supabase.from("report_top_product").select("*").limit(20),
-    supabase.from("report_product_by_location").select("*"),
-    supabase.from("report_by_staff").select("*").limit(100),
-    supabase.from("report_staff_by_location").select("*"),
+    supabase.from("report_overview").select("*").eq("year", selectedYear).maybeSingle(),
+    supabase.from("report_monthly").select("*").eq("year", selectedYear),
+    supabase.from("report_by_location").select("*").eq("year", selectedYear),
+    supabase.from("report_location_monthly").select("*").eq("year", selectedYear),
+    supabase.from("report_by_species").select("*").eq("year", selectedYear),
+    supabase.from("report_top_product_group").select("*").eq("year", selectedYear).limit(12),
+    supabase.from("report_top_product").select("*").eq("year", selectedYear).limit(20),
+    supabase.from("report_product_by_location").select("*").eq("year", selectedYear),
+    supabase.from("report_by_staff").select("*").eq("year", selectedYear).limit(100),
+    supabase.from("report_staff_by_location").select("*").eq("year", selectedYear),
     supabase.from("report_client_summary").select("*").maybeSingle(),
     supabase.from("report_clients_by_month").select("*"),
     supabase.from("report_clients_by_group").select("*").limit(10),
@@ -140,14 +159,20 @@ export default async function ReportingPage() {
         </SectionCard>
       ) : (
         <>
-          {overview?.first_date ? (
-            <p className="text-xs text-slate-500">
-              Showing {fmtDate(overview.first_date)} – {fmtDate(overview.last_date)} ·{" "}
-              {fmtNumber(overview.total_lines)} invoice lines
-            </p>
-          ) : null}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {overview?.first_date ? (
+              <p className="text-xs text-slate-500">
+                Showing {fmtDate(overview.first_date)} – {fmtDate(overview.last_date)} ·{" "}
+                {fmtNumber(overview.total_lines)} invoice lines
+              </p>
+            ) : (
+              <span />
+            )}
+            <YearToggle years={years} selected={selectedYear} />
+          </div>
 
           <ReportingTabs
+            year={selectedYear}
             overview={overview}
             monthly={monthly}
             locations={locations}
