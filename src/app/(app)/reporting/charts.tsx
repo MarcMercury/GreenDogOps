@@ -1,6 +1,9 @@
 // Pure presentational pieces for the Reporting + ezyVet pages. No client state,
 // so these render on the server.
 
+import type { LocationKey } from "@/lib/reporting/types";
+import { LOCATION_COLORS } from "@/lib/reporting/types";
+
 export function fmtCurrency(n: number | null | undefined): string {
   const v = Number(n ?? 0);
   return v.toLocaleString("en-US", {
@@ -160,3 +163,109 @@ export function MonthlyBars({
     </div>
   );
 }
+
+/**
+ * Stacked monthly bars segmented by clinic location. Each month is one column;
+ * within it, segments are stacked per location and colored by LOCATION_COLORS.
+ */
+export function StackedMonthlyBars({
+  rows,
+  metric,
+  format,
+}: {
+  rows: {
+    month: string;
+    location_key: LocationKey;
+    location_label: string;
+    appointments: number;
+    revenue: number;
+  }[];
+  metric: "appointments" | "revenue";
+  format: (n: number) => string;
+}) {
+  if (rows.length === 0)
+    return <p className="text-xs text-slate-400">No data yet.</p>;
+
+  const months = [...new Set(rows.map((r) => r.month))].sort();
+  const byMonth = new Map<string, typeof rows>();
+  for (const r of rows) {
+    const arr = byMonth.get(r.month) ?? [];
+    arr.push(r);
+    byMonth.set(r.month, arr);
+  }
+
+  const totals = months.map((m) =>
+    (byMonth.get(m) ?? []).reduce((s, r) => s + Number(r[metric] ?? 0), 0),
+  );
+  const max = Math.max(1, ...totals);
+
+  // Stable, sorted legend across all locations present.
+  const legend = [...new Set(rows.map((r) => r.location_key))]
+    .map((key) => ({
+      key,
+      label: rows.find((r) => r.location_key === key)?.location_label ?? key,
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+
+  return (
+    <div>
+      <div
+        className="flex items-end gap-2 overflow-x-auto pb-1"
+        style={{ minHeight: 170 }}
+      >
+        {months.map((m, i) => {
+          const segs = (byMonth.get(m) ?? [])
+            .slice()
+            .sort((a, b) => a.location_label.localeCompare(b.location_label));
+          const colH = Math.max(2, Math.round((totals[i] / max) * 135));
+          return (
+            <div
+              key={m}
+              className="flex min-w-[46px] flex-1 flex-col items-center gap-1"
+            >
+              <span className="text-[10px] font-medium tabular-nums text-slate-500">
+                {format(totals[i])}
+              </span>
+              <div
+                className="flex w-full flex-col-reverse overflow-hidden rounded-t-md"
+                style={{ height: colH }}
+                title={`${m}: ${format(totals[i])}`}
+              >
+                {segs.map((seg) => {
+                  const v = Number(seg[metric] ?? 0);
+                  const segH = totals[i] > 0 ? (v / totals[i]) * 100 : 0;
+                  return (
+                    <div
+                      key={seg.location_key}
+                      style={{
+                        height: `${segH}%`,
+                        backgroundColor:
+                          LOCATION_COLORS[seg.location_key] ?? "#94a3b8",
+                      }}
+                      title={`${seg.location_label}: ${format(v)}`}
+                    />
+                  );
+                })}
+              </div>
+              <span className="text-[10px] font-medium text-slate-400">
+                {fmtMonth(m)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5">
+        {legend.map((l) => (
+          <span key={l.key} className="flex items-center gap-1.5 text-[11px] text-slate-500">
+            <span
+              className="inline-block h-2.5 w-2.5 rounded-sm"
+              style={{ backgroundColor: LOCATION_COLORS[l.key] ?? "#94a3b8" }}
+            />
+            {l.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+

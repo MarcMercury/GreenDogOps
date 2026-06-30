@@ -35,27 +35,33 @@ function setSidebarCollapsed(value: boolean): void {
 /** Top-level modules of Green Dog Ops, before the CRM group. */
 const MODULES_TOP: NavItem[] = [
   { key: "dashboard", href: "/", label: "Dashboard", icon: "▣" },
+  { key: "resources", href: "/resources", label: "Resources", icon: "📚" },
   { key: "hr", href: "/hr", label: "HR / Roster", icon: "👥" },
   { key: "ats", href: "/ats", label: "Recruiting (ATS)", icon: "🎯" },
 ];
 
 /** CRM sub-modules, one focused CRM per relationship type. */
-const CRM_NAV: NavItem[] = CRM_SECTIONS.map((s) => ({
-  key: `crm_${s.slug}` as ModuleKey,
-  href: `/crm/${s.slug}`,
-  label: s.label,
-  icon: s.icon,
-}));
-
-/** Remaining top-level modules, after the CRM group. */
-const MODULES_BOTTOM: NavItem[] = [
+const CRM_NAV: NavItem[] = [
+  ...CRM_SECTIONS.map((s) => ({
+    key: `crm_${s.slug}` as ModuleKey,
+    href: `/crm/${s.slug}`,
+    label: s.label,
+    icon: s.icon,
+  })),
   { key: "ezyvet", href: "/ezyvet", label: "ezyVet CRM", icon: "🐾" },
-  { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
+];
+
+/** Operations modules, after the CRM group. */
+const MODULES_BOTTOM: NavItem[] = [
   { key: "schedule", href: "/schedule", label: "Scheduling", icon: "🗓️" },
   { key: "schedule", href: "/capacity", label: "Daily Capacity", icon: "📊" },
   { key: "planning", href: "/planning", label: "Planning Guides", icon: "🧭" },
-  { key: "resources", href: "/resources", label: "Resources", icon: "📚" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
+];
+
+/** Business development modules, after Operations. */
+const BIZ_DEV: NavItem[] = [
+  { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
 ];
 
 const ALL_NAV: Array<{ href: string; label: string; icon: string }> = [
@@ -63,6 +69,7 @@ const ALL_NAV: Array<{ href: string; label: string; icon: string }> = [
   { href: "/crm", label: "CRM", icon: "🏢" },
   ...CRM_NAV,
   ...MODULES_BOTTOM,
+  ...BIZ_DEV,
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -121,6 +128,56 @@ function NavLink({
   );
 }
 
+function NavSection({
+  title,
+  items,
+  onNavigate,
+  collapsed,
+  first,
+}: {
+  title: string;
+  items: NavItem[];
+  onNavigate?: () => void;
+  collapsed?: boolean;
+  first?: boolean;
+}) {
+  const [open, setOpen] = useState(true);
+  if (items.length === 0) return null;
+  // When the sidebar is in icon-only mode the section headers are hidden, so
+  // always show the icons regardless of the per-section open state.
+  const showItems = collapsed || open;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`flex w-full items-center justify-between rounded-lg px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 transition hover:text-slate-600 ${
+          first ? "pt-2" : "pt-4"
+        } ${collapsed ? "lg:hidden" : ""}`}
+      >
+        <span>{title}</span>
+        <span
+          aria-hidden
+          className={`text-xs transition-transform ${open ? "" : "-rotate-90"}`}
+        >
+          ⌄
+        </span>
+      </button>
+      {showItems
+        ? items.map((m) => (
+            <NavLink
+              key={m.href}
+              item={m}
+              onNavigate={onNavigate}
+              collapsed={collapsed}
+            />
+          ))
+        : null}
+    </>
+  );
+}
+
 function NavLinks({
   allowed,
   onNavigate,
@@ -130,55 +187,33 @@ function NavLinks({
   onNavigate?: () => void;
   collapsed?: boolean;
 }) {
-  const top = MODULES_TOP.filter((m) => allowed.has(m.key));
-  const crm = CRM_NAV.filter((m) => allowed.has(m.key));
-  const bottom = MODULES_BOTTOM.filter((m) => allowed.has(m.key));
-  const headerClass = `px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${
-    collapsed ? "lg:hidden" : ""
-  }`;
   return (
     <>
-      {top.length > 0 ? (
-        <>
-          <p className={`${headerClass} pt-2`}>Modules</p>
-          {top.map((m) => (
-            <NavLink
-              key={m.href}
-              item={m}
-              onNavigate={onNavigate}
-              collapsed={collapsed}
-            />
-          ))}
-        </>
-      ) : null}
-
-      {crm.length > 0 ? (
-        <>
-          <p className={`${headerClass} pt-4`}>CRM</p>
-          {crm.map((m) => (
-            <NavLink
-              key={m.href}
-              item={m}
-              onNavigate={onNavigate}
-              collapsed={collapsed}
-            />
-          ))}
-        </>
-      ) : null}
-
-      {bottom.length > 0 ? (
-        <>
-          <p className={`${headerClass} pt-4`}>Operations</p>
-          {bottom.map((m) => (
-            <NavLink
-              key={m.href}
-              item={m}
-              onNavigate={onNavigate}
-              collapsed={collapsed}
-            />
-          ))}
-        </>
-      ) : null}
+      <NavSection
+        title="Modules"
+        items={MODULES_TOP.filter((m) => allowed.has(m.key))}
+        onNavigate={onNavigate}
+        collapsed={collapsed}
+        first
+      />
+      <NavSection
+        title="CRM"
+        items={CRM_NAV.filter((m) => allowed.has(m.key))}
+        onNavigate={onNavigate}
+        collapsed={collapsed}
+      />
+      <NavSection
+        title="Operations"
+        items={MODULES_BOTTOM.filter((m) => allowed.has(m.key))}
+        onNavigate={onNavigate}
+        collapsed={collapsed}
+      />
+      <NavSection
+        title="Biz Dev"
+        items={BIZ_DEV.filter((m) => allowed.has(m.key))}
+        onNavigate={onNavigate}
+        collapsed={collapsed}
+      />
     </>
   );
 }

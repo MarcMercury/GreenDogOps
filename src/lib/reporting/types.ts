@@ -130,6 +130,39 @@ export interface ProductGroupRow {
   revenue: number;
 }
 
+export interface TopProductRow {
+  product_name: string;
+  product_group: string;
+  line_count: number;
+  qty: number;
+  revenue: number;
+}
+
+export interface ProductLocationRow {
+  product_group: string;
+  location_key: LocationKey;
+  location_label: string;
+  line_count: number;
+  revenue: number;
+}
+
+export interface StaffRow {
+  staff_member: string;
+  is_vet: boolean;
+  line_count: number;
+  consults: number;
+  appointments: number;
+  revenue: number;
+}
+
+export interface StaffLocationRow {
+  staff_member: string;
+  location_key: LocationKey;
+  location_label: string;
+  line_count: number;
+  revenue: number;
+}
+
 export interface ClientSummary {
   total_contacts: number;
   active_contacts: number;
