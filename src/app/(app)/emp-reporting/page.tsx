@@ -7,7 +7,8 @@ import {
   type RoleStats,
 } from "@/lib/hr/emp-reporting";
 import { PageHeader } from "../_components/ui";
-import { SectionCard, BarList, fmtCurrency } from "../reporting/charts";
+import { SectionCard, fmtCurrency } from "../reporting/charts";
+import { RoleSalaryChart } from "./role-salary-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -121,12 +122,6 @@ export default async function EmpReportingPage() {
     r.outliers.map((m) => ({ ...m, role: r.role, roleMedian: r.median })),
   );
 
-  const chartItems = staffRoles.map((r) => ({
-    label: `${r.role} (${r.count})`,
-    value: Math.round(r.avg),
-    display: fmtCurrency(r.avg),
-  }));
-
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <PageHeader
@@ -161,9 +156,9 @@ export default async function EmpReportingPage() {
       {/* Average salary per role — bar chart */}
       <SectionCard
         title="Average salary by role"
-        description="Staff roles, highest average first. Number in parentheses is headcount."
+        description="Staff roles, highest average first. Click a role to see the employees counted in it."
       >
-        <BarList items={chartItems} />
+        <RoleSalaryChart roles={staffRoles} />
       </SectionCard>
 
       {/* Detailed grid */}

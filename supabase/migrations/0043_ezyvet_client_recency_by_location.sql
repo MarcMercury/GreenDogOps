@@ -1,32 +1,34 @@
 -- ---------------------------------------------------------------------------
 -- 0043 ezyVet client recency by location
 --
--- Splits the contact-base recency buckets (see 0040) across clinic locations,
--- so each cohort can be read per site. Powers the "Client recency by location"
--- grid on the Reporting → Clients tab, shown alongside the full-base recency.
+-- Splits the active client base into recency cohorts per clinic, so each site
+-- can be read on its own. Powers the "Client recency by location" grid on the
+-- Reporting → Clients tab, shown alongside the full-base recency (see 0040).
 --
--- Location attribution: each contact is pinned to the location of their most
--- recent invoice line (client_contact_code + line_date). Contacts with no
--- invoice line on file — including deep-recency clients whose last visit
--- predates the uploaded invoice window — fall into the "Other" column. Totals
--- therefore reconcile exactly with report_clients_by_recency (every contact is
--- counted once), but the deeper buckets concentrate in "Other" because those
--- contacts have no line-level location to attribute.
+-- Why visit-level rather than contact last_invoiced: clinic location lives only
+-- on invoice lines, which cover the uploaded export window (the trailing months
+-- of activity). A contact's deep last-invoiced date has no line-level location,
+-- so attributing the full multi-year recency by site would collapse every
+-- cohort past the window into "Other". Bucketing each client by their OWN most
+-- recent invoiced visit — and pinning them to that visit's location — keeps
+-- recency and location consistent and fully populated across clinics.
 --
--- Recency buckets mirror 0040 (mutually exclusive, one row per contact):
---   * 6 Mo        : last invoiced within the last 6 months
---   * 12 Mo       : last invoiced 6–12 months ago
---   * 24 Mo       : last invoiced 12–24 months ago
---   * 36 Mo       : last invoiced 24–36 months ago
---   * 48 Mo+      : last invoiced over 36 months ago
---   * Non-Clients : never invoiced (blank last-invoiced date and no spend)
+-- This view therefore covers clients seen within the upload window only; the
+-- companion report_clients_by_recency (0040) remains the full multi-year base.
+--
+-- Recency buckets (relative to current_date, mutually exclusive):
+--   * ≤1 Mo  : last seen within the last month
+--   * 1–3 Mo : last seen 1–3 months ago
+--   * 3–6 Mo : last seen 3–6 months ago
+--   * 6 Mo+  : last seen over 6 months ago (window edge)
 -- ---------------------------------------------------------------------------
 
 create or replace view greendogops.report_clients_by_recency_location as
-with latest_location as (
+with client_last as (
   select distinct on (client_contact_code)
     client_contact_code,
-    location_key
+    coalesce(nullif(location_key, ''), 'other') as location_key,
+    line_date
   from greendogops.ezyvet_invoice_line
   where client_contact_code is not null and client_contact_code <> ''
     and line_date is not null
@@ -34,27 +36,25 @@ with latest_location as (
 ),
 classified as (
   select
-    coalesce(nullif(ll.location_key, ''), 'other') as location_key,
-    c.revenue_spend_ytd,
+    cl.client_contact_code,
+    cl.location_key,
+    coalesce(c.revenue_spend_ytd, 0) as revenue_ytd,
     case
-      when c.last_invoiced is null and coalesce(c.revenue_spend_ytd, 0) = 0 then 6
-      when c.last_invoiced >= (current_date - interval '6 months')    then 1
-      when c.last_invoiced >= (current_date - interval '12 months')   then 2
-      when c.last_invoiced >= (current_date - interval '24 months')   then 3
-      when c.last_invoiced >= (current_date - interval '36 months')   then 4
-      else                                                                 5
+      when cl.line_date >= current_date - interval '1 month'  then 1
+      when cl.line_date >= current_date - interval '3 months' then 2
+      when cl.line_date >= current_date - interval '6 months' then 3
+      else                                                         4
     end as sort_order
-  from greendogops.ezyvet_contact c
-  left join latest_location ll on ll.client_contact_code = c.contact_code
+  from client_last cl
+  left join greendogops.ezyvet_contact c
+    on c.contact_code = cl.client_contact_code
 ),
 buckets (sort_order, bucket, label) as (
   values
-    (1, 'm6',  '6 Mo'),
-    (2, 'm12', '12 Mo'),
-    (3, 'm24', '24 Mo'),
-    (4, 'm36', '36 Mo'),
-    (5, 'm48', '48 Mo+'),
-    (6, 'non', 'Non-Clients')
+    (1, 'm1',  '≤1 Mo'),
+    (2, 'm3',  '1–3 Mo'),
+    (3, 'm6',  '3–6 Mo'),
+    (4, 'm6p', '6 Mo+')
 ),
 location_dim (location_key, location_label, location_order) as (
   values
@@ -70,8 +70,8 @@ select
   b.sort_order,
   b.bucket,
   b.label,
-  count(c.sort_order)::int                      as contacts,
-  coalesce(sum(c.revenue_spend_ytd), 0)         as revenue_ytd
+  count(c.client_contact_code)::int             as contacts,
+  coalesce(sum(c.revenue_ytd), 0)               as revenue_ytd
 from location_dim d
 cross join buckets b
 left join classified c

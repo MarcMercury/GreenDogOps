@@ -53,6 +53,14 @@ const RECENCY_COLORS: Record<string, string> = {
   non: "#94a3b8",
 };
 
+/** Colors for the visit-recency buckets used in the by-location grid. */
+const RECENCY_GRID_COLORS: Record<string, string> = {
+  m1: "#10b981",
+  m3: "#22c55e",
+  m6: "#eab308",
+  m6p: "#f97316",
+};
+
 function pct(part: number, whole: number): string {
   if (!whole) return "0%";
   return `${Math.round((part / whole) * 100)}%`;
@@ -370,7 +378,7 @@ function ClientRecencyLocationMatrix({
                 <span className="inline-flex items-center gap-1.5">
                   <span
                     className="inline-block h-2 w-2 rounded-sm"
-                    style={{ backgroundColor: RECENCY_COLORS[b.key] ?? "#10b981" }}
+                    style={{ backgroundColor: RECENCY_GRID_COLORS[b.key] ?? "#10b981" }}
                   />
                   {b.label}
                 </span>
@@ -904,6 +912,13 @@ export function ReportingTabs(props: ReportingTabsProps) {
                     color: RECENCY_COLORS[r.bucket] ?? "#10b981",
                   }))}
                 />
+              </SectionCard>
+
+              <SectionCard
+                title="Client recency by location"
+                description="Clients seen within the uploaded invoice window, bucketed by how recently they last visited and split by that visit's clinic."
+              >
+                <ClientRecencyLocationMatrix rows={clientRecencyLocation} />
               </SectionCard>
 
               <SectionCard
