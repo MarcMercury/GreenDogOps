@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, recordAudit } from "@/lib/auth/session";
 import {
@@ -143,6 +144,182 @@ export async function revokeAccess(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/admin/users");
+}
+
+// ── Roster matching ───────────────────────────────────────────────────────
+
+/** Job title + display name pulled from a roster person, for syncing onto a login. */
+async function rosterIdentity(
+  admin: ReturnType<typeof createAdminClient>,
+  personId: string,
+): Promise<{ name: string | null; title: string | null } | null> {
+  const { data: personRow } = await admin
+    .from("person")
+    .select("id, full_name, first_name, last_name")
+    .eq("id", personId)
+    .maybeSingle();
+  if (!personRow) return null;
+  const p = personRow as {
+    full_name: string | null;
+    first_name: string | null;
+    last_name: string | null;
+  };
+  const name =
+    p.full_name ||
+    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+    null;
+
+  const { data: empRow } = await admin
+    .from("person_employment")
+    .select("adp_job_title, offer_title")
+    .eq("person_id", personId)
+    .maybeSingle();
+  const emp = empRow as {
+    adp_job_title: string | null;
+    offer_title: string | null;
+  } | null;
+  const title = emp?.adp_job_title ?? emp?.offer_title ?? null;
+
+  return { name, title };
+}
+
+/** Link (or unlink) a login account to a roster profile, syncing name + title. */
+export async function linkUserToPerson(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  const personId = String(formData.get("person_id") ?? "").trim();
+  if (!id) return;
+
+  const admin = createAdminClient();
+
+  if (!personId) {
+    await admin.from("app_user").update({ person_id: null }).eq("id", id);
+    await recordAudit({
+      actorId: current.authId,
+      actorEmail: current.email,
+      action: "user.roster_unlinked",
+      entity: "app_user",
+      entityId: id,
+      summary: `Unlinked user ${id} from roster profile`,
+    });
+    revalidatePath("/admin/users");
+    redirect(`/admin/users/${id}?roster=unlinked`);
+  }
+
+  const identity = await rosterIdentity(admin, personId);
+  if (!identity) redirect(`/admin/users/${id}?roster=notfound`);
+
+  const { error } = await admin
+    .from("app_user")
+    .update({
+      person_id: personId,
+      full_name: identity!.name,
+      title: identity!.title,
+    })
+    .eq("id", id);
+
+  if (error) {
+    // Most likely the partial-unique index: this person already has a login.
+    redirect(`/admin/users/${id}?roster=conflict`);
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "user.roster_linked",
+    entity: "app_user",
+    entityId: id,
+    summary: `Linked user ${id} to roster profile ${personId}`,
+    metadata: { person_id: personId },
+  });
+
+  revalidatePath("/admin/users");
+  revalidatePath(`/admin/users/${id}`);
+  redirect(`/admin/users/${id}?roster=linked`);
+}
+
+/** Auto-match every unlinked login to its roster profile by unique email. */
+export async function autoMatchUsersToRoster(): Promise<void> {
+  const current = await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: usersData } = await admin
+    .from("app_user")
+    .select("id, email, person_id");
+  const users = (usersData ?? []) as Array<{
+    id: string;
+    email: string | null;
+    person_id: string | null;
+  }>;
+
+  let matched = 0;
+  for (const u of users) {
+    if (u.person_id || !u.email) continue;
+
+    const { data: matches } = await admin
+      .from("person")
+      .select("id")
+      .ilike("email", u.email);
+    if (!matches || matches.length !== 1) continue;
+
+    const personId = (matches[0] as { id: string }).id;
+    const identity = await rosterIdentity(admin, personId);
+
+    const { error } = await admin
+      .from("app_user")
+      .update({
+        person_id: personId,
+        full_name: identity?.name ?? null,
+        title: identity?.title ?? null,
+      })
+      .eq("id", u.id);
+    if (!error) matched += 1;
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "user.roster_auto_matched",
+    entity: "app_user",
+    summary: `Auto-matched ${matched} login(s) to roster profiles by email`,
+    metadata: { matched },
+  });
+
+  revalidatePath("/admin/users");
+  redirect(`/admin/users?match=${matched}`);
+}
+
+// ── Password management ────────────────────────────────────────────────────
+
+/** Set a new password for a user's shared auth account (admin reset). */
+export async function resetUserPassword(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  const password = String(formData.get("password") ?? "");
+  if (!id) return;
+
+  if (password.length < 8) {
+    redirect(`/admin/users/${id}?pw=short`);
+  }
+
+  const admin = createAdminClient();
+  const { error } = await admin.auth.admin.updateUserById(id, { password });
+  if (error) {
+    redirect(`/admin/users/${id}?pw=error`);
+  }
+
+  // Never log the password itself.
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "user.password_reset",
+    entity: "app_user",
+    entityId: id,
+    summary: `Reset password for user ${id}`,
+  });
+
+  revalidatePath(`/admin/users/${id}`);
+  redirect(`/admin/users/${id}?pw=ok`);
 }
 
 /**
