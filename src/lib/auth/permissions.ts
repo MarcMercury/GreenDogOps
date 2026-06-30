@@ -4,6 +4,7 @@
 export type AppRole =
   | "owner"
   | "admin"
+  | "executive"
   | "manager"
   | "schedule_admin"
   | "staff";
@@ -11,6 +12,7 @@ export type AppRole =
 export const APP_ROLES: AppRole[] = [
   "owner",
   "admin",
+  "executive",
   "manager",
   "schedule_admin",
   "staff",
@@ -19,6 +21,7 @@ export const APP_ROLES: AppRole[] = [
 export const ROLE_LABELS: Record<AppRole, string> = {
   owner: "Owner",
   admin: "Admin",
+  executive: "Executive",
   manager: "Manager/HR",
   schedule_admin: "Schedule Admin",
   staff: "Staff",
@@ -27,6 +30,8 @@ export const ROLE_LABELS: Record<AppRole, string> = {
 export const ROLE_DESCRIPTIONS: Record<AppRole, string> = {
   owner: "Full control, including billing, other owners, and the Admin panel.",
   admin: "Full control of users, settings, and every module.",
+  executive:
+    "View and edit every module except the Admin panel; can view all compensation.",
   manager:
     "Manage and edit everything except the Admin panel; can view all compensation.",
   schedule_admin:
@@ -98,9 +103,13 @@ const ADMIN_ONLY_MODULES: ModuleKey[] = [
 const NON_ADMIN_MODULES = ALL_MODULES.filter(
   (m) => !ADMIN_ONLY_MODULES.includes(m),
 );
+// Executives see and edit everything except the Admin panel — including the
+// admin-only Reporting / Emp Reporting pages that other non-admins can't see.
+const EXECUTIVE_MODULES = ALL_MODULES.filter((m) => m !== "admin");
 const ROLE_DEFAULT_MODULES: Record<AppRole, ModuleKey[]> = {
   owner: ALL_MODULES,
   admin: ALL_MODULES,
+  executive: EXECUTIVE_MODULES,
   manager: NON_ADMIN_MODULES,
   schedule_admin: NON_ADMIN_MODULES,
   staff: NON_ADMIN_MODULES,
@@ -126,11 +135,16 @@ export function isAdminRole(role: AppRole): boolean {
 }
 
 /**
- * Roles that may edit general (non-schedule) modules: Owner, Admin, and
- * Manager/HR. Staff and Schedule Admins are read-only outside the Schedule.
+ * Roles that may edit general (non-schedule) modules: Owner, Admin, Executive,
+ * and Manager/HR. Staff and Schedule Admins are read-only outside the Schedule.
  */
 export function isEditorRole(role: AppRole): boolean {
-  return role === "owner" || role === "admin" || role === "manager";
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "executive" ||
+    role === "manager"
+  );
 }
 
 /**

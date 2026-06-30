@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/auth/session";
+import { isEditorRole } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   POLICY_CATEGORIES,
@@ -10,7 +11,7 @@ import { PoliciesLibrary } from "./policies-library";
 export default async function ResourcesPoliciesPage() {
   const current = await requireUser();
   const role = current.appUser.role;
-  const canUpload = role === "owner" || role === "admin" || role === "manager";
+  const canUpload = isEditorRole(role);
 
   const admin = createAdminClient();
   const { data } = await admin
