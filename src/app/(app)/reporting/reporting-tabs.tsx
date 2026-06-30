@@ -15,8 +15,8 @@ import type {
   StaffBreakdown,
   ClientSummary,
   ClientsByMonthRow,
-  ClientGroupRow,
   ClientRecencyRow,
+  SpeciesPatientsRow,
   LocationKey,
 } from "@/lib/reporting/types";
 import { LOCATION_COLORS, SPECIES_COLORS } from "@/lib/reporting/types";
@@ -70,9 +70,8 @@ export interface ReportingTabsProps {
   staffByLocation: StaffLocationRow[];
   clientSummary: ClientSummary | null;
   clientsByMonth: ClientsByMonthRow[];
-  clientGroups: ClientGroupRow[];
-  clientDivisions: ClientGroupRow[];
   clientRecency: ClientRecencyRow[];
+  speciesPatients: SpeciesPatientsRow[];
   hasClientData: boolean;
 }
 
@@ -170,9 +169,8 @@ export function ReportingTabs(props: ReportingTabsProps) {
     staffByLocation,
     clientSummary,
     clientsByMonth,
-    clientGroups,
-    clientDivisions,
     clientRecency,
+    speciesPatients,
     hasClientData,
   } = props;
 
@@ -612,17 +610,6 @@ export function ReportingTabs(props: ReportingTabsProps) {
                   sub={`${fmtNumber(clientSummary?.active_contacts)} active`}
                 />
                 <StatCard
-                  label="Customers"
-                  value={fmtNumber(clientSummary?.customers)}
-                  accent="indigo"
-                />
-                <StatCard
-                  label="Revenue YTD"
-                  value={fmtCurrency(clientSummary?.total_revenue_ytd)}
-                  accent="emerald"
-                  sub={`${fmtCurrency(clientSummary?.avg_revenue_ytd)} avg/customer`}
-                />
-                <StatCard
                   label="New (latest month)"
                   value={fmtNumber(recentClients)}
                   accent="sky"
@@ -698,33 +685,19 @@ export function ReportingTabs(props: ReportingTabsProps) {
                   />
                 </SectionCard>
                 <SectionCard
-                  title="By customer group"
-                  description="Contact counts and YTD revenue per group."
+                  title="Patients by species"
+                  description="Distinct patients seen per species, from the uploaded invoice window."
                 >
                   <BarList
-                    items={clientGroups.map((g) => ({
-                      label: g.customer_group ?? "Ungrouped",
-                      value: g.contacts,
-                      display: `${fmtNumber(g.contacts)} · ${fmtCurrency(g.revenue_ytd)}`,
-                      color: "#6366f1",
+                    items={speciesPatients.map((s) => ({
+                      label: s.species_group,
+                      value: s.patients,
+                      display: `${fmtNumber(s.patients)} pets · ${fmtNumber(s.clients)} clients`,
+                      color: SPECIES_COLORS[s.species_group as keyof typeof SPECIES_COLORS] ?? "#6366f1",
                     }))}
                   />
                 </SectionCard>
               </div>
-
-              <SectionCard
-                title="By division"
-                description="YTD revenue and contacts per division."
-              >
-                <BarList
-                  items={clientDivisions.map((g) => ({
-                    label: g.division ?? "Unassigned",
-                    value: g.revenue_ytd,
-                    display: `${fmtCurrency(g.revenue_ytd)} · ${fmtNumber(g.contacts)} contacts`,
-                    color: "#f59e0b",
-                  }))}
-                />
-              </SectionCard>
             </>
           )}
         </div>

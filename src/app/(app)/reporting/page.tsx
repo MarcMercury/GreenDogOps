@@ -18,8 +18,8 @@ import type {
   StaffLocationRow,
   ClientSummary,
   ClientsByMonthRow,
-  ClientGroupRow,
   ClientRecencyRow,
+  SpeciesPatientsRow,
   InvoiceImportRow,
 } from "@/lib/reporting/types";
 import { PageHeader } from "../_components/ui";
@@ -92,9 +92,8 @@ export default async function ReportingPage({
     staffByLocationRes,
     clientSummaryRes,
     clientsByMonthRes,
-    clientGroupRes,
-    clientDivisionRes,
     clientRecencyRes,
+    speciesPatientsRes,
     importsRes,
   ] = await Promise.all([
     supabase.from("report_overview").select("*").eq("year", selectedYear).maybeSingle(),
@@ -109,9 +108,8 @@ export default async function ReportingPage({
     supabase.from("report_staff_by_location").select("*").eq("year", selectedYear),
     supabase.from("report_client_summary").select("*").maybeSingle(),
     supabase.from("report_clients_by_month").select("*"),
-    supabase.from("report_clients_by_group").select("*").limit(10),
-    supabase.from("report_clients_by_division").select("*").limit(10),
     supabase.from("report_clients_by_recency").select("*"),
+    supabase.from("report_patients_by_species").select("*"),
     supabase
       .from("ezyvet_invoice_import")
       .select("*")
@@ -131,9 +129,8 @@ export default async function ReportingPage({
   const staffByLocation = (staffByLocationRes.data ?? []) as StaffLocationRow[];
   const clientSummary = (clientSummaryRes.data as ClientSummary | null) ?? null;
   const clientsByMonth = (clientsByMonthRes.data ?? []) as ClientsByMonthRow[];
-  const clientGroups = (clientGroupRes.data ?? []) as ClientGroupRow[];
-  const clientDivisions = (clientDivisionRes.data ?? []) as ClientGroupRow[];
   const clientRecency = (clientRecencyRes.data ?? []) as ClientRecencyRow[];
+  const speciesPatients = (speciesPatientsRes.data ?? []) as SpeciesPatientsRow[];
   const imports = (importsRes.data ?? []) as InvoiceImportRow[];
 
   const hasInvoiceData = (overview?.total_lines ?? 0) > 0;
@@ -189,9 +186,8 @@ export default async function ReportingPage({
             staffByLocation={staffByLocation}
             clientSummary={clientSummary}
             clientsByMonth={clientsByMonth}
-            clientGroups={clientGroups}
-            clientDivisions={clientDivisions}
             clientRecency={clientRecency}
+            speciesPatients={speciesPatients}
             hasClientData={hasClientData}
           />
         </>

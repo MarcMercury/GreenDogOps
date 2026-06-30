@@ -211,6 +211,13 @@ export interface ClientRecencyRow {
   revenue_ytd: number;
 }
 
+export interface SpeciesPatientsRow {
+  species_group: string;
+  patients: number;
+  clients: number;
+  last_visit: string | null;
+}
+
 export interface InvoiceImportRow {
   id: string;
   filename: string | null;
