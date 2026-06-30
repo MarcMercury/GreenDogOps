@@ -16,6 +16,7 @@ import type {
   ClientSummary,
   ClientsByMonthRow,
   ClientGroupRow,
+  ClientRecencyRow,
   LocationKey,
 } from "@/lib/reporting/types";
 import { LOCATION_COLORS, SPECIES_COLORS } from "@/lib/reporting/types";
@@ -40,6 +41,21 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "clients", label: "Clients" },
 ];
 
+/** Bar colors for the client recency buckets (fresh → stale → non-client). */
+const RECENCY_COLORS: Record<string, string> = {
+  m6: "#10b981",
+  m12: "#22c55e",
+  m24: "#eab308",
+  m36: "#f97316",
+  m48: "#ef4444",
+  non: "#94a3b8",
+};
+
+function pct(part: number, whole: number): string {
+  if (!whole) return "0%";
+  return `${Math.round((part / whole) * 100)}%`;
+}
+
 export interface ReportingTabsProps {
   year: number;
   overview: ReportOverview | null;
@@ -56,6 +72,7 @@ export interface ReportingTabsProps {
   clientsByMonth: ClientsByMonthRow[];
   clientGroups: ClientGroupRow[];
   clientDivisions: ClientGroupRow[];
+  clientRecency: ClientRecencyRow[];
   hasClientData: boolean;
 }
 
@@ -155,6 +172,7 @@ export function ReportingTabs(props: ReportingTabsProps) {
     clientsByMonth,
     clientGroups,
     clientDivisions,
+    clientRecency,
     hasClientData,
   } = props;
 
@@ -190,6 +208,12 @@ export function ReportingTabs(props: ReportingTabsProps) {
   }));
 
   const recentClients = clientsByMonth.slice(-1)[0]?.new_clients ?? 0;
+
+  const nonClients = clientRecency
+    .filter((r) => r.bucket === "non")
+    .reduce((s, r) => s + r.contacts, 0);
+  const totalClassified = clientRecency.reduce((s, r) => s + r.contacts, 0);
+  const activeClients = totalClassified - nonClients;
 
   return (
     <div className="space-y-6">
@@ -604,6 +628,35 @@ export function ReportingTabs(props: ReportingTabsProps) {
                   accent="sky"
                 />
               </div>
+
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                <StatCard
+                  label="Active Clients"
+                  value={fmtNumber(activeClients)}
+                  accent="emerald"
+                  sub={`${pct(activeClients, totalClassified)} of base`}
+                />
+                <StatCard
+                  label="Non-Clients"
+                  value={fmtNumber(nonClients)}
+                  accent="slate"
+                  sub="Blank or $0 account spend"
+                />
+              </div>
+
+              <SectionCard
+                title="Client recency"
+                description="Active clients bucketed by how recently they were last invoiced. Non-Clients have a blank or $0 account spend."
+              >
+                <BarList
+                  items={clientRecency.map((r) => ({
+                    label: r.label,
+                    value: r.contacts,
+                    display: `${fmtNumber(r.contacts)} · ${pct(r.contacts, totalClassified)}`,
+                    color: RECENCY_COLORS[r.bucket] ?? "#10b981",
+                  }))}
+                />
+              </SectionCard>
 
               <SectionCard
                 title="New clients by month"

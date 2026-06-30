@@ -203,6 +203,14 @@ export interface ClientGroupRow {
   revenue_ytd: number;
 }
 
+export interface ClientRecencyRow {
+  sort_order: number;
+  bucket: string;
+  label: string;
+  contacts: number;
+  revenue_ytd: number;
+}
+
 export interface InvoiceImportRow {
   id: string;
   filename: string | null;
