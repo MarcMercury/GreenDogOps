@@ -106,16 +106,22 @@ export default async function UserDetailPage({
     email: string | null;
     status: string;
   }>;
+  const personName = (p: (typeof people)[number]): string =>
+    p.full_name ||
+    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+    "Unnamed";
   const personOption = (p: (typeof people)[number]): string => {
-    const name =
-      p.full_name ||
-      [p.first_name, p.last_name].filter(Boolean).join(" ") ||
-      "Unnamed";
-    const bits = [name];
+    const bits = [personName(p)];
     if (p.email) bits.push(p.email);
     bits.push(p.status);
     return bits.join(" · ");
   };
+  // Sort alphabetically by the displayed name so the picker reads A→Z.
+  people.sort((a, b) =>
+    personName(a).localeCompare(personName(b), undefined, {
+      sensitivity: "base",
+    }),
+  );
 
   const rosterBanner = roster ? ROSTER_BANNERS[roster] : undefined;
   const pwBanner = pw ? PW_BANNERS[pw] : undefined;
