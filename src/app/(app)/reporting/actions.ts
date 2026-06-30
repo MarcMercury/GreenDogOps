@@ -161,6 +161,9 @@ export async function finalizeInvoiceImport(
     })
     .eq("id", importId);
 
+  // Rebuild the materialized reporting roll-ups so the page reflects this import.
+  await admin.rpc("refresh_ezyvet_reporting");
+
   revalidatePath("/reporting");
   return {
     ok: true,
@@ -182,6 +185,7 @@ export async function deleteInvoiceImport(importId: string): Promise<ActionResul
     .delete()
     .eq("id", importId);
   if (error) return { ok: false, error: error.message };
+  await admin.rpc("refresh_ezyvet_reporting");
   revalidatePath("/reporting");
   return { ok: true, message: "Import removed." };
 }
@@ -200,6 +204,7 @@ export async function resetInvoiceData(): Promise<ActionResult> {
     .delete()
     .not("id", "is", null);
   if (e2) return { ok: false, error: e2.message };
+  await admin.rpc("refresh_ezyvet_reporting");
   revalidatePath("/reporting");
   return { ok: true, message: "All invoice reporting data cleared." };
 }
