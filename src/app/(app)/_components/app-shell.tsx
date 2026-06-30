@@ -61,6 +61,7 @@ const MODULES_BOTTOM: NavItem[] = [
 /** Business development modules, after Operations. */
 const BIZ_DEV: NavItem[] = [
   { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
+  { key: "emp_reporting", href: "/emp-reporting", label: "Emp Reporting", icon: "💰" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 

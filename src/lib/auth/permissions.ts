@@ -47,6 +47,7 @@ export type ModuleKey =
   | "crm_ce"
   | "crm_influencer"
   | "reporting"
+  | "emp_reporting"
   | "ezyvet"
   | "planning"
   | "schedule"
@@ -71,6 +72,7 @@ export const MODULES: ModuleDef[] = [
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
   { key: "ezyvet", label: "ezyVet CRM", href: "/ezyvet" },
   { key: "reporting", label: "Reporting", href: "/reporting" },
+  { key: "emp_reporting", label: "Emp Reporting", href: "/emp-reporting" },
   { key: "planning", label: "Planning Guides", href: "/planning" },
   { key: "schedule", label: "Scheduling", href: "/schedule" },
   { key: "resources", label: "Resources", href: "/resources" },
@@ -80,9 +82,14 @@ export const MODULES: ModuleDef[] = [
 const ALL_MODULES = MODULES.map((m) => m.key);
 
 // Modules only Owners/Admins can see by default. The Admin panel and the
-// Biz Dev "Reporting" page are admin-only; an admin can still grant Reporting
-// to a specific user via a per-user module_access override.
-const ADMIN_ONLY_MODULES: ModuleKey[] = ["admin", "reporting"];
+// Biz Dev "Reporting" / "Emp Reporting" pages are admin-only; an admin can
+// still grant them to a specific user via a per-user module_access override.
+// Emp Reporting exposes payroll/compensation, so it is admin-only.
+const ADMIN_ONLY_MODULES: ModuleKey[] = [
+  "admin",
+  "reporting",
+  "emp_reporting",
+];
 
 // Default module access per role. Used when a user has no explicit override.
 // Everyone except owners/admins is locked out of admin-only modules. Managers,

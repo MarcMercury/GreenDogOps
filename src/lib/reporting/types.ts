@@ -211,11 +211,31 @@ export interface ClientRecencyRow {
   revenue_ytd: number;
 }
 
+export interface ClientRecencyLocationRow {
+  location_key: LocationKey;
+  location_label: string;
+  location_order: number;
+  sort_order: number;
+  bucket: string;
+  label: string;
+  contacts: number;
+  revenue_ytd: number;
+}
+
 export interface SpeciesPatientsRow {
   species_group: string;
   patients: number;
   clients: number;
   last_visit: string | null;
+}
+
+export interface SpeciesRecencyRow {
+  species_group: string;
+  sort_order: number;
+  bucket: string;
+  label: string;
+  patients: number;
+  clients: number;
 }
 
 export interface InvoiceImportRow {

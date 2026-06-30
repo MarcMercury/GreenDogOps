@@ -19,7 +19,9 @@ import type {
   ClientSummary,
   ClientsByMonthRow,
   ClientRecencyRow,
+  ClientRecencyLocationRow,
   SpeciesPatientsRow,
+  SpeciesRecencyRow,
   InvoiceImportRow,
 } from "@/lib/reporting/types";
 import { PageHeader } from "../_components/ui";
@@ -93,7 +95,9 @@ export default async function ReportingPage({
     clientSummaryRes,
     clientsByMonthRes,
     clientRecencyRes,
+    clientRecencyLocationRes,
     speciesPatientsRes,
+    speciesRecencyRes,
     importsRes,
   ] = await Promise.all([
     supabase.from("report_overview").select("*").eq("year", selectedYear).maybeSingle(),
@@ -109,7 +113,9 @@ export default async function ReportingPage({
     supabase.from("report_client_summary").select("*").maybeSingle(),
     supabase.from("report_clients_by_month").select("*"),
     supabase.from("report_clients_by_recency").select("*"),
+    supabase.from("report_clients_by_recency_location").select("*"),
     supabase.from("report_patients_by_species").select("*"),
+    supabase.from("report_species_by_recency").select("*"),
     supabase
       .from("ezyvet_invoice_import")
       .select("*")
@@ -130,7 +136,9 @@ export default async function ReportingPage({
   const clientSummary = (clientSummaryRes.data as ClientSummary | null) ?? null;
   const clientsByMonth = (clientsByMonthRes.data ?? []) as ClientsByMonthRow[];
   const clientRecency = (clientRecencyRes.data ?? []) as ClientRecencyRow[];
+  const clientRecencyLocation = (clientRecencyLocationRes.data ?? []) as ClientRecencyLocationRow[];
   const speciesPatients = (speciesPatientsRes.data ?? []) as SpeciesPatientsRow[];
+  const speciesRecency = (speciesRecencyRes.data ?? []) as SpeciesRecencyRow[];
   const imports = (importsRes.data ?? []) as InvoiceImportRow[];
 
   const hasInvoiceData = (overview?.total_lines ?? 0) > 0;
@@ -187,7 +195,9 @@ export default async function ReportingPage({
             clientSummary={clientSummary}
             clientsByMonth={clientsByMonth}
             clientRecency={clientRecency}
+            clientRecencyLocation={clientRecencyLocation}
             speciesPatients={speciesPatients}
+            speciesRecency={speciesRecency}
             hasClientData={hasClientData}
           />
         </>

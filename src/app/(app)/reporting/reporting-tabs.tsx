@@ -16,7 +16,9 @@ import type {
   ClientSummary,
   ClientsByMonthRow,
   ClientRecencyRow,
+  ClientRecencyLocationRow,
   SpeciesPatientsRow,
+  SpeciesRecencyRow,
   LocationKey,
 } from "@/lib/reporting/types";
 import { LOCATION_COLORS, SPECIES_COLORS } from "@/lib/reporting/types";
@@ -71,7 +73,9 @@ export interface ReportingTabsProps {
   clientSummary: ClientSummary | null;
   clientsByMonth: ClientsByMonthRow[];
   clientRecency: ClientRecencyRow[];
+  clientRecencyLocation: ClientRecencyLocationRow[];
   speciesPatients: SpeciesPatientsRow[];
+  speciesRecency: SpeciesRecencyRow[];
   hasClientData: boolean;
 }
 
@@ -153,6 +157,264 @@ function LocationMatrix({
   );
 }
 
+/** Species × recency matrix: patient counts per species per last-visit bucket. */
+function SpeciesRecencyMatrix({ rows }: { rows: SpeciesRecencyRow[] }) {
+  if (rows.length === 0)
+    return <p className="text-xs text-slate-400">No data yet.</p>;
+
+  // Recency buckets (columns), in display order, dropping any that are empty
+  // across every species (e.g. the window-edge "6 Mo+" when there is no data).
+  const bucketTotals = new Map<string, { label: string; order: number; total: number }>();
+  for (const r of rows) {
+    const b = bucketTotals.get(r.bucket) ?? {
+      label: r.label,
+      order: r.sort_order,
+      total: 0,
+    };
+    b.total += r.patients;
+    bucketTotals.set(r.bucket, b);
+  }
+  const buckets = [...bucketTotals.entries()]
+    .filter(([, b]) => b.total > 0)
+    .sort((a, b) => a[1].order - b[1].order)
+    .map(([key, b]) => ({ key, label: b.label }));
+
+  // Species rows, dropping any species with no patients in the window.
+  const speciesKeys = [...new Set(rows.map((r) => r.species_group))].filter(
+    (sp) => rows.some((r) => r.species_group === sp && r.patients > 0),
+  );
+
+  const cell = (sp: string, bucket: string): number =>
+    rows.find((r) => r.species_group === sp && r.bucket === bucket)?.patients ?? 0;
+
+  const colTotal = (bucket: string): number =>
+    rows.filter((r) => r.bucket === bucket).reduce((s, r) => s + r.patients, 0);
+  const rowTotal = (sp: string): number =>
+    rows.filter((r) => r.species_group === sp).reduce((s, r) => s + r.patients, 0);
+  const grandTotal = rows.reduce((s, r) => s + r.patients, 0);
+
+  if (speciesKeys.length === 0 || buckets.length === 0)
+    return <p className="text-xs text-slate-400">No data yet.</p>;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[480px] border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left">
+            <th className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Species
+            </th>
+            {buckets.map((b) => (
+              <th
+                key={b.key}
+                className="px-2 py-2 text-right text-xs font-semibold text-slate-500"
+              >
+                {b.label}
+              </th>
+            ))}
+            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
+              Total
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {speciesKeys.map((sp) => (
+            <tr key={sp} className="border-b border-slate-100">
+              <td className="py-2 pr-3 font-medium text-slate-700">
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 rounded-sm"
+                    style={{
+                      backgroundColor:
+                        SPECIES_COLORS[sp as keyof typeof SPECIES_COLORS] ??
+                        "#94a3b8",
+                    }}
+                  />
+                  {sp}
+                </span>
+              </td>
+              {buckets.map((b) => {
+                const v = cell(sp, b.key);
+                return (
+                  <td
+                    key={b.key}
+                    className="px-2 py-2 text-right tabular-nums text-slate-600"
+                  >
+                    {v > 0 ? fmtNumber(v) : "—"}
+                  </td>
+                );
+              })}
+              <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">
+                {fmtNumber(rowTotal(sp))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-slate-200">
+            <td className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Total
+            </td>
+            {buckets.map((b) => (
+              <td
+                key={b.key}
+                className="px-2 py-2 text-right font-semibold tabular-nums text-slate-700"
+              >
+                {fmtNumber(colTotal(b.key))}
+              </td>
+            ))}
+            <td className="px-2 py-2 text-right font-bold tabular-nums text-slate-900">
+              {fmtNumber(grandTotal)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+/** Recency buckets (rows) × clinic locations (columns) contact counts. */
+function ClientRecencyLocationMatrix({
+  rows,
+}: {
+  rows: ClientRecencyLocationRow[];
+}) {
+  if (rows.length === 0)
+    return <p className="text-xs text-slate-400">No data yet.</p>;
+
+  // Location columns, in their canonical order, dropping any with no contacts.
+  const locMap = new Map<
+    LocationKey,
+    { label: string; order: number; total: number }
+  >();
+  for (const r of rows) {
+    const l = locMap.get(r.location_key) ?? {
+      label: r.location_label,
+      order: r.location_order,
+      total: 0,
+    };
+    l.total += r.contacts;
+    locMap.set(r.location_key, l);
+  }
+  const locations = [...locMap.entries()]
+    .filter(([, l]) => l.total > 0)
+    .sort((a, b) => a[1].order - b[1].order)
+    .map(([key, l]) => ({ key, label: l.label }));
+
+  // Recency rows, in bucket order, dropping any empty across every location.
+  const bucketMap = new Map<
+    string,
+    { label: string; order: number; total: number }
+  >();
+  for (const r of rows) {
+    const b = bucketMap.get(r.bucket) ?? {
+      label: r.label,
+      order: r.sort_order,
+      total: 0,
+    };
+    b.total += r.contacts;
+    bucketMap.set(r.bucket, b);
+  }
+  const buckets = [...bucketMap.entries()]
+    .filter(([, b]) => b.total > 0)
+    .sort((a, b) => a[1].order - b[1].order)
+    .map(([key, b]) => ({ key, label: b.label }));
+
+  const cell = (bucket: string, loc: LocationKey): number =>
+    rows.find((r) => r.bucket === bucket && r.location_key === loc)?.contacts ??
+    0;
+  const rowTotal = (bucket: string): number =>
+    rows.filter((r) => r.bucket === bucket).reduce((s, r) => s + r.contacts, 0);
+  const colTotal = (loc: LocationKey): number =>
+    rows
+      .filter((r) => r.location_key === loc)
+      .reduce((s, r) => s + r.contacts, 0);
+  const grandTotal = rows.reduce((s, r) => s + r.contacts, 0);
+
+  if (locations.length === 0 || buckets.length === 0)
+    return <p className="text-xs text-slate-400">No data yet.</p>;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[480px] border-collapse text-sm">
+        <thead>
+          <tr className="border-b border-slate-200 text-left">
+            <th className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Recency
+            </th>
+            {locations.map((l) => (
+              <th
+                key={l.key}
+                className="px-2 py-2 text-right text-xs font-semibold text-slate-500"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 rounded-sm"
+                    style={{
+                      backgroundColor: LOCATION_COLORS[l.key] ?? "#94a3b8",
+                    }}
+                  />
+                  {l.label}
+                </span>
+              </th>
+            ))}
+            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
+              Total
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {buckets.map((b) => (
+            <tr key={b.key} className="border-b border-slate-100">
+              <td className="py-2 pr-3 font-medium text-slate-700">
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 rounded-sm"
+                    style={{ backgroundColor: RECENCY_COLORS[b.key] ?? "#10b981" }}
+                  />
+                  {b.label}
+                </span>
+              </td>
+              {locations.map((l) => {
+                const v = cell(b.key, l.key);
+                return (
+                  <td
+                    key={l.key}
+                    className="px-2 py-2 text-right tabular-nums text-slate-600"
+                  >
+                    {v > 0 ? fmtNumber(v) : "—"}
+                  </td>
+                );
+              })}
+              <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">
+                {fmtNumber(rowTotal(b.key))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-slate-200">
+            <td className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Total
+            </td>
+            {locations.map((l) => (
+              <td
+                key={l.key}
+                className="px-2 py-2 text-right font-semibold tabular-nums text-slate-700"
+              >
+                {fmtNumber(colTotal(l.key))}
+              </td>
+            ))}
+            <td className="px-2 py-2 text-right font-bold tabular-nums text-slate-900">
+              {fmtNumber(grandTotal)}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
 export function ReportingTabs(props: ReportingTabsProps) {
   const [tab, setTab] = useState<TabKey>("revenue");
   const {
@@ -170,7 +432,9 @@ export function ReportingTabs(props: ReportingTabsProps) {
     clientSummary,
     clientsByMonth,
     clientRecency,
+    clientRecencyLocation,
     speciesPatients,
+    speciesRecency,
     hasClientData,
   } = props;
 
@@ -614,9 +878,6 @@ export function ReportingTabs(props: ReportingTabsProps) {
                   value={fmtNumber(recentClients)}
                   accent="sky"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatCard
                   label="Active Clients"
                   value={fmtNumber(activeClients)}
@@ -698,6 +959,13 @@ export function ReportingTabs(props: ReportingTabsProps) {
                   />
                 </SectionCard>
               </div>
+
+              <SectionCard
+                title="Species by recency"
+                description="Patients grouped by species and how recently each was last seen, within the uploaded invoice window."
+              >
+                <SpeciesRecencyMatrix rows={speciesRecency} />
+              </SectionCard>
             </>
           )}
         </div>
