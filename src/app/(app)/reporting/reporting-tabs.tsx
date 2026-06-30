@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type {
   ReportOverview,
   MonthlyRow,
@@ -12,12 +12,14 @@ import type {
   ProductLocationRow,
   StaffRow,
   StaffLocationRow,
+  StaffBreakdown,
   ClientSummary,
   ClientsByMonthRow,
   ClientGroupRow,
   LocationKey,
 } from "@/lib/reporting/types";
 import { LOCATION_COLORS, SPECIES_COLORS } from "@/lib/reporting/types";
+import { getStaffBreakdown } from "./actions";
 import {
   StatCard,
   SectionCard,
@@ -164,6 +166,11 @@ export function ReportingTabs(props: ReportingTabsProps) {
     null,
   );
 
+  const totalLocationAppts = locations.reduce(
+    (s, l) => s + Number(l.appointments),
+    0,
+  );
+
   const doctors = staff.filter((s) => s.is_vet);
   const supportStaff = staff.filter((s) => !s.is_vet);
 
@@ -256,6 +263,18 @@ export function ReportingTabs(props: ReportingTabsProps) {
           </SectionCard>
 
           <SectionCard
+            title="Monthly revenue by clinic"
+            description="Each clinic's revenue per month, on a shared scale for comparison."
+          >
+            <LocationMonthlyGrid
+              rows={locationMonthly}
+              locations={locations}
+              metric="revenue"
+              format={(n) => fmtCurrency(n)}
+            />
+          </SectionCard>
+
+          <SectionCard
             title="Revenue by clinic location"
             description="Total and average appointment value per location."
           >
@@ -297,15 +316,63 @@ export function ReportingTabs(props: ReportingTabsProps) {
             />
           </div>
 
+          {/* Default breakdown: appointments per clinic location. */}
           <SectionCard
-            title="Appointments by month"
-            description="Same client + same day + same clinic = one appointment."
+            title="Appointments by location"
+            description="Volume, share of total, and unique clients per clinic."
           >
-            <MonthlyBars
-              data={monthly as unknown as { month: string; [k: string]: string | number }[]}
-              valueKey="appointments"
+            <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {locations.map((l) => {
+                const share =
+                  totalLocationAppts > 0
+                    ? Math.round((l.appointments / totalLocationAppts) * 100)
+                    : 0;
+                return (
+                  <div
+                    key={l.location_key}
+                    className="rounded-xl border border-slate-200/80 bg-white p-3 shadow-sm"
+                  >
+                    <p className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-sm"
+                        style={{
+                          backgroundColor:
+                            LOCATION_COLORS[l.location_key as LocationKey] ??
+                            "#94a3b8",
+                        }}
+                      />
+                      {l.location_label}
+                    </p>
+                    <p className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+                      {fmtNumber(l.appointments)}
+                    </p>
+                    <p className="text-[11px] text-slate-500">
+                      {share}% of total · {fmtNumber(l.unique_clients)} clients
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            <BarList
+              items={locations.map((l) => ({
+                label: l.location_label,
+                value: l.appointments,
+                display: `${fmtNumber(l.appointments)} appts · ${fmtCurrency(l.avg_appointment_value)} avg`,
+                color: LOCATION_COLORS[l.location_key as LocationKey] ?? "#10b981",
+              }))}
+            />
+          </SectionCard>
+
+          {/* Per-location monthly trend, small multiples on a shared scale. */}
+          <SectionCard
+            title="Monthly appointments by location"
+            description="Each clinic's monthly trend, on a shared scale for comparison."
+          >
+            <LocationMonthlyGrid
+              rows={locationMonthly}
+              locations={locations}
+              metric="appointments"
               format={(n) => fmtNumber(n)}
-              color="#6366f1"
             />
           </SectionCard>
 
@@ -322,16 +389,14 @@ export function ReportingTabs(props: ReportingTabsProps) {
 
           <div className="grid gap-6 lg:grid-cols-2">
             <SectionCard
-              title="By clinic location"
-              description="Parsed from the invoice Department / Inventory Location."
+              title="All locations — monthly total"
+              description="Same client + same day + same clinic = one appointment."
             >
-              <BarList
-                items={locations.map((l) => ({
-                  label: l.location_label,
-                  value: l.appointments,
-                  display: `${fmtNumber(l.appointments)} appts · ${fmtNumber(l.unique_clients)} clients`,
-                  color: LOCATION_COLORS[l.location_key as LocationKey] ?? "#10b981",
-                }))}
+              <MonthlyBars
+                data={monthly as unknown as { month: string; [k: string]: string | number }[]}
+                valueKey="appointments"
+                format={(n) => fmtNumber(n)}
+                color="#6366f1"
               />
             </SectionCard>
             <SectionCard
@@ -615,9 +680,31 @@ export function ReportingTabs(props: ReportingTabsProps) {
 
 /** Staff production table shared by the Doctors and Support Staff sections. */
 function StaffTable({ rows }: { rows: StaffRow[] }) {
+  const [selected, setSelected] = useState<StaffRow | null>(null);
+  const [breakdown, setBreakdown] = useState<StaffBreakdown | null>(null);
+  const [loading, setLoading] = useState(false);
+
   if (rows.length === 0)
     return <p className="text-xs text-slate-400">No data yet.</p>;
   const max = Math.max(1, ...rows.map((r) => Number(r.revenue)));
+
+  async function openProvider(row: StaffRow) {
+    if (selected?.staff_member === row.staff_member) {
+      setSelected(null);
+      setBreakdown(null);
+      return;
+    }
+    setSelected(row);
+    setBreakdown(null);
+    setLoading(true);
+    try {
+      const data = await getStaffBreakdown(row.staff_member);
+      setBreakdown(data);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[520px] border-collapse text-sm">
@@ -641,36 +728,209 @@ function StaffTable({ rows }: { rows: StaffRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr
-              key={r.staff_member}
-              className="border-b border-slate-100 last:border-0"
-            >
-              <td className="py-2 pr-3">
-                <div className="font-medium text-slate-700">{r.staff_member}</div>
-                <div className="mt-1 h-1.5 w-full max-w-[180px] overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-emerald-500"
-                    style={{ width: `${(Number(r.revenue) / max) * 100}%` }}
-                  />
-                </div>
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums text-slate-600">
-                {fmtNumber(r.appointments)}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums text-slate-600">
-                {fmtNumber(r.consults)}
-              </td>
-              <td className="px-2 py-2 text-right tabular-nums text-slate-600">
-                {fmtNumber(r.line_count)}
-              </td>
-              <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">
-                {fmtCurrency(r.revenue)}
-              </td>
-            </tr>
-          ))}
+          {rows.map((r) => {
+            const isOpen = selected?.staff_member === r.staff_member;
+            return (
+              <Fragment key={r.staff_member}>
+                <tr
+                  className={`border-b border-slate-100 last:border-0 ${
+                    isOpen ? "bg-emerald-50/40" : ""
+                  }`}
+                >
+                  <td className="py-2 pr-3">
+                    <button
+                      type="button"
+                      onClick={() => openProvider(r)}
+                      className="text-left font-medium text-emerald-700 transition hover:text-emerald-800 hover:underline"
+                      aria-expanded={isOpen}
+                    >
+                      {r.staff_member}
+                      <span className="ml-1.5 text-[10px] text-slate-400">
+                        {isOpen ? "▾" : "▸"}
+                      </span>
+                    </button>
+                    <div className="mt-1 h-1.5 w-full max-w-[180px] overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full rounded-full bg-emerald-500"
+                        style={{ width: `${(Number(r.revenue) / max) * 100}%` }}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-slate-600">
+                    {fmtNumber(r.appointments)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-slate-600">
+                    {fmtNumber(r.consults)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-slate-600">
+                    {fmtNumber(r.line_count)}
+                  </td>
+                  <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">
+                    {fmtCurrency(r.revenue)}
+                  </td>
+                </tr>
+                {isOpen ? (
+                  <tr key={`${r.staff_member}-detail`}>
+                    <td colSpan={5} className="bg-slate-50/70 px-3 py-4">
+                      <StaffDetail
+                        row={r}
+                        breakdown={breakdown}
+                        loading={loading}
+                      />
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/** Drill-down panel: per-appointment averages + top groups/products. */
+function StaffDetail({
+  row,
+  breakdown,
+  loading,
+}: {
+  row: StaffRow;
+  breakdown: StaffBreakdown | null;
+  loading: boolean;
+}) {
+  const avgRevenue =
+    row.appointments > 0 ? Number(row.revenue) / row.appointments : 0;
+  const avgLines =
+    row.appointments > 0 ? Number(row.line_count) / row.appointments : 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          label="Revenue / Appt"
+          value={fmtCurrency(avgRevenue)}
+          accent="emerald"
+        />
+        <StatCard
+          label="Lines / Appt"
+          value={avgLines.toFixed(1)}
+          accent="indigo"
+          sub={`${fmtNumber(row.line_count)} lines`}
+        />
+        <StatCard
+          label="Appointments"
+          value={fmtNumber(row.appointments)}
+          accent="sky"
+          sub={`${fmtNumber(row.consults)} consults`}
+        />
+        <StatCard
+          label="Total Revenue"
+          value={fmtCurrency(row.revenue)}
+          accent="amber"
+        />
+      </div>
+
+      {loading ? (
+        <p className="text-xs text-slate-400">Loading breakdown…</p>
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Top product groups
+            </h4>
+            <BarList
+              items={(breakdown?.topGroups ?? []).map((g) => ({
+                label: g.product_group,
+                value: Number(g.revenue),
+                display: `${fmtCurrency(g.revenue)} · ${fmtNumber(g.line_count)} lines`,
+                color: "#6366f1",
+              }))}
+            />
+          </div>
+          <div>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              Top products / services
+            </h4>
+            <BarList
+              items={(breakdown?.topProducts ?? []).map((p) => ({
+                label: p.product_name,
+                value: Number(p.revenue),
+                display: `${fmtCurrency(p.revenue)} · ${fmtNumber(p.line_count)} lines`,
+                color: "#10b981",
+              }))}
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Small-multiples grid: one monthly trend chart per clinic location, all on a
+ * shared scale so volumes are directly comparable across clinics.
+ */
+function LocationMonthlyGrid({
+  rows,
+  locations,
+  metric,
+  format,
+}: {
+  rows: LocationMonthlyRow[];
+  locations: LocationRow[];
+  metric: "appointments" | "revenue";
+  format: (n: number) => string;
+}) {
+  if (rows.length === 0)
+    return <p className="text-xs text-slate-400">No data yet.</p>;
+
+  const months = [...new Set(rows.map((r) => r.month))].sort();
+  const sharedMax = Math.max(1, ...rows.map((r) => Number(r[metric] ?? 0)));
+
+  // Order locations by total volume of the displayed metric, largest first.
+  const ordered = [...locations].sort(
+    (a, b) => Number(b[metric]) - Number(a[metric]),
+  );
+
+  return (
+    <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
+      {ordered.map((l) => {
+        const color = LOCATION_COLORS[l.location_key as LocationKey] ?? "#10b981";
+        const series = months.map((m) => {
+          const found = rows.find(
+            (r) => r.location_key === l.location_key && r.month === m,
+          );
+          return { month: m, [metric]: found ? Number(found[metric]) : 0 };
+        });
+        const total = series.reduce((s, r) => s + Number(r[metric] ?? 0), 0);
+        return (
+          <div
+            key={l.location_key}
+            className="rounded-xl border border-slate-100 bg-slate-50/50 p-3"
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{ backgroundColor: color }}
+                />
+                {l.location_label}
+              </span>
+              <span className="text-[11px] tabular-nums text-slate-500">
+                {format(total)}
+              </span>
+            </div>
+            <MonthlyBars
+              data={series}
+              valueKey={metric}
+              format={format}
+              color={color}
+              max={sharedMax}
+            />
+          </div>
+        );
+      })}
     </div>
   );
 }

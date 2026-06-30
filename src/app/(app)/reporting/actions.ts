@@ -2,9 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin } from "@/lib/auth/session";
-import { canEditModule } from "@/lib/auth/permissions";
+import { canEditModule, canAccessModule } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { InvoiceLineInput } from "@/lib/reporting/types";
+import { createClient } from "@/lib/supabase/server";
+import type {
+  InvoiceLineInput,
+  StaffBreakdown,
+  StaffProductRow,
+  StaffProductGroupRow,
+} from "@/lib/reporting/types";
 
 export type ActionResult =
   | { ok: true; message: string }
@@ -16,6 +22,46 @@ async function requireReportingEditor() {
     throw new Error("You do not have permission to import reporting data.");
   }
   return current;
+}
+
+async function requireReportingAccess() {
+  const current = await requireUser();
+  if (!canAccessModule(current.appUser, "reporting")) {
+    throw new Error("You do not have access to reporting data.");
+  }
+  return current;
+}
+
+/**
+ * Per-provider drill-down for the Doctors/Staff tab: top product groups and
+ * top individual products (by revenue) for a single staff member.
+ */
+export async function getStaffBreakdown(
+  staffMember: string,
+): Promise<StaffBreakdown> {
+  await requireReportingAccess();
+  if (!staffMember || typeof staffMember !== "string") {
+    return { topGroups: [], topProducts: [] };
+  }
+  const supabase = await createClient();
+  const [groupsRes, productsRes] = await Promise.all([
+    supabase
+      .from("report_staff_product_group")
+      .select("product_group, line_count, revenue")
+      .eq("staff_member", staffMember)
+      .order("revenue", { ascending: false })
+      .limit(8),
+    supabase
+      .from("report_staff_product")
+      .select("product_name, product_group, line_count, qty, revenue")
+      .eq("staff_member", staffMember)
+      .order("revenue", { ascending: false })
+      .limit(12),
+  ]);
+  return {
+    topGroups: (groupsRes.data ?? []) as StaffProductGroupRow[],
+    topProducts: (productsRes.data ?? []) as StaffProductRow[],
+  };
 }
 
 /** Begin an invoice import session; returns the new import id. */

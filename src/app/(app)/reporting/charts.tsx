@@ -129,14 +129,17 @@ export function MonthlyBars({
   valueKey,
   format,
   color = "#10b981",
+  max: maxOverride,
 }: {
   data: { month: string; [k: string]: string | number }[];
   valueKey: string;
   format: (n: number) => string;
   color?: string;
+  /** Optional shared scale, so small multiples are comparable. */
+  max?: number;
 }) {
   const values = data.map((d) => Number(d[valueKey] ?? 0));
-  const max = Math.max(1, ...values);
+  const max = Math.max(1, maxOverride ?? 0, ...values);
   if (data.length === 0)
     return <p className="text-xs text-slate-400">No data yet.</p>;
   return (

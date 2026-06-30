@@ -79,11 +79,18 @@ export const MODULES: ModuleDef[] = [
 
 const ALL_MODULES = MODULES.map((m) => m.key);
 
+// Modules only Owners/Admins can see by default. The Admin panel and the
+// Biz Dev "Reporting" page are admin-only; an admin can still grant Reporting
+// to a specific user via a per-user module_access override.
+const ADMIN_ONLY_MODULES: ModuleKey[] = ["admin", "reporting"];
+
 // Default module access per role. Used when a user has no explicit override.
-// Everyone except owners/admins is locked out of the Admin module. Managers,
+// Everyone except owners/admins is locked out of admin-only modules. Managers,
 // schedule admins, and staff can all *see* every other module; what differs is
 // whether they can edit (see canEditModule) and view compensation.
-const NON_ADMIN_MODULES = ALL_MODULES.filter((m) => m !== "admin");
+const NON_ADMIN_MODULES = ALL_MODULES.filter(
+  (m) => !ADMIN_ONLY_MODULES.includes(m),
+);
 const ROLE_DEFAULT_MODULES: Record<AppRole, ModuleKey[]> = {
   owner: ALL_MODULES,
   admin: ALL_MODULES,

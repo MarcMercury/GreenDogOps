@@ -163,6 +163,25 @@ export interface StaffLocationRow {
   revenue: number;
 }
 
+export interface StaffProductRow {
+  product_name: string;
+  product_group: string;
+  line_count: number;
+  qty: number;
+  revenue: number;
+}
+
+export interface StaffProductGroupRow {
+  product_group: string;
+  line_count: number;
+  revenue: number;
+}
+
+export interface StaffBreakdown {
+  topGroups: StaffProductGroupRow[];
+  topProducts: StaffProductRow[];
+}
+
 export interface ClientSummary {
   total_contacts: number;
   active_contacts: number;

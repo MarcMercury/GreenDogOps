@@ -1,6 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
+import {
+  isAdminRole,
+  canEditModule,
+  canAccessModule,
+} from "@/lib/auth/permissions";
 import type {
   ReportOverview,
   MonthlyRow,
@@ -26,10 +30,34 @@ import { ReportingTabs } from "./reporting-tabs";
 export const dynamic = "force-dynamic";
 
 export default async function ReportingPage() {
-  const supabase = await createClient();
   const current = await getCurrentUser();
-  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
-  const canEdit = current ? canEditModule(current.appUser, "reporting") : false;
+
+  // Biz Dev / Reporting is admin-only by default. Block direct navigation by
+  // anyone who doesn't have the module (nav hiding alone is not enough).
+  if (!current || !canAccessModule(current.appUser, "reporting")) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <PageHeader
+          eyebrow="Business Intelligence"
+          title="Reporting"
+          description="Business development analytics."
+        />
+        <SectionCard
+          title="Admin access required"
+          description="The Reporting workspace is limited to administrators."
+        >
+          <p className="text-sm text-slate-500">
+            You don&apos;t have access to this page. If you believe you should,
+            ask an administrator to grant you the Reporting module.
+          </p>
+        </SectionCard>
+      </div>
+    );
+  }
+
+  const supabase = await createClient();
+  const isAdmin = isAdminRole(current.appUser.role);
+  const canEdit = canEditModule(current.appUser, "reporting");
 
   const [
     overviewRes,

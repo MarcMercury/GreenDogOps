@@ -56,12 +56,12 @@ const MODULES_BOTTOM: NavItem[] = [
   { key: "schedule", href: "/schedule", label: "Scheduling", icon: "🗓️" },
   { key: "schedule", href: "/capacity", label: "Daily Capacity", icon: "📊" },
   { key: "planning", href: "/planning", label: "Planning Guides", icon: "🧭" },
-  { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 
 /** Business development modules, after Operations. */
 const BIZ_DEV: NavItem[] = [
   { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
+  { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 
 const ALL_NAV: Array<{ href: string; label: string; icon: string }> = [
