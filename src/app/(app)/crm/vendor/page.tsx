@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { CrmOrganization } from "@/lib/crm/types";
 import { OrgListView } from "../crm-views";
 
@@ -6,11 +7,14 @@ export const dynamic = "force-dynamic";
 
 export default async function VendorCrmPage() {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("crm_organization")
-    .select("*")
-    .in("org_type", ["facility_resource", "med_ops", "office_marketing"])
-    .order("name", { ascending: true });
+  const { data, error } = await fetchAllRows<CrmOrganization>((from, to) =>
+    supabase
+      .from("crm_organization")
+      .select("*")
+      .in("org_type", ["facility_resource", "med_ops", "office_marketing"])
+      .order("name", { ascending: true })
+      .range(from, to),
+  );
 
   if (error) {
     return (

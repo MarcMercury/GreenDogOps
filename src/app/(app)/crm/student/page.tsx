@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { CrmContact } from "@/lib/crm/types";
 import { ContactListView } from "../crm-views";
 
@@ -6,11 +7,14 @@ export const dynamic = "force-dynamic";
 
 export default async function StudentCrmPage() {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("crm_contact")
-    .select("*")
-    .eq("contact_type", "student")
-    .order("last_name", { ascending: true });
+  const { data, error } = await fetchAllRows<CrmContact>((from, to) =>
+    supabase
+      .from("crm_contact")
+      .select("*")
+      .eq("contact_type", "student")
+      .order("last_name", { ascending: true })
+      .range(from, to),
+  );
 
   if (error) {
     return (

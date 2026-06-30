@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
 import type {
@@ -27,11 +28,16 @@ export default async function ReferralCrmPage() {
   const canEdit = current ? canEditModule(current.appUser, "crm_referral") : false;
 
   const [partnersRes, visitsRes, historyRes, contactsRes, notesRes] = await Promise.all([
-    supabase.from("referral_partners").select("*").order("name", { ascending: true }),
-    supabase
-      .from("clinic_visits")
-      .select("id, created_at, partner_id, clinic_name, visit_date, spoke_to, items_discussed, next_visit_date, visit_notes")
-      .order("visit_date", { ascending: false }),
+    fetchAllRows<ReferralPartner>((from, to) =>
+      supabase.from("referral_partners").select("*").order("name", { ascending: true }).range(from, to),
+    ),
+    fetchAllRows<ClinicVisit>((from, to) =>
+      supabase
+        .from("clinic_visits")
+        .select("id, created_at, partner_id, clinic_name, visit_date, spoke_to, items_discussed, next_visit_date, visit_notes")
+        .order("visit_date", { ascending: false })
+        .range(from, to),
+    ),
     supabase
       .from("referral_sync_history")
       .select("*")

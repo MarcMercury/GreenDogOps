@@ -1,5 +1,7 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { LOCATION_COLUMNS } from "@/lib/shared/locations";
 import {
   effectiveAttendance,
@@ -30,8 +32,46 @@ import type { PlanningGuide } from "@/lib/planning/types";
 const PERSON_COLS =
   "id, first_name, last_name, preferred_name, grid_name, full_name";
 
+type LocLookupRow = {
+  id: string;
+  name: string | null;
+  display_name: string | null;
+  short_code: string | null;
+};
+
+/**
+ * Request-cached reference lookups. Several HR-profile helpers each re-read
+ * these small, stable tables per request; `cache()` collapses the duplicates
+ * into a single fetch per request without changing the returned data.
+ */
+const getLocationLookupRows = cache(async (): Promise<LocLookupRow[]> => {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("location")
+    .select("id, name, display_name, short_code");
+  return (data ?? []) as LocLookupRow[];
+});
+
+const getWeekLookupRows = cache(
+  async (): Promise<{ id: string; week_start: string; status: string }[]> => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("sched_week")
+      .select("id, week_start, status");
+    return (data ?? []) as { id: string; week_start: string; status: string }[];
+  },
+);
+
+const getRoleLookupRows = cache(
+  async (): Promise<{ id: string; name: string }[]> => {
+    const supabase = await createClient();
+    const { data } = await supabase.from("sched_role").select("id, name");
+    return (data ?? []) as { id: string; name: string }[];
+  },
+);
+
 /** Active practice locations, ordered for the grid. */
-export async function getLocations(): Promise<ScheduleLocation[]> {
+export const getLocations = cache(async (): Promise<ScheduleLocation[]> => {
   const supabase = await createClient();
   const { data } = await supabase
     .from("location")
@@ -40,7 +80,7 @@ export async function getLocations(): Promise<ScheduleLocation[]> {
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
   return (data ?? []) as unknown as ScheduleLocation[];
-}
+});
 
 /**
  * Time-off requests that overlap a given Sunday-start week. Drives the
@@ -282,36 +322,26 @@ export async function getPersonAttendance(
   personId: string,
 ): Promise<PersonAttendanceSummary> {
   const supabase = await createClient();
-  const [asgRes, weekRes, locRes] = await Promise.all([
-    supabase
-      .from("sched_assignment")
-      .select("*")
-      .eq("person_id", personId)
-      .order("work_date", { ascending: false }),
-    supabase.from("sched_week").select("id, week_start, status"),
-    supabase.from("location").select("id, name, display_name, short_code"),
+  const [asgRes, weeks, locs] = await Promise.all([
+    fetchAllRows<SchedAssignment>((from, to) =>
+      supabase
+        .from("sched_assignment")
+        .select("*")
+        .eq("person_id", personId)
+        .order("work_date", { ascending: false })
+        .range(from, to),
+    ),
+    getWeekLookupRows(),
+    getLocationLookupRows(),
   ]);
 
-  const weekById = new Map(
-    (
-      (weekRes.data ?? []) as { id: string; week_start: string; status: string }[]
-    ).map((w) => [w.id, w]),
-  );
-  const locById = new Map(
-    (
-      (locRes.data ?? []) as {
-        id: string;
-        name: string | null;
-        display_name: string | null;
-        short_code: string | null;
-      }[]
-    ).map((l) => [l.id, l]),
-  );
+  const weekById = new Map(weeks.map((w) => [w.id, w]));
+  const locById = new Map(locs.map((l) => [l.id, l]));
 
   const tally = emptyTally();
   const records: PersonAttendanceRecord[] = [];
 
-  for (const a of (asgRes.data ?? []) as SchedAssignment[]) {
+  for (const a of asgRes.data as SchedAssignment[]) {
     const week = weekById.get(a.week_id);
     const published = week?.status === "published";
     const status = effectiveAttendance(a, published) as AttendanceStatus;
@@ -359,40 +389,26 @@ export async function getPersonScheduleSettings(
   personId: string,
 ): Promise<PersonScheduleSettings> {
   const supabase = await createClient();
-  const [setRes, locRes, memRes, roleRes] = await Promise.all([
+  const [setRes, locs, memRes, roles] = await Promise.all([
     supabase
       .from("sched_employee_setting")
       .select("*")
       .eq("person_id", personId)
       .maybeSingle(),
-    supabase.from("location").select("id, name, display_name, short_code"),
+    getLocationLookupRows(),
     supabase.from("sched_role_member").select("role_id").eq("person_id", personId),
-    supabase.from("sched_role").select("id, name"),
+    getRoleLookupRows(),
   ]);
 
   const setting = (setRes.data as SchedEmployeeSetting | null) ?? null;
-  const locById = new Map(
-    (
-      (locRes.data ?? []) as {
-        id: string;
-        name: string | null;
-        display_name: string | null;
-        short_code: string | null;
-      }[]
-    ).map((l) => [l.id, l]),
-  );
+  const locById = new Map(locs.map((l) => [l.id, l]));
   const locName = (id: string | null): string | null => {
     if (!id) return null;
     const l = locById.get(id);
     return l?.display_name || l?.name || l?.short_code || null;
   };
 
-  const roleById = new Map(
-    ((roleRes.data ?? []) as { id: string; name: string }[]).map((r) => [
-      r.id,
-      r.name,
-    ]),
-  );
+  const roleById = new Map(roles.map((r) => [r.id, r.name]));
   const roleNames = ((memRes.data ?? []) as { role_id: string }[])
     .map((m) => roleById.get(m.role_id))
     .filter((n): n is string => Boolean(n))

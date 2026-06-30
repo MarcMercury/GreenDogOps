@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { RosterRow } from "@/lib/hr/types";
 import { redactCompensation } from "@/lib/hr/types";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -16,10 +17,11 @@ export default async function HrRosterPage() {
   const canEdit = current ? canEditModule(current.appUser, "hr") : false;
   const ownPersonId = current?.appUser.person_id ?? null;
 
-  const { data, error } = await supabase
-    .from("person")
-    .select(
-      `id, status, first_name, last_name, preferred_name, grid_name, full_name,
+  const { data, error } = await fetchAllRows<Record<string, unknown>>((from, to) =>
+    supabase
+      .from("person")
+      .select(
+        `id, status, first_name, last_name, preferred_name, grid_name, full_name,
        email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
      opportunity_type, avatar_url, is_active, notes, source_contact_id, status_changed_at, created_at, updated_at,
        person_employment (
@@ -32,8 +34,10 @@ export default async function HrRosterPage() {
          compliance, separation_date, separation_type, separation_letter_signed,
          separation_notes
        )`,
-    )
-    .order("last_name", { ascending: true });
+      )
+      .order("last_name", { ascending: true })
+      .range(from, to),
+  );
 
   if (error) {
     return (

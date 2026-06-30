@@ -58,16 +58,22 @@ export async function pushContacts(
   const admin = createAdminClient();
 
   const ids = rows.map((r) => r.ezyvet_contact_id);
-  const { data: existing } = await admin
-    .from("ezyvet_contact")
-    .select("ezyvet_contact_id, ezyvet_modified_at")
-    .in("ezyvet_contact_id", ids);
-  const existingMap = new Map<string, string | null>(
-    (existing ?? []).map((e) => [
-      e.ezyvet_contact_id as string,
-      (e.ezyvet_modified_at as string | null) ?? null,
-    ]),
-  );
+  // Chunk the existence lookup so it never exceeds PostgREST's max_rows (1000);
+  // otherwise large imports would misclassify already-stored rows as "created".
+  const existingMap = new Map<string, string | null>();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const chunk = ids.slice(i, i + 1000);
+    const { data: existing } = await admin
+      .from("ezyvet_contact")
+      .select("ezyvet_contact_id, ezyvet_modified_at")
+      .in("ezyvet_contact_id", chunk);
+    for (const e of existing ?? []) {
+      existingMap.set(
+        e.ezyvet_contact_id as string,
+        (e.ezyvet_modified_at as string | null) ?? null,
+      );
+    }
+  }
 
   let created = 0;
   let updated = 0;

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { CrmInfluencer } from "@/lib/crm/types";
 import { InfluencerListView } from "../crm-views";
 
@@ -6,11 +7,13 @@ export const dynamic = "force-dynamic";
 
 export default async function InfluencerCrmPage() {
   const supabase = await createClient();
-  const { data, error } = await supabase
-    .from("marketing_influencers")
-    .select("*")
-    .order("contact_name", { ascending: true })
-    .limit(2000);
+  const { data, error } = await fetchAllRows<CrmInfluencer>((from, to) =>
+    supabase
+      .from("marketing_influencers")
+      .select("*")
+      .order("contact_name", { ascending: true })
+      .range(from, to),
+  );
 
   if (error) {
     return (

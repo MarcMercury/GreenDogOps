@@ -5,6 +5,7 @@ import { createHash } from "crypto";
 import * as XLSX from "xlsx";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllRows, mapWithConcurrency } from "@/lib/supabase/paginate";
 import { requireUser, requireAdmin, recordAudit } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
 import { redirect } from "next/navigation";
@@ -408,10 +409,19 @@ export async function geocodePartners(): Promise<GeocodeResult> {
   }
 
   const admin = createAdminClient();
-  const { data, error } = await admin
-    .from("referral_partners")
-    .select("id, address, latitude, longitude, geocoded_address")
-    .not("address", "is", null);
+  const { data, error } = await fetchAllRows<{
+    id: unknown;
+    address: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    geocoded_address: string | null;
+  }>((from, to) =>
+    admin
+      .from("referral_partners")
+      .select("id, address, latitude, longitude, geocoded_address")
+      .not("address", "is", null)
+      .range(from, to),
+  );
   if (error) return { ok: false, error: error.message };
 
   const stale = (data ?? []).filter((p) => {
@@ -852,9 +862,12 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
     else statisticsEntries = parseStatisticsCSV(csvText);
   }
 
-  const { data: partners } = await admin
-    .from("referral_partners")
-    .select("id, name, total_referrals_all_time, total_revenue_all_time, last_contact_date, last_referral_date, referral_divisions");
+  const { data: partners } = await fetchAllRows<MatchPartner>((from, to) =>
+    admin
+      .from("referral_partners")
+      .select("id, name, total_referrals_all_time, total_revenue_all_time, last_contact_date, last_referral_date, referral_divisions")
+      .range(from, to),
+  );
   if (!partners) return { success: false, message: "Failed to fetch partners", error: "DB error" };
 
   const result: UploadResult["details"] = [];
@@ -892,6 +905,7 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
       if (m) clinicToPartner.set(agg.clinicName, m);
     }
     const syncDate = new Date().toISOString();
+    const partnerUpdates = new Map<string, Record<string, unknown>>();
     for (const agg of aggregated) {
       const m = clinicToPartner.get(agg.clinicName);
       if (!m) {
@@ -901,14 +915,17 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
       }
       const existingDivisions = m.referral_divisions || [];
       const mergedDivisions = [...new Set([...existingDivisions, ...agg.divisions])].sort();
-      await admin.from("referral_partners").update({
+      partnerUpdates.set(m.id, {
         referral_divisions: mergedDivisions, last_sync_date: syncDate, last_data_source: "csv_upload",
-      }).eq("id", m.id);
+      });
       updated++;
       revenueAdded += agg.totalRevenue;
       visitorsAdded += agg.totalVisits;
       result.push({ clinicName: agg.clinicName, matched: true, matchedTo: m.name, visits: agg.totalVisits, revenue: agg.totalRevenue, lastVisitDate: agg.lastReferralDate || undefined, divisions: agg.divisions });
     }
+    await mapWithConcurrency([...partnerUpdates], 10, async ([id, patch]) => {
+      await admin.from("referral_partners").update(patch).eq("id", id);
+    });
 
     // Build line items with sequence-aware dedup hashes
     const sortedEntries = [...revenueEntries].sort((a, b) => {
@@ -955,6 +972,7 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
       return { success: false, message: "No valid entries found in Statistics CSV.", error: "Empty" };
     }
     const syncDate = new Date().toISOString();
+    const partnerUpdates = new Map<string, Record<string, unknown>>();
     for (const entry of statisticsEntries) {
       const m = findBestMatch(entry.clinicName, partners as MatchPartner[]);
       if (m) {
@@ -966,7 +984,7 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
           const existing = m.last_referral_date ? String(m.last_referral_date).split("T")[0] : null;
           if (!existing || entry.lastReferralDate > existing) updateData.last_referral_date = entry.lastReferralDate;
         }
-        await admin.from("referral_partners").update(updateData).eq("id", m.id);
+        partnerUpdates.set(m.id, updateData);
         updated++;
         visitorsAdded += entry.totalReferrals12Months;
         result.push({ clinicName: entry.clinicName, matched: true, matchedTo: m.name, visits: entry.totalReferrals12Months, revenue: 0, lastVisitDate: entry.lastReferralDate || undefined });
@@ -975,6 +993,9 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
         result.push({ clinicName: entry.clinicName, matched: false, visits: entry.totalReferrals12Months, revenue: 0, lastVisitDate: entry.lastReferralDate || undefined });
       }
     }
+    await mapWithConcurrency([...partnerUpdates], 10, async ([id, patch]) => {
+      await admin.from("referral_partners").update(patch).eq("id", id);
+    });
     const statsDates = statisticsEntries.map((e) => e.lastReferralDate).filter((d): d is string => !!d).sort();
     dateRange = statsDates.length ? { start: statsDates[0], end: statsDates[statsDates.length - 1] } : null;
   }

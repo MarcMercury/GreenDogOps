@@ -20,6 +20,7 @@ import type {
   SpeciesPatientsRow,
   SpeciesRecencyRow,
   LocationKey,
+  InvoiceImportRow,
 } from "@/lib/reporting/types";
 import { LOCATION_COLORS, SPECIES_COLORS } from "@/lib/reporting/types";
 import { getStaffBreakdown } from "./actions";
@@ -32,8 +33,15 @@ import {
   fmtCurrency,
   fmtNumber,
 } from "./charts";
+import { ImportHistory } from "./import-history";
 
-type TabKey = "revenue" | "appointments" | "products" | "staff" | "clients";
+type TabKey =
+  | "revenue"
+  | "appointments"
+  | "products"
+  | "staff"
+  | "clients"
+  | "uploads";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "revenue", label: "Revenue" },
@@ -41,6 +49,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "products", label: "Products/Services" },
   { key: "staff", label: "Doctors/Staff" },
   { key: "clients", label: "Clients" },
+  { key: "uploads", label: "Uploads" },
 ];
 
 /** Bar colors for the client recency buckets (fresh → stale → non-client). */
@@ -55,10 +64,11 @@ const RECENCY_COLORS: Record<string, string> = {
 
 /** Colors for the visit-recency buckets used in the by-location grid. */
 const RECENCY_GRID_COLORS: Record<string, string> = {
-  m1: "#10b981",
-  m3: "#22c55e",
-  m6: "#eab308",
-  m6p: "#f97316",
+  m6: "#10b981",
+  m12: "#22c55e",
+  m24: "#eab308",
+  m36: "#f97316",
+  m48: "#ef4444",
 };
 
 function pct(part: number, whole: number): string {
@@ -85,6 +95,8 @@ export interface ReportingTabsProps {
   speciesPatients: SpeciesPatientsRow[];
   speciesRecency: SpeciesRecencyRow[];
   hasClientData: boolean;
+  imports: InvoiceImportRow[];
+  isAdmin: boolean;
 }
 
 /** Compact location → revenue/value matrix table. */
@@ -444,6 +456,8 @@ export function ReportingTabs(props: ReportingTabsProps) {
     speciesPatients,
     speciesRecency,
     hasClientData,
+    imports,
+    isAdmin,
   } = props;
 
   const avgAppt =
@@ -916,7 +930,7 @@ export function ReportingTabs(props: ReportingTabsProps) {
 
               <SectionCard
                 title="Client recency by location"
-                description="Clients seen within the uploaded invoice window, bucketed by how recently they last visited and split by that visit's clinic."
+                description="Each invoiced client bucketed by how recently they last visited and split by that visit's clinic. Cohorts deepen automatically as older invoice months are imported."
               >
                 <ClientRecencyLocationMatrix rows={clientRecencyLocation} />
               </SectionCard>
@@ -983,6 +997,18 @@ export function ReportingTabs(props: ReportingTabsProps) {
               </SectionCard>
             </>
           )}
+        </div>
+      )}
+
+      {/* ---------------------------------------------------------------- */}
+      {tab === "uploads" && (
+        <div className="space-y-6">
+          <SectionCard
+            title="Upload history"
+            description="Every monthly invoice import, newest first."
+          >
+            <ImportHistory imports={imports} isAdmin={isAdmin} />
+          </SectionCard>
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isEditorRole } from "@/lib/auth/permissions";
 import {
@@ -50,16 +51,21 @@ export default async function ContactDetailPage({
   let ceEvents: CrmCeEvent[] = [];
   if (contact.contact_type === "ce_attendee") {
     const [ceRowsRes, ceEventsRes] = await Promise.all([
-      supabase
-        .from("crm_ce_attendance")
-        .select("*")
-        .eq("contact_id", contact.id)
-        .order("ce_date", { ascending: false }),
-      supabase
-        .from("crm_ce_event")
-        .select("*")
-        .order("event_date", { ascending: false })
-        .limit(5000),
+      fetchAllRows<CrmCeAttendance>((from, to) =>
+        supabase
+          .from("crm_ce_attendance")
+          .select("*")
+          .eq("contact_id", contact.id)
+          .order("ce_date", { ascending: false })
+          .range(from, to),
+      ),
+      fetchAllRows<CrmCeEvent>((from, to) =>
+        supabase
+          .from("crm_ce_event")
+          .select("*")
+          .order("event_date", { ascending: false })
+          .range(from, to),
+      ),
     ]);
     ceAttendance = (ceRowsRes.data ?? []) as CrmCeAttendance[];
     ceEvents = (ceEventsRes.data ?? []) as CrmCeEvent[];

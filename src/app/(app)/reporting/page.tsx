@@ -27,7 +27,6 @@ import type {
 import { PageHeader } from "../_components/ui";
 import { SectionCard, fmtNumber, fmtDate } from "./charts";
 import { InvoiceUploader } from "./invoice-uploader";
-import { ImportHistory } from "./import-history";
 import { ReportingTabs } from "./reporting-tabs";
 import { YearToggle } from "./year-toggle";
 
@@ -199,17 +198,11 @@ export default async function ReportingPage({
             speciesPatients={speciesPatients}
             speciesRecency={speciesRecency}
             hasClientData={hasClientData}
+            imports={imports}
+            isAdmin={isAdmin}
           />
         </>
       )}
-
-      {/* Upload history */}
-      <SectionCard
-        title="Upload history"
-        description="Every monthly invoice import, newest first."
-      >
-        <ImportHistory imports={imports} isAdmin={isAdmin} />
-      </SectionCard>
     </div>
   );
 }
