@@ -87,17 +87,13 @@ export function OrgListView({
     { key: "contact", header: "Contact", value: (o) => o.contact_name },
     { key: "phone", header: "Phone", value: (o) => o.phone, sortable: false },
     { key: "area", header: "Area", value: (o) => o.area },
-    { key: "status", header: "Status", value: (o) => o.status },
   ];
 
   // Core defining filters for organizations — auto-hidden when not meaningful.
   const filters: FilterDef<CrmOrganization>[] = [
     { key: "category", label: "Category", value: (o) => categoryLabel(o.category), multi: true },
-    { key: "type", label: "Type", value: (o) => (o.subtype ? subtypeLabel(o.subtype) : ORG_TYPE_LABELS[o.org_type]) },
-    { key: "status", label: "Status", value: (o) => o.status },
+    { key: "type", label: "Type", value: (o) => (o.subtype ? subtypeLabel(o.subtype) : ORG_TYPE_LABELS[o.org_type]), multi: true },
     { key: "area", label: "Area", value: (o) => o.area, multi: true },
-    { key: "tier", label: "Tier", value: (o) => o.tier },
-    { key: "priority", label: "Priority", value: (o) => o.priority },
   ];
 
   const stats: Stat[] = useMemo(() => {
