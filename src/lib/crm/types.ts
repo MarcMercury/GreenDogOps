@@ -214,25 +214,38 @@ export const CRM_PRIORITY_OPTIONS: CrmOption[] = [
   { value: "Low", label: "Low" },
 ];
 
-// Suggestions only (free text still allowed) — subtype varies widely by org type.
-export const ORG_SUBTYPE_SUGGESTIONS: string[] = [
-  "general",
-  "specialty",
-  "emergency",
-  "groomer",
-  "daycare_boarding",
-  "rescue",
-  "pet_retail",
-  "pet_business",
-  "food_vendor",
-  "merch_vendor",
-  "print_vendor",
-  "local_business",
-  "chamber",
-  "media",
-  "entertainment",
-  "other",
+// Standard Business-CRM type taxonomy (value kept stable for data; label shown
+// in the UI). Free text is still allowed in the form, but these are the
+// canonical set every business record should map to.
+export const BUSINESS_SUBTYPE_OPTIONS: CrmOption[] = [
+  { value: "groomer", label: "Groomer" },
+  { value: "daycare_boarding", label: "Daycare & Boarding" },
+  { value: "pet_business", label: "Pet Services (Walk/Sit/Train)" },
+  { value: "pet_retail", label: "Pet Retail & Supply" },
+  { value: "food_vendor", label: "Food & Nutrition" },
+  { value: "exotic_shop", label: "Exotic & Aquatic" },
+  { value: "merch_vendor", label: "Merchandise Vendor" },
+  { value: "rescue", label: "Rescue & Shelter" },
+  { value: "chamber", label: "Association & Community" },
+  { value: "media", label: "Media & Press" },
+  { value: "entertainment", label: "Entertainment & Events" },
+  { value: "print_vendor", label: "Printing, Signage & Design" },
+  { value: "local_business", label: "Local Business Partner" },
+  { value: "other", label: "Other" },
 ];
+
+export const SUBTYPE_LABELS: Record<string, string> = Object.fromEntries(
+  BUSINESS_SUBTYPE_OPTIONS.map((o) => [o.value, o.label]),
+);
+
+/** Human-friendly label for a stored subtype value (falls back to the raw value). */
+export function subtypeLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return SUBTYPE_LABELS[value] ?? value;
+}
+
+// Suggestions only (free text still allowed) — canonical business taxonomy.
+export const ORG_SUBTYPE_SUGGESTIONS: CrmOption[] = BUSINESS_SUBTYPE_OPTIONS;
 
 export const CONTACT_STATUS_OPTIONS: CrmOption[] = [
   { value: "lead", label: "Lead" },

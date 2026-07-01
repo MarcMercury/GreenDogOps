@@ -7,6 +7,7 @@ import {
   type CrmContact,
   type CrmInfluencer,
   ORG_TYPE_LABELS,
+  subtypeLabel,
 } from "@/lib/crm/types";
 import {
   type Stat,
@@ -73,7 +74,7 @@ export function OrgListView({
     {
       key: "type",
       header: "Type",
-      value: (o) => o.subtype ?? ORG_TYPE_LABELS[o.org_type],
+      value: (o) => (o.subtype ? subtypeLabel(o.subtype) : ORG_TYPE_LABELS[o.org_type]),
     },
     { key: "contact", header: "Contact", value: (o) => o.contact_name },
     { key: "phone", header: "Phone", value: (o) => o.phone, sortable: false },

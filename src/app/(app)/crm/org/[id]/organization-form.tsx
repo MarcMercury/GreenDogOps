@@ -9,6 +9,7 @@ import {
   CRM_TIER_OPTIONS,
   CRM_PRIORITY_OPTIONS,
   ORG_SUBTYPE_SUGGESTIONS,
+  subtypeLabel,
 } from "@/lib/crm/types";
 import { ZONE_DEFINITIONS } from "@/lib/crm/referral-types";
 import {
@@ -71,7 +72,7 @@ export function OrganizationForm({
           <p className="mt-0.5 text-sm text-slate-500">
             {isCreate
               ? "Complete the blank profile below, then save to add it."
-              : `${ORG_TYPE_LABELS[org!.org_type]}${org!.subtype ? ` · ${org!.subtype}` : ""}`}
+              : `${ORG_TYPE_LABELS[org!.org_type]}${org!.subtype ? ` · ${subtypeLabel(org!.subtype)}` : ""}`}
           </p>
         </div>
         <div className="hidden items-center gap-3 sm:flex">

@@ -106,7 +106,8 @@ export function ComboField({
       <datalist id={listId}>
         {options.map((o) => {
           const value = typeof o === "string" ? o : o.value;
-          return <option key={value} value={value} />;
+          const label = typeof o === "string" ? undefined : o.label;
+          return <option key={value} value={value} label={label} />;
         })}
       </datalist>
     </label>
