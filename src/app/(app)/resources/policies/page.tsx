@@ -3,6 +3,7 @@ import { isEditorRole } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   POLICY_CATEGORIES,
+  type ResourceCategory,
   type ResourceDocument,
   type ResourceDocumentWithUrl,
 } from "@/lib/resources/types";
@@ -14,40 +15,60 @@ export default async function ResourcesPoliciesPage() {
   const canUpload = isEditorRole(role);
 
   const admin = createAdminClient();
-  const { data } = await admin
-    .from("resource_document")
-    .select("*")
-    .eq("is_active", true)
-    .order("category", { ascending: true })
-    .order("sort_order", { ascending: true })
-    .order("title", { ascending: true });
+  const [{ data }, { data: categoryRows }] = await Promise.all([
+    admin
+      .from("resource_document")
+      .select("*")
+      .eq("is_active", true)
+      .order("category", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .order("title", { ascending: true }),
+    admin
+      .from("resource_category")
+      .select("key, label, icon, sort_order, is_active")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("label", { ascending: true }),
+  ]);
 
   const documents = (data ?? []) as ResourceDocument[];
+  const categories = (categoryRows ?? []) as ResourceCategory[];
 
   let withUrls: ResourceDocumentWithUrl[] = documents.map((d) => ({
     ...d,
-    signed_url: null,
+    signed_url: d.source_url,
   }));
 
-  if (documents.length > 0) {
+  // Only uploaded files (those with a storage_path) need a signed URL; link-only
+  // rows already carry their href in source_url.
+  const fileDocs = documents.filter((d) => d.storage_path);
+  if (fileDocs.length > 0) {
     const { data: signed } = await admin.storage
       .from("resources")
       .createSignedUrls(
-        documents.map((d) => d.storage_path),
+        fileDocs.map((d) => d.storage_path as string),
         60 * 60,
       );
+    const urlByPath = new Map<string, string>();
     if (signed) {
-      withUrls = documents.map((d, i) => ({
-        ...d,
-        signed_url: signed[i]?.signedUrl ?? null,
-      }));
+      fileDocs.forEach((d, i) => {
+        const url = signed[i]?.signedUrl;
+        if (url) urlByPath.set(d.storage_path as string, url);
+      });
     }
+    withUrls = documents.map((d) => ({
+      ...d,
+      signed_url: d.storage_path
+        ? (urlByPath.get(d.storage_path) ?? null)
+        : d.source_url,
+    }));
   }
 
   return (
     <PoliciesLibrary
       documents={withUrls}
       policies={POLICY_CATEGORIES}
+      categories={categories}
       canUpload={canUpload}
     />
   );

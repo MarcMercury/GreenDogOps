@@ -6,7 +6,7 @@ export interface ResourceDocument {
   title: string;
   category: string;
   description: string | null;
-  storage_path: string;
+  storage_path: string | null;
   file_name: string | null;
   mime_type: string | null;
   size_bytes: number | null;
@@ -22,7 +22,20 @@ export interface ResourceDocumentWithUrl extends ResourceDocument {
   signed_url: string | null;
 }
 
-/** Display label + icon per document category. */
+/** A document category from greendogops.resource_category (admin-manageable). */
+export interface ResourceCategory {
+  key: string;
+  label: string;
+  icon: string;
+  sort_order: number;
+  is_active: boolean;
+}
+
+/**
+ * Fallback display label + icon per document category. The live catalog now
+ * lives in greendogops.resource_category; this map is only used as a default
+ * when a category has no matching row (e.g. legacy data).
+ */
 export const RESOURCE_CATEGORY_META: Record<
   string,
   { label: string; icon: string }
