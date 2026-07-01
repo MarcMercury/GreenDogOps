@@ -20,20 +20,37 @@ export interface OnboardingItemDef {
   /** Stable key stored in the DB. Never rename once shipped. */
   key: string;
   label: string;
-  /** Label for the first checkbox (e.g. "Sent", "Provided"). */
-  providedLabel: string;
+  /**
+   * Label for the first checkbox (e.g. "Sent", "Provided"). Unused by the
+   * "annual" group, which only tracks a single last-completed date.
+   */
+  providedLabel?: string;
   /** Label for the second checkbox (e.g. "Signed", "Completed"). */
-  completedLabel: string;
+  completedLabel?: string;
   /** Optional reference sheet/tracker link shown next to the item. */
   link?: OnboardingItemLink;
   /** Short helper shown under the item label. */
   help?: string;
 }
 
+/**
+ * How a group renders:
+ * - "checklist" (default): the two-state Provided → Completed model.
+ * - "annual": recurring compliance that only tracks the last completed date.
+ */
+export type OnboardingGroupVariant = "checklist" | "annual";
+
 export interface OnboardingGroupDef {
   title: string;
+  variant?: OnboardingGroupVariant;
   items: OnboardingItemDef[];
 }
+
+/** External tracker for the employee Licenses & Expiration Dates list. */
+export const LICENSES_TRACKER_LINK: OnboardingItemLink = {
+  label: "GD – Licenses and Exp Dates",
+  url: "https://docs.google.com/spreadsheets/d/1cILRaovf9bTOqgFtcDazK1ezKDVluB0HIokKvxxBgwU/edit?gid=0#gid=0",
+};
 
 export const ONBOARDING_GROUPS: OnboardingGroupDef[] = [
   {
@@ -77,13 +94,6 @@ export const ONBOARDING_GROUPS: OnboardingGroupDef[] = [
         completedLabel: "Signed",
       },
       {
-        key: "sexual_harassment_training",
-        label: "Sexual Harassment Training",
-        providedLabel: "Assigned",
-        completedLabel: "Completed",
-        help: "California requires harassment-prevention training within 6 months of hire.",
-      },
-      {
         key: "harassment_pay",
         label: "Harassment Pay",
         providedLabel: "Provided",
@@ -94,13 +104,6 @@ export const ONBOARDING_GROUPS: OnboardingGroupDef[] = [
         label: "Background Check",
         providedLabel: "Initiated",
         completedLabel: "Cleared",
-      },
-      {
-        key: "safety_training",
-        label: "Safety Training",
-        providedLabel: "Assigned",
-        completedLabel: "Completed",
-        help: "OSHA / hazard, controlled-substance and radiation-safety orientation.",
       },
       {
         key: "emergency_contact",
@@ -133,22 +136,21 @@ export const ONBOARDING_GROUPS: OnboardingGroupDef[] = [
           url: "https://docs.google.com/spreadsheets/d/1l503igEObAaWPz4KlhfoqxkFgc5ZmB_mvjwC4aonsQY/edit?gid=250426221#gid=250426221",
         },
       },
+    ],
+  },
+  {
+    title: "Annual Compliance",
+    variant: "annual",
+    items: [
       {
-        key: "approved_denied",
-        label: "Approved / Denied List",
-        providedLabel: "Submitted",
-        completedLabel: "Decision Recorded",
+        key: "sexual_harassment_training",
+        label: "Sexual Harassment Training",
+        help: "California requires harassment-prevention training within 6 months of hire, then every 2 years.",
       },
       {
-        key: "licenses",
-        label: "Licenses & Expiration Dates",
-        providedLabel: "Collected",
-        completedLabel: "Verified",
-        help: "DVM / RVT license numbers, DEA registration, and expiry dates.",
-        link: {
-          label: "GD – Licenses and Exp Dates",
-          url: "https://docs.google.com/spreadsheets/d/1cILRaovf9bTOqgFtcDazK1ezKDVluB0HIokKvxxBgwU/edit?gid=0#gid=0",
-        },
+        key: "safety_training",
+        label: "Safety Training",
+        help: "OSHA / hazard, controlled-substance and radiation-safety orientation.",
       },
     ],
   },

@@ -13,6 +13,7 @@ import type {
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
   PersonOnboardingItem,
+  PersonLicense,
   TimeOffStatus,
 } from "@/lib/hr/types";
 import {
@@ -56,6 +57,8 @@ import {
   uploadDocument,
   deleteDocument,
   saveOnboarding,
+  saveLicense,
+  deleteLicense,
   type SaveResult,
 } from "../actions";
 import { setPersonRoles } from "../../schedule/actions";
@@ -66,7 +69,7 @@ import {
   Section,
   type FieldTab,
 } from "./employee-form";
-import { ONBOARDING_GROUPS } from "@/lib/hr/onboarding";
+import { ONBOARDING_GROUPS, LICENSES_TRACKER_LINK } from "@/lib/hr/onboarding";
 
 type TabKey =
   | FieldTab
@@ -107,6 +110,7 @@ export function EmployeeProfile({
   ptoDays,
   timeOff,
   onboarding,
+  licenses,
   account,
   canViewComp,
   canEdit,
@@ -123,6 +127,7 @@ export function EmployeeProfile({
   ptoDays: PersonPtoDay[];
   timeOff: PersonTimeOff[];
   onboarding: PersonOnboardingItem[];
+  licenses: PersonLicense[];
   account: LinkedAccount | null;
   canViewComp: boolean;
   canEdit: boolean;
@@ -137,6 +142,14 @@ export function EmployeeProfile({
     [row.first_name, row.last_name].filter(Boolean).join(" ") ||
     row.grid_name ||
     "Employee";
+
+  // "Used" PTO mirrors approved time-off requests; the form derives the
+  // remaining balance from the allotment minus this value.
+  const approvedPtoUsed = timeOff.reduce(
+    (sum, t) =>
+      t.status === "approved" ? sum + ptoDayCount(t.start_date, t.end_date) : sum,
+    0,
+  );
 
   return (
     <div className="mt-3 space-y-5">
@@ -182,6 +195,7 @@ export function EmployeeProfile({
         canViewComp={canViewComp}
         canEdit={canEdit}
         weeklyShiftTarget={scheduleSettings.weeklyTarget}
+        approvedPtoUsed={approvedPtoUsed}
       />
 
       {activeTab === "attendance" && (
@@ -199,6 +213,7 @@ export function EmployeeProfile({
         <OnboardingPanel
           personId={row.id}
           items={onboarding}
+          licenses={licenses}
           canEdit={canEdit}
         />
       )}
@@ -241,6 +256,15 @@ function fmtDate(d: string | null): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/** Inclusive number of days spanned by a time-off request (min 0). */
+function ptoDayCount(start: string, end: string): number {
+  const s = new Date(`${start}T00:00:00`);
+  const e = new Date(`${end}T00:00:00`);
+  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
+  const days = Math.floor((e.getTime() - s.getTime()) / 86_400_000) + 1;
+  return days > 0 ? days : 0;
 }
 
 function AddButton({ children }: { children: React.ReactNode }) {
@@ -1198,10 +1222,12 @@ function buildOnboardingState(items: PersonOnboardingItem[]): OnboardingState {
 function OnboardingPanel({
   personId,
   items,
+  licenses,
   canEdit,
 }: {
   personId: string;
   items: PersonOnboardingItem[];
+  licenses: PersonLicense[];
   canEdit: boolean;
 }) {
   const initial = useMemo(() => buildOnboardingState(items), [items]);
@@ -1252,7 +1278,7 @@ function OnboardingPanel({
 
   return (
     <div className="space-y-5">
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-700">
@@ -1275,9 +1301,9 @@ function OnboardingPanel({
       {ONBOARDING_GROUPS.map((group) => (
         <section
           key={group.title}
-          className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+          className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
         >
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
             {group.title}
           </h2>
           <ul className="divide-y divide-slate-100">
@@ -1286,75 +1312,100 @@ function OnboardingPanel({
               return (
                 <li
                   key={item.key}
-                  className="flex flex-col gap-3 py-3 lg:flex-row lg:items-start lg:justify-between"
+                  className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2"
                 >
-                  <div className="min-w-0 lg:max-w-[38%]">
-                    <div className="flex items-center gap-2">
-                      {v.completed ? (
+                  <div className="flex min-w-0 basis-full items-center gap-2 lg:basis-64">
+                    {group.variant === "annual" ? (
+                      v.completed ? (
                         <span className="text-emerald-600">✓</span>
-                      ) : v.provided ? (
-                        <span className="text-amber-500">◑</span>
                       ) : (
                         <span className="text-slate-300">○</span>
-                      )}
-                      <span className="text-sm font-medium text-slate-800">
-                        {item.label}
-                      </span>
-                    </div>
-                    {item.help && (
-                      <p className="mt-0.5 pl-6 text-xs text-slate-400">
-                        {item.help}
-                      </p>
+                      )
+                    ) : v.completed ? (
+                      <span className="text-emerald-600">✓</span>
+                    ) : v.provided ? (
+                      <span className="text-amber-500">◑</span>
+                    ) : (
+                      <span className="text-slate-300">○</span>
                     )}
-                    {item.link && (
-                      <a
-                        href={item.link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-0.5 inline-block pl-6 text-xs font-medium text-emerald-700 hover:underline"
-                      >
-                        {item.link.label} ↗
-                      </a>
+                    <span
+                      className="truncate text-sm font-medium text-slate-800"
+                      title={item.label}
+                    >
+                      {item.label}
+                    </span>
+                    {(item.help || item.link) && (
+                      <span className="group relative shrink-0">
+                        <span className="cursor-help text-xs text-slate-300 hover:text-slate-500">
+                          ⓘ
+                        </span>
+                        <span className="pointer-events-none absolute left-0 top-full z-10 hidden w-64 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-500 shadow-lg group-hover:block">
+                          {item.help}
+                          {item.link && (
+                            <a
+                              href={item.link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="pointer-events-auto mt-1 block font-medium text-emerald-700 hover:underline"
+                            >
+                              {item.link.label} ↗
+                            </a>
+                          )}
+                        </span>
+                      </span>
                     )}
                   </div>
 
-                  <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-[58%]">
-                    <OnboardingStateControl
-                      label={item.providedLabel}
-                      checked={v.provided}
-                      date={v.provided_date}
-                      disabled={!canEdit}
-                      onToggle={(checked) =>
-                        update(item.key, {
-                          provided: checked,
-                          provided_date: checked ? v.provided_date : "",
-                        })
-                      }
-                      onDate={(d) => update(item.key, { provided_date: d })}
-                    />
-                    <OnboardingStateControl
-                      label={item.completedLabel}
-                      checked={v.completed}
+                  {group.variant === "annual" ? (
+                    <InlineDate
+                      label="Last completed"
                       date={v.completed_date}
                       disabled={!canEdit}
-                      onToggle={(checked) =>
+                      onDate={(d) =>
                         update(item.key, {
-                          completed: checked,
-                          completed_date: checked ? v.completed_date : "",
+                          completed: !!d,
+                          completed_date: d,
                         })
                       }
-                      onDate={(d) => update(item.key, { completed_date: d })}
                     />
-                    <input
-                      value={v.notes}
-                      disabled={!canEdit}
-                      onChange={(e) =>
-                        update(item.key, { notes: e.target.value })
-                      }
-                      placeholder="Notes"
-                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-50 disabled:text-slate-500 sm:col-span-2"
-                    />
-                  </div>
+                  ) : (
+                    <>
+                      <InlineStateControl
+                        label={item.providedLabel ?? "Provided"}
+                        checked={v.provided}
+                        date={v.provided_date}
+                        disabled={!canEdit}
+                        onToggle={(checked) =>
+                          update(item.key, {
+                            provided: checked,
+                            provided_date: checked ? v.provided_date : "",
+                          })
+                        }
+                        onDate={(d) => update(item.key, { provided_date: d })}
+                      />
+                      <InlineStateControl
+                        label={item.completedLabel ?? "Completed"}
+                        checked={v.completed}
+                        date={v.completed_date}
+                        disabled={!canEdit}
+                        onToggle={(checked) =>
+                          update(item.key, {
+                            completed: checked,
+                            completed_date: checked ? v.completed_date : "",
+                          })
+                        }
+                        onDate={(d) => update(item.key, { completed_date: d })}
+                      />
+                    </>
+                  )}
+
+                  <input
+                    value={v.notes}
+                    disabled={!canEdit}
+                    onChange={(e) => update(item.key, { notes: e.target.value })}
+                    placeholder="Notes"
+                    className="min-w-[8rem] flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-50 disabled:text-slate-500"
+                  />
                 </li>
               );
             })}
@@ -1376,12 +1427,18 @@ function OnboardingPanel({
           {error && <span className="text-sm text-red-600">{error}</span>}
         </div>
       )}
+
+      <LicensesSection
+        personId={personId}
+        licenses={licenses}
+        canEdit={canEdit}
+      />
     </div>
   );
 }
 
-/** A single "checkbox + date" control used twice per onboarding item. */
-function OnboardingStateControl({
+/** Compact "checkbox + inline date" control used for checklist states. */
+function InlineStateControl({
   label,
   checked,
   date,
@@ -1397,8 +1454,8 @@ function OnboardingStateControl({
   onDate: (date: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
-      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+    <div className="flex items-center gap-1.5">
+      <label className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-slate-600">
         <input
           type="checkbox"
           checked={checked}
@@ -1413,9 +1470,250 @@ function OnboardingStateControl({
         value={date}
         disabled={disabled || !checked}
         onChange={(e) => onDate(e.target.value)}
-        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+        className="w-[8.5rem] rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
       />
     </div>
+  );
+}
+
+/** Compact labelled date used by annual-compliance rows (last completed). */
+function InlineDate({
+  label,
+  date,
+  disabled,
+  onDate,
+}: {
+  label: string;
+  date: string;
+  disabled: boolean;
+  onDate: (date: string) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="whitespace-nowrap text-xs font-medium text-slate-600">
+        {label}
+      </span>
+      <input
+        type="date"
+        value={date}
+        disabled={disabled}
+        onChange={(e) => onDate(e.target.value)}
+        className="w-[8.5rem] rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Licenses & Expiration Dates (editable, renewable list)
+// ---------------------------------------------------------------------------
+
+function LicensesSection({
+  personId,
+  licenses,
+  canEdit,
+}: {
+  personId: string;
+  licenses: PersonLicense[];
+  canEdit: boolean;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [result, formAction] = useActionState<SaveResult | null, FormData>(
+    (prev, fd) => saveLicense(personId, null, fd),
+    null,
+  );
+
+  useEffect(() => {
+    if (result?.ok) formRef.current?.reset();
+  }, [result]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Licenses &amp; Expiration Dates
+        </h2>
+        <a
+          href={LICENSES_TRACKER_LINK.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-medium text-emerald-700 hover:underline"
+        >
+          {LICENSES_TRACKER_LINK.label} ↗
+        </a>
+      </div>
+
+      {canEdit && (
+        <Section title="Add a license">
+          <form ref={formRef} action={formAction} className="contents">
+            <Field label="License" name="name" placeholder="e.g. DVM License" />
+            <Field label="License #" name="license_number" />
+            <Field
+              label="Issuing authority"
+              name="issuing_authority"
+              placeholder="e.g. CA Veterinary Medical Board"
+            />
+            <Field label="Issued" name="issued_date" type="date" />
+            <Field label="Expires" name="expiration_date" type="date" />
+            <Field label="Notes" name="notes" />
+            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-3">
+              <AddButton>Add license</AddButton>
+              {result?.ok === false && (
+                <span className="text-sm text-red-600">{result.error}</span>
+              )}
+            </div>
+          </form>
+        </Section>
+      )}
+
+      <Section title={`Licenses (${licenses.length})`}>
+        <div className="sm:col-span-2 lg:col-span-3">
+          {licenses.length === 0 ? (
+            <EmptyState>No licenses recorded yet.</EmptyState>
+          ) : (
+            <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              {licenses.map((lic) => (
+                <LicenseRow
+                  key={lic.id}
+                  personId={personId}
+                  license={lic}
+                  canEdit={canEdit}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/** Expiration status tone: red when expired, amber within 60 days. */
+function expirationTone(expiration: string | null): {
+  label: string;
+  className: string;
+} | null {
+  if (!expiration) return null;
+  const exp = new Date(`${expiration}T00:00:00`);
+  if (Number.isNaN(exp.getTime())) return null;
+  const now = new Date();
+  const days = Math.round((exp.getTime() - now.getTime()) / 86_400_000);
+  if (days < 0)
+    return { label: "Expired", className: "bg-red-100 text-red-700" };
+  if (days <= 60)
+    return {
+      label: `Expires in ${days}d`,
+      className: "bg-amber-100 text-amber-700",
+    };
+  return null;
+}
+
+function LicenseRow({
+  personId,
+  license,
+  canEdit,
+}: {
+  personId: string;
+  license: PersonLicense;
+  canEdit: boolean;
+}) {
+  const [issued, setIssued] = useState(license.issued_date ?? "");
+  const [expires, setExpires] = useState(license.expiration_date ?? "");
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const dirty =
+    issued !== (license.issued_date ?? "") ||
+    expires !== (license.expiration_date ?? "");
+
+  const tone = expirationTone(license.expiration_date);
+
+  function saveDates() {
+    setError(null);
+    setSaved(false);
+    const fd = new FormData();
+    fd.set("name", license.name);
+    if (license.license_number) fd.set("license_number", license.license_number);
+    if (license.issuing_authority)
+      fd.set("issuing_authority", license.issuing_authority);
+    if (issued) fd.set("issued_date", issued);
+    if (expires) fd.set("expiration_date", expires);
+    if (license.notes) fd.set("notes", license.notes);
+    start(async () => {
+      const res = await saveLicense(personId, license.id, fd);
+      if (res.ok) setSaved(true);
+      else setError(res.error);
+    });
+  }
+
+  return (
+    <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
+      <div className="flex min-w-0 basis-full items-center gap-2 lg:basis-56">
+        <span className="truncate text-sm font-medium text-slate-800">
+          {license.name}
+        </span>
+        {tone && (
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone.className}`}
+          >
+            {tone.label}
+          </span>
+        )}
+      </div>
+      <div className="min-w-0 text-xs text-slate-500">
+        {license.license_number && (
+          <span className="mr-3">#{license.license_number}</span>
+        )}
+        {license.issuing_authority && <span>{license.issuing_authority}</span>}
+      </div>
+      <label className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-slate-600">
+        Issued
+        <input
+          type="date"
+          value={issued}
+          disabled={!canEdit}
+          onChange={(e) => {
+            setSaved(false);
+            setIssued(e.target.value);
+          }}
+          className="w-[8.5rem] rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+        />
+      </label>
+      <label className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-slate-600">
+        Expires
+        <input
+          type="date"
+          value={expires}
+          disabled={!canEdit}
+          onChange={(e) => {
+            setSaved(false);
+            setExpires(e.target.value);
+          }}
+          className="w-[8.5rem] rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+        />
+      </label>
+      {canEdit && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={saveDates}
+            disabled={!dirty || pending}
+            className="rounded-lg border border-emerald-600 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-40"
+          >
+            {pending ? "Saving…" : "Update"}
+          </button>
+          {saved && !dirty && (
+            <span className="text-xs text-emerald-600">Saved.</span>
+          )}
+          {error && <span className="text-xs text-red-600">{error}</span>}
+          <DeleteButton
+            label={`the ${license.name} license`}
+            onConfirm={() => deleteLicense(personId, license.id)}
+          />
+        </div>
+      )}
+    </li>
   );
 }
 

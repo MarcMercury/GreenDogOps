@@ -346,8 +346,68 @@ export async function saveOnboarding(
 }
 
 // ---------------------------------------------------------------------------
-// PTO days (itemized list behind the Attendance tab)
+// Employee licenses (DVM / RVT / DEA … — an editable, renewable list)
 // ---------------------------------------------------------------------------
+
+/**
+ * Insert a new license (when `licenseId` is null) or update an existing one.
+ * Editing lets HR bump the expiration date as a credential is renewed.
+ */
+export async function saveLicense(
+  personId: string,
+  licenseId: string | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const name = str(formData.get("name"));
+  if (!name) return { ok: false, error: "A license name is required." };
+
+  const payload = {
+    person_id: personId,
+    name,
+    license_number: str(formData.get("license_number")),
+    issuing_authority: str(formData.get("issuing_authority")),
+    issued_date: str(formData.get("issued_date")),
+    expiration_date: str(formData.get("expiration_date")),
+    notes: str(formData.get("notes")),
+  };
+
+  const { error } = licenseId
+    ? await supabase
+        .from("person_license")
+        .update(payload)
+        .eq("id", licenseId)
+        .eq("person_id", personId)
+    : await supabase.from("person_license").insert(payload);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteLicense(
+  personId: string,
+  licenseId: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("person_license")
+    .delete()
+    .eq("id", licenseId)
+    .eq("person_id", personId);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
 
 export async function savePtoDay(
   personId: string,

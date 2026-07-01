@@ -187,6 +187,20 @@ export interface PersonOnboardingItem {
   updated_at: string;
 }
 
+/** A professional credential/license held by an employee (DVM, RVT, DEA, …). */
+export interface PersonLicense {
+  id: string;
+  person_id: string;
+  name: string;
+  license_number: string | null;
+  issuing_authority: string | null;
+  issued_date: string | null;
+  expiration_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PersonDocument {
   id: string;
   person_id: string;

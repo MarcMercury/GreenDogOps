@@ -69,15 +69,24 @@ function formatCurrencyInput(raw: string | number | null | undefined): string {
   });
 }
 
+function parseCurrency(raw: string | number | null | undefined): number {
+  if (raw == null || raw === "") return 0;
+  const n =
+    typeof raw === "number" ? raw : Number(String(raw).replace(/[$,\s]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
 /** A text input that shows a leading "$" and formats with commas on blur. */
 export function CurrencyField({
   label,
   name,
   defaultValue,
+  onValueChange,
 }: {
   label: string;
   name: string;
   defaultValue?: string | number | null;
+  onValueChange?: (value: number) => void;
 }) {
   const [value, setValue] = useState(() => formatCurrencyInput(defaultValue));
   return (
@@ -91,12 +100,145 @@ export function CurrencyField({
           name={name}
           inputMode="decimal"
           value={value}
-          onChange={(e) => setValue(e.target.value.replace(/[^0-9.,]/g, ""))}
+          onChange={(e) => {
+            const next = e.target.value.replace(/[^0-9.,]/g, "");
+            setValue(next);
+            onValueChange?.(parseCurrency(next));
+          }}
           onBlur={() => setValue(formatCurrencyInput(value))}
           className="w-full rounded-lg border border-slate-300 py-2 pl-7 pr-3 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
         />
       </div>
     </label>
+  );
+}
+
+/** A read-only "$" field whose value is computed, submitted via a hidden input. */
+function ComputedCurrencyField({
+  label,
+  name,
+  value,
+}: {
+  label: string;
+  name: string;
+  value: number;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">
+          $
+        </span>
+        <div className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-7 pr-3 text-sm text-slate-700">
+          {formatCurrencyInput(value)}
+        </div>
+        <input type="hidden" name={name} value={value} />
+      </div>
+    </label>
+  );
+}
+
+/** A read-only numeric field whose value is computed, submitted via a hidden input. */
+function ComputedNumberField({
+  label,
+  name,
+  value,
+  hint,
+}: {
+  label: string;
+  name: string;
+  value: number;
+  hint?: string;
+}) {
+  const display = Number.isInteger(value) ? value : Number(value.toFixed(2));
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+        {display}
+      </div>
+      <input type="hidden" name={name} value={value} />
+      {hint ? <span className="text-[11px] text-slate-400">{hint}</span> : null}
+    </label>
+  );
+}
+
+/**
+ * Paid Time Off section. "Used" mirrors the approved PTO requests logged in the
+ * Attendance tab, and "Remaining PTO" is always the allotment minus used — both
+ * are computed automatically rather than entered by hand.
+ */
+function PaidTimeOffSection({
+  emp,
+  approvedPtoUsed,
+}: {
+  emp: RosterRow["person_employment"];
+  approvedPtoUsed: number;
+}) {
+  const [allotment, setAllotment] = useState(
+    () => emp?.pto_policy_allotment ?? 0,
+  );
+  return (
+    <Section title="Paid Time Off">
+      <label className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-slate-500">Allotment</span>
+        <input
+          name="pto_policy_allotment"
+          type="number"
+          step="any"
+          defaultValue={emp?.pto_policy_allotment ?? ""}
+          onChange={(e) =>
+            setAllotment(e.target.value === "" ? 0 : Number(e.target.value))
+          }
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      </label>
+      <ComputedNumberField
+        label="Used"
+        name="pto_used"
+        value={approvedPtoUsed}
+        hint="Auto-calculated from approved PTO requests."
+      />
+      <ComputedNumberField
+        label="Remaining PTO"
+        name="pto_available"
+        value={allotment - approvedPtoUsed}
+        hint="Allotment minus used."
+      />
+      <Field label="PTO notes" name="pto_notes" defaultValue={emp?.pto_notes} />
+    </Section>
+  );
+}
+
+/** CE section where "remaining" is always budget minus used. */
+function ContinuingEducationSection({
+  emp,
+}: {
+  emp: RosterRow["person_employment"];
+}) {
+  const [budget, setBudget] = useState(() => parseCurrency(emp?.ce_budget));
+  const [used, setUsed] = useState(() => parseCurrency(emp?.ce_used));
+  return (
+    <Section title="Continuing Education">
+      <CurrencyField
+        label="CE budget"
+        name="ce_budget"
+        defaultValue={emp?.ce_budget}
+        onValueChange={setBudget}
+      />
+      <CurrencyField
+        label="CE used"
+        name="ce_used"
+        defaultValue={emp?.ce_used}
+        onValueChange={setUsed}
+      />
+      <ComputedCurrencyField
+        label="CE remaining"
+        name="ce_remaining"
+        value={budget - used}
+      />
+    </Section>
   );
 }
 
@@ -193,6 +335,7 @@ export function EmployeeForm({
   canViewComp,
   canEdit,
   weeklyShiftTarget,
+  approvedPtoUsed,
 }: {
   row: RosterRow;
   activeTab: FieldTab;
@@ -201,6 +344,8 @@ export function EmployeeForm({
   canEdit: boolean;
   /** Days per week, sourced from Schedule → Setup (sched_employee_setting). */
   weeklyShiftTarget: number | null;
+  /** Approved PTO request days — the source of truth for "Used". */
+  approvedPtoUsed: number;
 }) {
   const emp = row.person_employment;
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -426,49 +571,13 @@ export function EmployeeForm({
               />
             </Section>
 
-            <Section title="Continuing Education">
-              <CurrencyField
-                label="CE budget"
-                name="ce_budget"
-                defaultValue={emp?.ce_budget}
-              />
-              <CurrencyField
-                label="CE used"
-                name="ce_used"
-                defaultValue={emp?.ce_used}
-              />
-              <CurrencyField
-                label="CE remaining"
-                name="ce_remaining"
-                defaultValue={emp?.ce_remaining}
-              />
-            </Section>
+            <ContinuingEducationSection emp={emp} />
           </>
         )}
       </div>
 
       <div className={activeTab === "attendance" ? "space-y-5" : "hidden"}>
-        <Section title="Paid Time Off">
-          <Field
-            label="Policy allotment"
-            name="pto_policy_allotment"
-            type="number"
-            defaultValue={emp?.pto_policy_allotment}
-          />
-          <Field
-            label="Used"
-            name="pto_used"
-            type="number"
-            defaultValue={emp?.pto_used}
-          />
-          <Field
-            label="Available"
-            name="pto_available"
-            type="number"
-            defaultValue={emp?.pto_available}
-          />
-          <Field label="PTO notes" name="pto_notes" defaultValue={emp?.pto_notes} />
-        </Section>
+        <PaidTimeOffSection emp={emp} approvedPtoUsed={approvedPtoUsed} />
       </div>
 
       <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
