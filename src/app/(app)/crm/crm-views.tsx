@@ -85,7 +85,7 @@ export function OrgListView({
   const filters: FilterDef<CrmOrganization>[] = [
     { key: "type", label: "Type", value: (o) => ORG_TYPE_LABELS[o.org_type] },
     { key: "status", label: "Status", value: (o) => o.status },
-    { key: "area", label: "Area", value: (o) => o.area },
+    { key: "area", label: "Area", value: (o) => o.area, multi: true },
     { key: "tier", label: "Tier", value: (o) => o.tier },
     { key: "priority", label: "Priority", value: (o) => o.priority },
   ];

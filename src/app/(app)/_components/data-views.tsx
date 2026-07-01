@@ -289,6 +289,20 @@ export interface FilterDef<T> {
   label: string;
   /** Returns the filter value for a row (null/empty => excluded from options). */
   value: (row: T) => string | null | undefined;
+  /**
+   * When true, `value` returns a comma-separated list of values. Each token
+   * becomes its own filter option, and a row matches if it contains the
+   * selected token (membership) rather than an exact string equality.
+   */
+  multi?: boolean;
+}
+
+/** Split a comma-separated filter value into trimmed, non-empty tokens. */
+function splitFilterTokens(raw: string): string[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 export type SortDir = "asc" | "desc";
@@ -355,7 +369,10 @@ export function DataTable<T extends { id: string }>({
         for (const r of rows) {
           const v = f.value(r);
           if (v === null || v === undefined || v === "") continue;
-          seen.set(v, (seen.get(v) ?? 0) + 1);
+          const tokens = f.multi ? splitFilterTokens(v) : [v];
+          for (const t of tokens) {
+            seen.set(t, (seen.get(t) ?? 0) + 1);
+          }
         }
         const options = [...seen.entries()]
           .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
@@ -370,7 +387,13 @@ export function DataTable<T extends { id: string }>({
     return rows.filter((r) => {
       for (const f of filters) {
         const sel = active[f.key];
-        if (sel && sel !== "all" && (f.value(r) ?? "") !== sel) return false;
+        if (!sel || sel === "all") continue;
+        const raw = f.value(r) ?? "";
+        if (f.multi) {
+          if (!splitFilterTokens(raw).includes(sel)) return false;
+        } else if (raw !== sel) {
+          return false;
+        }
       }
       if (!q) return true;
       const haystack = [
