@@ -1016,14 +1016,43 @@ export function ReportingTabs(props: ReportingTabsProps) {
 }
 
 /** Staff production table shared by the Doctors and Support Staff sections. */
+type StaffSortKey =
+  | "staff_member"
+  | "appointments"
+  | "consults"
+  | "line_count"
+  | "revenue";
+
 function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
   const [selected, setSelected] = useState<StaffRow | null>(null);
   const [breakdown, setBreakdown] = useState<StaffBreakdown | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sortKey, setSortKey] = useState<StaffSortKey>("revenue");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   if (rows.length === 0)
     return <p className="text-xs text-slate-400">No data yet.</p>;
   const max = Math.max(1, ...rows.map((r) => Number(r.revenue)));
+
+  function toggleSort(key: StaffSortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // Names default to ascending (A→Z); numeric columns to descending.
+      setSortDir(key === "staff_member" ? "asc" : "desc");
+    }
+  }
+
+  const sortedRows = [...rows].sort((a, b) => {
+    let cmp: number;
+    if (sortKey === "staff_member") {
+      cmp = a.staff_member.localeCompare(b.staff_member);
+    } else {
+      cmp = Number(a[sortKey]) - Number(b[sortKey]);
+    }
+    return sortDir === "asc" ? cmp : -cmp;
+  });
 
   async function openProvider(row: StaffRow) {
     if (selected?.staff_member === row.staff_member) {
@@ -1042,30 +1071,108 @@ function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
     }
   }
 
+  const arrow = (key: StaffSortKey) =>
+    key === sortKey ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[520px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-left">
             <th className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Provider
+              <button
+                type="button"
+                onClick={() => toggleSort("staff_member")}
+                className={`transition hover:text-slate-600 ${
+                  sortKey === "staff_member" ? "text-slate-600" : ""
+                }`}
+                aria-sort={
+                  sortKey === "staff_member"
+                    ? sortDir === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
+              >
+                Provider{arrow("staff_member")}
+              </button>
             </th>
             <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Appts
+              <button
+                type="button"
+                onClick={() => toggleSort("appointments")}
+                className={`transition hover:text-slate-700 ${
+                  sortKey === "appointments" ? "text-slate-700" : ""
+                }`}
+                aria-sort={
+                  sortKey === "appointments"
+                    ? sortDir === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
+              >
+                Appts{arrow("appointments")}
+              </button>
             </th>
             <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Consults
+              <button
+                type="button"
+                onClick={() => toggleSort("consults")}
+                className={`transition hover:text-slate-700 ${
+                  sortKey === "consults" ? "text-slate-700" : ""
+                }`}
+                aria-sort={
+                  sortKey === "consults"
+                    ? sortDir === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
+              >
+                Consults{arrow("consults")}
+              </button>
             </th>
             <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Lines
+              <button
+                type="button"
+                onClick={() => toggleSort("line_count")}
+                className={`transition hover:text-slate-700 ${
+                  sortKey === "line_count" ? "text-slate-700" : ""
+                }`}
+                aria-sort={
+                  sortKey === "line_count"
+                    ? sortDir === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
+              >
+                Lines{arrow("line_count")}
+              </button>
             </th>
             <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Revenue
+              <button
+                type="button"
+                onClick={() => toggleSort("revenue")}
+                className={`transition hover:text-slate-700 ${
+                  sortKey === "revenue" ? "text-slate-700" : ""
+                }`}
+                aria-sort={
+                  sortKey === "revenue"
+                    ? sortDir === "asc"
+                      ? "ascending"
+                      : "descending"
+                    : "none"
+                }
+              >
+                Revenue{arrow("revenue")}
+              </button>
             </th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
+          {sortedRows.map((r) => {
             const isOpen = selected?.staff_member === r.staff_member;
             return (
               <Fragment key={r.staff_member}>

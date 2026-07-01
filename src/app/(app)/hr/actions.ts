@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureCanEdit } from "@/lib/auth/session";
 import { canViewAllCompensation } from "@/lib/auth/permissions";
+import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
 
 const DOCUMENTS_BUCKET = "employee-documents";
 
@@ -299,6 +300,47 @@ export async function deleteAsset(
     .delete()
     .eq("id", assetId);
   if (error) return { ok: false, error: error.message };
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding checklist (bulk save of the whole checklist grid)
+// ---------------------------------------------------------------------------
+
+export async function saveOnboarding(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  // Build one upsert row per catalog item from the submitted form fields.
+  const rows = ONBOARDING_ITEM_KEYS.map((key) => {
+    const provided = bool(formData.get(`${key}__provided`));
+    const completed = bool(formData.get(`${key}__completed`));
+    // Only keep a date when its checkbox is set, so clearing a box clears its date.
+    return {
+      person_id: personId,
+      item_key: key,
+      provided,
+      provided_date: provided ? str(formData.get(`${key}__provided_date`)) : null,
+      completed,
+      completed_date: completed
+        ? str(formData.get(`${key}__completed_date`))
+        : null,
+      notes: str(formData.get(`${key}__notes`)),
+    };
+  });
+
+  const { error } = await supabase
+    .from("person_onboarding_item")
+    .upsert(rows, { onConflict: "person_id,item_key" });
+
+  if (error) return { ok: false, error: error.message };
+
   revalidatePath(`/hr/${personId}`);
   return { ok: true };
 }

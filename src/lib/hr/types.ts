@@ -174,6 +174,19 @@ export interface PersonAsset {
   updated_at: string;
 }
 
+export interface PersonOnboardingItem {
+  id: string;
+  person_id: string;
+  item_key: string;
+  provided: boolean;
+  provided_date: string | null;
+  completed: boolean;
+  completed_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface PersonDocument {
   id: string;
   person_id: string;

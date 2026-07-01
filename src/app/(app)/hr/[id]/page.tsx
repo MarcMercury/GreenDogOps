@@ -11,6 +11,7 @@ import type {
   PersonDocument,
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
+  PersonOnboardingItem,
 } from "@/lib/hr/types";
 import { redactCompensation } from "@/lib/hr/types";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -91,8 +92,9 @@ export default async function EmployeeDetailPage({
   const recruitingRaw = Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null);
   const recruiting = recruitingRaw as PersonRecruitingSummary | null;
 
-  // Sub-records for the Reviews / Assets / Documents / Attendance tabs.
-  const [reviewsRes, assetsRes, docsRes, ptoRes, timeOffRes] = await Promise.all([
+  // Sub-records for the Reviews / Assets / Documents / Attendance / Onboarding tabs.
+  const [reviewsRes, assetsRes, docsRes, ptoRes, timeOffRes, onboardingRes] =
+    await Promise.all([
     supabase
       .from("person_review")
       .select("*")
@@ -120,6 +122,10 @@ export default async function EmployeeDetailPage({
       .select("*")
       .eq("person_id", id)
       .order("start_date", { ascending: false }),
+    supabase
+      .from("person_onboarding_item")
+      .select("*")
+      .eq("person_id", id),
   ]);
 
   const reviews = (reviewsRes.data ?? []) as PersonReview[];
@@ -127,6 +133,7 @@ export default async function EmployeeDetailPage({
   const documents = (docsRes.data ?? []) as PersonDocument[];
   const ptoDays = (ptoRes.data ?? []) as PersonPtoDay[];
   const timeOff = (timeOffRes.data ?? []) as PersonTimeOff[];
+  const onboarding = (onboardingRes.data ?? []) as PersonOnboardingItem[];
 
   // Schedule attendance rollup + read-only scheduling settings for the
   // Attendance tab. Editing stays in Schedule → Setup → Employees.
@@ -199,6 +206,7 @@ export default async function EmployeeDetailPage({
         eligibility={eligibility}
         ptoDays={ptoDays}
         timeOff={timeOff}
+        onboarding={onboarding}
         account={account}
         canViewComp={canViewComp}
         canEdit={canEdit}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
@@ -12,6 +12,8 @@ import type {
   PersonTimeOff,
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
+  PersonOnboardingItem,
+  TimeOffStatus,
 } from "@/lib/hr/types";
 import {
   REVIEW_TYPE_LABELS,
@@ -47,13 +49,13 @@ import {
   deleteReview,
   saveAsset,
   deleteAsset,
-  savePtoDay,
   deletePtoDay,
   saveTimeOff,
   reviewTimeOff,
   deleteTimeOff,
   uploadDocument,
   deleteDocument,
+  saveOnboarding,
   type SaveResult,
 } from "../actions";
 import { setPersonRoles } from "../../schedule/actions";
@@ -64,9 +66,11 @@ import {
   Section,
   type FieldTab,
 } from "./employee-form";
+import { ONBOARDING_GROUPS } from "@/lib/hr/onboarding";
 
 type TabKey =
   | FieldTab
+  | "onboarding"
   | "eligibility"
   | "reviews"
   | "documents"
@@ -76,6 +80,7 @@ type TabKey =
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "general", label: "General" },
   { key: "comp", label: "Compensation & Benefits" },
+  { key: "onboarding", label: "Onboarding" },
   { key: "attendance", label: "Attendance" },
   { key: "eligibility", label: "Shift Eligibility" },
   { key: "reviews", label: "Reviews" },
@@ -101,6 +106,7 @@ export function EmployeeProfile({
   eligibility,
   ptoDays,
   timeOff,
+  onboarding,
   account,
   canViewComp,
   canEdit,
@@ -116,6 +122,7 @@ export function EmployeeProfile({
   eligibility: PersonRoleEligibility;
   ptoDays: PersonPtoDay[];
   timeOff: PersonTimeOff[];
+  onboarding: PersonOnboardingItem[];
   account: LinkedAccount | null;
   canViewComp: boolean;
   canEdit: boolean;
@@ -179,26 +186,31 @@ export function EmployeeProfile({
 
       {activeTab === "attendance" && (
         <>
-          <SchedSettingsPanel settings={scheduleSettings} />
-          <TimeOffPanel
+          <SchedAttendancePanel attendance={attendance} />
+          <PtoPanel
             personId={row.id}
             timeOff={timeOff}
-            canEdit={canEdit}
-          />
-          <PtoDaysPanel
-            personId={row.id}
             ptoDays={ptoDays}
             canEdit={canEdit}
           />
-          <SchedAttendancePanel attendance={attendance} />
         </>
       )}
-      {activeTab === "eligibility" && (
-        <EligibilityPanel
+      {activeTab === "onboarding" && (
+        <OnboardingPanel
           personId={row.id}
-          eligibility={eligibility}
-          canEdit={canEditSchedule}
+          items={onboarding}
+          canEdit={canEdit}
         />
+      )}
+      {activeTab === "eligibility" && (
+        <>
+          <EligibilityPanel
+            personId={row.id}
+            eligibility={eligibility}
+            canEdit={canEditSchedule}
+          />
+          <SchedSettingsPanel settings={scheduleSettings} />
+        </>
       )}
       {activeTab === "reviews" && (
         <ReviewsPanel personId={row.id} reviews={reviews} />
@@ -458,6 +470,23 @@ function EligibilityPanel({
   );
 }
 
+function SchedFact({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
+        {label}:
+      </span>
+      {children}
+    </span>
+  );
+}
+
 function SchedSettingsPanel({
   settings,
 }: {
@@ -487,10 +516,6 @@ function SchedSettingsPanel({
           Manage in Schedule → Setup → Employees
         </Link>
       </div>
-      <p className="mb-4 text-xs text-slate-400">
-        Read-only. These drive how this employee appears on the schedule grid and
-        are edited centrally in the Scheduling module so both stay in sync.
-      </p>
 
       {!hasSetting ? (
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
@@ -498,115 +523,54 @@ function SchedSettingsPanel({
           location, any day).
         </p>
       ) : (
-        <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Schedulable
-            </dt>
-            <dd className="mt-1">
-              <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
-                  isSchedulable
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-slate-100 text-slate-500"
-                }`}
-              >
-                {isSchedulable ? "Yes" : "No"}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Weekly shift target
-            </dt>
-            <dd className="mt-1 text-sm text-slate-800">
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 text-sm">
+          <SchedFact label="Schedulable">
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                isSchedulable
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-slate-100 text-slate-500"
+              }`}
+            >
+              {isSchedulable ? "Yes" : "No"}
+            </span>
+          </SchedFact>
+          <SchedFact label="Weekly target">
+            <span className="text-slate-800">
               {weeklyTarget == null ? "—" : weeklyTarget}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Scheduling roles
-            </dt>
-            <dd className="mt-1 text-sm text-slate-800">
-              {roleNames.length === 0 ? (
-                <span className="text-slate-400">None assigned</span>
-              ) : (
-                <div className="flex flex-wrap gap-1">
-                  {roleNames.map((r) => (
-                    <span
-                      key={r}
-                      className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
-                    >
-                      {r}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Default location
-            </dt>
-            <dd className="mt-1 text-sm text-slate-800">
-              {defaultLocationName ?? <span className="text-slate-400">—</span>}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Eligible locations
-            </dt>
-            <dd className="mt-1 text-sm text-slate-800">
-              {eligibleLocationNames.length === 0 ? (
-                <span className="text-slate-400">Any location</span>
-              ) : (
-                <div className="flex flex-wrap gap-1">
-                  {eligibleLocationNames.map((l) => (
-                    <span
-                      key={l}
-                      className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700"
-                    >
-                      {l}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Available days
-            </dt>
-            <dd className="mt-1 text-sm text-slate-800">
-              {availableDays.length === 0 ? (
-                <span className="text-slate-400">Any day</span>
-              ) : (
-                <div className="flex flex-wrap gap-1">
-                  {[...availableDays]
+            </span>
+          </SchedFact>
+          <SchedFact label="Default location">
+            <span className="text-slate-800">{defaultLocationName ?? "—"}</span>
+          </SchedFact>
+          <SchedFact label="Roles">
+            <span className="text-slate-800">
+              {roleNames.length === 0 ? "None" : roleNames.join(", ")}
+            </span>
+          </SchedFact>
+          <SchedFact label="Locations">
+            <span className="text-slate-800">
+              {eligibleLocationNames.length === 0
+                ? "Any"
+                : eligibleLocationNames.join(", ")}
+            </span>
+          </SchedFact>
+          <SchedFact label="Days">
+            <span className="text-slate-800">
+              {availableDays.length === 0
+                ? "Any"
+                : [...availableDays]
                     .sort((a, b) => a - b)
-                    .map((d) => (
-                      <span
-                        key={d}
-                        className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
-                      >
-                        {DAY_SHORT[d]}
-                      </span>
-                    ))}
-                </div>
-              )}
-            </dd>
-          </div>
+                    .map((d) => DAY_SHORT[d])
+                    .join(", ")}
+            </span>
+          </SchedFact>
           {notes && (
-            <div className="sm:col-span-2">
-              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                Scheduling notes
-              </dt>
-              <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-800">
-                {notes}
-              </dd>
-            </div>
+            <SchedFact label="Notes">
+              <span className="whitespace-pre-wrap text-slate-800">{notes}</span>
+            </SchedFact>
           )}
-        </dl>
+        </div>
       )}
     </div>
   );
@@ -623,6 +587,7 @@ function SchedAttendancePanel({
 }) {
   const { tally, score, records } = attendance;
   const [filter, setFilter] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const groups: Array<{
     key: string;
@@ -690,7 +655,10 @@ function SchedAttendancePanel({
               <button
                 key={g.key}
                 type="button"
-                onClick={() => setFilter(active ? null : g.key)}
+                onClick={() => {
+                  setFilter(active ? null : g.key);
+                  setShowHistory(true);
+                }}
                 aria-pressed={active}
                 className={`rounded-lg border p-3 text-left transition hover:border-slate-300 hover:shadow-sm ${
                   active
@@ -711,90 +679,134 @@ function SchedAttendancePanel({
         </p>
       </div>
 
-      <Section title={activeGroup ? `${activeGroup.label} days` : "Attendance history"}>
-        <div className="sm:col-span-2 lg:col-span-3">
-          {activeGroup && (
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs text-slate-500">
-                Showing {visibleRecords.length}{" "}
-                {visibleRecords.length === 1 ? "day" : "days"} marked{" "}
-                <span className="font-medium">{activeGroup.label}</span>.
-              </p>
-              <button
-                type="button"
-                onClick={() => setFilter(null)}
-                className="text-xs font-medium text-emerald-700 hover:text-emerald-900"
-              >
-                Show all
-              </button>
-            </div>
-          )}
-          {visibleRecords.length === 0 ? (
-            <EmptyState>
-              {activeGroup
-                ? `No days marked ${activeGroup.label.toLowerCase()} yet.`
-                : "No attendance recorded yet. Marks made on a published schedule will appear here."}
-            </EmptyState>
-          ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-400">
-                    <th className="px-3 py-2 font-medium">Date</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Location</th>
-                    <th className="px-3 py-2 font-medium">Note</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {visibleRecords.map((r) => (
-                    <tr key={r.assignmentId} className="hover:bg-slate-50/50">
-                      <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-800">
-                        {fmtDate(r.work_date)}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            ATTENDANCE_TONE[r.status]
-                          }`}
-                        >
-                          {ATTENDANCE_LABELS[r.status]}
-                        </span>
-                        {r.auto_absent && (
-                          <span className="ml-1.5 text-xs text-slate-400">
-                            auto
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-slate-600">
-                        {r.location_name ?? "—"}
-                      </td>
-                      <td className="px-3 py-2 text-slate-600">
-                        {r.note || "—"}
-                      </td>
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <button
+          type="button"
+          onClick={() => setShowHistory((v) => !v)}
+          aria-expanded={showHistory}
+          className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left"
+        >
+          <span className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            {activeGroup ? `${activeGroup.label} days` : "Attendance history"}
+            <span className="ml-2 text-xs font-normal normal-case tracking-normal text-slate-400">
+              ({visibleRecords.length})
+            </span>
+          </span>
+          <span
+            className={`text-slate-400 transition-transform ${
+              showHistory ? "rotate-90" : ""
+            }`}
+            aria-hidden
+          >
+            ▸
+          </span>
+        </button>
+        {showHistory && (
+          <div className="border-t border-slate-100 p-5">
+            {activeGroup && (
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs text-slate-500">
+                  Showing {visibleRecords.length}{" "}
+                  {visibleRecords.length === 1 ? "day" : "days"} marked{" "}
+                  <span className="font-medium">{activeGroup.label}</span>.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setFilter(null)}
+                  className="text-xs font-medium text-emerald-700 hover:text-emerald-900"
+                >
+                  Show all
+                </button>
+              </div>
+            )}
+            {visibleRecords.length === 0 ? (
+              <EmptyState>
+                {activeGroup
+                  ? `No days marked ${activeGroup.label.toLowerCase()} yet.`
+                  : "No attendance recorded yet. Marks made on a published schedule will appear here."}
+              </EmptyState>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-400">
+                      <th className="px-3 py-2 font-medium">Date</th>
+                      <th className="px-3 py-2 font-medium">Status</th>
+                      <th className="px-3 py-2 font-medium">Location</th>
+                      <th className="px-3 py-2 font-medium">Note</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </Section>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {visibleRecords.map((r) => (
+                      <tr key={r.assignmentId} className="hover:bg-slate-50/50">
+                        <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-800">
+                          {fmtDate(r.work_date)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              ATTENDANCE_TONE[r.status]
+                            }`}
+                          >
+                            {ATTENDANCE_LABELS[r.status]}
+                          </span>
+                          {r.auto_absent && (
+                            <span className="ml-1.5 text-xs text-slate-400">
+                              auto
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">
+                          {r.location_name ?? "—"}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">
+                          {r.note || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Time off (PTO / Vacation / Time-off requests) — feeds scheduler color coding
+// PTO — unified request + log (time-off requests and logged PTO days together)
 // ---------------------------------------------------------------------------
 
-function TimeOffPanel({
+type PtoLogEntry =
+  | {
+      kind: "request";
+      id: string;
+      sortKey: string;
+      label: string;
+      typeLabel: string;
+      note: string | null;
+      status: TimeOffStatus;
+    }
+  | {
+      kind: "logged";
+      id: string;
+      sortKey: string;
+      label: string;
+      typeLabel: string;
+      note: string | null;
+    };
+
+function PtoPanel({
   personId,
   timeOff,
+  ptoDays,
   canEdit,
 }: {
   personId: string;
   timeOff: PersonTimeOff[];
+  ptoDays: PersonPtoDay[];
   canEdit: boolean;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
@@ -808,10 +820,38 @@ function TimeOffPanel({
     if (result?.ok) formRef.current?.reset();
   }, [result]);
 
+  const entries: PtoLogEntry[] = [
+    ...timeOff.map(
+      (t): PtoLogEntry => ({
+        kind: "request",
+        id: t.id,
+        sortKey: t.start_date,
+        label:
+          t.start_date === t.end_date
+            ? fmtDate(t.start_date)
+            : `${fmtDate(t.start_date)} – ${fmtDate(t.end_date)}`,
+        typeLabel: TIME_OFF_KIND_LABELS[t.kind],
+        note: t.note,
+        status: t.status,
+      }),
+    ),
+    ...ptoDays.map(
+      (d): PtoLogEntry => ({
+        kind: "logged",
+        id: d.id,
+        sortKey: d.pto_date,
+        label: fmtDate(d.pto_date),
+        typeLabel:
+          d.hours != null ? `${d.hours} hr${d.hours === 1 ? "" : "s"}` : "PTO day",
+        note: d.note,
+      }),
+    ),
+  ].sort((a, b) => (a.sortKey < b.sortKey ? 1 : a.sortKey > b.sortKey ? -1 : 0));
+
   return (
     <div className="space-y-5">
       {canEdit && (
-        <Section title="Request time off">
+        <Section title="PTO request">
           <form ref={formRef} action={formAction} className="contents">
             <Select
               label="Type"
@@ -840,165 +880,80 @@ function TimeOffPanel({
         </Section>
       )}
 
-      <Section title={`Time off (${timeOff.length})`}>
+      <Section title={`PTO log (${entries.length})`}>
         <div className="sm:col-span-2 lg:col-span-3">
-          {timeOff.length === 0 ? (
-            <EmptyState>No time off requested yet.</EmptyState>
+          {entries.length === 0 ? (
+            <EmptyState>No PTO requested or logged yet.</EmptyState>
           ) : (
             <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              {timeOff.map((t) => {
-                const range =
-                  t.start_date === t.end_date
-                    ? fmtDate(t.start_date)
-                    : `${fmtDate(t.start_date)} – ${fmtDate(t.end_date)}`;
-                return (
-                  <li
-                    key={t.id}
-                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
-                  >
-                    <div className="min-w-0">
-                      <span className="text-sm font-medium text-slate-800">
-                        {range}
-                      </span>
-                      <span className="ml-2 text-xs font-medium text-slate-500">
-                        {TIME_OFF_KIND_LABELS[t.kind]}
-                      </span>
-                      {t.note && (
-                        <span className="ml-2 text-xs text-slate-500">
-                          · {t.note}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${TIME_OFF_STATUS_TONE[t.status]}`}
-                      >
-                        {TIME_OFF_STATUS_LABELS[t.status]}
-                      </span>
-                      {canEdit && t.status !== "approved" && (
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={() =>
-                            start(async () => {
-                              await reviewTimeOff(personId, t.id, "approved");
-                            })
-                          }
-                          className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                        >
-                          Approve
-                        </button>
-                      )}
-                      {canEdit && t.status !== "denied" && (
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={() =>
-                            start(async () => {
-                              await reviewTimeOff(personId, t.id, "denied");
-                            })
-                          }
-                          className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          Deny
-                        </button>
-                      )}
-                      {canEdit && (
-                        <DeleteButton
-                          label="this time-off request"
-                          onConfirm={() => deleteTimeOff(personId, t.id)}
-                        />
-                      )}
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      </Section>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// PTO days (itemized list)
-// ---------------------------------------------------------------------------
-
-function PtoDaysPanel({
-  personId,
-  ptoDays,
-  canEdit,
-}: {
-  personId: string;
-  ptoDays: PersonPtoDay[];
-  canEdit: boolean;
-}) {
-  const formRef = useRef<HTMLFormElement>(null);
-  const [result, formAction] = useActionState<SaveResult | null, FormData>(
-    (prev, fd) => savePtoDay(personId, prev, fd),
-    null,
-  );
-
-  useEffect(() => {
-    if (result?.ok) formRef.current?.reset();
-  }, [result]);
-
-  return (
-    <div className="space-y-5">
-      {canEdit && (
-        <Section title="Log a PTO day">
-          <form ref={formRef} action={formAction} className="contents">
-            <Field label="Date" name="pto_date" type="date" />
-            <Field
-              label="Hours (optional)"
-              name="hours"
-              type="number"
-              placeholder="Blank = full day"
-            />
-            <Field label="Note" name="note" placeholder="e.g. Vacation, sick" />
-            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-3">
-              <AddButton>Add PTO day</AddButton>
-              {result?.ok === false && (
-                <span className="text-sm text-red-600">{result.error}</span>
-              )}
-            </div>
-          </form>
-        </Section>
-      )}
-
-      <Section title={`PTO days (${ptoDays.length})`}>
-        <div className="sm:col-span-2 lg:col-span-3">
-          {ptoDays.length === 0 ? (
-            <EmptyState>No PTO days logged yet.</EmptyState>
-          ) : (
-            <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-              {ptoDays.map((d) => (
+              {entries.map((e) => (
                 <li
-                  key={d.id}
+                  key={`${e.kind}-${e.id}`}
                   className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
                 >
                   <div className="min-w-0">
                     <span className="text-sm font-medium text-slate-800">
-                      {fmtDate(d.pto_date)}
+                      {e.label}
                     </span>
-                    {d.hours != null && (
+                    <span className="ml-2 text-xs font-medium text-slate-500">
+                      {e.typeLabel}
+                    </span>
+                    {e.note && (
                       <span className="ml-2 text-xs text-slate-500">
-                        {d.hours} hr{d.hours === 1 ? "" : "s"}
-                      </span>
-                    )}
-                    {d.note && (
-                      <span className="ml-2 text-xs text-slate-500">
-                        · {d.note}
+                        · {e.note}
                       </span>
                     )}
                   </div>
-                  {canEdit && (
-                    <DeleteButton
-                      label="this PTO day"
-                      onConfirm={() => deletePtoDay(personId, d.id)}
-                    />
-                  )}
+                  <div className="flex items-center gap-3">
+                    {e.kind === "request" ? (
+                      <>
+                        <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600">
+                          <input
+                            type="checkbox"
+                            checked={e.status === "approved"}
+                            disabled={!canEdit || pending}
+                            onChange={(ev) => {
+                              const approve = ev.target.checked;
+                              start(async () => {
+                                await reviewTimeOff(
+                                  personId,
+                                  e.id,
+                                  approve ? "approved" : "requested",
+                                );
+                              });
+                            }}
+                            className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
+                          />
+                          Approved
+                        </label>
+                        {e.status === "denied" && (
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${TIME_OFF_STATUS_TONE.denied}`}
+                          >
+                            {TIME_OFF_STATUS_LABELS.denied}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-500">
+                        Logged
+                      </span>
+                    )}
+                    {canEdit && (
+                      <DeleteButton
+                        label={
+                          e.kind === "request"
+                            ? "this PTO request"
+                            : "this PTO day"
+                        }
+                        onConfirm={() =>
+                          e.kind === "request"
+                            ? deleteTimeOff(personId, e.id)
+                            : deletePtoDay(personId, e.id)
+                        }
+                      />
+                    )}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -1206,6 +1161,260 @@ function DocumentsPanel({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding
+// ---------------------------------------------------------------------------
+
+type OnboardingItemState = {
+  provided: boolean;
+  provided_date: string;
+  completed: boolean;
+  completed_date: string;
+  notes: string;
+};
+
+type OnboardingState = Record<string, OnboardingItemState>;
+
+function buildOnboardingState(items: PersonOnboardingItem[]): OnboardingState {
+  const byKey = new Map(items.map((i) => [i.item_key, i]));
+  const state: OnboardingState = {};
+  for (const def of ONBOARDING_GROUPS.flatMap((g) => g.items)) {
+    const row = byKey.get(def.key);
+    state[def.key] = {
+      provided: row?.provided ?? false,
+      provided_date: row?.provided_date ?? "",
+      completed: row?.completed ?? false,
+      completed_date: row?.completed_date ?? "",
+      notes: row?.notes ?? "",
+    };
+  }
+  return state;
+}
+
+function OnboardingPanel({
+  personId,
+  items,
+  canEdit,
+}: {
+  personId: string;
+  items: PersonOnboardingItem[];
+  canEdit: boolean;
+}) {
+  const initial = useMemo(() => buildOnboardingState(items), [items]);
+  const [state, setState] = useState<OnboardingState>(initial);
+  const [syncedFrom, setSyncedFrom] = useState(initial);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync when the server sends fresh data (e.g. after a save revalidates).
+  if (syncedFrom !== initial) {
+    setSyncedFrom(initial);
+    setState(initial);
+  }
+
+  const allItems = ONBOARDING_GROUPS.flatMap((g) => g.items);
+  const total = allItems.length;
+  const completedCount = allItems.filter(
+    (i) => state[i.key]?.completed,
+  ).length;
+  const pct = total === 0 ? 0 : Math.round((completedCount / total) * 100);
+
+  function update(key: string, patch: Partial<OnboardingItemState>) {
+    setSaved(false);
+    setState((s) => ({ ...s, [key]: { ...s[key], ...patch } }));
+  }
+
+  function save() {
+    setError(null);
+    setSaved(false);
+    const fd = new FormData();
+    for (const it of allItems) {
+      const v = state[it.key];
+      if (v.provided) fd.set(`${it.key}__provided`, "on");
+      if (v.provided && v.provided_date)
+        fd.set(`${it.key}__provided_date`, v.provided_date);
+      if (v.completed) fd.set(`${it.key}__completed`, "on");
+      if (v.completed && v.completed_date)
+        fd.set(`${it.key}__completed_date`, v.completed_date);
+      if (v.notes) fd.set(`${it.key}__notes`, v.notes);
+    }
+    start(async () => {
+      const res = await saveOnboarding(personId, null, fd);
+      if (res.ok) setSaved(true);
+      else setError(res.error);
+    });
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-700">
+              Onboarding progress
+            </h3>
+            <p className="mt-0.5 text-xs text-slate-400">
+              {completedCount} of {total} items completed
+            </p>
+          </div>
+          <span className="text-lg font-bold text-emerald-700">{pct}%</span>
+        </div>
+        <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+
+      {ONBOARDING_GROUPS.map((group) => (
+        <section
+          key={group.title}
+          className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            {group.title}
+          </h2>
+          <ul className="divide-y divide-slate-100">
+            {group.items.map((item) => {
+              const v = state[item.key];
+              return (
+                <li
+                  key={item.key}
+                  className="flex flex-col gap-3 py-3 lg:flex-row lg:items-start lg:justify-between"
+                >
+                  <div className="min-w-0 lg:max-w-[38%]">
+                    <div className="flex items-center gap-2">
+                      {v.completed ? (
+                        <span className="text-emerald-600">✓</span>
+                      ) : v.provided ? (
+                        <span className="text-amber-500">◑</span>
+                      ) : (
+                        <span className="text-slate-300">○</span>
+                      )}
+                      <span className="text-sm font-medium text-slate-800">
+                        {item.label}
+                      </span>
+                    </div>
+                    {item.help && (
+                      <p className="mt-0.5 pl-6 text-xs text-slate-400">
+                        {item.help}
+                      </p>
+                    )}
+                    {item.link && (
+                      <a
+                        href={item.link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-0.5 inline-block pl-6 text-xs font-medium text-emerald-700 hover:underline"
+                      >
+                        {item.link.label} ↗
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2 lg:max-w-[58%]">
+                    <OnboardingStateControl
+                      label={item.providedLabel}
+                      checked={v.provided}
+                      date={v.provided_date}
+                      disabled={!canEdit}
+                      onToggle={(checked) =>
+                        update(item.key, {
+                          provided: checked,
+                          provided_date: checked ? v.provided_date : "",
+                        })
+                      }
+                      onDate={(d) => update(item.key, { provided_date: d })}
+                    />
+                    <OnboardingStateControl
+                      label={item.completedLabel}
+                      checked={v.completed}
+                      date={v.completed_date}
+                      disabled={!canEdit}
+                      onToggle={(checked) =>
+                        update(item.key, {
+                          completed: checked,
+                          completed_date: checked ? v.completed_date : "",
+                        })
+                      }
+                      onDate={(d) => update(item.key, { completed_date: d })}
+                    />
+                    <input
+                      value={v.notes}
+                      disabled={!canEdit}
+                      onChange={(e) =>
+                        update(item.key, { notes: e.target.value })
+                      }
+                      placeholder="Notes"
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-50 disabled:text-slate-500 sm:col-span-2"
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ))}
+
+      {canEdit && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={save}
+            disabled={pending}
+            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {pending ? "Saving…" : "Save onboarding"}
+          </button>
+          {saved && <span className="text-sm text-emerald-600">Saved.</span>}
+          {error && <span className="text-sm text-red-600">{error}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** A single "checkbox + date" control used twice per onboarding item. */
+function OnboardingStateControl({
+  label,
+  checked,
+  date,
+  disabled,
+  onToggle,
+  onDate,
+}: {
+  label: string;
+  checked: boolean;
+  date: string;
+  disabled: boolean;
+  onToggle: (checked: boolean) => void;
+  onDate: (date: string) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-slate-50/60 p-2.5">
+      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onToggle(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+        />
+        {label}
+      </label>
+      <input
+        type="date"
+        value={date}
+        disabled={disabled || !checked}
+        onChange={(e) => onDate(e.target.value)}
+        className="rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
+      />
     </div>
   );
 }

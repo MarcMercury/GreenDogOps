@@ -104,8 +104,20 @@ export default async function ReportingPage({
     supabase.from("report_by_location").select("*").eq("year", selectedYear),
     supabase.from("report_location_monthly").select("*").eq("year", selectedYear),
     supabase.from("report_by_species").select("*").eq("year", selectedYear),
-    supabase.from("report_top_product_group").select("*").eq("year", selectedYear).limit(12),
-    supabase.from("report_top_product").select("*").eq("year", selectedYear).limit(20),
+    supabase
+      .from("report_top_product_group")
+      .select("*")
+      .eq("year", selectedYear)
+      .order("revenue", { ascending: false, nullsFirst: false })
+      .order("line_count", { ascending: false })
+      .limit(12),
+    supabase
+      .from("report_top_product")
+      .select("*")
+      .eq("year", selectedYear)
+      .order("revenue", { ascending: false, nullsFirst: false })
+      .order("line_count", { ascending: false })
+      .limit(20),
     supabase.from("report_product_by_location").select("*").eq("year", selectedYear),
     supabase.from("report_by_staff").select("*").eq("year", selectedYear).limit(100),
     supabase.from("report_staff_by_location").select("*").eq("year", selectedYear),
