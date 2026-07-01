@@ -9,7 +9,9 @@ import {
   CRM_TIER_OPTIONS,
   CRM_PRIORITY_OPTIONS,
   ORG_SUBTYPE_SUGGESTIONS,
+  CATEGORY_OPTIONS,
   subtypeLabel,
+  categoryLabel,
 } from "@/lib/crm/types";
 import { ZONE_DEFINITIONS } from "@/lib/crm/referral-types";
 import {
@@ -54,6 +56,8 @@ export function OrganizationForm({
   mode?: "edit" | "create";
 }) {
   const isCreate = mode === "create";
+  const effectiveType: OrgType | undefined = org?.org_type ?? orgType;
+  const isReferral = effectiveType === "referral_clinic";
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) =>
       isCreate
@@ -72,7 +76,12 @@ export function OrganizationForm({
           <p className="mt-0.5 text-sm text-slate-500">
             {isCreate
               ? "Complete the blank profile below, then save to add it."
-              : `${ORG_TYPE_LABELS[org!.org_type]}${org!.subtype ? ` · ${subtypeLabel(org!.subtype)}` : ""}`}
+              : [
+                  org!.category ? categoryLabel(org!.category) : ORG_TYPE_LABELS[org!.org_type],
+                  org!.subtype ? subtypeLabel(org!.subtype) : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
           </p>
         </div>
         <div className="hidden items-center gap-3 sm:flex">
@@ -90,14 +99,22 @@ export function OrganizationForm({
         <Field label="Name" name="name" defaultValue={org?.name} />
         {isCreate && orgTypeOptions && orgTypeOptions.length > 1 && (
           <Select
-            label="Type"
+            label="Record Group"
             name="org_type"
             defaultValue={orgType}
             options={orgTypeOptions}
           />
         )}
+        {!isReferral && (
+          <Select
+            label="Category"
+            name="category"
+            defaultValue={org?.category}
+            options={CATEGORY_OPTIONS}
+          />
+        )}
         <ComboField
-          label="Subtype / Category"
+          label="Type"
           name="subtype"
           defaultValue={org?.subtype}
           options={ORG_SUBTYPE_SUGGESTIONS}
@@ -139,8 +156,12 @@ export function OrganizationForm({
         <Field label="Annual fee" name="annual_fee" type="number" defaultValue={org?.annual_fee} />
         <Field label="Account number" name="account_number" defaultValue={org?.account_number} />
         <Field label="Account rep" name="account_rep" defaultValue={org?.account_rep} />
-        <Field label="Total referrals" name="total_referrals" type="number" defaultValue={org?.total_referrals} />
-        <Field label="Revenue" name="revenue" type="number" defaultValue={org?.revenue} />
+        {isReferral && (
+          <>
+            <Field label="Total referrals" name="total_referrals" type="number" defaultValue={org?.total_referrals} />
+            <Field label="Revenue" name="revenue" type="number" defaultValue={org?.revenue} />
+          </>
+        )}
         <Field label="Monthly spend" name="monthly_spend" type="number" defaultValue={org?.monthly_spend} />
         <Field label="Spend YTD" name="spend_ytd" type="number" defaultValue={org?.spend_ytd} />
         <Field label="Relationship score" name="relationship_score" type="number" defaultValue={org?.relationship_score} />

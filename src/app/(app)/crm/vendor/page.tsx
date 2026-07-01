@@ -11,7 +11,12 @@ export default async function VendorCrmPage() {
     supabase
       .from("crm_organization")
       .select("*")
-      .in("org_type", ["facility_resource", "med_ops", "office_marketing"])
+      .in("org_type", [
+        "marketing_partner",
+        "facility_resource",
+        "med_ops",
+        "office_marketing",
+      ])
       .order("name", { ascending: true })
       .range(from, to),
   );
@@ -19,9 +24,11 @@ export default async function VendorCrmPage() {
   if (error) {
     return (
       <div className="mx-auto max-w-5xl">
-        <h1 className="text-2xl font-semibold text-slate-900">Vendor CRM</h1>
+        <h1 className="text-2xl font-semibold text-slate-900">
+          Vendor &amp; Partner CRM
+        </h1>
         <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-          Could not load vendors: {error.message}
+          Could not load vendors &amp; partners: {error.message}
         </p>
       </div>
     );
@@ -30,10 +37,11 @@ export default async function VendorCrmPage() {
   return (
     <OrgListView
       organizations={(data ?? []) as CrmOrganization[]}
-      title="Vendor CRM"
-      description="Med-ops, facility, and marketing/office vendors"
-      icon="🔧"
+      title="Vendor & Partner CRM"
+      description="Vendors, suppliers & business partners in one directory"
+      icon="🤝"
       addHref="/crm/org/new?section=vendor"
+      financial={false}
     />
   );
 }

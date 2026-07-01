@@ -84,6 +84,7 @@ export interface CrmOrganization {
   org_type: OrgType;
   name: string;
   subtype: string | null;
+  category: string | null;
   status: string | null;
   contact_name: string | null;
   title: string | null;
@@ -247,6 +248,26 @@ export function subtypeLabel(value: string | null | undefined): string {
 // Suggestions only (free text still allowed) — canonical business taxonomy.
 export const ORG_SUBTYPE_SUGGESTIONS: CrmOption[] = BUSINESS_SUBTYPE_OPTIONS;
 
+// High-level Vendor & Partner CRM category. Every vendor/partner record has one
+// category plus a free-text subtype ("Type"). Referral clinics have no category.
+export const CATEGORY_OPTIONS: CrmOption[] = [
+  { value: "medical_equip", label: "Medical Equipment" },
+  { value: "medical_supplies", label: "Medical Supplies" },
+  { value: "facility_supply", label: "Facility Supply" },
+  { value: "facility_maintenance", label: "Facility Maintenance" },
+  { value: "marketing", label: "Marketing" },
+];
+
+export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  CATEGORY_OPTIONS.map((o) => [o.value, o.label]),
+);
+
+/** Human-friendly label for a stored category value (falls back to the raw value). */
+export function categoryLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return CATEGORY_LABELS[value] ?? value;
+}
+
 export const CONTACT_STATUS_OPTIONS: CrmOption[] = [
   { value: "lead", label: "Lead" },
   { value: "registrant", label: "Registrant" },
@@ -347,7 +368,6 @@ export const COMPENSATION_TYPE_OPTIONS: CrmOption[] = [
 export type CrmSlug =
   | "referral"
   | "vendor"
-  | "business"
   | "student"
   | "ce"
   | "influencer";
@@ -375,21 +395,17 @@ export const CRM_SECTIONS: CrmSection[] = [
   },
   {
     slug: "vendor",
-    title: "Vendor CRM",
-    label: "Vendor CRM",
-    description: "Med-ops, facility, and marketing/office vendors.",
-    icon: "🔧",
-    entity: "organization",
-    orgTypes: ["facility_resource", "med_ops", "office_marketing"],
-  },
-  {
-    slug: "business",
-    title: "Business CRM",
-    label: "Business CRM",
-    description: "Business & marketing partners.",
+    title: "Vendor & Partner CRM",
+    label: "Vendor & Partner CRM",
+    description: "Vendors, suppliers & business partners in one directory.",
     icon: "🤝",
     entity: "organization",
-    orgTypes: ["marketing_partner"],
+    orgTypes: [
+      "marketing_partner",
+      "facility_resource",
+      "med_ops",
+      "office_marketing",
+    ],
   },
   {
     slug: "student",
@@ -425,7 +441,7 @@ export function crmSectionBySlug(slug: string): CrmSection | undefined {
 
 export function crmSlugForOrgType(t: OrgType): CrmSlug {
   return (
-    CRM_SECTIONS.find((s) => s.orgTypes?.includes(t))?.slug ?? "business"
+    CRM_SECTIONS.find((s) => s.orgTypes?.includes(t))?.slug ?? "vendor"
   );
 }
 

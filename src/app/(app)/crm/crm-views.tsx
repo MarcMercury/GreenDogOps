@@ -8,6 +8,7 @@ import {
   type CrmInfluencer,
   ORG_TYPE_LABELS,
   subtypeLabel,
+  categoryLabel,
 } from "@/lib/crm/types";
 import {
   type Stat,
@@ -50,12 +51,14 @@ export function OrgListView({
   description,
   icon,
   addHref,
+  financial = true,
 }: {
   organizations: CrmOrganization[];
   title: string;
   description: string;
   icon: string;
   addHref?: string;
+  financial?: boolean;
 }) {
   const router = useRouter();
 
@@ -72,6 +75,11 @@ export function OrgListView({
       ),
     },
     {
+      key: "category",
+      header: "Category",
+      value: (o) => categoryLabel(o.category),
+    },
+    {
       key: "type",
       header: "Type",
       value: (o) => (o.subtype ? subtypeLabel(o.subtype) : ORG_TYPE_LABELS[o.org_type]),
@@ -84,7 +92,8 @@ export function OrgListView({
 
   // Core defining filters for organizations — auto-hidden when not meaningful.
   const filters: FilterDef<CrmOrganization>[] = [
-    { key: "type", label: "Type", value: (o) => ORG_TYPE_LABELS[o.org_type] },
+    { key: "category", label: "Category", value: (o) => categoryLabel(o.category), multi: true },
+    { key: "type", label: "Type", value: (o) => (o.subtype ? subtypeLabel(o.subtype) : ORG_TYPE_LABELS[o.org_type]) },
     { key: "status", label: "Status", value: (o) => o.status },
     { key: "area", label: "Area", value: (o) => o.area, multi: true },
     { key: "tier", label: "Tier", value: (o) => o.tier },
@@ -94,15 +103,20 @@ export function OrgListView({
   const stats: Stat[] = useMemo(() => {
     const isActive = (o: CrmOrganization) =>
       o.is_active || (o.status ?? "").toLowerCase() === "active";
-    return [
+    const base: Stat[] = [
       { label: "Total", value: String(organizations.length), tone: "text-emerald-700" },
       { label: "Active", value: String(organizations.filter(isActive).length), tone: "text-emerald-600" },
       { label: "Preferred", value: String(organizations.filter((o) => o.is_preferred).length), tone: "text-amber-600" },
-      { label: "Total Referrals", value: organizations.reduce((s, o) => s + (o.total_referrals ?? 0), 0).toLocaleString(), tone: "text-sky-700" },
-      { label: "Total Revenue", value: compactCurrency(organizations.reduce((s, o) => s + (Number(o.revenue) || 0), 0)), tone: "text-indigo-700" },
-      { label: "Monthly Spend", value: compactCurrency(organizations.reduce((s, o) => s + (Number(o.monthly_spend) || 0), 0)), tone: "text-violet-700" },
     ];
-  }, [organizations]);
+    if (financial) {
+      base.push(
+        { label: "Total Referrals", value: organizations.reduce((s, o) => s + (o.total_referrals ?? 0), 0).toLocaleString(), tone: "text-sky-700" },
+        { label: "Total Revenue", value: compactCurrency(organizations.reduce((s, o) => s + (Number(o.revenue) || 0), 0)), tone: "text-indigo-700" },
+      );
+    }
+    base.push({ label: "Monthly Spend", value: compactCurrency(organizations.reduce((s, o) => s + (Number(o.monthly_spend) || 0), 0)), tone: "text-violet-700" });
+    return base;
+  }, [organizations, financial]);
 
   return (
     <div className="mx-auto max-w-7xl">

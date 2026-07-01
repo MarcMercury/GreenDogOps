@@ -44,6 +44,7 @@ function organizationPatch(formData: FormData) {
   return {
     name: str(formData.get("name")) ?? "Unknown",
     subtype: str(formData.get("subtype")),
+    category: str(formData.get("category")),
     status: str(formData.get("status")),
     contact_name: str(formData.get("contact_name")),
     title: str(formData.get("title")),
