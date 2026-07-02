@@ -155,6 +155,7 @@ export async function finalizeInvoiceImport(
     "Green Dog Pet Plus Wellness Plan",
     "Follow Up",
     "Cremation Services",
+    "Service Fee",
     "*Discount/Credit/Deposit",
   ]);
   const apptQualifies = new Map<string, boolean>();
