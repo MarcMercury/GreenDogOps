@@ -480,8 +480,9 @@ export function ReportingTabs(props: ReportingTabsProps) {
     0,
   );
 
-  // Doctors are attributed by Case Owner; support staff stay on Staff Member.
-  const doctors = caseOwners;
+  // Doctors are attributed by Case Owner (falling back to Staff Member when the
+  // case owner is blank); support staff stay on Staff Member.
+  const doctors = caseOwners.filter((s) => s.is_vet);
   const supportStaff = staff.filter((s) => !s.is_vet);
 
   // Highest-revenue provider among case-owning doctors.
