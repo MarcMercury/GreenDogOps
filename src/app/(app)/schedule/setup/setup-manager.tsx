@@ -262,6 +262,8 @@ function Roles({ data }: { data: SetupData }) {
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(0);
+  // Departments collapsed horizontally, keyed by department id.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   // Optimistic eligibility set, keyed by "roleId:personId".
   const [elig, setElig] = useState<Set<string>>(() => {
@@ -287,6 +289,21 @@ function Roles({ data }: { data: SetupData }) {
     () => deptGroups.flatMap((g) => g.roles),
     [deptGroups],
   );
+
+  // Flattened visible columns: expanded departments contribute one column per
+  // role; collapsed departments collapse to a single narrow strip.
+  const columns = useMemo(() => {
+    const cols: Array<
+      | { kind: "role"; role: SchedRole }
+      | { kind: "collapsed"; deptId: string }
+    > = [];
+    for (const g of deptGroups) {
+      if (collapsed.has(g.dept.id))
+        cols.push({ kind: "collapsed", deptId: g.dept.id });
+      else for (const r of g.roles) cols.push({ kind: "role", role: r });
+    }
+    return cols;
+  }, [deptGroups, collapsed]);
 
   // Employees — the rows.
   const people = useMemo(() => {
@@ -335,7 +352,16 @@ function Roles({ data }: { data: SetupData }) {
     });
   }
 
-  const colCount = orderedRoles.length + 1;
+  function toggleDept(id: string) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const colCount = columns.length + 1;
 
   return (
     <div className="space-y-4">
@@ -383,37 +409,69 @@ function Roles({ data }: { data: SetupData }) {
                 >
                   Employee
                 </th>
-                {deptGroups.map((g) => (
-                  <th
-                    key={g.dept.id}
-                    colSpan={g.roles.length}
-                    className="sticky top-0 z-30 h-9 whitespace-nowrap border-b border-r border-slate-200 px-3 text-center text-xs font-semibold text-white"
-                    style={{ background: g.dept.color }}
-                  >
-                    {g.dept.name}
-                  </th>
-                ))}
+                {deptGroups.map((g) => {
+                  const isCollapsed = collapsed.has(g.dept.id);
+                  if (isCollapsed) {
+                    return (
+                      <th
+                        key={g.dept.id}
+                        rowSpan={2}
+                        onClick={() => toggleDept(g.dept.id)}
+                        title={`Expand ${g.dept.name}`}
+                        className="sticky top-0 z-30 cursor-pointer select-none border-b border-r border-slate-200 px-1 py-2 text-center align-middle text-white"
+                        style={{ background: g.dept.color }}
+                      >
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="text-[11px] leading-none">▸</span>
+                          <span
+                            className="text-[11px] font-semibold"
+                            style={{ writingMode: "vertical-rl" }}
+                          >
+                            {g.dept.code ?? g.dept.name}
+                          </span>
+                        </div>
+                      </th>
+                    );
+                  }
+                  return (
+                    <th
+                      key={g.dept.id}
+                      colSpan={g.roles.length}
+                      onClick={() => toggleDept(g.dept.id)}
+                      title={`Collapse ${g.dept.name}`}
+                      className="sticky top-0 z-30 h-9 cursor-pointer select-none whitespace-nowrap border-b border-r border-slate-200 px-3 text-center text-xs font-semibold text-white"
+                      style={{ background: g.dept.color }}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-[10px] leading-none">▾</span>
+                        {g.dept.name}
+                      </span>
+                    </th>
+                  );
+                })}
               </tr>
               <tr>
-                {orderedRoles.map((r) => (
-                  <th
-                    key={r.id}
-                    className="group sticky top-9 z-30 min-w-[3.5rem] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center align-bottom text-[11px] font-medium text-slate-600"
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>{r.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => removeRole(r)}
-                        disabled={pending}
-                        title="Delete role"
-                        className="text-slate-300 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </th>
-                ))}
+                {columns.map((col) =>
+                  col.kind === "role" ? (
+                    <th
+                      key={col.role.id}
+                      className="group sticky top-9 z-30 min-w-[3.5rem] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center align-bottom text-[11px] font-medium text-slate-600"
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        <span>{col.role.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeRole(col.role)}
+                          disabled={pending}
+                          title="Delete role"
+                          className="text-slate-300 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </th>
+                  ) : null,
+                )}
               </tr>
             </thead>
             <tbody>
@@ -425,7 +483,16 @@ function Roles({ data }: { data: SetupData }) {
                   >
                     {gridName(p)}
                   </th>
-                  {orderedRoles.map((r) => {
+                  {columns.map((col) => {
+                    if (col.kind === "collapsed") {
+                      return (
+                        <td
+                          key={col.deptId}
+                          className="border-b border-r border-slate-100 bg-slate-50/60 group-hover:bg-emerald-50"
+                        />
+                      );
+                    }
+                    const r = col.role;
                     const checked = elig.has(`${r.id}:${p.id}`);
                     return (
                       <td
