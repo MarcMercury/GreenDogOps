@@ -149,6 +149,13 @@ export async function finalizeInvoiceImport(
     "Retail",
     "Consumables, Food, and Supplements",
     "Supplies",
+    "Parasite Control",
+    "Medications - Rx",
+    "Controlled Substances - Rx",
+    "Green Dog Pet Plus Wellness Plan",
+    "Follow Up",
+    "Cremation Services",
+    "*Discount/Credit/Deposit",
   ]);
   const apptQualifies = new Map<string, boolean>();
   for (const l of lines ?? []) {
