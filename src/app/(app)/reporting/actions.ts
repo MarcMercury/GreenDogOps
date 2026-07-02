@@ -136,15 +136,20 @@ export async function finalizeInvoiceImport(
   // Pull just the keys needed to derive this import's stats.
   const { data: lines } = await admin
     .from("ezyvet_invoice_line")
-    .select("line_date, total_incl, client_contact_code, location_key, product_name")
+    .select("line_date, total_incl, client_contact_code, location_key, product_name, product_group")
     .eq("import_id", importId);
 
   let revenue = 0;
   let minDate: string | null = null;
   let maxDate: string | null = null;
   // A (client + day + location) counts as an appointment only if at least one
-  // of its lines is NOT a deposit/refund. Track whether each key ever saw a
-  // qualifying (non deposit/refund) line.
+  // of its lines is appointment-eligible — i.e. NOT a deposit/refund and NOT a
+  // retail/OTC item. Mirrors greendogops.is_appt_line() in the DB roll-ups.
+  const NON_APPT_GROUPS = new Set([
+    "Retail",
+    "Consumables, Food, and Supplements",
+    "Supplies",
+  ]);
   const apptQualifies = new Map<string, boolean>();
   for (const l of lines ?? []) {
     const inc = Number(l.total_incl ?? 0);
@@ -156,9 +161,12 @@ export async function finalizeInvoiceImport(
       if (l.client_contact_code) {
         const key = `${l.client_contact_code}|${d}|${l.location_key ?? ""}`;
         const name = (l.product_name ?? "").toLowerCase();
-        const isDepositOrRefund =
-          name.includes("deposit") || name.includes("refund");
-        apptQualifies.set(key, (apptQualifies.get(key) ?? false) || !isDepositOrRefund);
+        const group = (l.product_group ?? "").trim();
+        const isAppointmentLine =
+          !name.includes("deposit") &&
+          !name.includes("refund") &&
+          !NON_APPT_GROUPS.has(group);
+        apptQualifies.set(key, (apptQualifies.get(key) ?? false) || isAppointmentLine);
       }
     }
   }
