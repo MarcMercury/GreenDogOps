@@ -326,34 +326,96 @@ export function ScheduleGrid({
     return list;
   }, [assignments, lines, personById, setup.locations, setup.roles, week.week_start]);
 
-  // Build a When I Work-friendly CSV (one row per shift) and trigger a download.
-  // When I Work has no shift-import file format, so this mirrors its shift entry
-  // fields (Schedule, Position, Employee, Date, Start, End) to make manual
-  // re-keying or copy/paste as painless as possible.
+  // Build a When I Work-friendly CSV and trigger a download. When I Work has no
+  // shift-import file format, so the admin re-keys each shift by hand: they pick
+  // a Location, then a Week, then work employee-by-employee. This export mirrors
+  // that order — rows are grouped by Location (matching the location they select
+  // in When I Work) and, within each location, by Employee — so the admin can
+  // read straight down one location block, one employee at a time. Blank rows
+  // separate each location (major break) and each employee (minor break) so the
+  // transcription unit — one person's week at one site — is visually obvious.
   const downloadWiwCsv = () => {
+    const lineById = new Map(lines.map((l) => [l.id, l]));
+    const roleById = new Map(setup.roles.map((r) => [r.id, r]));
+    // Location display order (same order the grid and When I Work list them in).
+    const locSort = new Map(setup.locations.map((l) => [l.id, l.sort_order]));
+    const locName = new Map(setup.locations.map((l) => [l.id, l.name]));
+
+    type Row = {
+      locId: string;
+      locName: string;
+      locSort: number;
+      personId: string;
+      personName: string;
+      day: number;
+      date: string;
+      start: string | null;
+      end: string | null;
+      position: string;
+    };
+    const flat: Row[] = [];
+    for (const a of assignments) {
+      if (a.removed_post_publish) continue;
+      const person = personById.get(a.person_id);
+      if (!person) continue;
+      const line = lineById.get(a.line_id);
+      const role = line?.role_id ? roleById.get(line.role_id) : null;
+      flat.push({
+        locId: a.location_id,
+        locName: locName.get(a.location_id) ?? "—",
+        locSort: locSort.get(a.location_id) ?? Number.MAX_SAFE_INTEGER,
+        personId: a.person_id,
+        personName: gridName(person),
+        day: a.day_of_week,
+        date: a.work_date || dateForDay(week.week_start, a.day_of_week),
+        start: line?.start_time ?? null,
+        end: line?.end_time ?? null,
+        position: line?.label || role?.name || "Shift",
+      });
+    }
+    // Location order → employee name → date → start time.
+    flat.sort(
+      (x, y) =>
+        x.locSort - y.locSort ||
+        x.locName.localeCompare(y.locName) ||
+        x.personName.localeCompare(y.personName) ||
+        x.date.localeCompare(y.date) ||
+        (x.start ?? "").localeCompare(y.start ?? ""),
+    );
+
     const header = [
+      "Location",
       "Employee",
       "Day",
       "Date",
       "Start Time",
       "End Time",
       "Position",
-      "Schedule",
     ];
-    const rows = [header];
-    for (const { person, shifts } of perEmployee) {
-      for (const s of shifts) {
-        rows.push([
-          gridName(person),
-          DAY_LABELS[s.day],
-          csvDate(s.date),
-          formatClock(s.start),
-          formatClock(s.end),
-          s.position,
-          s.location,
-        ]);
+    const rows: string[][] = [header];
+    let prevLocId: string | null = null;
+    let prevPersonId: string | null = null;
+    for (const r of flat) {
+      if (prevLocId !== null && r.locId !== prevLocId) {
+        // Major break between locations (two blank rows).
+        rows.push([], []);
+      } else if (prevPersonId !== null && r.personId !== prevPersonId) {
+        // Minor break between employees within a location.
+        rows.push([]);
       }
+      rows.push([
+        r.locName,
+        r.personName,
+        DAY_LABELS[r.day],
+        csvDate(r.date),
+        formatClock(r.start),
+        formatClock(r.end),
+        r.position,
+      ]);
+      prevLocId = r.locId;
+      prevPersonId = r.personId;
     }
+
     const csv = rows.map((r) => r.map(csvCell).join(",")).join("\r\n");
     const blob = new Blob(["\uFEFF" + csv], {
       type: "text/csv;charset=utf-8;",
@@ -1065,7 +1127,7 @@ function WorkflowButtons({
           <button
             onClick={onExportCsv}
             className={`${btn} border border-slate-300 bg-white text-slate-700 hover:bg-slate-50`}
-            title="Download a CSV laid out like When I Work shift fields (Date, Start, End, Position, Schedule)"
+            title="Download a CSV grouped by Location then Employee — matching how you enter shifts into When I Work (pick a location, then work employee-by-employee)"
           >
             CSV for When I Work
           </button>
