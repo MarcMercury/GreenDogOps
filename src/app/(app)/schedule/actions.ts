@@ -114,6 +114,40 @@ export async function deleteRole(id: string): Promise<ActionResult> {
   return { ok: true };
 }
 
+/**
+ * Toggle a single (role, person) eligibility cell. Writes the shared
+ * `sched_role_member` table so the eligibility matrix, the HR employee
+ * profile, and the schedule grid all stay in sync automatically.
+ */
+export async function toggleRoleMember(
+  roleId: string,
+  personId: string,
+  eligible: boolean,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  if (eligible) {
+    const { error } = await supabase
+      .from("sched_role_member")
+      .upsert(
+        { role_id: roleId, person_id: personId },
+        { onConflict: "role_id,person_id", ignoreDuplicates: true },
+      );
+    if (error) return { ok: false, error: error.message };
+  } else {
+    const { error } = await supabase
+      .from("sched_role_member")
+      .delete()
+      .eq("role_id", roleId)
+      .eq("person_id", personId);
+    if (error) return { ok: false, error: error.message };
+  }
+  revalidateAll();
+  revalidatePath("/hr");
+  return { ok: true };
+}
+
 /** Replace the full member list of a role with the given person ids. */
 export async function setRoleMembers(
   roleId: string,

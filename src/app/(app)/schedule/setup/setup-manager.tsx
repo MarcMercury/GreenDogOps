@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { SetupData } from "../data";
@@ -18,7 +18,7 @@ import {
   deleteDepartment,
   saveRole,
   deleteRole,
-  setRoleMembers,
+  toggleRoleMember,
   saveShiftTemplate,
   deleteShiftTemplate,
   saveEmployeeSetting,
@@ -259,126 +259,36 @@ function Departments({ data }: { data: SetupData }) {
 function Roles({ data }: { data: SetupData }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const [editing, setEditing] = useState<SchedRole | null>(null);
-
-  const membersByRole = useMemo(() => {
-    const m = new Map<string, Set<string>>();
-    for (const mem of data.members) {
-      if (!m.has(mem.role_id)) m.set(mem.role_id, new Set());
-      m.get(mem.role_id)!.add(mem.person_id);
-    }
-    return m;
-  }, [data.members]);
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-      <Card>
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">
-          Roles by department
-        </h2>
-        <div className="space-y-4">
-          {data.departments.map((dept) => {
-            const roles = data.roles.filter((r) => r.department_id === dept.id);
-            return (
-              <div key={dept.id}>
-                <p
-                  className="mb-1.5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide"
-                  style={{ color: dept.color }}
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-full"
-                    style={{ background: dept.color }}
-                  />
-                  {dept.name}
-                </p>
-                <ul className="divide-y divide-slate-100 rounded-lg border border-slate-100">
-                  {roles.map((r) => {
-                    const count = membersByRole.get(r.id)?.size ?? 0;
-                    return (
-                      <li key={r.id} className="flex items-center gap-2 px-3 py-2">
-                        <span className="flex-1 text-sm text-slate-800">
-                          {r.name}
-                        </span>
-                        <button
-                          onClick={() => setEditing(r)}
-                          className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-                        >
-                          {count} eligible
-                        </button>
-                        <button
-                          onClick={() => setEditing(r)}
-                          className="text-xs font-medium text-slate-500 hover:underline"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() =>
-                            start(async () => {
-                              await deleteRole(r.id);
-                              router.refresh();
-                            })
-                          }
-                          className="text-xs font-medium text-red-500 hover:underline"
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {roles.length === 0 && (
-                    <li className="px-3 py-2 text-xs text-slate-400">
-                      No roles yet.
-                    </li>
-                  )}
-                </ul>
-              </div>
-            );
-          })}
-          {data.departments.length === 0 && (
-            <p className="text-sm text-slate-400">
-              Add a department first, then create roles within it.
-            </p>
-          )}
-        </div>
-      </Card>
-
-      <RoleEditor
-        key={editing?.id ?? "new"}
-        data={data}
-        editing={editing}
-        initialMembers={
-          editing ? membersByRole.get(editing.id) ?? new Set() : new Set()
-        }
-        onCancel={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null);
-          router.refresh();
-        }}
-      />
-    </div>
-  );
-}
-
-function RoleEditor({
-  data,
-  editing,
-  initialMembers,
-  onCancel,
-  onSaved,
-}: {
-  data: SetupData;
-  editing: SchedRole | null;
-  initialMembers: Set<string>;
-  onCancel: () => void;
-  onSaved: () => void;
-}) {
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(
-    () => new Set(initialMembers),
-  );
   const [q, setQ] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(0);
 
+  // Optimistic eligibility set, keyed by "roleId:personId".
+  const [elig, setElig] = useState<Set<string>>(() => {
+    const s = new Set<string>();
+    for (const m of data.members) s.add(`${m.role_id}:${m.person_id}`);
+    return s;
+  });
+
+  // Roles grouped by department, in configured order — drives the columns.
+  const deptGroups = useMemo(
+    () =>
+      data.departments
+        .map((dept) => ({
+          dept,
+          roles: data.roles
+            .filter((r) => r.department_id === dept.id)
+            .sort((a, b) => a.sort_order - b.sort_order),
+        }))
+        .filter((g) => g.roles.length > 0),
+    [data.departments, data.roles],
+  );
+  const orderedRoles = useMemo(
+    () => deptGroups.flatMap((g) => g.roles),
+    [deptGroups],
+  );
+
+  // Employees — the rows.
   const people = useMemo(() => {
     const term = q.trim().toLowerCase();
     return data.people
@@ -386,14 +296,182 @@ function RoleEditor({
       .sort((a, b) => gridName(a).localeCompare(gridName(b)));
   }, [data.people, q]);
 
-  function toggle(id: string) {
-    setSelected((prev) => {
+  async function toggle(roleId: string, personId: string) {
+    const key = `${roleId}:${personId}`;
+    const wasEligible = elig.has(key);
+    setError(null);
+    setElig((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (wasEligible) next.delete(key);
+      else next.add(key);
       return next;
     });
+    setSaving((n) => n + 1);
+    const res = await toggleRoleMember(roleId, personId, !wasEligible);
+    setSaving((n) => n - 1);
+    if (!res.ok) {
+      // Revert on failure.
+      setElig((prev) => {
+        const next = new Set(prev);
+        if (wasEligible) next.add(key);
+        else next.delete(key);
+        return next;
+      });
+      setError(res.error);
+    }
   }
+
+  function removeRole(r: SchedRole) {
+    if (
+      !window.confirm(
+        `Delete role “${r.name}”? This clears every employee's eligibility for it.`,
+      )
+    )
+      return;
+    start(async () => {
+      const res = await deleteRole(r.id);
+      if (!res.ok) setError(res.error);
+      else router.refresh();
+    });
+  }
+
+  const colCount = orderedRoles.length + 1;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700">
+              Eligibility matrix
+            </h2>
+            <p className="mt-0.5 text-[11px] text-slate-400">
+              Check a box to make an employee eligible for a role. Changes save
+              instantly and mirror the HR profile &amp; schedule grid.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {saving > 0 && (
+              <span className="text-[11px] text-slate-400">Saving…</span>
+            )}
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search employees…"
+              className={inputCls}
+            />
+          </div>
+        </div>
+        <AddRoleForm data={data} onSaved={() => router.refresh()} />
+        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      </Card>
+
+      {orderedRoles.length === 0 ? (
+        <Card>
+          <p className="text-sm text-slate-400">
+            Add a role above to start assigning eligibility.
+          </p>
+        </Card>
+      ) : (
+        <div className="relative max-h-[72vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th
+                  rowSpan={2}
+                  className="sticky left-0 top-0 z-40 min-w-[13rem] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-semibold text-slate-600"
+                >
+                  Employee
+                </th>
+                {deptGroups.map((g) => (
+                  <th
+                    key={g.dept.id}
+                    colSpan={g.roles.length}
+                    className="sticky top-0 z-30 h-9 whitespace-nowrap border-b border-r border-slate-200 px-3 text-center text-xs font-semibold text-white"
+                    style={{ background: g.dept.color }}
+                  >
+                    {g.dept.name}
+                  </th>
+                ))}
+              </tr>
+              <tr>
+                {orderedRoles.map((r) => (
+                  <th
+                    key={r.id}
+                    className="group sticky top-9 z-30 min-w-[3.5rem] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center align-bottom text-[11px] font-medium text-slate-600"
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      <span>{r.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => removeRole(r)}
+                        disabled={pending}
+                        title="Delete role"
+                        className="text-slate-300 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {people.map((p) => (
+                <tr key={p.id} className="group">
+                  <th
+                    scope="row"
+                    className="sticky left-0 z-20 whitespace-nowrap border-b border-r border-slate-200 bg-white px-3 py-1.5 text-left text-sm font-normal text-slate-800 group-hover:bg-emerald-50"
+                  >
+                    {gridName(p)}
+                  </th>
+                  {orderedRoles.map((r) => {
+                    const checked = elig.has(`${r.id}:${p.id}`);
+                    return (
+                      <td
+                        key={r.id}
+                        className="border-b border-r border-slate-100 px-2 py-1.5 text-center group-hover:bg-emerald-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggle(r.id, p.id)}
+                          className="h-4 w-4 cursor-pointer accent-emerald-600"
+                          aria-label={`${gridName(p)} eligible for ${r.name}`}
+                        />
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+              {people.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={colCount}
+                    className="px-3 py-6 text-center text-xs text-slate-400"
+                  >
+                    No employees match your search.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AddRoleForm({
+  data,
+  onSaved,
+}: {
+  data: SetupData;
+  onSaved: () => void;
+}) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -405,119 +483,56 @@ function RoleEditor({
         setError(res.error);
         return;
       }
-      if (editing) {
-        const memRes = await setRoleMembers(editing.id, [...selected]);
-        if (!memRes.ok) {
-          setError(memRes.error);
-          return;
-        }
-      }
+      formRef.current?.reset();
       onSaved();
     });
   }
 
   return (
-    <Card>
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
-        {editing ? "Edit role" : "New role"}
-      </h2>
-      <form onSubmit={handleSubmit} className="space-y-3">
-        {editing && <input type="hidden" name="id" value={editing.id} />}
-        <label className="block text-xs font-medium text-slate-500">
-          Department
-          <select
-            name="department_id"
-            defaultValue={editing?.department_id ?? ""}
-            required
-            className={`mt-1 w-full ${inputCls}`}
-          >
-            <option value="">Select…</option>
-            {data.departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs font-medium text-slate-500">
-          Role / title
-          <input
-            name="name"
-            defaultValue={editing?.name ?? ""}
-            required
-            className={`mt-1 w-full ${inputCls}`}
-            placeholder="Surgery Tech"
-          />
-        </label>
-        <label className="block text-xs font-medium text-slate-500">
-          Order
-          <input
-            name="sort_order"
-            type="number"
-            defaultValue={editing?.sort_order ?? 0}
-            className={`mt-1 w-20 ${inputCls}`}
-          />
-        </label>
-
-        {editing ? (
-          <div className="space-y-2 border-t border-slate-100 pt-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-slate-600">
-                Eligible employees
-              </p>
-              <span className="text-[11px] text-slate-400">
-                {selected.size} selected
-              </span>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              Only these employees appear when assigning this role on the grid.
-            </p>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search employees…"
-              className={`w-full ${inputCls}`}
-            />
-            <ul className="max-h-56 overflow-y-auto rounded-lg border border-slate-100 p-1">
-              {people.map((p) => (
-                <li key={p.id}>
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-slate-50">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(p.id)}
-                      onChange={() => toggle(p.id)}
-                    />
-                    <span className="text-sm text-slate-700">{gridName(p)}</span>
-                  </label>
-                </li>
-              ))}
-              {people.length === 0 && (
-                <li className="px-2 py-4 text-center text-xs text-slate-400">
-                  No employees match.
-                </li>
-              )}
-            </ul>
-          </div>
-        ) : (
-          <p className="rounded-lg bg-slate-50 px-2.5 py-2 text-[11px] text-slate-500">
-            Add the role first, then click Edit to choose which employees are
-            eligible for it.
-          </p>
-        )}
-
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          <button type="submit" disabled={pending} className={btnPrimary}>
-            {editing ? "Save" : "Add"}
-          </button>
-          {editing && (
-            <button type="button" onClick={onCancel} className={btnGhost}>
-              Cancel
-            </button>
-          )}
-        </div>
-      </form>
-    </Card>
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      className="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3"
+    >
+      <label className="text-xs font-medium text-slate-500">
+        Department
+        <select
+          name="department_id"
+          required
+          defaultValue=""
+          className={`mt-1 block ${inputCls}`}
+        >
+          <option value="">Select…</option>
+          {data.departments.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="text-xs font-medium text-slate-500">
+        New role / title
+        <input
+          name="name"
+          required
+          placeholder="Surgery Tech"
+          className={`mt-1 block ${inputCls}`}
+        />
+      </label>
+      <label className="text-xs font-medium text-slate-500">
+        Order
+        <input
+          name="sort_order"
+          type="number"
+          defaultValue={0}
+          className={`mt-1 block w-20 ${inputCls}`}
+        />
+      </label>
+      <button type="submit" disabled={pending} className={btnPrimary}>
+        Add role
+      </button>
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </form>
   );
 }
 
