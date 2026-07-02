@@ -178,8 +178,15 @@ export async function finalizeInvoiceImport(
     })
     .eq("id", importId);
 
-  // Rebuild the materialized reporting roll-ups so the page reflects this import.
-  await admin.rpc("refresh_ezyvet_reporting");
+  // Rebuild every materialized reporting roll-up so all tabs/sections reflect
+  // this import. Surface a failure rather than silently serving stale data.
+  const { error: refreshError } = await admin.rpc("refresh_ezyvet_reporting");
+  if (refreshError) {
+    return {
+      ok: false,
+      error: `Imported ${newRows.toLocaleString()} lines, but refreshing the reports failed: ${refreshError.message}. Re-run an upload or contact an admin to refresh.`,
+    };
+  }
 
   revalidatePath("/reporting");
   return {
