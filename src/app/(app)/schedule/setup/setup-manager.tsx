@@ -262,8 +262,11 @@ function Roles({ data }: { data: SetupData }) {
   const [q, setQ] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(0);
-  // Departments collapsed horizontally, keyed by department id.
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // Departments collapsed horizontally, keyed by department id. Default to all
+  // departments collapsed so the matrix opens compact.
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(data.departments.map((d) => d.id)),
+  );
 
   // Optimistic eligibility set, keyed by "roleId:personId".
   const [elig, setElig] = useState<Set<string>>(() => {
