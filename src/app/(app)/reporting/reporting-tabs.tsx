@@ -12,6 +12,7 @@ import type {
   ProductLocationRow,
   StaffRow,
   StaffLocationRow,
+  CaseOwnerMonthRow,
   StaffBreakdown,
   ClientSummary,
   ClientsByMonthRow,
@@ -88,6 +89,7 @@ export interface ReportingTabsProps {
   productByLocation: ProductLocationRow[];
   staff: StaffRow[];
   staffByLocation: StaffLocationRow[];
+  caseOwnerByMonth: CaseOwnerMonthRow[];
   clientSummary: ClientSummary | null;
   clientsByMonth: ClientsByMonthRow[];
   clientRecency: ClientRecencyRow[];
@@ -449,6 +451,7 @@ export function ReportingTabs(props: ReportingTabsProps) {
     productByLocation,
     staff,
     staffByLocation,
+    caseOwnerByMonth,
     clientSummary,
     clientsByMonth,
     clientRecency,
@@ -478,6 +481,12 @@ export function ReportingTabs(props: ReportingTabsProps) {
   const doctors = staff.filter((s) => s.is_vet);
   const supportStaff = staff.filter((s) => !s.is_vet);
 
+  // Highest-revenue provider (the staff query isn't ordered, so pick explicitly).
+  const topProducer = staff.reduce<StaffRow | null>(
+    (best, s) => (best && Number(best.revenue) >= Number(s.revenue) ? best : s),
+    null,
+  );
+
   // Lookups for the location matrices.
   const prodLoc = new Map<string, number>();
   for (const r of productByLocation)
@@ -485,6 +494,19 @@ export function ReportingTabs(props: ReportingTabsProps) {
   const staffLoc = new Map<string, number>();
   for (const r of staffByLocation)
     staffLoc.set(`${r.staff_member}__${r.location_key}`, Number(r.revenue));
+
+  // Providers (case owners) ranked by total revenue across clinics.
+  const providerTotals = new Map<string, number>();
+  for (const r of staffByLocation)
+    providerTotals.set(
+      r.staff_member,
+      (providerTotals.get(r.staff_member) ?? 0) + Number(r.revenue),
+    );
+  const topProviders = [...providerTotals.entries()]
+    .filter(([name]) => name && name !== "Unassigned")
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([name]) => ({ key: name, label: name }));
 
   const locationCols = locations.map((l) => ({
     location_key: l.location_key,
@@ -828,20 +850,20 @@ export function ReportingTabs(props: ReportingTabsProps) {
             />
             <StatCard
               label="Top Producer"
-              value={staff[0]?.staff_member ?? "—"}
+              value={topProducer?.staff_member ?? "—"}
               accent="amber"
-              sub={staff[0] ? fmtCurrency(staff[0].revenue) : undefined}
+              sub={topProducer ? fmtCurrency(topProducer.revenue) : undefined}
             />
             <StatCard
-              label="Total Consults"
-              value={fmtNumber(staff.reduce((s, x) => s + x.consults, 0))}
+              label="Total Appointments"
+              value={fmtNumber(staff.reduce((s, x) => s + x.appointments, 0))}
               accent="sky"
             />
           </div>
 
           <SectionCard
             title="Doctors by production"
-            description="Revenue, appointments, and consults attributed to each veterinarian."
+            description="Revenue and appointments attributed to each veterinarian."
           >
             <StaffTable rows={doctors} year={year} />
           </SectionCard>
@@ -855,17 +877,22 @@ export function ReportingTabs(props: ReportingTabsProps) {
 
           <SectionCard
             title="Provider production by location"
-            description="Revenue per provider, split across clinics."
+            description="Revenue per case-owning provider, split across clinics."
           >
             <LocationMatrix
               rowHeader="Provider"
-              rowKeys={staff
-                .slice(0, 12)
-                .map((s) => ({ key: s.staff_member, label: s.staff_member }))}
+              rowKeys={topProviders}
               locations={locationCols}
               valueFor={(name, loc) => staffLoc.get(`${name}__${loc}`) ?? 0}
               format={(n) => fmtCurrency(n)}
             />
+          </SectionCard>
+
+          <SectionCard
+            title="Case owner sales by month"
+            description="Monthly sales for each case-owning provider. Expand a provider to view their trend."
+          >
+            <CaseOwnerMonthlySales rows={caseOwnerByMonth} />
           </SectionCard>
         </div>
       )}
@@ -1015,11 +1042,75 @@ export function ReportingTabs(props: ReportingTabsProps) {
   );
 }
 
+/** Collapsible per-case-owner monthly sales. One provider open at a time. */
+function CaseOwnerMonthlySales({ rows }: { rows: CaseOwnerMonthRow[] }) {
+  const [open, setOpen] = useState<string | null>(null);
+
+  const byOwner = new Map<string, CaseOwnerMonthRow[]>();
+  for (const r of rows) {
+    const arr = byOwner.get(r.case_owner) ?? [];
+    arr.push(r);
+    byOwner.set(r.case_owner, arr);
+  }
+  const owners = [...byOwner.entries()]
+    .map(([name, months]) => ({
+      name,
+      months: [...months].sort((a, b) => a.month.localeCompare(b.month)),
+      total: months.reduce((s, m) => s + Number(m.revenue), 0),
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  if (owners.length === 0)
+    return <p className="text-xs text-slate-400">No case owner data yet.</p>;
+
+  return (
+    <div className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200">
+      {owners.map((o) => {
+        const isOpen = open === o.name;
+        return (
+          <div key={o.name}>
+            <button
+              type="button"
+              onClick={() => setOpen(isOpen ? null : o.name)}
+              className={`flex w-full items-center justify-between px-4 py-3 text-left transition hover:bg-slate-50 ${
+                isOpen ? "bg-indigo-50/50" : ""
+              }`}
+              aria-expanded={isOpen}
+            >
+              <span className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                <span className="text-[10px] text-slate-400">
+                  {isOpen ? "▾" : "▸"}
+                </span>
+                {o.name}
+              </span>
+              <span className="tabular-nums text-sm font-semibold text-indigo-700">
+                {fmtCurrency(o.total)}
+              </span>
+            </button>
+            {isOpen ? (
+              <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
+                <MonthlyBars
+                  data={o.months.map((m) => ({
+                    month: m.month,
+                    revenue: Number(m.revenue),
+                  }))}
+                  valueKey="revenue"
+                  format={(n) => fmtCurrency(n)}
+                  color="#6366f1"
+                />
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Staff production table shared by the Doctors and Support Staff sections. */
 type StaffSortKey =
   | "staff_member"
   | "appointments"
-  | "consults"
   | "line_count"
   | "revenue";
 
@@ -1118,24 +1209,6 @@ function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
             <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
               <button
                 type="button"
-                onClick={() => toggleSort("consults")}
-                className={`transition hover:text-slate-700 ${
-                  sortKey === "consults" ? "text-slate-700" : ""
-                }`}
-                aria-sort={
-                  sortKey === "consults"
-                    ? sortDir === "asc"
-                      ? "ascending"
-                      : "descending"
-                    : "none"
-                }
-              >
-                Consults{arrow("consults")}
-              </button>
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              <button
-                type="button"
                 onClick={() => toggleSort("line_count")}
                 className={`transition hover:text-slate-700 ${
                   sortKey === "line_count" ? "text-slate-700" : ""
@@ -1204,9 +1277,6 @@ function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
                     {fmtNumber(r.appointments)}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums text-slate-600">
-                    {fmtNumber(r.consults)}
-                  </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-slate-600">
                     {fmtNumber(r.line_count)}
                   </td>
                   <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">
@@ -1215,7 +1285,7 @@ function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
                 </tr>
                 {isOpen ? (
                   <tr key={`${r.staff_member}-detail`}>
-                    <td colSpan={5} className="bg-slate-50/70 px-3 py-4">
+                    <td colSpan={4} className="bg-slate-50/70 px-3 py-4">
                       <StaffDetail
                         row={r}
                         breakdown={breakdown}
@@ -1266,7 +1336,6 @@ function StaffDetail({
           label="Appointments"
           value={fmtNumber(row.appointments)}
           accent="sky"
-          sub={`${fmtNumber(row.consults)} consults`}
         />
         <StatCard
           label="Total Revenue"

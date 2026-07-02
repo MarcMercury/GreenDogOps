@@ -232,6 +232,7 @@ export function parseInvoiceCsv(text: string): {
       staff_member: clean(get(row, "Staff Member")),
       staff_member_id: clean(get(row, "Staff Member ID")),
       salesperson_is_vet: toBool(get(row, "Salesperson is Vet")),
+      case_owner: clean(get(row, "Case Owner")),
       consult_id: clean(get(row, "Consult ID")),
       qty: toNumber(get(row, "Qty")),
       total_excl: toNumber(get(row, "Total Invoiced (excl)")),

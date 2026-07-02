@@ -91,7 +91,7 @@ COLS = (
     "client_contact_code, business_name, first_name, last_name, email, "
     "animal_code, pet_name, species, species_group, breed, product_code, "
     "product_name, product_group, account, staff_member, staff_member_id, "
-    "salesperson_is_vet, consult_id, qty, total_excl, total_incl"
+    "salesperson_is_vet, case_owner, consult_id, qty, total_excl, total_incl"
 )
 
 
@@ -120,6 +120,7 @@ def main(path):
                 s(r.get("Product Name")), s(r.get("Product Group")),
                 s(r.get("Account")), s(r.get("Staff Member")),
                 s(r.get("Staff Member ID")), boolean(r.get("Salesperson is Vet")),
+                s(r.get("Case Owner")),
                 s(r.get("Consult ID")), num(r.get("Qty")),
                 num(r.get("Total Invoiced (excl)")),
                 num(r.get("Total Invoiced (incl)")),

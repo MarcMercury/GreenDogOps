@@ -16,6 +16,7 @@ import type {
   ProductLocationRow,
   StaffRow,
   StaffLocationRow,
+  CaseOwnerMonthRow,
   ClientSummary,
   ClientsByMonthRow,
   ClientRecencyRow,
@@ -91,6 +92,7 @@ export default async function ReportingPage({
     productByLocationRes,
     staffRes,
     staffByLocationRes,
+    caseOwnerByMonthRes,
     clientSummaryRes,
     clientsByMonthRes,
     clientRecencyRes,
@@ -121,6 +123,11 @@ export default async function ReportingPage({
     supabase.from("report_product_by_location").select("*").eq("year", selectedYear),
     supabase.from("report_by_staff").select("*").eq("year", selectedYear).limit(100),
     supabase.from("report_staff_by_location").select("*").eq("year", selectedYear),
+    supabase
+      .from("report_case_owner_by_month")
+      .select("*")
+      .eq("year", selectedYear)
+      .order("month", { ascending: true }),
     supabase.from("report_client_summary").select("*").maybeSingle(),
     supabase.from("report_clients_by_month").select("*"),
     supabase.from("report_clients_by_recency").select("*"),
@@ -144,6 +151,7 @@ export default async function ReportingPage({
   const productByLocation = (productByLocationRes.data ?? []) as ProductLocationRow[];
   const staff = (staffRes.data ?? []) as StaffRow[];
   const staffByLocation = (staffByLocationRes.data ?? []) as StaffLocationRow[];
+  const caseOwnerByMonth = (caseOwnerByMonthRes.data ?? []) as CaseOwnerMonthRow[];
   const clientSummary = (clientSummaryRes.data as ClientSummary | null) ?? null;
   const clientsByMonth = (clientsByMonthRes.data ?? []) as ClientsByMonthRow[];
   const clientRecency = (clientRecencyRes.data ?? []) as ClientRecencyRow[];
@@ -172,9 +180,10 @@ export default async function ReportingPage({
         >
           <p className="text-sm text-slate-500">
             Each invoice line for the same client on the same day at one clinic
-            is rolled up into a single appointment. Once you upload, this page
-            fills with appointment volume, revenue trends, and a breakdown by
-            location and species.
+            is rolled up into a single appointment. Days whose only lines are a
+            Deposit or Refund are not counted as appointments. Once you upload,
+            this page fills with appointment volume, revenue trends, and a
+            breakdown by location and species.
           </p>
         </SectionCard>
       ) : (
@@ -203,6 +212,7 @@ export default async function ReportingPage({
             productByLocation={productByLocation}
             staff={staff}
             staffByLocation={staffByLocation}
+            caseOwnerByMonth={caseOwnerByMonth}
             clientSummary={clientSummary}
             clientsByMonth={clientsByMonth}
             clientRecency={clientRecency}

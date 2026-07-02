@@ -129,13 +129,16 @@ export async function finalizeInvoiceImport(
   // Pull just the keys needed to derive this import's stats.
   const { data: lines } = await admin
     .from("ezyvet_invoice_line")
-    .select("line_date, total_incl, client_contact_code, location_key")
+    .select("line_date, total_incl, client_contact_code, location_key, product_name")
     .eq("import_id", importId);
 
   let revenue = 0;
   let minDate: string | null = null;
   let maxDate: string | null = null;
-  const appts = new Set<string>();
+  // A (client + day + location) counts as an appointment only if at least one
+  // of its lines is NOT a deposit/refund. Track whether each key ever saw a
+  // qualifying (non deposit/refund) line.
+  const apptQualifies = new Map<string, boolean>();
   for (const l of lines ?? []) {
     const inc = Number(l.total_incl ?? 0);
     if (Number.isFinite(inc)) revenue += inc;
@@ -143,10 +146,17 @@ export async function finalizeInvoiceImport(
     if (d) {
       if (!minDate || d < minDate) minDate = d;
       if (!maxDate || d > maxDate) maxDate = d;
-      if (l.client_contact_code)
-        appts.add(`${l.client_contact_code}|${d}|${l.location_key ?? ""}`);
+      if (l.client_contact_code) {
+        const key = `${l.client_contact_code}|${d}|${l.location_key ?? ""}`;
+        const name = (l.product_name ?? "").toLowerCase();
+        const isDepositOrRefund =
+          name.includes("deposit") || name.includes("refund");
+        apptQualifies.set(key, (apptQualifies.get(key) ?? false) || !isDepositOrRefund);
+      }
     }
   }
+  let appointmentCount = 0;
+  for (const qualifies of apptQualifies.values()) if (qualifies) appointmentCount++;
 
   await admin
     .from("ezyvet_invoice_import")
@@ -154,7 +164,7 @@ export async function finalizeInvoiceImport(
       new_rows: newRows,
       skipped_rows: skippedRows,
       revenue_total: Math.round(revenue * 100) / 100,
-      appointment_count: appts.size,
+      appointment_count: appointmentCount,
       date_range_start: minDate,
       date_range_end: maxDate,
       details: { newRows, skippedRows, lines: lines?.length ?? 0 },
@@ -167,7 +177,7 @@ export async function finalizeInvoiceImport(
   revalidatePath("/reporting");
   return {
     ok: true,
-    message: `Imported ${newRows.toLocaleString()} new line${newRows === 1 ? "" : "s"} · ${appts.size.toLocaleString()} appointments · $${Math.round(revenue).toLocaleString()} revenue.`,
+    message: `Imported ${newRows.toLocaleString()} new line${newRows === 1 ? "" : "s"} · ${appointmentCount.toLocaleString()} appointments · $${Math.round(revenue).toLocaleString()} revenue.`,
   };
 }
 

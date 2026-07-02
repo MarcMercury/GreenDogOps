@@ -29,6 +29,7 @@ export interface InvoiceLineInput {
   staff_member: string | null;
   staff_member_id: string | null;
   salesperson_is_vet: boolean | null;
+  case_owner: string | null;
   consult_id: string | null;
   qty: number | null;
   total_excl: number | null;
@@ -150,7 +151,6 @@ export interface StaffRow {
   staff_member: string;
   is_vet: boolean;
   line_count: number;
-  consults: number;
   appointments: number;
   revenue: number;
 }
@@ -159,6 +159,13 @@ export interface StaffLocationRow {
   staff_member: string;
   location_key: LocationKey;
   location_label: string;
+  line_count: number;
+  revenue: number;
+}
+
+export interface CaseOwnerMonthRow {
+  case_owner: string;
+  month: string;
   line_count: number;
   revenue: number;
 }
