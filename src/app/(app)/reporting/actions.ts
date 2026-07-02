@@ -39,18 +39,25 @@ async function requireReportingAccess() {
 export async function getStaffBreakdown(
   staffMember: string,
   year?: number,
+  byCaseOwner = false,
 ): Promise<StaffBreakdown> {
   await requireReportingAccess();
   if (!staffMember || typeof staffMember !== "string") {
     return { topGroups: [], topProducts: [] };
   }
   const supabase = await createClient();
+  const groupView = byCaseOwner
+    ? "report_case_owner_product_group"
+    : "report_staff_product_group";
+  const productView = byCaseOwner
+    ? "report_case_owner_product"
+    : "report_staff_product";
   let groupsQuery = supabase
-    .from("report_staff_product_group")
+    .from(groupView)
     .select("product_group, line_count, revenue")
     .eq("staff_member", staffMember);
   let productsQuery = supabase
-    .from("report_staff_product")
+    .from(productView)
     .select("product_name, product_group, line_count, qty, revenue")
     .eq("staff_member", staffMember);
   if (typeof year === "number" && Number.isFinite(year)) {

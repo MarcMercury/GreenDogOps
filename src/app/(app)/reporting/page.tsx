@@ -91,6 +91,7 @@ export default async function ReportingPage({
     topProductRes,
     productByLocationRes,
     staffRes,
+    caseOwnersRes,
     staffByLocationRes,
     caseOwnerByMonthRes,
     clientSummaryRes,
@@ -122,6 +123,7 @@ export default async function ReportingPage({
       .limit(20),
     supabase.from("report_product_by_location").select("*").eq("year", selectedYear),
     supabase.from("report_by_staff").select("*").eq("year", selectedYear).limit(100),
+    supabase.from("report_by_case_owner").select("*").eq("year", selectedYear).limit(100),
     supabase.from("report_staff_by_location").select("*").eq("year", selectedYear),
     supabase
       .from("report_case_owner_by_month")
@@ -150,6 +152,7 @@ export default async function ReportingPage({
   const topProducts = (topProductRes.data ?? []) as TopProductRow[];
   const productByLocation = (productByLocationRes.data ?? []) as ProductLocationRow[];
   const staff = (staffRes.data ?? []) as StaffRow[];
+  const caseOwners = (caseOwnersRes.data ?? []) as StaffRow[];
   const staffByLocation = (staffByLocationRes.data ?? []) as StaffLocationRow[];
   const caseOwnerByMonth = (caseOwnerByMonthRes.data ?? []) as CaseOwnerMonthRow[];
   const clientSummary = (clientSummaryRes.data as ClientSummary | null) ?? null;
@@ -211,6 +214,7 @@ export default async function ReportingPage({
             topProducts={topProducts}
             productByLocation={productByLocation}
             staff={staff}
+            caseOwners={caseOwners}
             staffByLocation={staffByLocation}
             caseOwnerByMonth={caseOwnerByMonth}
             clientSummary={clientSummary}

@@ -88,6 +88,7 @@ export interface ReportingTabsProps {
   topProducts: TopProductRow[];
   productByLocation: ProductLocationRow[];
   staff: StaffRow[];
+  caseOwners: StaffRow[];
   staffByLocation: StaffLocationRow[];
   caseOwnerByMonth: CaseOwnerMonthRow[];
   clientSummary: ClientSummary | null;
@@ -450,6 +451,7 @@ export function ReportingTabs(props: ReportingTabsProps) {
     topProducts,
     productByLocation,
     staff,
+    caseOwners,
     staffByLocation,
     caseOwnerByMonth,
     clientSummary,
@@ -478,11 +480,12 @@ export function ReportingTabs(props: ReportingTabsProps) {
     0,
   );
 
-  const doctors = staff.filter((s) => s.is_vet);
+  // Doctors are attributed by Case Owner; support staff stay on Staff Member.
+  const doctors = caseOwners;
   const supportStaff = staff.filter((s) => !s.is_vet);
 
-  // Highest-revenue provider (the staff query isn't ordered, so pick explicitly).
-  const topProducer = staff.reduce<StaffRow | null>(
+  // Highest-revenue provider among case-owning doctors.
+  const topProducer = doctors.reduce<StaffRow | null>(
     (best, s) => (best && Number(best.revenue) >= Number(s.revenue) ? best : s),
     null,
   );
@@ -856,16 +859,16 @@ export function ReportingTabs(props: ReportingTabsProps) {
             />
             <StatCard
               label="Total Appointments"
-              value={fmtNumber(staff.reduce((s, x) => s + x.appointments, 0))}
+              value={fmtNumber(doctors.reduce((s, x) => s + x.appointments, 0))}
               accent="sky"
             />
           </div>
 
           <SectionCard
             title="Doctors by production"
-            description="Revenue and appointments attributed to each veterinarian."
+            description="Revenue and appointments attributed to each case-owning veterinarian."
           >
-            <StaffTable rows={doctors} year={year} />
+            <StaffTable rows={doctors} year={year} byCaseOwner />
           </SectionCard>
 
           <SectionCard
@@ -1114,7 +1117,15 @@ type StaffSortKey =
   | "line_count"
   | "revenue";
 
-function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
+function StaffTable({
+  rows,
+  year,
+  byCaseOwner = false,
+}: {
+  rows: StaffRow[];
+  year: number;
+  byCaseOwner?: boolean;
+}) {
   const [selected, setSelected] = useState<StaffRow | null>(null);
   const [breakdown, setBreakdown] = useState<StaffBreakdown | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1155,7 +1166,7 @@ function StaffTable({ rows, year }: { rows: StaffRow[]; year: number }) {
     setBreakdown(null);
     setLoading(true);
     try {
-      const data = await getStaffBreakdown(row.staff_member, year);
+      const data = await getStaffBreakdown(row.staff_member, year, byCaseOwner);
       setBreakdown(data);
     } finally {
       setLoading(false);
