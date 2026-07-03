@@ -294,8 +294,52 @@ export const BUSINESS_SUBTYPE_OPTIONS: CrmOption[] = [
   { value: "other", label: "Other" },
 ];
 
+// The COMPLETE set of "Type" options for the Vendor & Partner CRM, built from the
+// values already in use across every section (business, medical operations,
+// office/marketing, and facility trades). This is the dropdown source for the
+// record's Type field — values match what is stored so existing records map
+// cleanly, while labels are tidied for display. ALL-CAPS legacy values keep
+// their stored value but show a normalized label.
+export const CRM_SUBTYPE_OPTIONS: CrmOption[] = [
+  ...BUSINESS_SUBTYPE_OPTIONS.filter((o) => o.value !== "other"),
+  // Medical operations
+  { value: "Diagnostics & Reference Labs", label: "Diagnostics & Reference Labs" },
+  { value: "Distributors", label: "Distributors" },
+  { value: "Pharmacy & Compounding", label: "Pharmacy & Compounding" },
+  { value: "PHARMACEUTICAL MANUFACTURERS", label: "Pharmaceutical Manufacturers" },
+  { value: "MEDICAL SUPPLY DISTRIBUTORS", label: "Medical Supply Distributors" },
+  { value: "SPECIALTY SUPPLIERS", label: "Specialty Suppliers" },
+  { value: "Equipment & Hardware", label: "Equipment & Hardware" },
+  { value: "Equipment Vendor", label: "Equipment Vendor" },
+  { value: "Practice Management Software", label: "Practice Management Software" },
+  { value: "Client Communication & Payment", label: "Client Communication & Payment" },
+  { value: "ENDODONTICS", label: "Endodontics" },
+  // Office / marketing
+  { value: "RETAIL", label: "Retail" },
+  { value: "PRINTING", label: "Printing" },
+  { value: "Office Supply", label: "Office Supply" },
+  { value: "Industry Media", label: "Industry Media" },
+  { value: "Conference / CE", label: "Conference / CE" },
+  { value: "VENDORS", label: "Vendors" },
+  { value: "MISCELLANEOUS", label: "Miscellaneous" },
+  // Facility & grounds
+  { value: "handyman", label: "Handyman" },
+  { value: "plumber", label: "Plumber" },
+  { value: "hvac", label: "HVAC" },
+  { value: "electrician", label: "Electrician" },
+  { value: "gardener", label: "Gardener / Landscaping" },
+  { value: "cabinetry", label: "Cabinetry" },
+  { value: "locksmith", label: "Locksmith" },
+  { value: "appliance_repair", label: "Appliance Repair" },
+  { value: "audio", label: "Audio / AV" },
+  { value: "Landlord", label: "Landlord" },
+  { value: "Helpdesk", label: "Helpdesk / IT" },
+  // Catch-all last
+  { value: "other", label: "Other" },
+];
+
 export const SUBTYPE_LABELS: Record<string, string> = Object.fromEntries(
-  BUSINESS_SUBTYPE_OPTIONS.map((o) => [o.value, o.label]),
+  CRM_SUBTYPE_OPTIONS.map((o) => [o.value, o.label]),
 );
 
 /** Human-friendly label for a stored subtype value (falls back to the raw value). */

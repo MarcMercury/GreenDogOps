@@ -10,7 +10,7 @@ import {
   ORG_STATUS_OPTIONS,
   CRM_TIER_OPTIONS,
   CRM_PRIORITY_OPTIONS,
-  ORG_SUBTYPE_SUGGESTIONS,
+  CRM_SUBTYPE_OPTIONS,
   CATEGORY_OPTIONS,
   AGREEMENT_STATUS_OPTIONS,
   CRM_DOCUMENT_CATEGORY_LABELS,
@@ -31,7 +31,6 @@ import {
   TextArea,
   Checkbox,
   Select,
-  ComboField,
   Section,
   SaveButton,
   DeleteButton,
@@ -159,11 +158,11 @@ export function OrganizationForm({
                 options={CATEGORY_OPTIONS}
               />
             )}
-            <ComboField
+            <Select
               label="Type"
               name="subtype"
               defaultValue={org?.subtype}
-              options={ORG_SUBTYPE_SUGGESTIONS}
+              options={CRM_SUBTYPE_OPTIONS}
             />
             <Select label="Status" name="status" defaultValue={org?.status} options={ORG_STATUS_OPTIONS} />
             <Select label="Business Location Zone" name="area" defaultValue={org?.area} options={ZONE_OPTIONS} />
