@@ -358,10 +358,51 @@ async function searchGemini(query: string): Promise<{
   return { answer, sources };
 }
 
+// --- Provider: Tavily (native web search, LLM-quota independent) ------------
+async function searchTavily(query: string): Promise<{
+  answer: string;
+  sources: Source[];
+}> {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) throw new ProviderError("Tavily", "no API key configured");
+
+  const res = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      api_key: key,
+      query,
+      search_depth: "advanced",
+      include_answer: "advanced",
+      max_results: 6,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new ProviderError("Tavily", `HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  const answer: string = (data?.answer ?? "").trim();
+  const results: Array<{ url?: string; title?: string }> = data?.results ?? [];
+  const sources: Source[] = [];
+  for (const r of results) {
+    if (r?.url) sources.push({ title: r.title || r.url, url: r.url });
+  }
+
+  if (!answer) throw new ProviderError("Tavily", "empty response");
+  return { answer, sources };
+}
+
 /**
- * Runs web search across providers in order (OpenAI → Claude → Google),
- * falling through to the next whenever one is rate-limited, unconfigured, or
- * fails. Returns the first working result, or a combined error if all fail.
+ * Runs web search across providers in order (OpenAI → Claude → Google →
+ * Tavily), falling through to the next whenever one is rate-limited,
+ * unconfigured, or fails. Tavily is a native search API independent of the
+ * LLM providers' quotas, so it keeps working when the others are throttled.
+ * Returns the first working result, or a combined error if all fail.
  */
 async function searchWeb(query: string): Promise<WebSearchResult> {
   const providers: Array<{
@@ -371,6 +412,7 @@ async function searchWeb(query: string): Promise<WebSearchResult> {
     { name: "OpenAI", run: searchOpenAI },
     { name: "Claude", run: searchClaude },
     { name: "Google", run: searchGemini },
+    { name: "Tavily", run: searchTavily },
   ];
 
   const failures: string[] = [];
