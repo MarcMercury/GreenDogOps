@@ -56,7 +56,13 @@ export async function getStudentFormOptions(): Promise<StudentFormOptions> {
     (locRes.data ?? []) as { name: string; display_name: string | null }[]
   )
     .filter((l) => l.name)
-    .map((l) => ({ value: l.name, label: l.display_name ?? l.name }));
+    .map((l) => {
+      // Contacts store the friendly location name (e.g. "The Valley"), so use
+      // the display name as the option value too — that keeps existing data
+      // matching the dropdown instead of falling back to "… (current)".
+      const label = l.display_name ?? l.name;
+      return { value: label, label };
+    });
 
   const mentors: CrmOption[] = [];
   const coordinators: CrmOption[] = [];
