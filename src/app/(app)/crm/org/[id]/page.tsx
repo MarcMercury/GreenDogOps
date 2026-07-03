@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isEditorRole } from "@/lib/auth/permissions";
 import {
   type CrmOrganization,
+  type CrmOrgDocument,
+  type CrmOrgDocumentWithUrl,
   crmSectionBySlug,
   crmSlugForOrgType,
 } from "@/lib/crm/types";
@@ -53,6 +56,34 @@ export default async function OrganizationDetailPage({
     (locationData ?? []) as unknown as Location[]
   ).map((l) => ({ value: l.name, label: l.display_name ?? l.name }));
 
+  // Uploaded document attachments (private bucket → short-lived signed URLs).
+  const { data: docData } = await supabase
+    .from("crm_org_document")
+    .select("*")
+    .eq("org_id", id)
+    .order("uploaded_at", { ascending: false });
+  const documents = (docData ?? []) as CrmOrgDocument[];
+
+  let documentsWithUrls: CrmOrgDocumentWithUrl[] = documents.map((d) => ({
+    ...d,
+    signed_url: null,
+  }));
+  if (documents.length > 0) {
+    const admin = createAdminClient();
+    const { data: signed } = await admin.storage
+      .from("crm-documents")
+      .createSignedUrls(
+        documents.map((d) => d.storage_path),
+        60 * 60,
+      );
+    if (signed) {
+      documentsWithUrls = documents.map((d, i) => ({
+        ...d,
+        signed_url: signed[i]?.signedUrl ?? null,
+      }));
+    }
+  }
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link
@@ -61,7 +92,12 @@ export default async function OrganizationDetailPage({
       >
         ← Back to {section?.title ?? "CRM"}
       </Link>
-      <OrganizationForm org={org} locations={locationOptions} canEdit={canEdit} />
+      <OrganizationForm
+        org={org}
+        locations={locationOptions}
+        documents={documentsWithUrls}
+        canEdit={canEdit}
+      />
     </div>
   );
 }

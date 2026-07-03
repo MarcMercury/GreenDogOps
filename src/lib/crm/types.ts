@@ -115,6 +115,14 @@ export interface CrmOrganization {
   internal_rating: number | null;
   is_preferred: boolean;
   is_active: boolean;
+  // Agreement / partnership tracking (generic across vendors & partners)
+  agreement_status: string | null;
+  agreement_signed_date: string | null;
+  tax_id: string | null;
+  secondary_contact_name: string | null;
+  secondary_contact_title: string | null;
+  secondary_contact_email: string | null;
+  secondary_contact_phone: string | null;
   last_visit_date: string | null;
   last_contact_date: string | null;
   last_referral_date: string | null;
@@ -123,6 +131,26 @@ export interface CrmOrganization {
   external_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** An uploaded document attached to a CRM organization record. */
+export interface CrmOrgDocument {
+  id: string;
+  org_id: string;
+  title: string;
+  category: string | null;
+  storage_path: string;
+  file_name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  uploaded_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** CrmOrgDocument with a short-lived signed URL for the private file. */
+export interface CrmOrgDocumentWithUrl extends CrmOrgDocument {
+  signed_url: string | null;
 }
 
 export interface CrmContact {
@@ -214,6 +242,37 @@ export const CRM_PRIORITY_OPTIONS: CrmOption[] = [
   { value: "Medium", label: "Medium" },
   { value: "Low", label: "Low" },
 ];
+
+// Agreement / contract status for a vendor or partner record. Rescue partners
+// sign a partnership agreement; vendors have MSAs / service contracts — the
+// same lifecycle applies to both.
+export const AGREEMENT_STATUS_OPTIONS: CrmOption[] = [
+  { value: "none", label: "No agreement" },
+  { value: "pending", label: "Approved — not sent" },
+  { value: "sent", label: "Sent — awaiting signature" },
+  { value: "signed", label: "Signed" },
+  { value: "expired", label: "Expired" },
+];
+
+export const AGREEMENT_STATUS_LABELS: Record<string, string> = Object.fromEntries(
+  AGREEMENT_STATUS_OPTIONS.map((o) => [o.value, o.label]),
+);
+
+/** Human-friendly label for a stored agreement_status value. */
+export function agreementStatusLabel(value: string | null | undefined): string {
+  if (!value) return "";
+  return AGREEMENT_STATUS_LABELS[value] ?? value;
+}
+
+// Document categories for CRM record attachments (Attachments tab).
+export const CRM_DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
+  agreement: "Partnership / Service Agreement",
+  tax_501c3: "501(c)(3) / Tax (W-9, EIN)",
+  insurance: "Insurance / Liability",
+  correspondence: "Correspondence",
+  invoice: "Invoice / Statement",
+  other: "Other",
+};
 
 // Standard Business-CRM type taxonomy (value kept stable for data; label shown
 // in the UI). Free text is still allowed in the form, but these are the

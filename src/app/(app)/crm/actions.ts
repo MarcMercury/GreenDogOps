@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureEditor } from "@/lib/auth/session";
 import {
   crmSlugForOrgType,
@@ -74,6 +75,13 @@ function organizationPatch(formData: FormData) {
     internal_rating: num(formData.get("internal_rating")),
     is_preferred: bool(formData.get("is_preferred")),
     is_active: bool(formData.get("is_active")),
+    agreement_status: str(formData.get("agreement_status")),
+    agreement_signed_date: str(formData.get("agreement_signed_date")),
+    tax_id: str(formData.get("tax_id")),
+    secondary_contact_name: str(formData.get("secondary_contact_name")),
+    secondary_contact_title: str(formData.get("secondary_contact_title")),
+    secondary_contact_email: str(formData.get("secondary_contact_email")),
+    secondary_contact_phone: str(formData.get("secondary_contact_phone")),
     last_visit_date: str(formData.get("last_visit_date")),
     last_contact_date: str(formData.get("last_contact_date")),
     notes: str(formData.get("notes")),
@@ -118,6 +126,80 @@ export async function createOrganization(
   if (error) return { ok: false, error: error.message };
   revalidatePath("/crm", "layout");
   redirect(`/crm/org/${(data as { id: string }).id}`);
+}
+
+// ---------------------------------------------------------------------------
+// Organization document attachments (files go to the private crm-documents
+// Storage bucket; rows live in greendogops.crm_org_document).
+// ---------------------------------------------------------------------------
+const CRM_DOCUMENTS_BUCKET = "crm-documents";
+
+export async function uploadOrgDocument(
+  orgId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Please choose a file to upload." };
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    return { ok: false, error: "File exceeds the 25 MB limit." };
+  }
+
+  const admin = createAdminClient();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const storagePath = `${orgId}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await admin.storage
+    .from(CRM_DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { error: dbErr } = await admin.from("crm_org_document").insert({
+    org_id: orgId,
+    title: str(formData.get("title")) ?? file.name,
+    category: str(formData.get("category")),
+    storage_path: storagePath,
+    file_name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+  });
+  if (dbErr) {
+    // Roll back the orphaned upload so storage and the table stay in sync.
+    await admin.storage.from(CRM_DOCUMENTS_BUCKET).remove([storagePath]);
+    return { ok: false, error: dbErr.message };
+  }
+
+  revalidatePath(`/crm/org/${orgId}`);
+  return { ok: true };
+}
+
+export async function deleteOrgDocument(
+  orgId: string,
+  documentId: string,
+  storagePath: string,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const admin = createAdminClient();
+
+  await admin.storage.from(CRM_DOCUMENTS_BUCKET).remove([storagePath]);
+
+  const { error } = await admin
+    .from("crm_org_document")
+    .delete()
+    .eq("id", documentId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/crm/org/${orgId}`);
+  return { ok: true };
 }
 
 function contactPatch(formData: FormData) {
