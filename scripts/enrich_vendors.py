@@ -214,6 +214,8 @@ def openai_lookup(v: dict) -> dict | None:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-ai", action="store_true", help="classification only")
+    ap.add_argument("--no-reclass", action="store_true",
+                    help="never change org_type; only fill blank fields")
     ap.add_argument("--limit", type=int, default=0, help="cap AI lookups (test)")
     ap.add_argument("--workers", type=int, default=6)
     args = ap.parse_args()
@@ -292,7 +294,7 @@ def main():
     fill_count = 0
     for v in vendors:
         sets = []
-        if v["_new_type"] != v["org_type"]:
+        if v["_new_type"] != v["org_type"] and not args.no_reclass:
             sets.append(f"org_type = {qstr(v['_new_type'])}")
             type_changes += 1
         patch = enriched.get(v["id"], {})
