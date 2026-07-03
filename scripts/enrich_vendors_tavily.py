@@ -30,6 +30,7 @@ import os
 import random
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -68,6 +69,21 @@ def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
 
+# Global rate limiter: enforce a minimum interval between ALL requests (across
+# threads) so we never trip Tavily's throttle in the first place.
+_RL_LOCK = threading.Lock()
+_RL_LAST = [0.0]
+MIN_INTERVAL = float(os.environ.get("TAVILY_MIN_INTERVAL", "1.6"))
+
+
+def _throttle():
+    with _RL_LOCK:
+        wait = MIN_INTERVAL - (time.time() - _RL_LAST[0])
+        if wait > 0:
+            time.sleep(wait)
+        _RL_LAST[0] = time.time()
+
+
 def host_of(url: str) -> str:
     m = re.match(r"https?://([^/]+)", url or "")
     return (m.group(1).lower().lstrip("www.") if m else "")
@@ -90,6 +106,7 @@ def tavily(query: str) -> dict | None:
         "include_raw_content": True,
     }).encode()
     for attempt in range(5):
+        _throttle()
         req = urllib.request.Request(
             TAVILY_URL, data=body, headers={"Content-Type": "application/json"})
         try:
