@@ -170,6 +170,11 @@ function Results({
           <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-100">
             AI web search
           </span>
+          {result.web?.ok ? (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600 ring-1 ring-slate-200">
+              {result.web.provider}
+            </span>
+          ) : null}
         </div>
 
         {pending && result.web === null ? (

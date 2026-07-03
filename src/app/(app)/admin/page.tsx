@@ -37,6 +37,7 @@ function isRecent(iso: string | null): boolean {
 
 const INTEGRATIONS: { label: string; env: string }[] = [
   { label: "OpenAI", env: "OPENAI_API_KEY" },
+  { label: "Claude", env: "ANTHROPIC_API_KEY" },
   { label: "Gemini", env: "GEMINI_API_KEY" },
   { label: "Resend (email)", env: "RESEND_API_KEY" },
   { label: "Slack", env: "SLACK_BOT_TOKEN" },

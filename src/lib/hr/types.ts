@@ -187,6 +187,19 @@ export interface PersonOnboardingItem {
   updated_at: string;
 }
 
+/** One dated entry in the ongoing Annual Compliance log for a person. */
+export interface PersonComplianceEntry {
+  id: string;
+  person_id: string;
+  /** Stable track key: a catalog key or a custom key. */
+  compliance_key: string;
+  label: string;
+  completed_date: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** A professional credential/license held by an employee (DVM, RVT, DEA, …). */
 export interface PersonLicense {
   id: string;

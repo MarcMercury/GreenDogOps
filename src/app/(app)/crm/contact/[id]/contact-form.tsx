@@ -8,8 +8,12 @@ import {
   CONTACT_STATUS_OPTIONS,
   VISITOR_TYPE_OPTIONS,
   HIRE_INTEREST_OPTIONS,
+  DEGREE_TYPE_OPTIONS,
+  RECOMMENDATION_LEVEL_OPTIONS,
+  RECOMMENDATION_LEVEL_STYLES,
   PROGRAM_TYPE_SUGGESTIONS,
 } from "@/lib/crm/types";
+import type { StudentFormOptions } from "@/lib/crm/student-form-data";
 import {
   updateContact,
   createContact,
@@ -23,6 +27,8 @@ import {
   Checkbox,
   Select,
   ComboField,
+  DaysSelect,
+  RecommendationLevelField,
   Section,
   SaveButton,
   DeleteButton,
@@ -33,11 +39,13 @@ export function ContactForm({
   contactType,
   canEdit = false,
   mode = "edit",
+  options,
 }: {
   contact?: CrmContact | null;
   contactType?: ContactType;
   canEdit?: boolean;
   mode?: "edit" | "create";
+  options?: StudentFormOptions;
 }) {
   const isCreate = mode === "create";
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -95,14 +103,39 @@ export function ContactForm({
         <Field label="Program name" name="program_name" defaultValue={contact?.program_name} />
         <Field label="Cohort" name="cohort" defaultValue={contact?.cohort} />
         <Field label="School" name="school" defaultValue={contact?.school} />
-        <Field label="Location" name="location" defaultValue={contact?.location} />
-        <Field label="Mentor" name="mentor" defaultValue={contact?.mentor} />
-        <Field label="Coordinator" name="coordinator" defaultValue={contact?.coordinator} />
+        <Select
+          label="Location"
+          name="location"
+          defaultValue={contact?.location}
+          options={options?.locations ?? []}
+        />
+        <Select
+          label="Mentor"
+          name="mentor"
+          defaultValue={contact?.mentor}
+          options={options?.mentors ?? []}
+        />
+        <Select
+          label="Coordinator"
+          name="coordinator"
+          defaultValue={contact?.coordinator}
+          options={options?.coordinators ?? []}
+        />
         {isStudent && (
           <>
             <Field label="Supervising DVM" name="supervising_dvm" defaultValue={contact?.supervising_dvm} />
-            <Field label="Weekday schedule" name="weekday_schedule" defaultValue={contact?.weekday_schedule} />
-            <Field label="Grad year" name="grad_year" defaultValue={contact?.grad_year} />
+            <Select
+              label="Degree type"
+              name="degree_type"
+              defaultValue={contact?.degree_type}
+              options={DEGREE_TYPE_OPTIONS}
+            />
+            <Field label="Grad year" name="grad_year" type="number" defaultValue={contact?.grad_year} />
+            <DaysSelect
+              label="Weekday schedule"
+              name="weekday_schedule"
+              defaultValue={contact?.weekday_schedule}
+            />
           </>
         )}
         <Field label="Start date" name="start_date" type="date" defaultValue={contact?.start_date} />
@@ -113,7 +146,13 @@ export function ContactForm({
         <Section title="Internship / Hours">
           <Field label="Hours completed" name="hours_completed" type="number" defaultValue={contact?.hours_completed} />
           <Field label="Hours required" name="hours_required" type="number" defaultValue={contact?.hours_required} />
-          <Field label="Doc recommendation" name="doc_recommendation" defaultValue={contact?.doc_recommendation} />
+          <RecommendationLevelField
+            label="Recommendation Level"
+            name="doc_recommendation"
+            defaultValue={contact?.doc_recommendation}
+            options={RECOMMENDATION_LEVEL_OPTIONS}
+            styles={RECOMMENDATION_LEVEL_STYLES}
+          />
           <Select label="Hire interest" name="hire_interest" defaultValue={contact?.hire_interest} options={HIRE_INTEREST_OPTIONS} />
           <Field label="Stipend" name="stipend" defaultValue={contact?.stipend} />
           <Checkbox

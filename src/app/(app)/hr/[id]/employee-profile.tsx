@@ -13,6 +13,7 @@ import type {
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
   PersonOnboardingItem,
+  PersonComplianceEntry,
   PersonLicense,
   TimeOffStatus,
 } from "@/lib/hr/types";
@@ -57,11 +58,13 @@ import {
   uploadDocument,
   deleteDocument,
   saveOnboarding,
+  addComplianceEntry,
+  deleteComplianceEntry,
   saveLicense,
   deleteLicense,
   type SaveResult,
 } from "../actions";
-import { setPersonRoles } from "../../schedule/actions";
+import { setPersonRoles, setStudentRoleFlags } from "../../schedule/actions";
 import {
   EmployeeForm,
   Field,
@@ -69,7 +72,11 @@ import {
   Section,
   type FieldTab,
 } from "./employee-form";
-import { ONBOARDING_GROUPS, LICENSES_TRACKER_LINK } from "@/lib/hr/onboarding";
+import {
+  ONBOARDING_GROUPS,
+  COMPLIANCE_TYPES,
+  LICENSES_TRACKER_LINK,
+} from "@/lib/hr/onboarding";
 
 type TabKey =
   | FieldTab
@@ -110,6 +117,7 @@ export function EmployeeProfile({
   ptoDays,
   timeOff,
   onboarding,
+  compliance,
   licenses,
   account,
   canViewComp,
@@ -127,6 +135,7 @@ export function EmployeeProfile({
   ptoDays: PersonPtoDay[];
   timeOff: PersonTimeOff[];
   onboarding: PersonOnboardingItem[];
+  compliance: PersonComplianceEntry[];
   licenses: PersonLicense[];
   account: LinkedAccount | null;
   canViewComp: boolean;
@@ -213,6 +222,7 @@ export function EmployeeProfile({
         <OnboardingPanel
           personId={row.id}
           items={onboarding}
+          compliance={compliance}
           licenses={licenses}
           canEdit={canEdit}
         />
@@ -374,13 +384,21 @@ function EligibilityPanel({
   const [selected, setSelected] = useState<Set<string>>(
     () => new Set(initial),
   );
+  const [isMentor, setIsMentor] = useState(eligibility.isStudentMentor);
+  const [isCoordinator, setIsCoordinator] = useState(
+    eligibility.isStudentCoordinator,
+  );
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const dirty =
+  const rolesDirty =
     selected.size !== initial.length ||
     initial.some((id) => !selected.has(id));
+  const studentDirty =
+    isMentor !== eligibility.isStudentMentor ||
+    isCoordinator !== eligibility.isStudentCoordinator;
+  const dirty = rolesDirty || studentDirty;
 
   function toggle(roleId: string) {
     setSaved(false);
@@ -397,8 +415,13 @@ function EligibilityPanel({
     setSaved(false);
     start(async () => {
       const res = await setPersonRoles(personId, [...selected]);
-      if (res.ok) setSaved(true);
-      else setError(res.error);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      const flagRes = await setStudentRoleFlags(personId, isMentor, isCoordinator);
+      if (flagRes.ok) setSaved(true);
+      else setError(flagRes.error);
     });
   }
 
@@ -430,12 +453,12 @@ function EligibilityPanel({
       </p>
 
       {groups.length === 0 ? (
-        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
+        <p className="mb-5 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
           No roles have been configured yet. Add roles in Schedule → Setup →
-          Roles & Eligibility first.
+          Roles &amp; Eligibility first. The Student options below still apply.
         </p>
       ) : (
-        <div className="space-y-5">
+        <div className="mb-5 space-y-5">
           {groups.map((g) => (
             <div key={g.department.id}>
               <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -464,32 +487,80 @@ function EligibilityPanel({
               </div>
             </div>
           ))}
-
-          {canEdit && (
-            <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
-              <button
-                type="button"
-                onClick={save}
-                disabled={!dirty || pending}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {pending ? "Saving…" : "Save eligibility"}
-              </button>
-              {error && <span className="text-sm text-red-600">{error}</span>}
-              {saved && !dirty && (
-                <span className="text-sm text-emerald-700">Saved.</span>
-              )}
-            </div>
-          )}
-
-          {!canEdit && (
-            <p className="border-t border-slate-100 pt-4 text-xs text-slate-400">
-              You don’t have permission to edit scheduling. This view is
-              read-only.
-            </p>
-          )}
         </div>
       )}
+
+      <div className="space-y-5">
+        <div>
+          <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Student
+          </h4>
+          <div className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+            <label
+              className={`flex items-center gap-2 text-sm ${
+                canEdit ? "cursor-pointer text-slate-700" : "text-slate-600"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={isMentor}
+                disabled={!canEdit || pending}
+                onChange={() => {
+                  setSaved(false);
+                  setIsMentor((v) => !v);
+                }}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
+              />
+              Mentor
+            </label>
+            <label
+              className={`flex items-center gap-2 text-sm ${
+                canEdit ? "cursor-pointer text-slate-700" : "text-slate-600"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={isCoordinator}
+                disabled={!canEdit || pending}
+                onChange={() => {
+                  setSaved(false);
+                  setIsCoordinator((v) => !v);
+                }}
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
+              />
+              Coordinator
+            </label>
+          </div>
+          <p className="mt-2 text-[11px] text-slate-400">
+            Not a shift — these control whether this person appears in the
+            Student CRM Mentor / Coordinator dropdowns.
+          </p>
+        </div>
+
+        {canEdit && (
+          <div className="flex items-center gap-3 border-t border-slate-100 pt-4">
+            <button
+              type="button"
+              onClick={save}
+              disabled={!dirty || pending}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {pending ? "Saving…" : "Save eligibility"}
+            </button>
+            {error && <span className="text-sm text-red-600">{error}</span>}
+            {saved && !dirty && (
+              <span className="text-sm text-emerald-700">Saved.</span>
+            )}
+          </div>
+        )}
+
+        {!canEdit && (
+          <p className="border-t border-slate-100 pt-4 text-xs text-slate-400">
+            You don’t have permission to edit scheduling. This view is
+            read-only.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
@@ -1222,11 +1293,13 @@ function buildOnboardingState(items: PersonOnboardingItem[]): OnboardingState {
 function OnboardingPanel({
   personId,
   items,
+  compliance,
   licenses,
   canEdit,
 }: {
   personId: string;
   items: PersonOnboardingItem[];
+  compliance: PersonComplianceEntry[];
   licenses: PersonLicense[];
   canEdit: boolean;
 }) {
@@ -1315,13 +1388,7 @@ function OnboardingPanel({
                   className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2"
                 >
                   <div className="flex min-w-0 basis-full items-center gap-2 lg:basis-64">
-                    {group.variant === "annual" ? (
-                      v.completed ? (
-                        <span className="text-emerald-600">✓</span>
-                      ) : (
-                        <span className="text-slate-300">○</span>
-                      )
-                    ) : v.completed ? (
+                    {v.completed ? (
                       <span className="text-emerald-600">✓</span>
                     ) : v.provided ? (
                       <span className="text-amber-500">◑</span>
@@ -1356,48 +1423,32 @@ function OnboardingPanel({
                     )}
                   </div>
 
-                  {group.variant === "annual" ? (
-                    <InlineDate
-                      label="Last completed"
-                      date={v.completed_date}
-                      disabled={!canEdit}
-                      onDate={(d) =>
-                        update(item.key, {
-                          completed: !!d,
-                          completed_date: d,
-                        })
-                      }
-                    />
-                  ) : (
-                    <>
-                      <InlineStateControl
-                        label={item.providedLabel ?? "Provided"}
-                        checked={v.provided}
-                        date={v.provided_date}
-                        disabled={!canEdit}
-                        onToggle={(checked) =>
-                          update(item.key, {
-                            provided: checked,
-                            provided_date: checked ? v.provided_date : "",
-                          })
-                        }
-                        onDate={(d) => update(item.key, { provided_date: d })}
-                      />
-                      <InlineStateControl
-                        label={item.completedLabel ?? "Completed"}
-                        checked={v.completed}
-                        date={v.completed_date}
-                        disabled={!canEdit}
-                        onToggle={(checked) =>
-                          update(item.key, {
-                            completed: checked,
-                            completed_date: checked ? v.completed_date : "",
-                          })
-                        }
-                        onDate={(d) => update(item.key, { completed_date: d })}
-                      />
-                    </>
-                  )}
+                  <InlineStateControl
+                    label={item.providedLabel ?? "Provided"}
+                    checked={v.provided}
+                    date={v.provided_date}
+                    disabled={!canEdit}
+                    onToggle={(checked) =>
+                      update(item.key, {
+                        provided: checked,
+                        provided_date: checked ? v.provided_date : "",
+                      })
+                    }
+                    onDate={(d) => update(item.key, { provided_date: d })}
+                  />
+                  <InlineStateControl
+                    label={item.completedLabel ?? "Completed"}
+                    checked={v.completed}
+                    date={v.completed_date}
+                    disabled={!canEdit}
+                    onToggle={(checked) =>
+                      update(item.key, {
+                        completed: checked,
+                        completed_date: checked ? v.completed_date : "",
+                      })
+                    }
+                    onDate={(d) => update(item.key, { completed_date: d })}
+                  />
 
                   <input
                     value={v.notes}
@@ -1427,6 +1478,12 @@ function OnboardingPanel({
           {error && <span className="text-sm text-red-600">{error}</span>}
         </div>
       )}
+
+      <ComplianceSection
+        personId={personId}
+        entries={compliance}
+        canEdit={canEdit}
+      />
 
       <LicensesSection
         personId={personId}
@@ -1476,31 +1533,249 @@ function InlineStateControl({
   );
 }
 
-/** Compact labelled date used by annual-compliance rows (last completed). */
-function InlineDate({
-  label,
-  date,
-  disabled,
-  onDate,
-}: {
+/** Ongoing log of dated compliance entries, grouped by compliance track. */
+type ComplianceTrackInfo = {
+  key: string;
   label: string;
-  date: string;
-  disabled: boolean;
-  onDate: (date: string) => void;
+  help?: string;
+  /** Custom tracks let the label be edited until the first entry is saved. */
+  custom: boolean;
+};
+
+function ComplianceSection({
+  personId,
+  entries,
+  canEdit,
+}: {
+  personId: string;
+  entries: PersonComplianceEntry[];
+  canEdit: boolean;
 }) {
+  // Locally-added custom tracks that have no saved entries yet.
+  const [customTracks, setCustomTracks] = useState<
+    { key: string; label: string }[]
+  >([]);
+
+  const entriesByKey = useMemo(() => {
+    const map = new Map<string, PersonComplianceEntry[]>();
+    for (const e of entries) {
+      const arr = map.get(e.compliance_key);
+      if (arr) arr.push(e);
+      else map.set(e.compliance_key, [e]);
+    }
+    return map;
+  }, [entries]);
+
+  const tracks: ComplianceTrackInfo[] = [];
+  const seen = new Set<string>();
+  for (const t of COMPLIANCE_TYPES) {
+    tracks.push({ key: t.key, label: t.label, help: t.help, custom: false });
+    seen.add(t.key);
+  }
+  for (const [key, arr] of entriesByKey) {
+    if (!seen.has(key)) {
+      tracks.push({ key, label: arr[0].label, custom: true });
+      seen.add(key);
+    }
+  }
+  for (const t of customTracks) {
+    if (!seen.has(t.key)) {
+      tracks.push({ key: t.key, label: t.label, custom: true });
+      seen.add(t.key);
+    }
+  }
+
+  // A track's label stays editable until its first entry is saved.
+  const editableKeys = new Set(
+    customTracks.filter((t) => !entriesByKey.has(t.key)).map((t) => t.key),
+  );
+
+  function addTrack() {
+    setCustomTracks((prev) => [
+      ...prev,
+      { key: `custom_${Date.now()}_${prev.length}`, label: "" },
+    ]);
+  }
+
+  function setTrackLabel(key: string, label: string) {
+    setCustomTracks((prev) =>
+      prev.map((t) => (t.key === key ? { ...t, label } : t)),
+    );
+  }
+
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="whitespace-nowrap text-xs font-medium text-slate-600">
-        {label}
-      </span>
-      <input
-        type="date"
-        value={date}
-        disabled={disabled}
-        onChange={(e) => onDate(e.target.value)}
-        className="w-[8.5rem] rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:bg-slate-100 disabled:text-slate-400"
-      />
+    <div className="space-y-4">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Annual Compliance
+      </h2>
+
+      <div className="space-y-4">
+        {tracks.map((track) => (
+          <ComplianceTrack
+            key={track.key}
+            personId={personId}
+            track={track}
+            entries={entriesByKey.get(track.key) ?? []}
+            labelEditable={editableKeys.has(track.key)}
+            onLabelChange={(label) => setTrackLabel(track.key, label)}
+            canEdit={canEdit}
+          />
+        ))}
+      </div>
+
+      {canEdit && (
+        <button
+          type="button"
+          onClick={addTrack}
+          className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
+        >
+          + Add Item
+        </button>
+      )}
     </div>
+  );
+}
+
+/**
+ * One compliance track: its history of completed dates plus a blank row to log
+ * the next completion. Saving appends the entry and clears the row so the next
+ * one can be recorded straight away.
+ */
+function ComplianceTrack({
+  personId,
+  track,
+  entries,
+  labelEditable,
+  onLabelChange,
+  canEdit,
+}: {
+  personId: string;
+  track: ComplianceTrackInfo;
+  entries: PersonComplianceEntry[];
+  labelEditable: boolean;
+  onLabelChange: (label: string) => void;
+  canEdit: boolean;
+}) {
+  const [date, setDate] = useState("");
+  const [notes, setNotes] = useState("");
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function addEntry() {
+    setError(null);
+    if (labelEditable && !track.label.trim()) {
+      setError("Name this compliance item first.");
+      return;
+    }
+    if (!date) {
+      setError("A completed date is required.");
+      return;
+    }
+    const fd = new FormData();
+    fd.set("compliance_key", track.key);
+    fd.set("label", track.label.trim());
+    fd.set("completed_date", date);
+    if (notes.trim()) fd.set("notes", notes.trim());
+    start(async () => {
+      const res = await addComplianceEntry(personId, fd);
+      if (res.ok) {
+        setDate("");
+        setNotes("");
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-2 flex items-center gap-2">
+        {labelEditable ? (
+          <input
+            value={track.label}
+            disabled={!canEdit}
+            onChange={(e) => onLabelChange(e.target.value)}
+            placeholder="Compliance item name"
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm font-medium shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+        ) : (
+          <h3 className="text-sm font-semibold text-slate-800">
+            {track.label}
+          </h3>
+        )}
+        {track.help && (
+          <span className="group relative shrink-0">
+            <span className="cursor-help text-xs text-slate-300 hover:text-slate-500">
+              ⓘ
+            </span>
+            <span className="pointer-events-none absolute left-0 top-full z-10 hidden w-64 rounded-lg border border-slate-200 bg-white p-2 text-xs text-slate-500 shadow-lg group-hover:block">
+              {track.help}
+            </span>
+          </span>
+        )}
+      </div>
+
+      {entries.length > 0 && (
+        <ul className="mb-3 divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
+          {entries.map((e) => (
+            <li
+              key={e.id}
+              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2"
+            >
+              <div className="min-w-0">
+                <span className="text-sm font-medium text-slate-800">
+                  {fmtDate(e.completed_date)}
+                </span>
+                {e.notes && (
+                  <span className="ml-2 text-xs text-slate-500">
+                    · {e.notes}
+                  </span>
+                )}
+              </div>
+              {canEdit && (
+                <DeleteButton
+                  label={`this ${track.label || "compliance"} entry`}
+                  onConfirm={() => deleteComplianceEntry(personId, e.id)}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {canEdit ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-slate-600">
+            Completed
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-[8.5rem] rounded-lg border border-slate-300 px-2 py-1.5 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+          </label>
+          <input
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes"
+            className="min-w-[8rem] flex-1 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+          <button
+            type="button"
+            onClick={addEntry}
+            disabled={pending}
+            className="rounded-lg border border-emerald-600 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-40"
+          >
+            {pending ? "Saving…" : "Save"}
+          </button>
+          {error && <span className="text-xs text-red-600">{error}</span>}
+        </div>
+      ) : (
+        entries.length === 0 && (
+          <p className="text-xs text-slate-400">No entries recorded.</p>
+        )
+      )}
+    </section>
   );
 }
 

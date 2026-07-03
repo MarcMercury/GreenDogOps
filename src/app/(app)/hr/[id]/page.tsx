@@ -12,6 +12,7 @@ import type {
   PersonDocumentWithUrl,
   PersonRecruitingSummary,
   PersonOnboardingItem,
+  PersonComplianceEntry,
   PersonLicense,
 } from "@/lib/hr/types";
 import { redactCompensation } from "@/lib/hr/types";
@@ -101,6 +102,7 @@ export default async function EmployeeDetailPage({
     ptoRes,
     timeOffRes,
     onboardingRes,
+    complianceRes,
     licensesRes,
   ] = await Promise.all([
     supabase
@@ -135,6 +137,12 @@ export default async function EmployeeDetailPage({
       .select("*")
       .eq("person_id", id),
     supabase
+      .from("person_compliance_entry")
+      .select("*")
+      .eq("person_id", id)
+      .order("completed_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+    supabase
       .from("person_license")
       .select("*")
       .eq("person_id", id)
@@ -148,6 +156,7 @@ export default async function EmployeeDetailPage({
   const ptoDays = (ptoRes.data ?? []) as PersonPtoDay[];
   const timeOff = (timeOffRes.data ?? []) as PersonTimeOff[];
   const onboarding = (onboardingRes.data ?? []) as PersonOnboardingItem[];
+  const compliance = (complianceRes.data ?? []) as PersonComplianceEntry[];
   const licenses = (licensesRes.data ?? []) as PersonLicense[];
 
   // Schedule attendance rollup + read-only scheduling settings for the
@@ -222,6 +231,7 @@ export default async function EmployeeDetailPage({
         ptoDays={ptoDays}
         timeOff={timeOff}
         onboarding={onboarding}
+        compliance={compliance}
         licenses={licenses}
         account={account}
         canViewComp={canViewComp}

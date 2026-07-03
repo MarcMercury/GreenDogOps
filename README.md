@@ -146,7 +146,8 @@ See `.env.example` for the full list. Highlights:
   `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS; used for bulk imports, cron, and AI jobs).
 - **Cron** — `CRON_SECRET` authenticates Vercel Cron requests.
 - **AI / LLM** — `OPENAI_API_KEY` (+ `OPENAI_MODEL`, `OPENAI_BASE_URL`, etc.),
-  `GEMINI_API_KEY`, `GROQ_API_KEY`.
+  `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`. Resources web search
+  falls back OpenAI → Claude → Gemini.
 - **Enrichment / Maps** — `GOOGLE_MAPS_API_KEY`, `GOOGLE_CSE_*`,
   `GOOGLE_SERVICE_ACCOUNT_JSON`, `BRAVE_API_KEY`, `TAVILY_API_KEY`.
 

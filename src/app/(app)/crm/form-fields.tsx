@@ -158,6 +158,125 @@ export function Checkbox({
   );
 }
 
+// Ordered Mon→Sun. `match` holds the tokens we recognize when parsing legacy
+// free-text schedules (e.g. "TU & TH ONLY") back into selected days.
+const WEEKDAYS: { value: string; label: string; match: string[] }[] = [
+  { value: "Mon", label: "Mon", match: ["MONDAY", "MON", "MO"] },
+  { value: "Tue", label: "Tue", match: ["TUESDAY", "TUES", "TUE", "TU"] },
+  { value: "Wed", label: "Wed", match: ["WEDNESDAY", "WED", "WE"] },
+  { value: "Thu", label: "Thu", match: ["THURSDAY", "THURS", "THU", "TH"] },
+  { value: "Fri", label: "Fri", match: ["FRIDAY", "FRI", "FR"] },
+  { value: "Sat", label: "Sat", match: ["SATURDAY", "SAT", "SA"] },
+  { value: "Sun", label: "Sun", match: ["SUNDAY", "SUN", "SU"] },
+];
+
+/** Which days a stored free-text/comma schedule string selects. */
+function parseWeekdays(value: string | null | undefined): Set<string> {
+  const selected = new Set<string>();
+  if (!value) return selected;
+  const tokens = value.toUpperCase().split(/[^A-Z]+/).filter(Boolean);
+  for (const day of WEEKDAYS) {
+    if (day.match.some((m) => tokens.includes(m))) selected.add(day.value);
+  }
+  return selected;
+}
+
+/**
+ * Multi-select for days of the week, rendered as toggle chips. Selected days
+ * post as repeated `name` values; the server joins them into a "Mon, Wed"
+ * string. Existing free-text schedules are parsed into the initial selection.
+ */
+export function DaysSelect({
+  label,
+  name,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | null;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(() =>
+    parseWeekdays(defaultValue),
+  );
+  const toggle = (value: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  return (
+    <div className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <div className="flex flex-wrap gap-1.5">
+        {WEEKDAYS.map((d) => {
+          const active = selected.has(d.value);
+          return (
+            <button
+              type="button"
+              key={d.value}
+              onClick={() => toggle(d.value)}
+              aria-pressed={active}
+              className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+                active
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                  : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {d.label}
+            </button>
+          );
+        })}
+      </div>
+      {[...selected].map((value) => (
+        <input key={value} type="hidden" name={name} value={value} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Color-coded Red / Yellow / Green select (formerly "Doc recommendation").
+ * The control's background reflects the chosen level for at-a-glance scanning.
+ */
+export function RecommendationLevelField({
+  label,
+  name,
+  defaultValue,
+  options,
+  styles,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | null;
+  options: ReadonlyArray<SelectOption>;
+  styles: Record<string, { swatch: string; select: string }>;
+}) {
+  const initial = defaultValue == null ? "" : String(defaultValue);
+  const [value, setValue] = useState(initial);
+  const known = initial === "" || options.some((o) => o.value === initial);
+  const style = styles[value]?.select ?? "border-slate-300 bg-white text-slate-800";
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <select
+        name={name}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className={`rounded-lg border px-3 py-2 text-sm font-medium shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 ${style}`}
+      >
+        <option value="">—</option>
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+        {!known && <option value={initial}>{initial} (current)</option>}
+      </select>
+    </label>
+  );
+}
+
 export function Section({
   title,
   children,

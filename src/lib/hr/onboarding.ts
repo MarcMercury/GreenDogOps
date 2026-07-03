@@ -33,18 +33,36 @@ export interface OnboardingItemDef {
   help?: string;
 }
 
-/**
- * How a group renders:
- * - "checklist" (default): the two-state Provided → Completed model.
- * - "annual": recurring compliance that only tracks the last completed date.
- */
-export type OnboardingGroupVariant = "checklist" | "annual";
-
 export interface OnboardingGroupDef {
   title: string;
-  variant?: OnboardingGroupVariant;
   items: OnboardingItemDef[];
 }
+
+/** A recurring-compliance track shown in the Onboarding tab's compliance log. */
+export interface ComplianceTypeDef {
+  /** Stable key stored in the DB. Never rename once shipped. */
+  key: string;
+  label: string;
+  /** Short helper shown next to the track. */
+  help?: string;
+}
+
+/**
+ * Default compliance tracks for the Annual Compliance log. Each track keeps an
+ * ongoing history of completed dates; HR can also add custom tracks in the app.
+ */
+export const COMPLIANCE_TYPES: ComplianceTypeDef[] = [
+  {
+    key: "sexual_harassment_training",
+    label: "Sexual Harassment Training",
+    help: "California requires harassment-prevention training within 6 months of hire, then every 2 years.",
+  },
+  {
+    key: "safety_training",
+    label: "Safety Training",
+    help: "OSHA / hazard, controlled-substance and radiation-safety orientation.",
+  },
+];
 
 /** External tracker for the employee Licenses & Expiration Dates list. */
 export const LICENSES_TRACKER_LINK: OnboardingItemLink = {
@@ -117,16 +135,6 @@ export const ONBOARDING_GROUPS: OnboardingGroupDef[] = [
     title: "Onboarding, Benefits & Licensing",
     items: [
       {
-        key: "onboarding_checklist",
-        label: "Onboarding Checklist",
-        providedLabel: "Started",
-        completedLabel: "Completed",
-        link: {
-          label: "Recruiting & Onboarding Checklist",
-          url: "https://docs.google.com/spreadsheets/d/1uJtkmesYkmAZc0OKoFR5lyZnyEsJtyuBMSJoNTvEYRM/edit?pli=1&gid=1545635294#gid=1545635294",
-        },
-      },
-      {
         key: "benefits",
         label: "Benefits Enrollment",
         providedLabel: "Offered",
@@ -135,22 +143,6 @@ export const ONBOARDING_GROUPS: OnboardingGroupDef[] = [
           label: "Benefits Tracker",
           url: "https://docs.google.com/spreadsheets/d/1l503igEObAaWPz4KlhfoqxkFgc5ZmB_mvjwC4aonsQY/edit?gid=250426221#gid=250426221",
         },
-      },
-    ],
-  },
-  {
-    title: "Annual Compliance",
-    variant: "annual",
-    items: [
-      {
-        key: "sexual_harassment_training",
-        label: "Sexual Harassment Training",
-        help: "California requires harassment-prevention training within 6 months of hire, then every 2 years.",
-      },
-      {
-        key: "safety_training",
-        label: "Safety Training",
-        help: "OSHA / hazard, controlled-substance and radiation-safety orientation.",
       },
     ],
   },

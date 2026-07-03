@@ -148,6 +148,9 @@ export interface SchedEmployeeSetting {
   /** Weekdays available, 0=Sun..6=Sat; empty = any day. */
   available_days: number[];
   notes: string | null;
+  /** Non-shift flags: eligible to be a student Mentor / Coordinator. */
+  is_student_mentor: boolean;
+  is_student_coordinator: boolean;
 }
 
 export interface SchedShiftTemplate {

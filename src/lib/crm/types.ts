@@ -174,6 +174,7 @@ export interface CrmContact {
   supervising_dvm: string | null;
   weekday_schedule: string | null;
   doc_recommendation: string | null;
+  degree_type: string | null;
   hire_interest: string | null;
   grad_year: string | null;
   stipend: string | null;
@@ -398,6 +399,61 @@ export const HIRE_INTEREST_OPTIONS: CrmOption[] = [
   { value: "maybe", label: "Maybe / Watch" },
   { value: "not_interested", label: "Not Interested" },
 ];
+
+// Veterinary degree track for a student contact. DVM/VMD are the entry doctoral
+// degrees; the remaining entries are the recognized specialty-board diplomate
+// designations (an "abbreviation (specialty)" pattern). Free text from legacy
+// data is preserved by the Select's "(current)" fallback.
+export const DEGREE_TYPE_OPTIONS: CrmOption[] = [
+  { value: "DVM", label: "DVM — Doctor of Veterinary Medicine" },
+  { value: "VMD", label: "VMD — Veterinariae Medicinae Doctor" },
+  { value: "DACVIM", label: "DACVIM — Internal Medicine (SAIM)" },
+  { value: "DACVIM (Cardiology)", label: "DACVIM — Cardiology" },
+  { value: "DACVIM (Neurology)", label: "DACVIM — Neurology" },
+  { value: "DACVIM (Oncology)", label: "DACVIM — Oncology" },
+  { value: "DACVIM (LAIM)", label: "DACVIM — Large Animal Internal Medicine" },
+  { value: "DACVS", label: "DACVS — Surgery" },
+  { value: "DACVS-SA", label: "DACVS-SA — Surgery (Small Animal)" },
+  { value: "DACVS-LA", label: "DACVS-LA — Surgery (Large Animal)" },
+  { value: "DACVECC", label: "DACVECC — Emergency & Critical Care" },
+  { value: "DACVAA", label: "DACVAA — Anesthesia & Analgesia" },
+  { value: "DACVD", label: "DACVD — Dermatology" },
+  { value: "DACVO", label: "DACVO — Ophthalmology" },
+  { value: "DACVR", label: "DACVR — Radiology" },
+  { value: "DACVR-RO", label: "DACVR-RO — Radiation Oncology" },
+  { value: "DACVP", label: "DACVP — Pathology" },
+  { value: "DABVP", label: "DABVP — Board of Veterinary Practitioners" },
+  { value: "DACVN", label: "DACVN — Nutrition" },
+  { value: "DACVB", label: "DACVB — Behavior" },
+  { value: "DACT", label: "DACT — Theriogenology (Reproduction)" },
+  { value: "DAVDC", label: "DAVDC — Dentistry" },
+  { value: "DACVSMR", label: "DACVSMR — Sports Medicine & Rehabilitation" },
+  { value: "DACVPM", label: "DACVPM — Preventive Medicine" },
+  { value: "DACZM", label: "DACZM — Zoological Medicine" },
+  { value: "DACLAM", label: "DACLAM — Laboratory Animal Medicine" },
+  { value: "DACVM", label: "DACVM — Microbiology" },
+  { value: "DACPV", label: "DACPV — Poultry Veterinarians" },
+];
+
+// Color-coded recommendation level for a student (formerly "Doc recommendation").
+// Green = strong, Yellow = neutral / watch, Red = do not recommend.
+export type RecommendationLevel = "green" | "yellow" | "red";
+
+export const RECOMMENDATION_LEVEL_OPTIONS: CrmOption[] = [
+  { value: "green", label: "Green" },
+  { value: "yellow", label: "Yellow" },
+  { value: "red", label: "Red" },
+];
+
+/** Tailwind classes for a recommendation-level swatch/select background. */
+export const RECOMMENDATION_LEVEL_STYLES: Record<
+  RecommendationLevel,
+  { swatch: string; select: string }
+> = {
+  green: { swatch: "bg-emerald-500", select: "bg-emerald-50 text-emerald-800 border-emerald-300" },
+  yellow: { swatch: "bg-amber-400", select: "bg-amber-50 text-amber-800 border-amber-300" },
+  red: { swatch: "bg-red-500", select: "bg-red-50 text-red-800 border-red-300" },
+};
 
 export const PROGRAM_TYPE_SUGGESTIONS: string[] = [
   "externship",

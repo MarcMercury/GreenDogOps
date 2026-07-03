@@ -200,9 +200,35 @@ export async function setPersonRoles(
   return { ok: true };
 }
 
-// ===========================================================================
-// SETUP — shift templates
-// ===========================================================================
+/**
+ * Set a person's non-shift student flags (Mentor / Coordinator eligibility).
+ * These live on `sched_employee_setting` but are never scheduled — they drive
+ * which roster members appear in the CRM student Mentor / Coordinator dropdowns.
+ * Edited from the same "Shift eligibility" surface (HR profile + Schedule →
+ * Setup) so both stay in sync.
+ */
+export async function setStudentRoleFlags(
+  personId: string,
+  isMentor: boolean,
+  isCoordinator: boolean,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase.from("sched_employee_setting").upsert(
+    {
+      person_id: personId,
+      is_student_mentor: isMentor,
+      is_student_coordinator: isCoordinator,
+    },
+    { onConflict: "person_id" },
+  );
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  revalidatePath("/hr");
+  revalidatePath("/crm");
+  return { ok: true };
+}
 
 export async function saveShiftTemplate(
   formData: FormData,

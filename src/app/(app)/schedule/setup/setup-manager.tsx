@@ -22,6 +22,7 @@ import {
   saveShiftTemplate,
   deleteShiftTemplate,
   saveEmployeeSetting,
+  setStudentRoleFlags,
 } from "../actions";
 
 type SubTab = "departments" | "roles" | "shifts" | "employees" | "locations";
@@ -256,6 +257,49 @@ function Departments({ data }: { data: SetupData }) {
 // Roles & Eligibility
 // ===========================================================================
 
+// Synthetic "Student" department injected into the eligibility matrix. Mentor
+// and Coordinator are NOT shifts (no one is ever scheduled for them) — they are
+// person-level flags on `sched_employee_setting` that decide who appears in the
+// Student CRM Mentor / Coordinator dropdowns. Modeling them as pseudo-columns
+// lets the same matrix edit them alongside the real shift roles.
+const STUDENT_DEPT_ID = "__student";
+const STUDENT_MENTOR_ID = "__student_mentor";
+const STUDENT_COORDINATOR_ID = "__student_coordinator";
+
+const STUDENT_GROUP: { dept: SchedDepartment; roles: SchedRole[] } = {
+  dept: {
+    id: STUDENT_DEPT_ID,
+    name: "Student",
+    code: "STU",
+    color: "#7c3aed",
+    sort_order: 9999,
+    is_active: true,
+    show_in_planning: false,
+    created_at: "",
+    updated_at: "",
+  },
+  roles: [
+    {
+      id: STUDENT_MENTOR_ID,
+      department_id: STUDENT_DEPT_ID,
+      name: "Mentor",
+      sort_order: 0,
+      is_active: true,
+      created_at: "",
+      updated_at: "",
+    },
+    {
+      id: STUDENT_COORDINATOR_ID,
+      department_id: STUDENT_DEPT_ID,
+      name: "Coordinator",
+      sort_order: 1,
+      is_active: true,
+      created_at: "",
+      updated_at: "",
+    },
+  ],
+};
+
 function Roles({ data }: { data: SetupData }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -268,17 +312,25 @@ function Roles({ data }: { data: SetupData }) {
     () => new Set(data.departments.map((d) => d.id)),
   );
 
-  // Optimistic eligibility set, keyed by "roleId:personId".
+  // Optimistic eligibility set, keyed by "roleId:personId". Real shift roles
+  // come from `sched_role_member`; the synthetic Student pseudo-roles come from
+  // the per-employee `is_student_mentor` / `is_student_coordinator` flags.
   const [elig, setElig] = useState<Set<string>>(() => {
     const s = new Set<string>();
     for (const m of data.members) s.add(`${m.role_id}:${m.person_id}`);
+    for (const st of data.settings) {
+      if (st.is_student_mentor) s.add(`${STUDENT_MENTOR_ID}:${st.person_id}`);
+      if (st.is_student_coordinator)
+        s.add(`${STUDENT_COORDINATOR_ID}:${st.person_id}`);
+    }
     return s;
   });
 
-  // Roles grouped by department, in configured order — drives the columns.
+  // Roles grouped by department, in configured order — drives the columns. The
+  // synthetic Student group is always appended last.
   const deptGroups = useMemo(
-    () =>
-      data.departments
+    () => [
+      ...data.departments
         .map((dept) => ({
           dept,
           roles: data.roles
@@ -286,6 +338,8 @@ function Roles({ data }: { data: SetupData }) {
             .sort((a, b) => a.sort_order - b.sort_order),
         }))
         .filter((g) => g.roles.length > 0),
+      STUDENT_GROUP,
+    ],
     [data.departments, data.roles],
   );
   const orderedRoles = useMemo(
@@ -327,7 +381,24 @@ function Roles({ data }: { data: SetupData }) {
       return next;
     });
     setSaving((n) => n + 1);
-    const res = await toggleRoleMember(roleId, personId, !wasEligible);
+    const isStudentFlag =
+      roleId === STUDENT_MENTOR_ID || roleId === STUDENT_COORDINATOR_ID;
+    let res;
+    if (isStudentFlag) {
+      // Persist both student flags together; the flag not being toggled keeps
+      // its current value from the eligibility set.
+      const mentor =
+        roleId === STUDENT_MENTOR_ID
+          ? !wasEligible
+          : elig.has(`${STUDENT_MENTOR_ID}:${personId}`);
+      const coordinator =
+        roleId === STUDENT_COORDINATOR_ID
+          ? !wasEligible
+          : elig.has(`${STUDENT_COORDINATOR_ID}:${personId}`);
+      res = await setStudentRoleFlags(personId, mentor, coordinator);
+    } else {
+      res = await toggleRoleMember(roleId, personId, !wasEligible);
+    }
     setSaving((n) => n - 1);
     if (!res.ok) {
       // Revert on failure.
@@ -462,15 +533,17 @@ function Roles({ data }: { data: SetupData }) {
                     >
                       <div className="flex items-center justify-center gap-1">
                         <span>{col.role.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeRole(col.role)}
-                          disabled={pending}
-                          title="Delete role"
-                          className="text-slate-300 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
-                        >
-                          ✕
-                        </button>
+                        {!col.role.id.startsWith("__") && (
+                          <button
+                            type="button"
+                            onClick={() => removeRole(col.role)}
+                            disabled={pending}
+                            title="Delete role"
+                            className="text-slate-300 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
+                          >
+                            ✕
+                          </button>
+                        )}
                       </div>
                     </th>
                   ) : null,

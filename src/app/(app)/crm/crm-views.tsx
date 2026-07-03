@@ -215,7 +215,7 @@ export function ContactListView({
           { key: "dvm", label: "DVM", value: (c) => c.supervising_dvm },
           {
             key: "doc_rec",
-            label: "Doc Rec",
+            label: "Recommendation",
             value: (c) => c.doc_recommendation,
           },
           {

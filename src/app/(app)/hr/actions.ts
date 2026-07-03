@@ -346,6 +346,64 @@ export async function saveOnboarding(
 }
 
 // ---------------------------------------------------------------------------
+// Annual compliance log (ongoing dated entries per compliance track)
+// ---------------------------------------------------------------------------
+
+/** Append one dated entry to a person's compliance log. */
+export async function addComplianceEntry(
+  personId: string,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const complianceKey = str(formData.get("compliance_key"));
+  const label = str(formData.get("label"));
+  const completedDate = str(formData.get("completed_date"));
+  if (!complianceKey || !label) {
+    return { ok: false, error: "A compliance item is required." };
+  }
+  if (!completedDate) {
+    return { ok: false, error: "A completed date is required." };
+  }
+
+  const { error } = await supabase.from("person_compliance_entry").insert({
+    person_id: personId,
+    compliance_key: complianceKey,
+    label,
+    completed_date: completedDate,
+    notes: str(formData.get("notes")),
+  });
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+/** Remove a single compliance-log entry. */
+export async function deleteComplianceEntry(
+  personId: string,
+  entryId: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("person_compliance_entry")
+    .delete()
+    .eq("id", entryId)
+    .eq("person_id", personId);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Employee licenses (DVM / RVT / DEA … — an editable, renewable list)
 // ---------------------------------------------------------------------------
 

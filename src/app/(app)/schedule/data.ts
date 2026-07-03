@@ -438,13 +438,16 @@ export interface PersonRoleEligibility {
   departments: { id: string; name: string }[];
   roles: { id: string; department_id: string; name: string }[];
   selectedRoleIds: string[];
+  /** Non-shift student flags — drive the CRM Mentor / Coordinator dropdowns. */
+  isStudentMentor: boolean;
+  isStudentCoordinator: boolean;
 }
 
 export async function getPersonEligibility(
   personId: string,
 ): Promise<PersonRoleEligibility> {
   const supabase = await createClient();
-  const [deptRes, roleRes, memRes] = await Promise.all([
+  const [deptRes, roleRes, memRes, settingRes] = await Promise.all([
     supabase
       .from("sched_department")
       .select("id, name")
@@ -461,7 +464,17 @@ export async function getPersonEligibility(
       .from("sched_role_member")
       .select("role_id")
       .eq("person_id", personId),
+    supabase
+      .from("sched_employee_setting")
+      .select("is_student_mentor, is_student_coordinator")
+      .eq("person_id", personId)
+      .maybeSingle(),
   ]);
+
+  const setting = settingRes.data as {
+    is_student_mentor: boolean | null;
+    is_student_coordinator: boolean | null;
+  } | null;
 
   return {
     departments: (deptRes.data ?? []) as { id: string; name: string }[],
@@ -473,6 +486,8 @@ export async function getPersonEligibility(
     selectedRoleIds: ((memRes.data ?? []) as { role_id: string }[]).map(
       (m) => m.role_id,
     ),
+    isStudentMentor: setting?.is_student_mentor ?? false,
+    isStudentCoordinator: setting?.is_student_coordinator ?? false,
   };
 }
 

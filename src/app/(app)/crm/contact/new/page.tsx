@@ -9,6 +9,7 @@ import {
   crmSectionBySlug,
 } from "@/lib/crm/types";
 import { ContactForm } from "../[id]/contact-form";
+import { getStudentFormOptions } from "@/lib/crm/student-form-data";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,8 @@ export default async function NewContactPage({
   const canEdit = current ? isEditorRole(current.appUser.role) : false;
   if (!canEdit) redirect(section ? `/crm/${section.slug}` : "/crm");
 
+  const formOptions = await getStudentFormOptions();
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link
@@ -35,7 +38,7 @@ export default async function NewContactPage({
       >
         ← Back to {section?.title ?? "CRM"}
       </Link>
-      <ContactForm mode="create" contactType={contactType} canEdit={canEdit} />
+      <ContactForm mode="create" contactType={contactType} canEdit={canEdit} options={formOptions} />
     </div>
   );
 }

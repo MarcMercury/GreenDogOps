@@ -219,8 +219,14 @@ function contactPatch(formData: FormData) {
     coordinator: str(formData.get("coordinator")),
     visitor_type: str(formData.get("visitor_type")),
     supervising_dvm: str(formData.get("supervising_dvm")),
-    weekday_schedule: str(formData.get("weekday_schedule")),
+    weekday_schedule:
+      formData
+        .getAll("weekday_schedule")
+        .map((v) => String(v).trim())
+        .filter(Boolean)
+        .join(", ") || null,
     doc_recommendation: str(formData.get("doc_recommendation")),
+    degree_type: str(formData.get("degree_type")),
     hire_interest: str(formData.get("hire_interest")),
     grad_year: str(formData.get("grad_year")),
     stipend: str(formData.get("stipend")),

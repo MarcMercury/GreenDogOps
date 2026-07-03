@@ -15,7 +15,12 @@ export interface SearchGroup {
 }
 
 export type WebSearchResult =
-  | { ok: true; answer: string; sources: { title: string; url: string }[] }
+  | {
+      ok: true;
+      answer: string;
+      sources: { title: string; url: string }[];
+      provider: string;
+    }
   | { ok: false; error: string };
 
 export interface GlobalSearchResult {

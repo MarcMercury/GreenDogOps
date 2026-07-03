@@ -174,66 +174,234 @@ async function searchInternal(term: string): Promise<{
   return { groups, count };
 }
 
-async function searchWeb(query: string): Promise<WebSearchResult> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) {
-    return {
-      ok: false,
-      error: "Web search is unavailable (no OpenAI API key configured).",
-    };
+const WEB_SEARCH_SYSTEM_PROMPT =
+  "You are a research assistant for Green Dog, a veterinary business in the Los Angeles area. Answer the user's query concisely using current information from the web. If the query looks like a person or business name, surface useful public details. Always cite your sources.";
+
+type Source = { title: string; url: string };
+
+/** Thrown by a provider when it is rate-limited or unavailable so the chain
+ *  falls through to the next provider. */
+class ProviderError extends Error {
+  constructor(
+    public provider: string,
+    message: string,
+  ) {
+    super(message);
   }
+}
+
+function dedupeSources(sources: Source[]): Source[] {
+  const seen = new Set<string>();
+  const out: Source[] = [];
+  for (const s of sources) {
+    if (!s.url || seen.has(s.url)) continue;
+    seen.add(s.url);
+    out.push({ title: s.title || s.url, url: s.url });
+  }
+  return out;
+}
+
+// --- Provider: OpenAI (gpt-4o-mini-search-preview) --------------------------
+async function searchOpenAI(query: string): Promise<{
+  answer: string;
+  sources: Source[];
+}> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new ProviderError("OpenAI", "no API key configured");
+
   const base = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1")
     .replace(/\/+$/, "");
 
-  try {
-    const res = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini-search-preview",
-        web_search_options: {},
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a research assistant for Green Dog, a veterinary business in the Los Angeles area. Answer the user's query concisely using current information from the web. If the query looks like a person or business name, surface useful public details. Always cite your sources.",
-          },
-          { role: "user", content: query },
-        ],
-      }),
-    });
+  const res = await fetch(`${base}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${key}`,
+    },
+    body: JSON.stringify({
+      model: process.env.OPENAI_SEARCH_MODEL || "gpt-4o-mini-search-preview",
+      web_search_options: {},
+      messages: [
+        { role: "system", content: WEB_SEARCH_SYSTEM_PROMPT },
+        { role: "user", content: query },
+      ],
+    }),
+  });
 
-    if (!res.ok) {
-      return { ok: false, error: `Web search failed (HTTP ${res.status}).` };
-    }
-
-    const data = await res.json();
-    const message = data?.choices?.[0]?.message;
-    const answer: string = message?.content ?? "";
-    const annotations: Array<{
-      type?: string;
-      url_citation?: { url?: string; title?: string };
-    }> = message?.annotations ?? [];
-
-    const seen = new Set<string>();
-    const sources: { title: string; url: string }[] = [];
-    for (const a of annotations) {
-      const url = a?.url_citation?.url;
-      if (a?.type !== "url_citation" || !url || seen.has(url)) continue;
-      seen.add(url);
-      sources.push({ title: a.url_citation?.title || url, url });
-    }
-
-    if (!answer.trim()) {
-      return { ok: false, error: "Web search returned no results." };
-    }
-    return { ok: true, answer, sources };
-  } catch {
-    return { ok: false, error: "Web search request failed." };
+  if (!res.ok) {
+    throw new ProviderError("OpenAI", `HTTP ${res.status}`);
   }
+
+  const data = await res.json();
+  const message = data?.choices?.[0]?.message;
+  const answer: string = message?.content ?? "";
+  const annotations: Array<{
+    type?: string;
+    url_citation?: { url?: string; title?: string };
+  }> = message?.annotations ?? [];
+
+  const sources: Source[] = [];
+  for (const a of annotations) {
+    const url = a?.url_citation?.url;
+    if (a?.type !== "url_citation" || !url) continue;
+    sources.push({ title: a.url_citation?.title || url, url });
+  }
+
+  if (!answer.trim()) throw new ProviderError("OpenAI", "empty response");
+  return { answer, sources };
+}
+
+// --- Provider: Anthropic Claude (web_search tool) ---------------------------
+async function searchClaude(query: string): Promise<{
+  answer: string;
+  sources: Source[];
+}> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) throw new ProviderError("Claude", "no API key configured");
+
+  const base = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com")
+    .replace(/\/+$/, "");
+
+  const res = await fetch(`${base}/v1/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest",
+      max_tokens: 1024,
+      system: WEB_SEARCH_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: query }],
+      tools: [
+        { type: "web_search_20250305", name: "web_search", max_uses: 5 },
+      ],
+    }),
+  });
+
+  if (!res.ok) {
+    throw new ProviderError("Claude", `HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  const content: Array<{
+    type?: string;
+    text?: string;
+    citations?: Array<{ url?: string; title?: string }>;
+  }> = data?.content ?? [];
+
+  let answer = "";
+  const sources: Source[] = [];
+  for (const block of content) {
+    if (block?.type === "text" && block.text) {
+      answer += block.text;
+      for (const c of block.citations ?? []) {
+        if (c?.url) sources.push({ title: c.title || c.url, url: c.url });
+      }
+    }
+  }
+
+  if (!answer.trim()) throw new ProviderError("Claude", "empty response");
+  return { answer, sources };
+}
+
+// --- Provider: Google Gemini (google_search grounding) ----------------------
+async function searchGemini(query: string): Promise<{
+  answer: string;
+  sources: Source[];
+}> {
+  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
+  if (!key) throw new ProviderError("Google", "no API key configured");
+
+  const base = (
+    process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com"
+  ).replace(/\/+$/, "");
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+
+  const res = await fetch(
+    `${base}/v1beta/models/${model}:generateContent?key=${key}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: WEB_SEARCH_SYSTEM_PROMPT }],
+        },
+        contents: [{ role: "user", parts: [{ text: query }] }],
+        tools: [{ google_search: {} }],
+      }),
+    },
+  );
+
+  if (!res.ok) {
+    throw new ProviderError("Google", `HTTP ${res.status}`);
+  }
+
+  const data = await res.json();
+  const candidate = data?.candidates?.[0];
+  const parts: Array<{ text?: string }> = candidate?.content?.parts ?? [];
+  const answer = parts
+    .map((p) => p?.text ?? "")
+    .join("")
+    .trim();
+
+  const chunks: Array<{ web?: { uri?: string; title?: string } }> =
+    candidate?.groundingMetadata?.groundingChunks ?? [];
+  const sources: Source[] = [];
+  for (const c of chunks) {
+    const url = c?.web?.uri;
+    if (url) sources.push({ title: c.web?.title || url, url });
+  }
+
+  if (!answer) throw new ProviderError("Google", "empty response");
+  return { answer, sources };
+}
+
+/**
+ * Runs web search across providers in order (OpenAI → Claude → Google),
+ * falling through to the next whenever one is rate-limited, unconfigured, or
+ * fails. Returns the first working result, or a combined error if all fail.
+ */
+async function searchWeb(query: string): Promise<WebSearchResult> {
+  const providers: Array<{
+    name: string;
+    run: (q: string) => Promise<{ answer: string; sources: Source[] }>;
+  }> = [
+    { name: "OpenAI", run: searchOpenAI },
+    { name: "Claude", run: searchClaude },
+    { name: "Google", run: searchGemini },
+  ];
+
+  const failures: string[] = [];
+  for (const provider of providers) {
+    try {
+      const { answer, sources } = await provider.run(query);
+      return {
+        ok: true,
+        answer,
+        sources: dedupeSources(sources),
+        provider: provider.name,
+      };
+    } catch (err) {
+      const reason =
+        err instanceof ProviderError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "request failed";
+      failures.push(`${provider.name}: ${reason}`);
+      // Fall through to the next provider.
+    }
+  }
+
+  return {
+    ok: false,
+    error:
+      failures.length > 0
+        ? `Web search unavailable. Tried ${failures.join("; ")}.`
+        : "Web search is unavailable (no provider configured).",
+  };
 }
 
 export async function globalSearch(

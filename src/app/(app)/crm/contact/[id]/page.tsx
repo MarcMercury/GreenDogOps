@@ -14,6 +14,7 @@ import {
 import { ContactForm } from "./contact-form";
 import { PromoteToRecruiting } from "./promote-controls";
 import { CeAttendanceManager } from "./ce-attendance";
+import { getStudentFormOptions } from "@/lib/crm/student-form-data";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,8 @@ export default async function ContactDetailPage({
 
   const contact = data as CrmContact;
   const section = crmSectionBySlug(crmSlugForContactType(contact.contact_type));
+
+  const formOptions = await getStudentFormOptions();
 
   // CE attendees track the continuing-education events they're tied to.
   let ceAttendance: CrmCeAttendance[] = [];
@@ -115,7 +118,7 @@ export default async function ContactDetailPage({
         ) : (
           canEdit && <PromoteToRecruiting contactId={contact.id} />
         ))}
-      <ContactForm contact={contact} canEdit={canEdit} />
+      <ContactForm contact={contact} canEdit={canEdit} options={formOptions} />
       {contact.contact_type === "ce_attendee" && (
         <div className="mt-5">
           <CeAttendanceManager
