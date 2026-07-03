@@ -62,6 +62,13 @@ DIRECTORY_HOSTS = (
     "chamberofcommerce.", "birdeye.", "threadfin.", "wikipedia.", "youtube.",
     "petfinder.", "adoptapet.", "guidestar.", "yellow.", "cylex", "loc8nearme",
     "mapcarta", "ezlocal", "hotfrog", "brownbook", "expo", "eventbrite.",
+    "wheree.", "bizapedia", "citysearch", "superpages", "local.com", "n49.",
+    "opendi", "find-us-here", "storeboard", "elocal", "americantowns", "yalwa",
+    "fyple", "cybo.", "tuugo", "bunity", "yellow.place", "trustpilot", "signalhire",
+    "rocketreach", "apollo.io", "leadiq", "kona", "getpaws", "pawmaw", "gomarry",
+    "topratedlocal", "chamberofcommerce", "merchantcircle", "houzz.", "angi.",
+    "thumbtack", "nextdoor", "mapquest", "waze", "bing.", "yahoo.", "reddit.",
+    "medium.", "wordpress.", "blogspot", "amazon.", "ebay.", "etsy.",
 )
 
 
@@ -73,7 +80,7 @@ def log(*a):
 # threads) so we never trip Tavily's throttle in the first place.
 _RL_LOCK = threading.Lock()
 _RL_LAST = [0.0]
-MIN_INTERVAL = float(os.environ.get("TAVILY_MIN_INTERVAL", "1.6"))
+MIN_INTERVAL = float(os.environ.get("TAVILY_MIN_INTERVAL", "0"))
 
 
 def _throttle():
@@ -101,11 +108,11 @@ def tavily(query: str) -> dict | None:
     body = json.dumps({
         "api_key": TAVILY_KEY,
         "query": query,
-        "search_depth": "advanced",
+        "search_depth": os.environ.get("TAVILY_DEPTH", "basic"),
         "max_results": 6,
         "include_raw_content": True,
     }).encode()
-    for attempt in range(5):
+    for attempt in range(9):
         _throttle()
         req = urllib.request.Request(
             TAVILY_URL, data=body, headers={"Content-Type": "application/json"})
@@ -115,13 +122,13 @@ def tavily(query: str) -> dict | None:
         except urllib.error.HTTPError as e:
             msg = e.read().decode()[:120]
             if e.code in (429, 432, 433) or "excessive" in msg.lower() or "blocked" in msg.lower():
-                time.sleep((2 ** attempt) + random.random())  # backoff & retry
+                time.sleep(min(2 ** attempt, 25) + random.random())  # patient backoff
                 continue
             log(f"  ! HTTP {e.code}: {msg}")
             return None
         except Exception as e:  # noqa: BLE001
-            time.sleep(1 + random.random())
-            if attempt == 4:
+            time.sleep(2 + random.random())
+            if attempt == 8:
                 log(f"  ! error: {e}")
     return None
 
@@ -254,40 +261,45 @@ def main():
     ap.add_argument("--subtype", default="")
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--emit-only", action="store_true",
+                    help="skip searching; emit SQL from the existing cache")
     args = ap.parse_args()
 
-    if not TAVILY_KEY:
+    if not TAVILY_KEY and not args.emit_only:
         log("!! TAVILY_API_KEY not set (source .secrets/enrich.env)")
         sys.exit(1)
 
     vendors = json.load(open(args.dump))
     cache = json.load(open(CACHE)) if os.path.exists(CACHE) else {}
 
-    todo = [v for v in vendors if missing(v) and v["id"] not in cache
-            and (not args.subtype or (v.get("subtype") or "") == args.subtype)]
-    if args.limit:
-        todo = todo[: args.limit]
-    log(f"tavily-enriching {len(todo)} vendors ({len(cache)} cached)")
+    if not args.emit_only:
+        todo = [v for v in vendors if missing(v) and v["id"] not in cache
+                and (not args.subtype or (v.get("subtype") or "") == args.subtype)]
+        if args.limit:
+            todo = todo[: args.limit]
+        log(f"tavily-enriching {len(todo)} vendors ({len(cache)} cached)")
 
-    done = 0
-    with ThreadPoolExecutor(max_workers=args.workers) as ex:
-        futs = {ex.submit(enrich, v): v for v in todo}
-        for fut in as_completed(futs):
-            v = futs[fut]
-            done += 1
-            try:
-                patch = fut.result()
-            except Exception as e:  # noqa: BLE001
-                patch = None
-                log(f"  ! {v['name']}: {e}")
-            if patch is None:
-                continue  # search failed → leave uncached for retry
-            cache[v["id"]] = patch
-            if patch:
-                log(f"  [{done}/{len(todo)}] {v['name']}: "
-                    + ", ".join(f"{k}={val}" for k, val in patch.items()))
-    os.makedirs(".data", exist_ok=True)
-    json.dump(cache, open(CACHE, "w"), indent=1)
+        done = 0
+        with ThreadPoolExecutor(max_workers=args.workers) as ex:
+            futs = {ex.submit(enrich, v): v for v in todo}
+            for fut in as_completed(futs):
+                v = futs[fut]
+                done += 1
+                try:
+                    patch = fut.result()
+                except Exception as e:  # noqa: BLE001
+                    patch = None
+                    log(f"  ! {v['name']}: {e}")
+                if patch is None:
+                    continue  # search failed → leave uncached for retry
+                cache[v["id"]] = patch
+                if patch:
+                    log(f"  [{done}/{len(todo)}] {v['name']}: "
+                        + ", ".join(f"{k}={val}" for k, val in patch.items()))
+                if done % 15 == 0:  # checkpoint so a timeout never loses progress
+                    json.dump(cache, open(CACHE, "w"), indent=1)
+        os.makedirs(".data", exist_ok=True)
+        json.dump(cache, open(CACHE, "w"), indent=1)
 
     # Emit blank-only fills for everything cached.
     by_id = {v["id"]: v for v in vendors}
