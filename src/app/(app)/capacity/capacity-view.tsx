@@ -1,12 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 import Link from "next/link";
 import { DAY_LABELS } from "@/lib/schedule/types";
 import type { DayLocationCapacity } from "@/lib/planning/resolve";
 import { STAFF_CATEGORIES } from "@/lib/planning/resolve";
-import { generateGuideFromDay } from "../schedule/actions";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -17,26 +15,18 @@ interface LocLite {
 }
 
 /**
- * Daily Capacity — the planning guide resolved from each day's staffed DVMs.
- * The schedule is authored first; this surfaces the appointment-capacity output
- * that follows from it, and lets a scheduler scaffold a guide for any staffing
- * level that doesn't have one yet.
+ * Daily Capacity — each staffed area's appointment capacity for the week. The
+ * schedule is authored first; this surfaces the capacity that follows from it
+ * (from the matching capacity rule, else the guide's bookable slots) alongside
+ * a link to the resolved planning guide when one exists.
  */
 export function CapacityView({
   cells,
   locations,
-  weekId,
-  canEdit,
 }: {
   cells: DayLocationCapacity[];
   locations: LocLite[];
-  weekId: string;
-  canEdit: boolean;
 }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [busy, setBusy] = useState<string | null>(null);
-
   const byKey = useMemo(
     () => new Map(cells.map((c) => [`${c.day}|${c.locationId}`, c])),
     [cells],
@@ -82,10 +72,9 @@ export function CapacityView({
                       {loc.short_code ?? loc.name}
                     </div>
                     {cell!.entries.map((e) => {
-                      const busyKey = `${d}|${loc.id}|${e.departmentId}`;
                       return (
                         <div
-                          key={busyKey}
+                          key={`${d}|${loc.id}|${e.departmentId}`}
                           className="mt-1.5 rounded border bg-white px-1.5 py-1"
                           style={{ borderColor: `${e.departmentColor}55` }}
                         >
@@ -150,39 +139,7 @@ export function CapacityView({
                                 {e.bookable} appt
                               </span>
                             </Link>
-                          ) : canEdit ? (
-                            <button
-                              disabled={pending}
-                              onClick={() => {
-                                setBusy(busyKey);
-                                start(async () => {
-                                  const res = await generateGuideFromDay(
-                                    weekId,
-                                    d,
-                                    loc.id,
-                                    e.departmentId,
-                                  );
-                                  setBusy(null);
-                                  if (res.ok && res.data) {
-                                    router.push(
-                                      `/planning?guide=${res.data.id}`,
-                                    );
-                                  } else {
-                                    router.refresh();
-                                  }
-                                });
-                              }}
-                              className="mt-1 w-full rounded bg-emerald-600 px-1 py-0.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
-                            >
-                              {busy === busyKey
-                                ? "Generating…"
-                                : "+ Generate guide"}
-                            </button>
-                          ) : (
-                            <span className="mt-1 block text-[11px] text-slate-400">
-                              No guide
-                            </span>
-                          )}
+                          ) : null}
                         </div>
                       );
                     })}
