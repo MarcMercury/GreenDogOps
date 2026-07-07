@@ -42,6 +42,7 @@ export default async function VendorCrmPage() {
       icon="🤝"
       addHref="/crm/org/new?section=vendor"
       financial={false}
+      enableQuickNote
     />
   );
 }

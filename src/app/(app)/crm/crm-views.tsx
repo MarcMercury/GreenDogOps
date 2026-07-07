@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   type CrmOrganization,
@@ -11,6 +11,7 @@ import {
   categoryLabel,
   RECOMMENDATION_LEVEL_OPTIONS,
 } from "@/lib/crm/types";
+import { logOrgQuickNote } from "./actions";
 import {
   type Stat,
   type Column,
@@ -66,6 +67,7 @@ export function OrgListView({
   icon,
   addHref,
   financial = true,
+  enableQuickNote = false,
 }: {
   organizations: CrmOrganization[];
   title: string;
@@ -73,8 +75,10 @@ export function OrgListView({
   icon: string;
   addHref?: string;
   financial?: boolean;
+  enableQuickNote?: boolean;
 }) {
   const router = useRouter();
+  const [quickNoteOpen, setQuickNoteOpen] = useState(false);
 
   const columns: Column<CrmOrganization>[] = [
     {
@@ -141,6 +145,16 @@ export function OrgListView({
           exportColumnsCsv(title.toLowerCase().replace(/\s+/g, "-"), columns, organizations)
         }
         onImport={(f) => previewCsvImport(f, "organization")}
+        actions={
+          enableQuickNote ? (
+            <button
+              onClick={() => setQuickNoteOpen(true)}
+              className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              📝 Quick Note
+            </button>
+          ) : undefined
+        }
       />
       <StatGrid stats={stats} />
       <DataTable
@@ -151,6 +165,132 @@ export function OrgListView({
         searchExtra={(o) => [o.email, o.services, o.city, o.account_rep]}
         onRowClick={(o) => router.push(`/crm/org/${o.id}`)}
       />
+      {quickNoteOpen && (
+        <QuickNoteDialog
+          organizations={organizations}
+          onClose={() => setQuickNoteOpen(false)}
+          onSaved={() => {
+            setQuickNoteOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Quick Note dialog — appends a timestamped note to an account's Notes tab
+// and stamps its Last Visited date.
+// ---------------------------------------------------------------------------
+function QuickNoteDialog({
+  organizations,
+  onClose,
+  onSaved,
+}: {
+  organizations: CrmOrganization[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [orgId, setOrgId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const sorted = useMemo(
+    () => [...organizations].sort((a, b) => a.name.localeCompare(b.name)),
+    [organizations],
+  );
+
+  function submit(formData: FormData) {
+    setError(null);
+    startTransition(async () => {
+      const r = await logOrgQuickNote(null, formData);
+      if (r.ok) onSaved();
+      else setError(r.error);
+    });
+  }
+
+  const input =
+    "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+  const label = "text-xs font-medium text-slate-500";
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:max-w-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <form action={submit}>
+          <div className="border-b border-slate-100 px-5 py-4">
+            <h2 className="text-lg font-bold text-slate-900">Quick Note</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Adds a date-stamped note and updates Last Visited.
+            </p>
+          </div>
+          <div className="space-y-4 p-5">
+            {error && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 sm:col-span-2">
+                <span className={label}>Account</span>
+                <select
+                  name="org_id"
+                  value={orgId}
+                  onChange={(e) => setOrgId(e.target.value)}
+                  className={input}
+                >
+                  <option value="">— Select account —</option>
+                  {sorted.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className={label}>Visit Date</span>
+                <input
+                  name="visit_date"
+                  type="date"
+                  defaultValue={new Date().toISOString().slice(0, 10)}
+                  className={input}
+                />
+              </label>
+            </div>
+            <label className="flex flex-col gap-1">
+              <span className={label}>Note</span>
+              <textarea
+                name="note"
+                rows={4}
+                className={input}
+                placeholder="What happened on this visit or call?"
+              />
+            </label>
+          </div>
+          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {pending ? "Saving…" : "Save Note"}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

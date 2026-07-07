@@ -71,6 +71,19 @@ function priorityStyle(priority: string | null | undefined) {
 // ---------------------------------------------------------------------------
 // Singleton loader for the Google Maps JS API
 // ---------------------------------------------------------------------------
+// Google calls window.gm_authFailure() when it rejects the API key at runtime
+// (billing disabled, key/referrer restriction mismatch, API not enabled). Without
+// a handler the map just silently goes blank. We track it here and let the mounted
+// component subscribe so it can surface a clear message instead of an empty box.
+const AUTH_FAILURE_MESSAGE =
+  "Google Maps rejected this site's API key. Check the key's HTTP-referrer restrictions, billing, and that the Maps JavaScript API is enabled.";
+let mapsAuthFailed = false;
+let authFailureHandler: (() => void) | null = null;
+function registerAuthFailureHandler(fn: (() => void) | null) {
+  authFailureHandler = fn;
+  if (fn && mapsAuthFailed) fn();
+}
+
 let mapsLoader: Promise<MapsNamespace> | null = null;
 function loadGoogleMaps(apiKey: string): Promise<MapsNamespace> {
   if (typeof window === "undefined") return Promise.reject(new Error("no window"));
@@ -78,6 +91,10 @@ function loadGoogleMaps(apiKey: string): Promise<MapsNamespace> {
   if (mapsLoader) return mapsLoader;
 
   mapsLoader = new Promise<MapsNamespace>((resolve, reject) => {
+    (window as unknown as Record<string, unknown>).gm_authFailure = () => {
+      mapsAuthFailed = true;
+      authFailureHandler?.();
+    };
     const callbackName = "__gdoGoogleMapsReady";
     (window as unknown as Record<string, unknown>)[callbackName] = () => {
       if (window.google?.maps) resolve(window.google.maps);
@@ -140,6 +157,15 @@ export function PartnerMap({
       ? ""
       : "No Google Maps browser key found. Set GOOGLE_MAPS_PUBLIC_KEY (or GOOGLE_MAPS_API_KEY) in your environment.",
   );
+
+  // Surface Google's runtime key rejection (gm_authFailure) as a visible error.
+  useEffect(() => {
+    registerAuthFailureHandler(() => {
+      setStatus("error");
+      setErrorMsg(AUTH_FAILURE_MESSAGE);
+    });
+    return () => registerAuthFailureHandler(null);
+  }, []);
 
   // Filters
   const [zone, setZone] = useState("");

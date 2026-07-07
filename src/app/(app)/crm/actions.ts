@@ -129,6 +129,56 @@ export async function createOrganization(
 }
 
 // ---------------------------------------------------------------------------
+// Quick Note -> append a timestamped note to the org's Notes tab and stamp
+// the Last Visited date. Used by the Quick Note button on the Vendor &
+// Partner CRM landing page.
+// ---------------------------------------------------------------------------
+export async function logOrgQuickNote(
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const orgId = str(formData.get("org_id"));
+  if (!orgId) return { ok: false, error: "Please choose an account." };
+  const note = str(formData.get("note"));
+  if (!note) return { ok: false, error: "Note text is required." };
+
+  const visitDate =
+    str(formData.get("visit_date")) ?? new Date().toISOString().slice(0, 10);
+
+  const supabase = await createClient();
+  const { data: existing, error: readErr } = await supabase
+    .from("crm_organization")
+    .select("notes")
+    .eq("id", orgId)
+    .single();
+  if (readErr) return { ok: false, error: readErr.message };
+
+  const stamp = new Date().toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const entry = `[${stamp}] ${note}`;
+  const prevNotes = (existing as { notes: string | null }).notes?.trim();
+  const notes = prevNotes ? `${entry}\n\n${prevNotes}` : entry;
+
+  const { error } = await supabase
+    .from("crm_organization")
+    .update({ notes, last_visit_date: visitDate, last_contact_date: visitDate })
+    .eq("id", orgId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/crm/org/${orgId}`);
+  revalidatePath("/crm", "layout");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Organization document attachments (files go to the private crm-documents
 // Storage bucket; rows live in greendogops.crm_org_document).
 // ---------------------------------------------------------------------------
