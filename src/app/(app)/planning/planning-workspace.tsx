@@ -246,9 +246,16 @@ function GuideList({
     return [...byLoc.entries()].sort((a, b) => b[0].localeCompare(a[0]));
   }, [guides, locName]);
 
+  // Location groups start collapsed; the group holding the selected guide is
+  // expanded so the current guide stays visible.
+  const selectedLoc = useMemo(() => {
+    const g = guides.find((x) => x.id === selectedId);
+    return g ? locName(g.location_id) ?? "Other Services" : null;
+  }, [guides, selectedId, locName]);
+
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const toggleGroup = useCallback((loc: string) => {
-    setCollapsed((prev) => ({ ...prev, [loc]: !prev[loc] }));
+    setCollapsed((prev) => ({ ...prev, [loc]: !(prev[loc] ?? true) }));
   }, []);
 
   if (!guides.length) {
@@ -262,7 +269,7 @@ function GuideList({
   return (
     <div className="space-y-4">
       {groups.map(([loc, list]) => {
-        const isCollapsed = collapsed[loc] ?? false;
+        const isCollapsed = collapsed[loc] ?? loc !== selectedLoc;
         return (
         <div key={loc}>
           <button
