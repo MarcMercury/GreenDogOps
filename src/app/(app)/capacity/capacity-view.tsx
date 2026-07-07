@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { DAY_LABELS } from "@/lib/schedule/types";
 import type { DayLocationCapacity } from "@/lib/planning/resolve";
 import { STAFF_CATEGORIES } from "@/lib/planning/resolve";
+import { generateGuideFromCapacity } from "../schedule/actions";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -23,10 +25,16 @@ interface LocLite {
 export function CapacityView({
   cells,
   locations,
+  weekId,
+  canEdit,
 }: {
   cells: DayLocationCapacity[];
   locations: LocLite[];
+  weekId: string;
+  canEdit: boolean;
 }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const byKey = useMemo(
     () => new Map(cells.map((c) => [`${c.day}|${c.locationId}`, c])),
     [cells],
@@ -35,6 +43,26 @@ export function CapacityView({
     () => locations.filter((l) => cells.some((c) => c.locationId === l.id)),
     [locations, cells],
   );
+
+  function generate(
+    day: number,
+    locationId: string,
+    departmentId: string,
+    target: number,
+  ) {
+    startTransition(async () => {
+      const res = await generateGuideFromCapacity(
+        weekId,
+        day,
+        locationId,
+        departmentId,
+        target,
+      );
+      if (res.ok && res.data) {
+        router.push(`/planning?guide=${res.data.id}&week=${weekId}`);
+      }
+    });
+  }
 
   if (cells.length === 0) {
     return (
@@ -139,6 +167,32 @@ export function CapacityView({
                                 {e.bookable} appt
                               </span>
                             </Link>
+                          ) : null}
+                          {canEdit ? (
+                            <button
+                              type="button"
+                              disabled={pending}
+                              onClick={() =>
+                                generate(
+                                  d,
+                                  loc.id,
+                                  e.departmentId,
+                                  e.capacity,
+                                )
+                              }
+                              title={
+                                e.guide
+                                  ? `Regenerate an editable ${e.capacity}-appt guide for this day from the capacity number`
+                                  : `Auto-generate an editable ${e.capacity}-appt guide for this day from the capacity number`
+                              }
+                              className="mt-1 w-full rounded border border-dashed border-emerald-300 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
+                            >
+                              {pending
+                                ? "Generating…"
+                                : e.guide
+                                  ? "↻ Regenerate guide"
+                                  : "+ Generate guide"}
+                            </button>
                           ) : null}
                         </div>
                       );

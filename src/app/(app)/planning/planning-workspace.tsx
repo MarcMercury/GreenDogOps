@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Location } from "@/lib/shared/locations";
-import type { SchedDepartment } from "@/lib/schedule/types";
+import type { SchedDepartment, SchedWeek } from "@/lib/schedule/types";
 import {
   APPOINTMENT_TYPES,
   COLUMN_PRESETS,
@@ -41,6 +41,7 @@ import {
   type ActionResult,
 } from "./actions";
 import { PageHeader } from "../_components/ui";
+import { WeekPicker } from "../schedule/week-picker";
 
 interface Setup {
   locations: Location[];
@@ -79,11 +80,15 @@ export function PlanningWorkspace({
   guides,
   setup,
   guideData,
+  weeks,
+  selectedWeekId,
   canEdit,
 }: {
   guides: PlanningGuide[];
   setup: Setup;
   guideData: GuideData | null;
+  weeks: SchedWeek[];
+  selectedWeekId: string | null;
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -128,6 +133,21 @@ export function PlanningWorkspace({
     return (id: string | null) => (id ? m.get(id) ?? null : null);
   }, [setup.departments]);
 
+  // Reusable templates (no source week) show on every week; auto-generated
+  // guides only appear on the week they were built for. The currently open
+  // guide is always kept visible so deep links from Daily Capacity resolve.
+  const selectedGuideId = guideData?.guide.id ?? null;
+  const visibleGuides = useMemo(
+    () =>
+      guides.filter(
+        (g) =>
+          g.source_week_id == null ||
+          g.source_week_id === selectedWeekId ||
+          g.id === selectedGuideId,
+      ),
+    [guides, selectedWeekId, selectedGuideId],
+  );
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -147,6 +167,12 @@ export function PlanningWorkspace({
         }
       />
 
+      <WeekPicker
+        weeks={weeks}
+        selectedId={selectedWeekId}
+        basePath="/planning"
+      />
+
       {error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700">
           {error}
@@ -155,7 +181,7 @@ export function PlanningWorkspace({
 
       <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
         <GuideList
-          guides={guides}
+          guides={visibleGuides}
           selectedId={guideData?.guide.id ?? null}
           onSelect={selectGuide}
           locName={locName}
@@ -320,6 +346,13 @@ function GuideList({
                     {g.status === "archived" ? (
                       <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-slate-500">
                         Archived
+                      </span>
+                    ) : g.auto_generated ? (
+                      <span
+                        className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-700"
+                        title="Auto-generated from a Daily Capacity tile for this week — editable"
+                      >
+                        Auto
                       </span>
                     ) : null}
                   </div>

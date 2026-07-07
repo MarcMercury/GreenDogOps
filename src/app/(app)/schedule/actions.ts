@@ -1541,3 +1541,268 @@ export async function generateGuideFromDay(
   return { ok: true, data: { id: guideId } };
 }
 
+// ---------------------------------------------------------------------------
+// Auto-generate a planning guide from a Daily Capacity tile, sized to the
+// appointment number the tile shows. The generated guide is week-scoped
+// (source_week_id) and fully editable afterward. The per-department column
+// layout mirrors the hand-authored guides (AP / Clinic exam + Urgent Care, IM,
+// Exotics), so the base grid reads like a real day the scheduler then tunes.
+// ---------------------------------------------------------------------------
+
+interface GenColumn {
+  name: string;
+  color: string;
+  type: string;
+}
+
+/**
+ * The appointment-track columns to scaffold for a department, derived from the
+ * existing planning guides. Exam-style areas get one track per DVM plus a shared
+ * Urgent Care lane; specialties get their own single track(s).
+ */
+function guideColumnsFor(deptName: string, dvmCount: number): GenColumn[] {
+  const n = deptName.toLowerCase();
+  const dvms = Math.max(1, dvmCount);
+  const exam = (label: string, type: string): GenColumn[] =>
+    Array.from({ length: dvms }, (_, i) => ({
+      name: dvms > 1 ? `DVM ${i + 1} — ${label}` : label,
+      color: DVM_COLORS[i % DVM_COLORS.length],
+      type,
+    }));
+
+  if (n.includes("exotic")) {
+    return [{ name: "Exotics", color: "#16a34a", type: "ex_sick" }];
+  }
+  if (/\bim\b/.test(n) || n.includes("internal")) {
+    const cols: GenColumn[] = [
+      { name: "Internal Med", color: "#9333ea", type: "im" },
+    ];
+    if (dvms > 1) {
+      cols.push({ name: "Dental Clinic", color: "#db2777", type: "dental" });
+    }
+    return cols;
+  }
+  if (n.includes("clinic") || n.includes("wellness") || n.includes("nad")) {
+    return [
+      ...exam("NAD / Clinic", "nad"),
+      { name: "Urgent Care", color: "#d97706", type: "uc" },
+    ];
+  }
+  // AP and any other exam-based area.
+  return [
+    ...exam("Exam", "nad"),
+    { name: "Urgent Care", color: "#d97706", type: "uc" },
+  ];
+}
+
+/**
+ * Generate (or regenerate) a planning guide for a Daily Capacity tile. Reads the
+ * day's staffing signature for the (location, department), scaffolds the
+ * department's appointment tracks, and fills exactly `targetAppointments`
+ * bookable slots (earliest first) so the guide's bookable count matches the
+ * tile's capacity number; the rest of the day is left "open" to edit. A target
+ * of 0 (no capacity rule yet) fills the whole day. Re-running for the same
+ * week / location / department / day replaces the prior auto-generated guide.
+ */
+export async function generateGuideFromCapacity(
+  weekId: string,
+  day: number,
+  locationId: string,
+  departmentId: string,
+  targetAppointments: number,
+): Promise<ActionResult<{ id: string }>> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const [roleRes, lineRes, asgRes, locRes, deptRes] = await Promise.all([
+    supabase.from("sched_role").select("id, name"),
+    supabase
+      .from("sched_week_line")
+      .select("id, role_id, department_id")
+      .eq("week_id", weekId),
+    supabase
+      .from("sched_assignment")
+      .select("person_id, line_id, removed_post_publish")
+      .eq("week_id", weekId)
+      .eq("day_of_week", day)
+      .eq("location_id", locationId),
+    supabase
+      .from("location")
+      .select("short_code, name")
+      .eq("id", locationId)
+      .maybeSingle(),
+    supabase
+      .from("sched_department")
+      .select("name")
+      .eq("id", departmentId)
+      .maybeSingle(),
+  ]);
+
+  const roleById = new Map(
+    ((roleRes.data ?? []) as { id: string; name: string }[]).map((r) => [
+      r.id,
+      r,
+    ]),
+  );
+  const lineById = new Map(
+    (
+      (lineRes.data ?? []) as {
+        id: string;
+        role_id: string | null;
+        department_id: string | null;
+      }[]
+    ).map((l) => [l.id, l]),
+  );
+
+  // Distinct people per staffing category staffed within this department.
+  const staffSets = new Map<string, Set<string>>();
+  for (const a of (asgRes.data ?? []) as {
+    person_id: string;
+    line_id: string;
+    removed_post_publish: boolean;
+  }[]) {
+    if (a.removed_post_publish) continue;
+    const line = lineById.get(a.line_id);
+    if (!line || line.department_id !== departmentId) continue;
+    const role = line.role_id ? roleById.get(line.role_id) : null;
+    const cat = classifyRole(role?.name);
+    if (!cat) continue;
+    let set = staffSets.get(cat);
+    if (!set) {
+      set = new Set<string>();
+      staffSets.set(cat, set);
+    }
+    set.add(a.person_id);
+  }
+
+  const staffing = emptyStaffing();
+  for (const [cat, set] of staffSets) {
+    staffing[cat as keyof typeof staffing] = set.size;
+  }
+  const dvmCount = Math.max(1, staffing.dvm);
+
+  const loc =
+    (locRes.data as { short_code: string | null; name: string | null } | null) ??
+    null;
+  const dept = (deptRes.data as { name: string | null } | null) ?? null;
+  const locLabel = loc?.short_code || loc?.name || "Location";
+  const deptLabel = dept?.name || "Service";
+
+  const target = Number.isFinite(targetAppointments)
+    ? Math.max(0, Math.trunc(targetAppointments))
+    : 0;
+
+  // Remove any prior auto-generated guide for this exact week/loc/dept/day so a
+  // regenerate replaces it (cascade drops its columns + slots).
+  const { data: prior } = await supabase
+    .from("planning_guide")
+    .select("id, weekdays")
+    .eq("source_week_id", weekId)
+    .eq("location_id", locationId)
+    .eq("department_id", departmentId)
+    .eq("auto_generated", true);
+  const priorIds = ((prior ?? []) as { id: string; weekdays: number[] }[])
+    .filter((p) => (p.weekdays ?? []).includes(day))
+    .map((p) => p.id);
+  if (priorIds.length) {
+    await supabase.from("planning_guide").delete().in("id", priorIds);
+  }
+
+  const START = 540; // 9:00
+  const END = 1020; // 17:00
+  const LUNCH = 720; // 12:00
+  const STEP = 30;
+  const times: number[] = [];
+  for (let t = START; t < END; t += STEP) times.push(t);
+
+  const genCols = guideColumnsFor(deptLabel, dvmCount);
+
+  // Bookable candidate cells, earliest time first then across columns. Fill the
+  // first `target` (all when target is 0) so bookable count == the tile number.
+  const candidates: { colIdx: number; t: number }[] = [];
+  for (const t of times) {
+    if (t === LUNCH) continue;
+    for (let c = 0; c < genCols.length; c++) candidates.push({ colIdx: c, t });
+  }
+  const fillCount =
+    target > 0 ? Math.min(target, candidates.length) : candidates.length;
+  const bookableCells = new Set<string>();
+  for (let i = 0; i < fillCount; i++) {
+    bookableCells.add(`${candidates[i].colIdx}|${candidates[i].t}`);
+  }
+
+  const { data: guideRow, error: gErr } = await supabase
+    .from("planning_guide")
+    .insert({
+      name: `${locLabel} — ${deptLabel} · ${fillCount} appt`,
+      location_id: locationId,
+      department_id: departmentId,
+      day_model: `${dvmCount}-DVM day · ${fillCount} appts (from capacity)`,
+      weekdays: [day],
+      dvm_count: dvmCount,
+      tech_count: staffing.tech || null,
+      lead_count: staffing.lead || null,
+      dental_count: staffing.dental || null,
+      da_count: staffing.da || null,
+      float_count: staffing.float || null,
+      start_minute: START,
+      end_minute: END,
+      slot_minutes: STEP,
+      source_week_id: weekId,
+      auto_generated: true,
+      target_appointments: target > 0 ? target : null,
+      notes:
+        "Auto-generated from the Daily Capacity tile for this week. The bookable slots match the tile's appointment number — edit the grid to shape the day.",
+      created_by: gate.current.authId,
+    })
+    .select("id")
+    .single();
+  if (gErr) return { ok: false, error: gErr.message };
+  const guideId = guideRow.id as string;
+
+  const { data: cols, error: cErr } = await supabase
+    .from("planning_guide_column")
+    .insert(
+      genCols.map((c, i) => ({
+        guide_id: guideId,
+        name: c.name,
+        color: c.color,
+        capacity_note: null as string | null,
+        sort_order: i * 10,
+      })),
+    )
+    .select("id, sort_order");
+  if (cErr) return { ok: false, error: cErr.message };
+
+  const orderedCols = ((cols ?? []) as { id: string; sort_order: number }[]).sort(
+    (a, b) => a.sort_order - b.sort_order,
+  );
+
+  const slotRows: Record<string, unknown>[] = [];
+  orderedCols.forEach((col, colIdx) => {
+    const type = genCols[colIdx]?.type ?? "nad";
+    for (const t of times) {
+      const isLunch = t === LUNCH;
+      const isBookable = bookableCells.has(`${colIdx}|${t}`);
+      slotRows.push({
+        guide_id: guideId,
+        column_id: col.id,
+        start_minute: t,
+        duration_minutes: STEP,
+        type_code: isLunch ? "lunch" : isBookable ? type : "open",
+        label: isLunch ? "Lunch" : null,
+        sort_order: 0,
+      });
+    }
+  });
+  if (slotRows.length) {
+    await supabase.from("planning_guide_slot").insert(slotRows);
+  }
+
+  revalidatePath("/planning");
+  revalidatePath("/capacity");
+  revalidatePath("/schedule");
+  return { ok: true, data: { id: guideId } };
+}
+

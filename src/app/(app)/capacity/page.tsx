@@ -68,6 +68,8 @@ export default async function CapacityPage({
             ).values(),
           ]}
           locations={setup.locations}
+          weekId={weekData.week.id}
+          canEdit={canEdit}
         />
       ) : (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">

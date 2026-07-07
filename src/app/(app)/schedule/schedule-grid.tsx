@@ -448,7 +448,7 @@ export function ScheduleGrid({
   } | null>(null);
 
   const [collapsedDepts, setCollapsedDepts] = useState<Set<string>>(
-    () => new Set(),
+    () => new Set(setup.departments.map((d) => d.id)),
   );
 
   // Printing: `null` = nothing pending; "grid" prints the schedule as-is,

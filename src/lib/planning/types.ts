@@ -37,6 +37,12 @@ export interface PlanningGuide {
   status: PlanningGuideStatus;
   notes: string | null;
   sort_order: number;
+  /** Schedule week this guide was auto-generated for; null = reusable template. */
+  source_week_id: string | null;
+  /** True when auto-generated from a Daily Capacity tile. */
+  auto_generated: boolean;
+  /** Appointment count the auto-generated guide was sized to; null = manual. */
+  target_appointments: number | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
