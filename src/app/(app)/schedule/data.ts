@@ -27,7 +27,7 @@ import type {
   SchedWeekLocation,
 } from "@/lib/schedule/types";
 import type { GuideWithCapacity } from "@/lib/planning/resolve";
-import type { PlanningGuide } from "@/lib/planning/types";
+import type { PlanningGuide, PlanningCapacityRule } from "@/lib/planning/types";
 
 const PERSON_COLS =
   "id, first_name, last_name, preferred_name, grid_name, full_name";
@@ -527,4 +527,19 @@ export async function getActiveGuides(): Promise<GuideWithCapacity[]> {
     bookable: bookable.get(g.id) ?? 0,
     columns: colCount.get(g.id) ?? 0,
   }));
+}
+
+/**
+ * Active self-managed capacity rules (condition → appointment count) that drive
+ * the Daily Capacity view and the assumptions behind each area's capacity.
+ */
+export async function getCapacityRules(): Promise<PlanningCapacityRule[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("planning_capacity_rule")
+    .select("*")
+    .eq("status", "active")
+    .order("sort_order")
+    .order("created_at");
+  return (data ?? []) as PlanningCapacityRule[];
 }

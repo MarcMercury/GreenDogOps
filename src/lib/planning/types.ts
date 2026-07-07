@@ -72,6 +72,37 @@ export interface GuideData {
   slots: PlanningGuideSlot[];
 }
 
+/**
+ * A self-managed appointment-capacity rule for a schedule area. It answers
+ * "for this area, if this staffing situation exists, then this many appointments
+ * are available." The `*_count` fields form the condition (staffing key); NULL
+ * means wildcard. `appointment_capacity` is the total bookable appointments the
+ * area renders when the condition matches. Managed on the Daily Capacity page.
+ */
+export interface PlanningCapacityRule {
+  id: string;
+  /** Location the rule applies to; null = any location for this area. */
+  location_id: string | null;
+  /** The schedule area (planning department) the rule governs. */
+  department_id: string;
+  label: string | null;
+  weekdays: number[];
+  /** Staffing condition; null = wildcard (not part of the rule's key). */
+  dvm_count: number | null;
+  tech_count: number | null;
+  lead_count: number | null;
+  dental_count: number | null;
+  da_count: number | null;
+  float_count: number | null;
+  /** Total appointments this area can render when the condition matches. */
+  appointment_capacity: number;
+  status: PlanningGuideStatus;
+  sort_order: number;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Appointment-type palette — the vocabulary of slot kinds, derived from the
 // GDD planning guides workbook. Kept in code so it stays editable without a

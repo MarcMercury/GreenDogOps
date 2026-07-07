@@ -7,7 +7,7 @@
 // guide is the day's appointment-capacity output. This module is pure (no DB)
 // so it can run on the server when building a page or be unit-tested.
 
-import type { PlanningGuide } from "./types";
+import type { PlanningGuide, PlanningCapacityRule } from "./types";
 
 // ---------------------------------------------------------------------------
 // Staffing categories — the role buckets the Daily Capacity summary tracks.
@@ -74,6 +74,12 @@ export interface CapacityEntry {
   /** True when every staffing key the guide defines matches the staffing. */
   exact: boolean;
   bookable: number;
+  /** The self-managed capacity rule matched for this staffing, if any. */
+  rule: PlanningCapacityRule | null;
+  /** Appointment capacity from the matched rule; null when no rule applies. */
+  ruleCapacity: number | null;
+  /** Displayed capacity — the rule's number when set, else the guide's bookable. */
+  capacity: number;
 }
 
 /** Resolved capacity for a single (day, location) cell of the schedule. */
@@ -82,6 +88,8 @@ export interface DayLocationCapacity {
   locationId: string;
   entries: CapacityEntry[];
   totalBookable: number;
+  /** Sum of each entry's displayed capacity (rule number or guide bookable). */
+  totalCapacity: number;
 }
 
 // Minimal row shapes the resolver needs from the schedule side. Kept structural
@@ -129,6 +137,44 @@ const FIELD_WEIGHT: Record<StaffCategory, number> = {
   float: 1,
 };
 
+/** Any row that carries the *_count staffing key + weekday scoping. */
+interface StaffKeyed {
+  weekdays: number[];
+  dvm_count: number | null;
+  tech_count: number | null;
+  lead_count: number | null;
+  dental_count: number | null;
+  da_count: number | null;
+  float_count: number | null;
+}
+
+/**
+ * Score a staffing-keyed row against a signature. A row's staffing key is the
+ * set of *_count columns it defines; null columns are wildcards (ignored).
+ *   - miss:    mismatched defined keys (fewer is better)
+ *   - match:   exactly-matched defined keys (more is better)
+ *   - gap:     weighted total distance (DVM weighted heaviest; smaller better)
+ *   - generic: 1 when the row applies to any day, 0 when weekday-specific
+ *   - defined: how many keys the row sets (a stable tie-break)
+ */
+function scoreKey(row: StaffKeyed, signature: StaffingSignature) {
+  let miss = 0;
+  let match = 0;
+  let gap = 0;
+  let defined = 0;
+  for (const { key, col } of SIG_FIELDS) {
+    const gv = (row as unknown as Record<string, number | null>)[col as string];
+    if (gv == null) continue;
+    defined++;
+    const diff = Math.abs(gv - signature[key]);
+    if (diff === 0) match++;
+    else miss++;
+    gap += diff * FIELD_WEIGHT[key];
+  }
+  const generic = row.weekdays.length === 0 ? 1 : 0;
+  return { miss, match, gap, generic, defined };
+}
+
 /**
  * Pick the best guide for a staffing signature. A guide's staffing key is the
  * set of *_count columns it defines; null columns are wildcards (ignored).
@@ -156,27 +202,9 @@ export function resolveGuide(
   );
   if (!applicable.length) return null;
 
-  const score = (g: GuideWithCapacity) => {
-    let miss = 0;
-    let match = 0;
-    let gap = 0;
-    let defined = 0;
-    for (const { key, col } of SIG_FIELDS) {
-      const gv = g[col] as number | null;
-      if (gv == null) continue;
-      defined++;
-      const diff = Math.abs(gv - signature[key]);
-      if (diff === 0) match++;
-      else miss++;
-      gap += diff * FIELD_WEIGHT[key];
-    }
-    const generic = g.weekdays.length === 0 ? 1 : 0;
-    return { miss, match, gap, generic, defined };
-  };
-
   const best = [...applicable].sort((a, b) => {
-    const ra = score(a);
-    const rb = score(b);
+    const ra = scoreKey(a, signature);
+    const rb = scoreKey(b, signature);
     if (ra.miss !== rb.miss) return ra.miss - rb.miss;
     if (ra.match !== rb.match) return rb.match - ra.match;
     if (ra.gap !== rb.gap) return ra.gap - rb.gap;
@@ -184,8 +212,45 @@ export function resolveGuide(
     return rb.defined - ra.defined;
   })[0];
 
-  const r = score(best);
+  const r = scoreKey(best, signature);
   return { guide: best, exact: r.miss === 0 && r.match > 0 };
+}
+
+/**
+ * Pick the best self-managed capacity rule for a staffing signature. Rules are
+ * scoped to an area (department) and optionally a location — a null location on
+ * the rule is a wildcard that applies everywhere. Matching reuses the same
+ * staffing-key scoring as guides; location-specific rules win ties over
+ * any-location ones. Returns the winning rule, or null when none applies.
+ */
+export function resolveCapacityRule(
+  locationId: string,
+  departmentId: string,
+  day: number,
+  signature: StaffingSignature,
+  rules: PlanningCapacityRule[],
+): PlanningCapacityRule | null {
+  const applicable = rules.filter(
+    (r) =>
+      r.status === "active" &&
+      r.department_id === departmentId &&
+      (r.location_id === null || r.location_id === locationId) &&
+      (r.weekdays.length === 0 || r.weekdays.includes(day)),
+  );
+  if (!applicable.length) return null;
+
+  return [...applicable].sort((a, b) => {
+    const ra = scoreKey(a, signature);
+    const rb = scoreKey(b, signature);
+    if (ra.miss !== rb.miss) return ra.miss - rb.miss;
+    if (ra.match !== rb.match) return rb.match - ra.match;
+    if (ra.gap !== rb.gap) return ra.gap - rb.gap;
+    if (ra.generic !== rb.generic) return ra.generic - rb.generic;
+    const la = a.location_id === locationId ? 1 : 0;
+    const lb = b.location_id === locationId ? 1 : 0;
+    if (la !== lb) return lb - la;
+    return rb.defined - ra.defined;
+  })[0];
 }
 
 function addToSet<K>(map: Map<K, Set<string>>, key: K, value: string): void {
@@ -203,7 +268,10 @@ function addToSet<K>(map: Map<K, Set<string>>, key: K, value: string): void {
  * surfaced as its own entry carrying its staffing headcount
  * (DVM/Tech/Lead/Dental/DA/Float) and the best-matching guide. Staffing is
  * counted strictly within the department — the staffing in each department is
- * what drives that department's appointment capacity.
+ * what drives that department's appointment capacity. When a self-managed
+ * capacity rule matches the staffing, its appointment number is the entry's
+ * displayed capacity; otherwise the entry falls back to the guide's bookable
+ * slot count.
  */
 export function computeWeekCapacity(
   assignments: AssignmentRow[],
@@ -211,6 +279,7 @@ export function computeWeekCapacity(
   roles: RoleRow[],
   departments: DepartmentRow[],
   guides: GuideWithCapacity[],
+  rules: PlanningCapacityRule[] = [],
 ): Map<string, DayLocationCapacity> {
   const lineById = new Map(lines.map((l) => [l.id, l]));
   const roleById = new Map(roles.map((r) => [r.id, r]));
@@ -258,6 +327,15 @@ export function computeWeekCapacity(
       staffing,
       guides,
     );
+    const rule = resolveCapacityRule(
+      locationId,
+      departmentId,
+      day,
+      staffing,
+      rules,
+    );
+    const bookable = match?.guide.bookable ?? 0;
+    const ruleCapacity = rule ? rule.appointment_capacity : null;
     const entry: CapacityEntry = {
       departmentId,
       departmentName: dept.name,
@@ -265,16 +343,20 @@ export function computeWeekCapacity(
       staffing,
       guide: match?.guide ?? null,
       exact: match?.exact ?? false,
-      bookable: match?.guide.bookable ?? 0,
+      bookable,
+      rule,
+      ruleCapacity,
+      capacity: ruleCapacity ?? bookable,
     };
     const cellKey = `${day}|${locationId}`;
     let cell = out.get(cellKey);
     if (!cell) {
-      cell = { day, locationId, entries: [], totalBookable: 0 };
+      cell = { day, locationId, entries: [], totalBookable: 0, totalCapacity: 0 };
       out.set(cellKey, cell);
     }
     cell.entries.push(entry);
     cell.totalBookable += entry.bookable;
+    cell.totalCapacity += entry.capacity;
   }
 
   // Stable ordering of entries within a cell (department sort by name).

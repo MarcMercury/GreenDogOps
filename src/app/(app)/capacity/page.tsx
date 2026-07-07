@@ -1,6 +1,13 @@
-import { getSetupData, getWeeks, getWeekData, getActiveGuides } from "../schedule/data";
+import {
+  getSetupData,
+  getWeeks,
+  getWeekData,
+  getActiveGuides,
+  getCapacityRules,
+} from "../schedule/data";
 import { WeekPicker } from "../schedule/week-picker";
 import { CapacityView } from "./capacity-view";
+import { CapacityRulesManager } from "./capacity-rules";
 import { PageHeader } from "../_components/ui";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
@@ -15,13 +22,17 @@ export default async function CapacityPage({
   searchParams: Promise<{ week?: string }>;
 }) {
   const { week: weekParam } = await searchParams;
-  const [weeks, setup, current, guides] = await Promise.all([
+  const [weeks, setup, current, guides, rules] = await Promise.all([
     getWeeks(),
     getSetupData(),
     getCurrentUser(),
     getActiveGuides(),
+    getCapacityRules(),
   ]);
   const canEdit = current ? canEditModule(current.appUser, "schedule") : false;
+
+  // The schedule "areas" that capacity rules govern: planning departments.
+  const areas = setup.departments.filter((d) => d.show_in_planning);
 
   const currentWeekStart = weekStartFor(new Date());
   const defaultWeek =
@@ -53,6 +64,7 @@ export default async function CapacityPage({
               setup.roles,
               setup.departments,
               guides,
+              rules,
             ).values(),
           ]}
           locations={setup.locations}
@@ -66,6 +78,16 @@ export default async function CapacityPage({
           </p>
         </div>
       )}
+      <CapacityRulesManager
+        areas={areas.map((a) => ({ id: a.id, name: a.name, color: a.color }))}
+        locations={setup.locations.map((l) => ({
+          id: l.id,
+          name: l.name,
+          short_code: l.short_code,
+        }))}
+        rules={rules}
+        canEdit={canEdit}
+      />
     </div>
   );
 }

@@ -117,6 +117,21 @@ export function CapacityView({
                               );
                             })}
                           </div>
+                          {e.rule ? (
+                            <div
+                              className="mt-1 flex items-center justify-between gap-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-800"
+                              title={
+                                e.rule.label
+                                  ? `Capacity rule — ${e.rule.label}`
+                                  : "Capacity rule"
+                              }
+                            >
+                              <span className="truncate">Capacity</span>
+                              <span className="shrink-0 tabular-nums">
+                                {e.capacity} appt
+                              </span>
+                            </div>
+                          ) : null}
                           {e.guide ? (
                             <Link
                               href={`/planning?guide=${e.guide.id}`}
