@@ -228,7 +228,8 @@ function Departments({ data }: { data: SetupData }) {
             <span>
               Planning Guide
               <span className="block font-normal text-slate-400">
-                Show this department in the Planning Guides dropdown.
+                Show this department in the Planning Guides dropdown and as a
+                Daily Capacity area.
               </span>
             </span>
           </label>

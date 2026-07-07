@@ -39,6 +39,10 @@ function revalidateAll() {
   revalidatePath("/schedule");
   revalidatePath("/schedule/setup");
   revalidatePath("/schedule/attendance");
+  // Setup changes (departments, roles) also drive the Daily Capacity area
+  // options/rollup and the Planning Guides dropdown.
+  revalidatePath("/capacity");
+  revalidatePath("/planning");
 }
 
 // ===========================================================================
