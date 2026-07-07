@@ -17,8 +17,6 @@ import {
   ModuleHeader,
   exportColumnsCsv,
 } from "../_components/data-views";
-import { OpportunityBadge } from "../_components/opportunity-type-field";
-import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
 import { ImportDialog } from "./import-dialog";
 
 function candidateName(r: CandidateRow): string {
@@ -70,12 +68,6 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
       key: "position",
       header: "Position",
       value: (r) => r.person_recruiting?.target_title,
-    },
-    {
-      key: "opportunity",
-      header: "Opportunity",
-      value: (r) => opportunityShortLabel(r.opportunity_type),
-      render: (r) => <OpportunityBadge value={r.opportunity_type} />,
     },
     {
       key: "pipeline",
@@ -151,11 +143,20 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
       value: (r) => STAGE_BUCKET_LABELS[bucketForStage(r.person_recruiting?.stage ?? null)],
     },
     { key: "pipeline", label: "Pipeline", value: (r) => r.person_recruiting?.pipeline },
+    { key: "position", label: "Position", value: (r) => r.person_recruiting?.target_title },
     { key: "source", label: "Source", value: (r) => r.person_recruiting?.source },
     {
-      key: "opportunity",
-      label: "Opportunity",
-      value: (r) => opportunityShortLabel(r.opportunity_type) || null,
+      key: "score",
+      label: "Score",
+      value: (r) => {
+        const s = r.person_recruiting?.score;
+        return s != null && s > 0 ? String(s) : null;
+      },
+    },
+    {
+      key: "keep",
+      label: "Keep",
+      value: (r) => (r.person_recruiting?.keep_for_future ? "Yes" : null),
     },
   ];
 

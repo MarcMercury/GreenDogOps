@@ -455,11 +455,11 @@ export function DataTable<T extends { id: string }>({
 
         {filterOptions.map(({ def, options }) => (
           <div key={def.key} className="flex items-center gap-1.5">
-            <label className="text-xs font-medium text-slate-500">{def.label}</label>
+            <label className="shrink-0 text-xs font-medium text-slate-500">{def.label}</label>
             <select
               value={active[def.key] ?? "all"}
               onChange={(e) => setActive((s) => ({ ...s, [def.key]: e.target.value }))}
-              className="rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="max-w-[9rem] truncate rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
               <option value="all">All ({rows.length})</option>
               {options.map((o) => (
