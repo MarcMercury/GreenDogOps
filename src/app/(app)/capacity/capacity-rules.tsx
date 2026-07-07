@@ -94,6 +94,8 @@ export function CapacityRulesManager({
   const router = useRouter();
   const [pending, start] = useTransition();
   const [areaId, setAreaId] = useState(areas[0]?.id ?? "");
+  // "" = all locations (including any-location rules).
+  const [locId, setLocId] = useState("");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -101,9 +103,13 @@ export function CapacityRulesManager({
   const areaRules = useMemo(
     () =>
       rules
-        .filter((r) => r.department_id === areaId)
+        .filter(
+          (r) =>
+            r.department_id === areaId &&
+            (locId === "" || r.location_id === locId),
+        )
         .sort((a, b) => a.sort_order - b.sort_order),
-    [rules, areaId],
+    [rules, areaId, locId],
   );
   const locName = (id: string | null) => {
     if (!id) return "Any location";
@@ -174,24 +180,45 @@ export function CapacityRulesManager({
             situation. These conditions drive the capacity shown above.
           </p>
         </div>
-        <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-          Area
-          <select
-            value={areaId}
-            onChange={(e) => {
-              setAreaId(e.target.value);
-              setDraft(null);
-              setError(null);
-            }}
-            className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-          >
-            {areas.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+            Location
+            <select
+              value={locId}
+              onChange={(e) => {
+                setLocId(e.target.value);
+                setDraft(null);
+                setError(null);
+              }}
+              className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+            >
+              <option value="">All locations</option>
+              {locations.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.short_code ?? l.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+            Area
+            <select
+              value={areaId}
+              onChange={(e) => {
+                setAreaId(e.target.value);
+                setDraft(null);
+                setError(null);
+              }}
+              className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+            >
+              {areas.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       {error ? (
@@ -204,7 +231,8 @@ export function CapacityRulesManager({
       <div className="mt-3 space-y-1.5">
         {areaRules.length === 0 ? (
           <p className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400">
-            No capacity rules for {area?.name} yet.
+            No capacity rules for {area?.name}
+            {locId ? ` at ${locName(locId)}` : ""} yet.
           </p>
         ) : (
           areaRules.map((r) => {
@@ -287,7 +315,7 @@ export function CapacityRulesManager({
           <button
             type="button"
             onClick={() => {
-              setDraft(emptyDraft());
+              setDraft({ ...emptyDraft(), location_id: locId });
               setError(null);
             }}
             className="mt-3 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
