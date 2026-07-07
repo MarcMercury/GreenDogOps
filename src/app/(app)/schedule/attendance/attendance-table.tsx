@@ -28,6 +28,9 @@ const COLUMNS: {
   { key: "pto", label: "PTO", tone: "text-violet-600" },
 ];
 
+type SortKey = "name" | "score" | "total" | keyof ReliabilityTally;
+type SortDir = "asc" | "desc";
+
 export function AttendanceTable({
   employees,
 }: {
@@ -35,15 +38,44 @@ export function AttendanceTable({
 }) {
   const [q, setQ] = useState("");
   const [onlyResolved, setOnlyResolved] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toggleSort = (key: SortKey) => {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      // Text sorts default ascending; numeric columns default descending.
+      setSortDir(key === "name" ? "asc" : "desc");
+    }
+  };
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
-    return employees.filter((e) => {
+    const rows = employees.filter((e) => {
       if (onlyResolved && e.tally.total === 0) return false;
       if (term && !e.name.toLowerCase().includes(term)) return false;
       return true;
     });
-  }, [employees, q, onlyResolved]);
+
+    const dir = sortDir === "asc" ? 1 : -1;
+    const valueOf = (e: EmployeeAttendance): string | number => {
+      if (sortKey === "name") return e.name.toLowerCase();
+      if (sortKey === "score") return e.score ?? -1;
+      if (sortKey === "total") return e.tally.total;
+      return e.tally[sortKey];
+    };
+
+    return [...rows].sort((a, b) => {
+      const av = valueOf(a);
+      const bv = valueOf(b);
+      if (typeof av === "string" && typeof bv === "string") {
+        return av.localeCompare(bv) * dir;
+      }
+      return ((av as number) - (bv as number)) * dir;
+    });
+  }, [employees, q, onlyResolved, sortKey, sortDir]);
 
   const totals = useMemo(() => {
     const acc = {
@@ -91,14 +123,36 @@ export function AttendanceTable({
         <table className="min-w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-400">
-              <th className="px-3 py-2 font-medium">Employee</th>
-              <th className="px-3 py-2 text-center font-medium">Reliability</th>
+              <SortHeader
+                label="Employee"
+                active={sortKey === "name"}
+                dir={sortDir}
+                onClick={() => toggleSort("name")}
+              />
+              <SortHeader
+                label="Reliability"
+                align="center"
+                active={sortKey === "score"}
+                dir={sortDir}
+                onClick={() => toggleSort("score")}
+              />
               {COLUMNS.map((c) => (
-                <th key={c.key} className="px-3 py-2 text-center font-medium">
-                  {c.label}
-                </th>
+                <SortHeader
+                  key={c.key}
+                  label={c.label}
+                  align="center"
+                  active={sortKey === c.key}
+                  dir={sortDir}
+                  onClick={() => toggleSort(c.key)}
+                />
               ))}
-              <th className="px-3 py-2 text-center font-medium">Resolved</th>
+              <SortHeader
+                label="Resolved"
+                align="center"
+                active={sortKey === "total"}
+                dir={sortDir}
+                onClick={() => toggleSort("total")}
+              />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -153,6 +207,41 @@ export function AttendanceTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function SortHeader({
+  label,
+  align = "left",
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  align?: "left" | "center";
+  active: boolean;
+  dir: SortDir;
+  onClick: () => void;
+}) {
+  return (
+    <th
+      className={`px-3 py-2 font-medium ${
+        align === "center" ? "text-center" : "text-left"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex items-center gap-1 uppercase transition-colors hover:text-slate-600 ${
+          align === "center" ? "justify-center" : ""
+        } ${active ? "text-slate-700" : ""}`}
+      >
+        {label}
+        <span className="text-[0.65rem] leading-none">
+          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
+        </span>
+      </button>
+    </th>
   );
 }
 
