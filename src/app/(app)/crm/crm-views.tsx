@@ -9,6 +9,7 @@ import {
   ORG_TYPE_LABELS,
   subtypeLabel,
   categoryLabel,
+  RECOMMENDATION_LEVEL_OPTIONS,
 } from "@/lib/crm/types";
 import {
   type Stat,
@@ -23,8 +24,21 @@ import {
   exportColumnsCsv,
   previewCsvImport,
 } from "../_components/data-views";
-import { OpportunityBadge } from "../_components/opportunity-type-field";
 import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
+
+// Pill background colors for a student's recommendation level.
+const RECOMMENDATION_PILL_STYLES: Record<string, string> = {
+  green: "bg-emerald-100 text-emerald-700",
+  yellow: "bg-amber-100 text-amber-700",
+  red: "bg-red-100 text-red-700",
+};
+
+function recommendationLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return (
+    RECOMMENDATION_LEVEL_OPTIONS.find((o) => o.value === value)?.label ?? value
+  );
+}
 
 function contactName(c: CrmContact): string {
   if (c.full_name) return c.full_name;
@@ -175,10 +189,18 @@ export function ContactListView({
           { key: "grad_year", header: "Grad Year", value: (c) => c.grad_year },
           { key: "dvm", header: "DVM", value: (c) => c.supervising_dvm },
           {
-            key: "opportunity",
-            header: "Opportunity",
-            value: (c) => opportunityShortLabel(c.opportunity_type),
-            render: (c) => <OpportunityBadge value={c.opportunity_type} />,
+            key: "recommendation",
+            header: "Recommendation Level",
+            value: (c) => recommendationLabel(c.doc_recommendation),
+            render: (c) =>
+              c.doc_recommendation ? (
+                <Pill
+                  text={recommendationLabel(c.doc_recommendation) ?? ""}
+                  styles={RECOMMENDATION_PILL_STYLES}
+                />
+              ) : (
+                <span className="text-slate-400">—</span>
+              ),
           },
           { key: "status", header: "Status", value: (c) => c.status },
         ]
