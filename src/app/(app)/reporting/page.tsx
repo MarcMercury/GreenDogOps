@@ -17,6 +17,7 @@ import type {
   StaffRow,
   StaffLocationRow,
   CaseOwnerMonthRow,
+  DvmDeptRow,
   ClientSummary,
   ClientsByMonthRow,
   ClientRecencyRow,
@@ -94,6 +95,7 @@ export default async function ReportingPage({
     caseOwnersRes,
     staffByLocationRes,
     caseOwnerByMonthRes,
+    dvmByDeptRes,
     clientSummaryRes,
     clientsByMonthRes,
     clientRecencyRes,
@@ -130,6 +132,12 @@ export default async function ReportingPage({
       .select("*")
       .eq("year", selectedYear)
       .order("month", { ascending: true }),
+    supabase
+      .from("report_dvm_by_dept")
+      .select("*")
+      .eq("year", selectedYear)
+      .order("doctor", { ascending: true })
+      .order("revenue", { ascending: false }),
     supabase.from("report_client_summary").select("*").maybeSingle(),
     supabase.from("report_clients_by_month").select("*"),
     supabase.from("report_clients_by_recency").select("*"),
@@ -155,6 +163,7 @@ export default async function ReportingPage({
   const caseOwners = (caseOwnersRes.data ?? []) as StaffRow[];
   const staffByLocation = (staffByLocationRes.data ?? []) as StaffLocationRow[];
   const caseOwnerByMonth = (caseOwnerByMonthRes.data ?? []) as CaseOwnerMonthRow[];
+  const dvmByDept = (dvmByDeptRes.data ?? []) as DvmDeptRow[];
   const clientSummary = (clientSummaryRes.data as ClientSummary | null) ?? null;
   const clientsByMonth = (clientsByMonthRes.data ?? []) as ClientsByMonthRow[];
   const clientRecency = (clientRecencyRes.data ?? []) as ClientRecencyRow[];
@@ -217,6 +226,7 @@ export default async function ReportingPage({
             caseOwners={caseOwners}
             staffByLocation={staffByLocation}
             caseOwnerByMonth={caseOwnerByMonth}
+            dvmByDept={dvmByDept}
             clientSummary={clientSummary}
             clientsByMonth={clientsByMonth}
             clientRecency={clientRecency}

@@ -30,11 +30,17 @@
 -- ============================================================================
 set search_path = greendogops, public;
 
+-- Drop dependents first so the helper can be recreated deterministically on a
+-- re-run (CREATE OR REPLACE FUNCTION can conflict when the signature already
+-- exists via the Supabase Management API).
+drop materialized view if exists greendogops.report_dvm_by_dept cascade;
+drop function if exists greendogops.name_tokens(text);
+
 -- Immutable name-token helper: lowercases, drops a leading "Dr." honorific,
 -- strips punctuation, and returns the remaining words. Used on both sides of
 -- the doctor<->case-owner join so a subset match (one name's tokens contained
 -- in the other's) links records despite minor naming differences.
-create or replace function greendogops.name_tokens(raw text)
+create function greendogops.name_tokens(raw text)
 returns text[]
 language sql
 immutable
@@ -53,7 +59,6 @@ as $$
   );
 $$;
 
-drop materialized view if exists greendogops.report_dvm_by_dept cascade;
 create materialized view greendogops.report_dvm_by_dept as
 with dvm_days as (
   select

@@ -170,6 +170,23 @@ export interface CaseOwnerMonthRow {
   revenue: number;
 }
 
+/**
+ * One (doctor, department) production row from `report_dvm_by_dept`: the
+ * doctor's revenue and appointments on days the published schedule placed them
+ * in that department. On days split across departments the day's production is
+ * divided evenly. Grouped by doctor for the collapsible "DVM by Dept" tab.
+ */
+export interface DvmDeptRow {
+  year: number;
+  doctor: string;
+  department_name: string;
+  department_color: string;
+  department_sort: number;
+  days_worked: number;
+  appointments: number;
+  revenue: number;
+}
+
 export interface StaffProductRow {
   product_name: string;
   product_group: string;
