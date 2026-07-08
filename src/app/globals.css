@@ -107,3 +107,87 @@ body {
     page-break-after: auto;
   }
 }
+
+/* ----------------------------------------------------------------------------
+   Company Calendar (FullCalendar) — compact, tidy month/week cells.
+   Scoped to .gdo-calendar so it only affects the calendar page.
+---------------------------------------------------------------------------- */
+.gdo-calendar .fc {
+  font-size: 12px;
+}
+
+/* Toolbar */
+.gdo-calendar .fc .fc-toolbar-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--foreground);
+}
+.gdo-calendar .fc .fc-button {
+  font-size: 12px;
+  padding: 0.3rem 0.6rem;
+}
+
+/* Column headers + day numbers */
+.gdo-calendar .fc .fc-col-header-cell-cushion {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 6px 4px;
+}
+.gdo-calendar .fc .fc-daygrid-day-number {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 4px 6px;
+}
+
+/* Events: uniform compact blocks that never overflow the cell */
+.gdo-calendar .fc .fc-daygrid-event {
+  font-size: 11px;
+  line-height: 1.35;
+  margin: 1px 2px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  border: none;
+}
+.gdo-calendar .fc .fc-daygrid-event .fc-event-main {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gdo-calendar .fc .fc-event-time {
+  font-weight: 600;
+  opacity: 0.85;
+  margin-right: 3px;
+}
+.gdo-calendar .fc .fc-event-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "+N more" link and popover */
+.gdo-calendar .fc .fc-daygrid-more-link {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--brand);
+  margin: 1px 4px;
+}
+
+/* List view rows */
+.gdo-calendar .fc .fc-list-event-title,
+.gdo-calendar .fc .fc-list-event-time {
+  font-size: 12px;
+}
+
+/* Slightly roomier week/day time-grid slots without huge fonts */
+.gdo-calendar .fc .fc-timegrid-slot-label-cushion,
+.gdo-calendar .fc .fc-timegrid-axis-cushion {
+  font-size: 11px;
+  color: var(--muted);
+}
+.gdo-calendar .fc .fc-timegrid-event .fc-event-title {
+  font-size: 11px;
+}

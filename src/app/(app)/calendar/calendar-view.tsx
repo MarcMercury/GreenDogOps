@@ -111,7 +111,7 @@ export function CalendarView({
         ) : null}
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="gdo-calendar rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <FullCalendar
           plugins={[
             dayGridPlugin,
@@ -129,6 +129,8 @@ export function CalendarView({
           events={events}
           eventClick={onEventClick}
           dateClick={onDateClick}
+          eventDisplay="block"
+          displayEventEnd={false}
           dayMaxEvents={3}
           nowIndicator
           eventTimeFormat={{
