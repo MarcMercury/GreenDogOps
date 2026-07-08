@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type {
   RosterRow,
   PersonReview,
+  PersonDisciplinaryAction,
   PersonAsset,
   PersonPtoDay,
   PersonTimeOff,
@@ -53,8 +54,8 @@ export default async function EmployeeDetailPage({
        email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
      opportunity_type, avatar_url, is_active, notes, source_contact_id, status_changed_at, created_at, updated_at,
        person_employment (
-         person_id, position_id, location_id, offer_title, adp_job_title,
-         flsa_status, work_schedule, days_per_week, hire_date, original_hire_date,
+         person_id, position_id, location_id, preferred_location_id, offer_title, adp_job_title,
+         flsa_status, work_schedule, schedule_type, days_per_week, hire_date, original_hire_date,
          pay_type, current_rate, previous_rate, latest_wage_change_date,
          biweekly_wage, annual_wages, pto_allotment, pto_policy_allotment,
          pto_used, pto_available, pto_notes, ce_budget, ce_used, ce_remaining,
@@ -97,6 +98,7 @@ export default async function EmployeeDetailPage({
   // Sub-records for the Reviews / Assets / Documents / Attendance / Onboarding tabs.
   const [
     reviewsRes,
+    disciplinaryRes,
     assetsRes,
     docsRes,
     ptoRes,
@@ -110,6 +112,12 @@ export default async function EmployeeDetailPage({
       .select("*")
       .eq("person_id", id)
       .order("review_date", { ascending: false, nullsFirst: false })
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("person_disciplinary_action")
+      .select("*")
+      .eq("person_id", id)
+      .order("incident_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false }),
     supabase
       .from("person_asset")
@@ -151,6 +159,7 @@ export default async function EmployeeDetailPage({
   ]);
 
   const reviews = (reviewsRes.data ?? []) as PersonReview[];
+  const disciplinary = (disciplinaryRes.data ?? []) as PersonDisciplinaryAction[];
   const assets = (assetsRes.data ?? []) as PersonAsset[];
   const documents = (docsRes.data ?? []) as PersonDocument[];
   const ptoDays = (ptoRes.data ?? []) as PersonPtoDay[];
@@ -176,6 +185,21 @@ export default async function EmployeeDetailPage({
     .eq("person_id", id)
     .maybeSingle();
   const account = (accountRow as LinkedAccount | null) ?? null;
+
+  // Active clinic locations for the Preferred location dropdown.
+  const { data: locationRows } = await supabase
+    .from("location")
+    .select("id, name, display_name, short_code, sort_order")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  const locations = (
+    (locationRows ?? []) as Array<{
+      id: string;
+      name: string | null;
+      display_name: string | null;
+    }>
+  ).map((l) => ({ value: l.id, label: l.display_name ?? l.name ?? "—" }));
 
   // Generate short-lived signed URLs for private documents.
   let documentsWithUrls: PersonDocumentWithUrl[] = documents.map((d) => ({
@@ -222,6 +246,7 @@ export default async function EmployeeDetailPage({
       <EmployeeProfile
         row={row}
         reviews={reviews}
+        disciplinary={disciplinary}
         assets={assets}
         documents={documentsWithUrls}
         recruiting={recruiting}
@@ -237,6 +262,7 @@ export default async function EmployeeDetailPage({
         canViewComp={canViewComp}
         canEdit={canEdit}
         canEditSchedule={canEditSchedule}
+        locations={locations}
       />
     </div>
   );

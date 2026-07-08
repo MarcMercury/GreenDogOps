@@ -240,6 +240,13 @@ export interface SchedPerson {
   preferred_name: string | null;
   grid_name: string | null;
   full_name: string | null;
+  /** Preferred work location, sourced from HR (person_employment). */
+  preferred_location_id?: string | null;
+  /**
+   * Schedule-type pattern (e.g. "5:5", "5:4"), sourced read-only from HR
+   * (person_employment.schedule_type).
+   */
+  schedule_type?: string | null;
 }
 
 // ---------------------------------------------------------------------------

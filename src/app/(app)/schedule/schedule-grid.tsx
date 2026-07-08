@@ -703,8 +703,8 @@ export function ScheduleGrid({
                       style={{ borderLeft: `3px solid ${dept.color}` }}
                     >
                       <div className="flex items-start justify-between gap-1">
-                        <div className="min-w-0">
-                          <span className="block whitespace-nowrap text-[12px] font-medium text-slate-800">
+                        <div className="flex min-w-0 items-baseline gap-1.5">
+                          <span className="whitespace-nowrap text-[12px] font-medium text-slate-800">
                             {line.label || roleName(line.role_id) || "Shift"}
                             {line.is_adhoc && (
                               <span className="ml-1 rounded bg-amber-100 px-1 text-[9px] font-semibold text-amber-700">
@@ -712,7 +712,7 @@ export function ScheduleGrid({
                               </span>
                             )}
                           </span>
-                          <span className="block font-mono text-[10px] text-slate-400">
+                          <span className="whitespace-nowrap font-mono text-[10px] text-slate-400">
                             {timeRange(line.start_time, line.end_time)}
                           </span>
                         </div>

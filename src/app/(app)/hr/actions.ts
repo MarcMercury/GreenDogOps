@@ -86,6 +86,7 @@ export async function createEmployee(
     offer_title: str(formData.get("offer_title")),
     flsa_status: str(formData.get("flsa_status")),
     work_schedule: str(formData.get("work_schedule")),
+    schedule_type: str(formData.get("schedule_type")),
     hire_date: str(formData.get("hire_date")),
     original_hire_date:
       str(formData.get("original_hire_date")) ?? str(formData.get("hire_date")),
@@ -149,11 +150,50 @@ export async function updateEmployee(
 
   if (pErr) return { ok: false, error: pErr.message };
 
+  // Compensation/benefits fields are admin-only. Non-admins never submit them,
+  // so we omit them entirely to avoid overwriting with null.
+  let compPatch: Record<string, unknown> = {};
+  if (isAdmin) {
+    const newRate = num(formData.get("current_rate"));
+
+    // When the pay rate changes, stamp the change date and remember the prior
+    // rate so the Compensation tab can show "Last compensation change".
+    const { data: existing } = await supabase
+      .from("person_employment")
+      .select("current_rate")
+      .eq("person_id", personId)
+      .maybeSingle();
+    const oldRate = existing?.current_rate ?? null;
+    const rateChanged = existing != null && newRate !== oldRate;
+
+    compPatch = {
+      pay_type: str(formData.get("pay_type")),
+      current_rate: newRate,
+      biweekly_wage: num(formData.get("biweekly_wage")),
+      annual_wages: num(formData.get("annual_wages")),
+      ce_budget: num(formData.get("ce_budget")),
+      ce_used: num(formData.get("ce_used")),
+      ce_remaining: num(formData.get("ce_remaining")),
+      benefits_enrolled: bool(formData.get("benefits_enrolled")),
+      benefits_monthly: num(formData.get("benefits_monthly")),
+      benefits_annual: num(formData.get("benefits_annual")),
+      // last_review_date is derived from the Reviews tab, not entered here.
+      ...(rateChanged
+        ? {
+            previous_rate: oldRate,
+            latest_wage_change_date: new Date().toISOString().slice(0, 10),
+          }
+        : {}),
+    };
+  }
+
   const empPatch = {
     adp_job_title: str(formData.get("adp_job_title")),
     offer_title: str(formData.get("offer_title")),
+    preferred_location_id: str(formData.get("preferred_location_id")),
     flsa_status: str(formData.get("flsa_status")),
     work_schedule: str(formData.get("work_schedule")),
+    schedule_type: str(formData.get("schedule_type")),
     // days_per_week is sourced from Schedule → Setup (sched_employee_setting
     // .weekly_shift_target) and shown read-only on HR, so it is not written here.
     hire_date: str(formData.get("hire_date")),
@@ -166,23 +206,7 @@ export async function updateEmployee(
     separation_type: str(formData.get("separation_type")),
     separation_letter_signed: bool(formData.get("separation_letter_signed")),
     separation_notes: str(formData.get("separation_notes")),
-    // Compensation/benefits fields are admin-only. Non-admins never submit
-    // them, so we omit them entirely to avoid overwriting with null.
-    ...(isAdmin
-      ? {
-          pay_type: str(formData.get("pay_type")),
-          current_rate: num(formData.get("current_rate")),
-          biweekly_wage: num(formData.get("biweekly_wage")),
-          annual_wages: num(formData.get("annual_wages")),
-          ce_budget: num(formData.get("ce_budget")),
-          ce_used: num(formData.get("ce_used")),
-          ce_remaining: num(formData.get("ce_remaining")),
-          benefits_enrolled: bool(formData.get("benefits_enrolled")),
-          benefits_monthly: num(formData.get("benefits_monthly")),
-          benefits_annual: num(formData.get("benefits_annual")),
-          last_review_date: str(formData.get("last_review_date")),
-        }
-      : {}),
+    ...compPatch,
   };
 
   const { error: eErr } = await supabase
@@ -204,6 +228,30 @@ export async function updateEmployee(
 // ---------------------------------------------------------------------------
 // Reviews
 // ---------------------------------------------------------------------------
+
+type DbClient = Awaited<ReturnType<typeof createClient>>;
+
+/**
+ * Re-derive person_employment.last_review_date from the most recent logged
+ * review so the Compensation tab always reflects the Reviews tab.
+ */
+async function refreshLastReviewDate(
+  supabase: DbClient,
+  personId: string,
+): Promise<void> {
+  const { data } = await supabase
+    .from("person_review")
+    .select("review_date")
+    .eq("person_id", personId)
+    .not("review_date", "is", null)
+    .order("review_date", { ascending: false })
+    .limit(1);
+  const latest = (data?.[0]?.review_date as string | undefined) ?? null;
+  await supabase
+    .from("person_employment")
+    .update({ last_review_date: latest })
+    .eq("person_id", personId);
+}
 
 export async function saveReview(
   personId: string,
@@ -231,6 +279,8 @@ export async function saveReview(
 
   if (error) return { ok: false, error: error.message };
 
+  await refreshLastReviewDate(supabase, personId);
+
   revalidatePath(`/hr/${personId}`);
   return { ok: true };
 }
@@ -246,6 +296,61 @@ export async function deleteReview(
     .from("person_review")
     .delete()
     .eq("id", reviewId);
+  if (error) return { ok: false, error: error.message };
+  await refreshLastReviewDate(supabase, personId);
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Disciplinary actions
+// ---------------------------------------------------------------------------
+
+export async function saveDisciplinaryAction(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const id = str(formData.get("action_id"));
+
+  const patch = {
+    person_id: personId,
+    incident_date: str(formData.get("incident_date")),
+    reported_by: str(formData.get("reported_by")),
+    employee_position: str(formData.get("employee_position")),
+    violation_type: str(formData.get("violation_type")),
+    nature: str(formData.get("nature")),
+    action_taken: str(formData.get("action_taken")),
+    witnesses: str(formData.get("witnesses")),
+  };
+
+  const { error } = id
+    ? await supabase
+        .from("person_disciplinary_action")
+        .update(patch)
+        .eq("id", id)
+    : await supabase.from("person_disciplinary_action").insert(patch);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteDisciplinaryAction(
+  personId: string,
+  actionId: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_disciplinary_action")
+    .delete()
+    .eq("id", actionId);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/hr/${personId}`);
   return { ok: true };

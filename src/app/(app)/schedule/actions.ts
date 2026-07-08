@@ -304,9 +304,29 @@ export async function saveEmployeeSetting(
   return { ok: true };
 }
 
-// ===========================================================================
-// WEEKS — create + planning guide
-// ===========================================================================
+/**
+ * Mirror of the HR roster's "Preferred location" field. Writes to
+ * person_employment (the single source of truth) so the value stays in sync
+ * between the HR profile and Schedule → Setup → Employees.
+ */
+export async function savePreferredLocation(
+  personId: string,
+  locationId: string | null,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_employment")
+    .upsert(
+      { person_id: personId, preferred_location_id: locationId },
+      { onConflict: "person_id" },
+    );
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  revalidatePath("/hr");
+  return { ok: true };
+}
 
 /**
  * Create a week and snapshot the active shift templates into week lines and

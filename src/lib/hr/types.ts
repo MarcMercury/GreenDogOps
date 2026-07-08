@@ -8,6 +8,11 @@ export type EmploymentStatus =
 export type WorkLocationType = "in_house" | "remote" | "hybrid";
 export type FlsaStatus = "exempt" | "non_exempt";
 export type WorkSchedule = "full_time" | "part_time" | "per_diem" | "contractor";
+/**
+ * Pattern of workdays an employee works across a two-week period. e.g. "5:5"
+ * = 5 days and 5 days; "5:4" = alternates a 5-workday week and a 4-workday week.
+ */
+export type ScheduleType = "5:5" | "5:4" | "4:4" | "4:3" | "5:3";
 export type SeparationType = "quit" | "fired" | "laid_off" | "other";
 
 export interface Person {
@@ -39,10 +44,12 @@ export interface PersonEmployment {
   person_id: string;
   position_id: string | null;
   location_id: string | null;
+  preferred_location_id: string | null;
   offer_title: string | null;
   adp_job_title: string | null;
   flsa_status: FlsaStatus | null;
   work_schedule: WorkSchedule | null;
+  schedule_type: ScheduleType | null;
   days_per_week: number | null;
   hire_date: string | null;
   original_hire_date: string | null;
@@ -109,6 +116,21 @@ export interface PersonReview {
   rating: string | null;
   summary: string | null;
   next_review_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** One disciplinary write-up logged against an employee. */
+export interface PersonDisciplinaryAction {
+  id: string;
+  person_id: string;
+  incident_date: string | null;
+  reported_by: string | null;
+  employee_position: string | null;
+  violation_type: string | null;
+  nature: string | null;
+  action_taken: string | null;
+  witnesses: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -267,6 +289,16 @@ export const REVIEW_TYPE_LABELS: Record<string, string> = {  annual: "Annual Rev
   other: "Other",
 };
 
+export const VIOLATION_TYPE_LABELS: Record<string, string> = {
+  job_performance: "Job Performance",
+  conduct: "Conduct / Behavior",
+  attendance: "Attendance / Punctuality",
+  safety: "Safety",
+  policy: "Policy Violation",
+  insubordination: "Insubordination",
+  other: "Other",
+};
+
 export const ASSET_TYPE_LABELS: Record<string, string> = {
   laptop: "Laptop / Computer",
   phone: "Phone",
@@ -313,3 +345,12 @@ export const SCHEDULE_LABELS: Record<WorkSchedule, string> = {
   per_diem: "Per Diem",
   contractor: "Contractor",
 };
+
+/** Selectable schedule-type patterns shown in the HR/Roster dropdown. */
+export const SCHEDULE_TYPE_OPTIONS: readonly ScheduleType[] = [
+  "5:5",
+  "5:4",
+  "4:4",
+  "4:3",
+  "5:3",
+];

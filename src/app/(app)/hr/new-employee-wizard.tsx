@@ -6,6 +6,7 @@ import {
   OPPORTUNITY_GROUPS,
   OPPORTUNITY_TYPES,
 } from "@/lib/shared/opportunity-types";
+import { SCHEDULE_TYPE_OPTIONS } from "@/lib/hr/types";
 import { createEmployee } from "./actions";
 
 type StepKey = "personal" | "employment" | "review";
@@ -32,6 +33,7 @@ interface FormState {
   offer_title: string;
   flsa_status: string;
   work_schedule: string;
+  schedule_type: string;
   hire_date: string;
 }
 
@@ -51,6 +53,7 @@ const EMPTY: FormState = {
   offer_title: "",
   flsa_status: "",
   work_schedule: "full_time",
+  schedule_type: "",
   hire_date: "",
 };
 
@@ -363,6 +366,15 @@ export function NewEmployeeWizard() {
                   { value: "contractor", label: "Contractor" },
                 ]}
               />
+              <SelectField
+                label="Schedule type"
+                value={form.schedule_type}
+                onChange={(v) => set("schedule_type", v)}
+                options={SCHEDULE_TYPE_OPTIONS.map((v) => ({
+                  value: v,
+                  label: v,
+                }))}
+              />
               <TextField
                 label="Hire date"
                 type="date"
@@ -409,6 +421,7 @@ export function NewEmployeeWizard() {
                 label="Work schedule"
                 value={SCHEDULE_LABEL[form.work_schedule]}
               />
+              <ReviewRow label="Schedule type" value={form.schedule_type} />
               <ReviewRow label="Hire date" value={form.hire_date} />
             </dl>
           ) : null}

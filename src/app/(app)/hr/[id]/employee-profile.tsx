@@ -7,6 +7,7 @@ import Link from "next/link";
 import type {
   RosterRow,
   PersonReview,
+  PersonDisciplinaryAction,
   PersonAsset,
   PersonPtoDay,
   PersonTimeOff,
@@ -19,6 +20,7 @@ import type {
 } from "@/lib/hr/types";
 import {
   REVIEW_TYPE_LABELS,
+  VIOLATION_TYPE_LABELS,
   ASSET_TYPE_LABELS,
   ASSET_STATUS_LABELS,
   DOCUMENT_CATEGORY_LABELS,
@@ -49,6 +51,8 @@ export interface LinkedAccount {
 import {
   saveReview,
   deleteReview,
+  saveDisciplinaryAction,
+  deleteDisciplinaryAction,
   saveAsset,
   deleteAsset,
   deletePtoDay,
@@ -71,6 +75,7 @@ import {
   Select,
   Section,
   type FieldTab,
+  type LocationOption,
 } from "./employee-form";
 import {
   ONBOARDING_GROUPS,
@@ -83,6 +88,7 @@ type TabKey =
   | "onboarding"
   | "eligibility"
   | "reviews"
+  | "disciplinary"
   | "documents"
   | "assets"
   | "history";
@@ -94,6 +100,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "attendance", label: "Attendance" },
   { key: "eligibility", label: "Shift Eligibility" },
   { key: "reviews", label: "Reviews" },
+  { key: "disciplinary", label: "Disciplinary Action" },
   { key: "documents", label: "Documents" },
   { key: "assets", label: "Assets" },
   { key: "history", label: "History" },
@@ -108,6 +115,7 @@ function isFieldTab(tab: TabKey): tab is FieldTab {
 export function EmployeeProfile({
   row,
   reviews,
+  disciplinary,
   assets,
   documents,
   recruiting,
@@ -123,9 +131,11 @@ export function EmployeeProfile({
   canViewComp,
   canEdit,
   canEditSchedule,
+  locations,
 }: {
   row: RosterRow;
   reviews: PersonReview[];
+  disciplinary: PersonDisciplinaryAction[];
   assets: PersonAsset[];
   documents: PersonDocumentWithUrl[];
   recruiting: PersonRecruitingSummary | null;
@@ -141,6 +151,7 @@ export function EmployeeProfile({
   canViewComp: boolean;
   canEdit: boolean;
   canEditSchedule: boolean;
+  locations: LocationOption[];
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
 
@@ -159,6 +170,12 @@ export function EmployeeProfile({
       t.status === "approved" ? sum + ptoDayCount(t.start_date, t.end_date) : sum,
     0,
   );
+
+  // The Compensation tab's "Last review date" is driven by the Reviews tab.
+  // Reviews arrive sorted by review_date desc (nulls last), so the first entry
+  // with a date is the most recent review.
+  const latestReviewDate =
+    reviews.find((r) => r.review_date)?.review_date ?? null;
 
   return (
     <div className="mt-3 space-y-5">
@@ -205,6 +222,8 @@ export function EmployeeProfile({
         canEdit={canEdit}
         weeklyShiftTarget={scheduleSettings.weeklyTarget}
         approvedPtoUsed={approvedPtoUsed}
+        locations={locations}
+        latestReviewDate={latestReviewDate}
       />
 
       {activeTab === "attendance" && (
@@ -239,6 +258,18 @@ export function EmployeeProfile({
       )}
       {activeTab === "reviews" && (
         <ReviewsPanel personId={row.id} reviews={reviews} />
+      )}
+      {activeTab === "disciplinary" && (
+        <DisciplinaryPanel
+          personId={row.id}
+          actions={disciplinary}
+          positionTitle={
+            row.person_employment?.offer_title ??
+            row.person_employment?.adp_job_title ??
+            null
+          }
+          canEdit={canEdit}
+        />
       )}
       {activeTab === "documents" && (
         <DocumentsPanel personId={row.id} documents={documents} />
@@ -1146,6 +1177,147 @@ function ReviewsPanel({
               {r.summary && (
                 <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
                   {r.summary}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Disciplinary actions
+// ---------------------------------------------------------------------------
+
+function DisciplinaryPanel({
+  personId,
+  actions,
+  positionTitle,
+  canEdit,
+}: {
+  personId: string;
+  actions: PersonDisciplinaryAction[];
+  positionTitle: string | null;
+  canEdit: boolean;
+}) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [result, formAction] = useActionState<SaveResult | null, FormData>(
+    (prev, fd) => saveDisciplinaryAction(personId, prev, fd),
+    null,
+  );
+
+  useEffect(() => {
+    if (result?.ok) formRef.current?.reset();
+  }, [result]);
+
+  return (
+    <div className="space-y-5">
+      {canEdit && (
+        <Section title="Log a disciplinary action">
+          <form ref={formRef} action={formAction} className="contents">
+            <Field
+              label="Your name"
+              name="reported_by"
+              placeholder="Who is filing this write-up"
+            />
+            <Field
+              label="Employee position"
+              name="employee_position"
+              defaultValue={positionTitle ?? ""}
+              placeholder="e.g. MPMV Tech"
+            />
+            <Field label="Date of incident" name="incident_date" type="date" />
+            <Select
+              label="Violation of"
+              name="violation_type"
+              options={Object.entries(VIOLATION_TYPE_LABELS).map(
+                ([value, label]) => ({ value, label }),
+              )}
+            />
+            <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
+              <span className="text-xs font-medium text-slate-500">
+                Nature of violation
+              </span>
+              <textarea
+                name="nature"
+                rows={4}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </label>
+            <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
+              <span className="text-xs font-medium text-slate-500">
+                Action taken / next steps
+              </span>
+              <textarea
+                name="action_taken"
+                rows={2}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              />
+            </label>
+            <Field
+              label="Witnesses"
+              name="witnesses"
+              placeholder="Comma-separated names"
+            />
+            <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-3">
+              <AddButton>Add disciplinary action</AddButton>
+              {result?.ok === false && (
+                <span className="text-sm text-red-600">{result.error}</span>
+              )}
+            </div>
+          </form>
+        </Section>
+      )}
+
+      {actions.length === 0 ? (
+        <EmptyState>No disciplinary actions logged yet.</EmptyState>
+      ) : (
+        <ul className="space-y-3">
+          {actions.map((a) => (
+            <li
+              key={a.id}
+              className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 shadow-sm"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {a.violation_type
+                      ? (VIOLATION_TYPE_LABELS[a.violation_type] ??
+                        a.violation_type)
+                      : "Disciplinary action"}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {fmtDate(a.incident_date)}
+                    {a.reported_by ? ` · by ${a.reported_by}` : ""}
+                    {a.employee_position ? ` · ${a.employee_position}` : ""}
+                  </p>
+                </div>
+                {canEdit && (
+                  <DeleteButton
+                    label="this disciplinary action"
+                    onConfirm={() => deleteDisciplinaryAction(personId, a.id)}
+                  />
+                )}
+              </div>
+              {a.nature && (
+                <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
+                  {a.nature}
+                </p>
+              )}
+              {a.action_taken && (
+                <p className="mt-2 text-sm text-slate-700">
+                  <span className="font-medium text-slate-600">
+                    Action taken:{" "}
+                  </span>
+                  {a.action_taken}
+                </p>
+              )}
+              {a.witnesses && (
+                <p className="mt-2 text-xs text-slate-500">
+                  <span className="font-medium">Witnesses: </span>
+                  {a.witnesses}
                 </p>
               )}
             </li>

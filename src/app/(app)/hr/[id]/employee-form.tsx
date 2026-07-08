@@ -3,7 +3,7 @@
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { RosterRow } from "@/lib/hr/types";
-import { PAY_TYPE_LABELS } from "@/lib/hr/types";
+import { PAY_TYPE_LABELS, SCHEDULE_TYPE_OPTIONS } from "@/lib/hr/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { updateEmployee, type SaveResult } from "../actions";
 
@@ -58,6 +58,17 @@ function ReadOnlyField({
     </label>
   );
 }
+function formatDate(raw: string | number | null | undefined): string {
+  if (raw == null || raw === "") return "";
+  const [y, m, d] = String(raw).split("-").map(Number);
+  if (!y || !m || !d) return String(raw);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
 function formatCurrencyInput(raw: string | number | null | undefined): string {
   if (raw == null || raw === "") return "";
   const n =
@@ -328,6 +339,11 @@ function SaveBar() {
 
 export type FieldTab = "general" | "comp" | "attendance";
 
+export interface LocationOption {
+  value: string;
+  label: string;
+}
+
 export function EmployeeForm({
   row,
   activeTab,
@@ -336,6 +352,8 @@ export function EmployeeForm({
   canEdit,
   weeklyShiftTarget,
   approvedPtoUsed,
+  locations,
+  latestReviewDate,
 }: {
   row: RosterRow;
   activeTab: FieldTab;
@@ -346,6 +364,10 @@ export function EmployeeForm({
   weeklyShiftTarget: number | null;
   /** Approved PTO request days — the source of truth for "Used". */
   approvedPtoUsed: number;
+  /** Active clinic locations for the Preferred location dropdown. */
+  locations: LocationOption[];
+  /** Most recent review date from the Reviews tab (source of truth). */
+  latestReviewDate: string | null;
 }) {
   const emp = row.person_employment;
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -435,6 +457,12 @@ export function EmployeeForm({
           />
           <OpportunityTypeField defaultValue={row.opportunity_type} />
           <Select
+            label="Preferred location"
+            name="preferred_location_id"
+            defaultValue={emp?.preferred_location_id}
+            options={locations}
+          />
+          <Select
             label="FLSA status"
             name="flsa_status"
             defaultValue={emp?.flsa_status}
@@ -453,6 +481,12 @@ export function EmployeeForm({
               { value: "per_diem", label: "Per Diem" },
               { value: "contractor", label: "Contractor" },
             ]}
+          />
+          <Select
+            label="Schedule type"
+            name="schedule_type"
+            defaultValue={emp?.schedule_type}
+            options={SCHEDULE_TYPE_OPTIONS.map((v) => ({ value: v, label: v }))}
           />
           <ReadOnlyField
             label="Days per week"
@@ -545,11 +579,15 @@ export function EmployeeForm({
                 name="annual_wages"
                 defaultValue={emp?.annual_wages}
               />
-              <Field
+              <ReadOnlyField
                 label="Last review date"
-                name="last_review_date"
-                type="date"
-                defaultValue={emp?.last_review_date}
+                value={formatDate(latestReviewDate)}
+                hint="From the most recent entry in the Reviews tab"
+              />
+              <ReadOnlyField
+                label="Last compensation change"
+                value={formatDate(emp?.latest_wage_change_date)}
+                hint="Stamped automatically when the rate changes"
               />
             </Section>
 

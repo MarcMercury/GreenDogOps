@@ -101,6 +101,11 @@ export function RosterGrid({
           : null,
     },
     {
+      key: "schedule_type",
+      header: "Schedule Type",
+      value: (r) => r.person_employment?.schedule_type ?? null,
+    },
+    {
       key: "opportunity",
       header: "Opportunity",
       value: (r) => opportunityShortLabel(r.opportunity_type),
@@ -141,6 +146,11 @@ export function RosterGrid({
         r.person_employment?.work_schedule
           ? SCHEDULE_LABELS[r.person_employment.work_schedule]
           : null,
+    },
+    {
+      key: "schedule_type",
+      label: "Schedule Type",
+      value: (r) => r.person_employment?.schedule_type ?? null,
     },
     {
       key: "opportunity",

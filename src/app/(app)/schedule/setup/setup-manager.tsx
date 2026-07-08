@@ -22,6 +22,7 @@ import {
   saveShiftTemplate,
   deleteShiftTemplate,
   saveEmployeeSetting,
+  savePreferredLocation,
   setStudentRoleFlags,
 } from "../actions";
 
@@ -942,6 +943,13 @@ function Employees({ data }: { data: SetupData }) {
     });
   }
 
+  function updatePreferred(personId: string, locationId: string | null) {
+    start(async () => {
+      await savePreferredLocation(personId, locationId);
+      router.refresh();
+    });
+  }
+
   return (
     <Card>
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -960,7 +968,9 @@ function Employees({ data }: { data: SetupData }) {
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
               <th className="py-2 pr-4 font-medium">Employee</th>
+              <th className="py-2 pr-4 font-medium">Schedule type</th>
               <th className="py-2 pr-4 font-medium">Weekly target</th>
+              <th className="py-2 pr-4 font-medium">Preferred location</th>
               <th className="py-2 pr-4 font-medium">Eligible locations</th>
               <th className="py-2 pr-4 font-medium">Available days</th>
               <th className="py-2 pr-4 font-medium">Schedulable</th>
@@ -980,6 +990,12 @@ function Employees({ data }: { data: SetupData }) {
                       {gridName(p)}
                     </Link>
                   </td>
+                  <td
+                    className="py-2 pr-4 text-slate-600"
+                    title="Schedule type — set in HR / Roster"
+                  >
+                    {p.schedule_type ?? "—"}
+                  </td>
                   <td className="py-2 pr-4">
                     <input
                       type="number"
@@ -991,6 +1007,23 @@ function Employees({ data }: { data: SetupData }) {
                       }
                       className={`w-16 ${inputCls}`}
                     />
+                  </td>
+                  <td className="py-2 pr-4">
+                    <select
+                      value={p.preferred_location_id ?? ""}
+                      onChange={(e) =>
+                        updatePreferred(p.id, e.target.value || null)
+                      }
+                      className={inputCls}
+                      title="Employee's preferred work location"
+                    >
+                      <option value="">—</option>
+                      {data.locations.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.short_code || l.name}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="py-2 pr-4">
                     <div className="flex flex-wrap gap-1">

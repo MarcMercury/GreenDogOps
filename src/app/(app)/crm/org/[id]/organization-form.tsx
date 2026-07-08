@@ -24,11 +24,11 @@ import {
   deleteOrganization,
   uploadOrgDocument,
   deleteOrgDocument,
+  logOrgQuickNote,
   type SaveResult,
 } from "../../actions";
 import {
   Field,
-  TextArea,
   Checkbox,
   Select,
   Section,
@@ -237,9 +237,11 @@ export function OrganizationForm({
         </div>
 
         <div className={activeTab === "notes" ? "space-y-5" : "hidden"}>
-          <Section title="Notes">
-            <TextArea label="Notes" name="notes" defaultValue={org?.notes} />
-          </Section>
+          <OrgNotesTab
+            orgId={org?.id ?? null}
+            initialNotes={org?.notes ?? null}
+            canAdd={canEdit && !isCreate}
+          />
         </div>
 
         <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-between gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">
@@ -270,6 +272,98 @@ export function OrganizationForm({
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Notes tab — an "Add Note" composer that appends an individual, timestamped
+// entry to the record (like Quick Note), plus the full running notes field.
+// ---------------------------------------------------------------------------
+
+function stampNote(text: string): string {
+  const stamp = new Date().toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `[${stamp}] ${text}`;
+}
+
+function OrgNotesTab({
+  orgId,
+  initialNotes,
+  canAdd,
+}: {
+  orgId: string | null;
+  initialNotes: string | null;
+  canAdd: boolean;
+}) {
+  const [notes, setNotes] = useState(initialNotes ?? "");
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const inputClass =
+    "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+
+  function addNote() {
+    if (!orgId) return;
+    const text = draft.trim();
+    if (!text) return;
+    setError(null);
+    const fd = new FormData();
+    fd.set("org_id", orgId);
+    fd.set("note", text);
+    startTransition(async () => {
+      const r = await logOrgQuickNote(null, fd);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      const entry = stampNote(text);
+      setNotes((prev) => (prev.trim() ? `${entry}\n\n${prev}` : entry));
+      setDraft("");
+    });
+  }
+
+  return (
+    <Section title="Notes">
+      {canAdd && (
+        <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-3">
+          <span className="text-xs font-medium text-slate-500">Add a note</span>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={3}
+            placeholder="Add a timestamped note to this record…"
+            className={inputClass}
+          />
+          {error && <span className="text-sm text-red-600">{error}</span>}
+          <div>
+            <button
+              type="button"
+              onClick={addNote}
+              disabled={pending || !draft.trim()}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {pending ? "Adding…" : "＋ Add Note"}
+            </button>
+          </div>
+        </div>
+      )}
+      <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
+        <span className="text-xs font-medium text-slate-500">Notes</span>
+        <textarea
+          name="notes"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          rows={10}
+          className={inputClass}
+        />
+      </label>
+    </Section>
   );
 }
 

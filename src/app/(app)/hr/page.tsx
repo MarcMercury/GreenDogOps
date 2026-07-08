@@ -26,7 +26,7 @@ export default async function HrRosterPage() {
      opportunity_type, avatar_url, is_active, notes, source_contact_id, status_changed_at, created_at, updated_at,
        person_employment (
          person_id, position_id, location_id, offer_title, adp_job_title,
-         flsa_status, work_schedule, days_per_week, hire_date, original_hire_date,
+         flsa_status, work_schedule, schedule_type, days_per_week, hire_date, original_hire_date,
          pay_type, current_rate, previous_rate, latest_wage_change_date,
          biweekly_wage, annual_wages, pto_allotment, pto_policy_allotment,
          pto_used, pto_available, pto_notes, ce_budget, ce_used, ce_remaining,
