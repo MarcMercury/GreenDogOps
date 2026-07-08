@@ -272,13 +272,15 @@ export interface PersonRecruitingSummary {
   updated_at: string | null;
 }
 
-/** Standard pay-type options for the compensation dropdown. */
+/**
+ * Standard pay-type options for the compensation dropdown. Keys are the exact
+ * lowercase codes accepted by the person_employment.pay_type check constraint.
+ */
 export const PAY_TYPE_LABELS: Record<string, string> = {
-  Hourly: "Hourly",
-  Salary: "Salary",
-  Commission: "Commission",
-  "Per Diem": "Per Diem",
-  Contract: "Contract (1099)",
+  hourly: "Hourly",
+  salary: "Salary",
+  day_rate: "Day Rate",
+  contract: "Contract (1099)",
 };
 
 export const REVIEW_TYPE_LABELS: Record<string, string> = {  annual: "Annual Review",

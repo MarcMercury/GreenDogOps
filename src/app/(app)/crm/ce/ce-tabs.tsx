@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { QRCodeCanvas } from "qrcode.react";
 import type { CrmContact, CrmCeAttendance, CrmCeEvent } from "@/lib/crm/types";
 import {
   CE_AUDIENCE_OPTIONS,
@@ -271,6 +272,7 @@ function CeEventsView({
 
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [showShare, setShowShare] = useState(false);
 
   const [sortKey, setSortKey] = useState<SortKey>("attendeeName");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -410,6 +412,19 @@ function CeEventsView({
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2 print:hidden">
+              {active.event && (
+                <button
+                  type="button"
+                  onClick={() => setShowShare((v) => !v)}
+                  className={`rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition ${
+                    showShare
+                      ? "border-emerald-500 bg-emerald-600 text-white hover:bg-emerald-700"
+                      : "border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-50"
+                  }`}
+                >
+                  Sign-up QR
+                </button>
+              )}
               {canEdit && active.event && (
                 <>
                   <button
@@ -434,6 +449,9 @@ function CeEventsView({
             </button>
             </div>
           </div>
+          {showShare && active.event && (
+            <EventSignupShare event={active.event} />
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
@@ -585,6 +603,89 @@ function CeEventsView({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Public interest sign-up link + scannable QR code for a CE event. */
+function EventSignupShare({ event }: { event: CrmCeEvent }) {
+  const [origin, setOrigin] = useState("");
+  const [copied, setCopied] = useState(false);
+  const qrWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const url = origin ? `${origin}/ce/signup/${event.id}` : "";
+
+  async function copy() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — the field is selectable as a fallback.
+    }
+  }
+
+  function download() {
+    const canvas = qrWrapRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    const slug = event.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "ce-event";
+    const link = document.createElement("a");
+    link.download = `${slug}-signup-qr.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+
+  return (
+    <div className="border-b border-slate-200 bg-slate-50/60 px-5 py-4 print:hidden">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div
+          ref={qrWrapRef}
+          className="mx-auto shrink-0 rounded-lg border border-slate-200 bg-white p-2 sm:mx-0"
+        >
+          {url ? (
+            <QRCodeCanvas value={url} size={136} marginSize={2} level="M" />
+          ) : (
+            <div className="h-[136px] w-[136px]" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-800">
+            Interest sign-up link
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Share this link or QR code. Anyone who scans it can register their
+            interest in “{event.name}” — new leads land in this event&apos;s
+            roster automatically.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              readOnly
+              value={url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm"
+            />
+            <button
+              type="button"
+              onClick={copy}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              {copied ? "Copied!" : "Copy link"}
+            </button>
+            <button
+              type="button"
+              onClick={download}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+            >
+              Download QR
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
