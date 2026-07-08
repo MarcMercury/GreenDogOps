@@ -48,6 +48,7 @@ export function CalendarView({
 }) {
   const router = useRouter();
   const [edit, setEdit] = useState<EditState>({ mode: "closed" });
+  const [view, setView] = useState<CalendarItem | null>(null);
 
   const events = useMemo<EventInput[]>(
     () =>
@@ -68,8 +69,8 @@ export function CalendarView({
     const item = arg.event.extendedProps.item as CalendarItem;
     if (item.editable) {
       setEdit({ mode: "edit", item });
-    } else if (item.href) {
-      router.push(item.href);
+    } else {
+      setView(item);
     }
   }
 
@@ -145,6 +146,17 @@ export function CalendarView({
           onSaved={() => {
             setEdit({ mode: "closed" });
             router.refresh();
+          }}
+        />
+      ) : null}
+
+      {view ? (
+        <DetailsDialog
+          item={view}
+          onClose={() => setView(null)}
+          onOpen={(href) => {
+            setView(null);
+            router.push(href);
           }}
         />
       ) : null}
@@ -332,6 +344,116 @@ function EventDialog({
       </div>
     </div>
   );
+}
+
+function DetailsDialog({
+  item,
+  onClose,
+  onOpen,
+}: {
+  item: CalendarItem;
+  onClose: () => void;
+  onOpen: (href: string) => void;
+}) {
+  const when = formatWhen(item);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-lg font-bold text-slate-900">{item.title}</h2>
+          <span
+            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${CATEGORY_TONE[item.category]}`}
+          >
+            {CATEGORY_LABELS[item.category]}
+          </span>
+        </div>
+
+        <dl className="mt-4 space-y-2 text-sm">
+          <Row label="When" value={when} />
+          {item.location ? <Row label="Where" value={item.location} /> : null}
+          {item.description ? (
+            <Row label="Details" value={item.description} />
+          ) : null}
+        </dl>
+
+        <div className="mt-5 flex items-center justify-end gap-2">
+          {item.href ? (
+            <button
+              type="button"
+              onClick={() => onOpen(item.href as string)}
+              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+            >
+              Open in {CATEGORY_LABELS[item.category]}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[64px_1fr] gap-2">
+      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+        {label}
+      </dt>
+      <dd className="whitespace-pre-wrap text-slate-700">{value}</dd>
+    </div>
+  );
+}
+
+/** Human-readable time range for the details dialog. */
+function formatWhen(item: CalendarItem): string {
+  const start = new Date(item.start);
+  if (item.allDay) {
+    const startStr = start.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    if (!item.end) return `${startStr} (all day)`;
+    // All-day end is exclusive; show the last included day.
+    const end = new Date(item.end);
+    end.setDate(end.getDate() - 1);
+    const endStr = end.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+    return startStr === endStr ? `${startStr} (all day)` : `${startStr} → ${endStr}`;
+  }
+  const dateStr = start.toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const startTime = start.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  if (!item.end) return `${dateStr}, ${startTime}`;
+  const endTime = new Date(item.end).toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${dateStr}, ${startTime} – ${endTime}`;
 }
 
 function SyncControl({ status }: { status: GoogleSyncStatus | null }) {
