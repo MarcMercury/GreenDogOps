@@ -53,6 +53,7 @@ const CRM_NAV: NavItem[] = [
 
 /** Operations modules, after the CRM group. */
 const MODULES_BOTTOM: NavItem[] = [
+  { key: "calendar", href: "/calendar", label: "Calendar", icon: "📅" },
   { key: "schedule", href: "/schedule", label: "Scheduling", icon: "🗓️" },
   { key: "schedule", href: "/capacity", label: "Daily Capacity", icon: "📊" },
   { key: "planning", href: "/planning", label: "Planning Guides", icon: "🧭" },

@@ -56,6 +56,7 @@ export type ModuleKey =
   | "ezyvet"
   | "planning"
   | "schedule"
+  | "calendar"
   | "resources"
   | "admin";
 
@@ -80,6 +81,7 @@ export const MODULES: ModuleDef[] = [
   { key: "emp_reporting", label: "Emp Reporting", href: "/emp-reporting" },
   { key: "planning", label: "Planning Guides", href: "/planning" },
   { key: "schedule", label: "Scheduling", href: "/schedule" },
+  { key: "calendar", label: "Calendar", href: "/calendar" },
   { key: "resources", label: "Resources", href: "/resources" },
   { key: "admin", label: "Admin", href: "/admin" },
 ];

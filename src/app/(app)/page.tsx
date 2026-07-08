@@ -221,6 +221,7 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
   ezyvet: "🐾",
   planning: "🧭",
   schedule: "🗓️",
+  calendar: "📅",
   resources: "📚",
   admin: "⚙️",
 };
