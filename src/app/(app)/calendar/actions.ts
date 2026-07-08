@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { ensureCanEdit } from "@/lib/auth/session";
+import { syncGoogleCalendar } from "@/lib/calendar/sync";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -132,5 +133,16 @@ export async function deleteCustomEvent(
 
   if (error) return { ok: false, error: error.message };
   revalidatePath("/calendar");
+  return { ok: true };
+}
+
+/** Manually trigger a Google Calendar sync (same job the cron runs). */
+export async function syncCalendarNow(): Promise<ActionResult> {
+  const gate = await ensureCanEdit("calendar");
+  if (!gate.ok) return gate;
+
+  const res = await syncGoogleCalendar();
+  revalidatePath("/calendar");
+  if (!res.ok) return { ok: false, error: res.error ?? "Sync failed." };
   return { ok: true };
 }

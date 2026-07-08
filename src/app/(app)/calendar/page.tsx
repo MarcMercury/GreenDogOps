@@ -1,7 +1,7 @@
 import { PageHeader } from "../_components/ui";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
-import { getCalendarItems, defaultRange } from "./data";
+import { getCalendarItems, getGoogleSyncStatus, defaultRange } from "./data";
 import { CalendarView } from "./calendar-view";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,10 @@ export default async function CalendarPage() {
   const canEdit = current ? canEditModule(current.appUser, "calendar") : false;
 
   const range = defaultRange();
-  const items = await getCalendarItems(range.start, range.end);
+  const [items, syncStatus] = await Promise.all([
+    getCalendarItems(range.start, range.end),
+    getGoogleSyncStatus(),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -20,7 +23,7 @@ export default async function CalendarPage() {
         title="Calendar"
         description="Google Calendar events plus CE, interviews, time off, and custom items in one view."
       />
-      <CalendarView items={items} canEdit={canEdit} />
+      <CalendarView items={items} canEdit={canEdit} syncStatus={syncStatus} />
     </div>
   );
 }

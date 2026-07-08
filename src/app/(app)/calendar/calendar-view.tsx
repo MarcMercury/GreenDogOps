@@ -20,7 +20,9 @@ import {
   createCustomEvent,
   updateCustomEvent,
   deleteCustomEvent,
+  syncCalendarNow,
 } from "./actions";
+import type { GoogleSyncStatus } from "./data";
 
 const LEGEND: CalendarCategory[] = [
   "google",
@@ -38,9 +40,11 @@ type EditState =
 export function CalendarView({
   items,
   canEdit,
+  syncStatus,
 }: {
   items: CalendarItem[];
   canEdit: boolean;
+  syncStatus: GoogleSyncStatus | null;
 }) {
   const router = useRouter();
   const [edit, setEdit] = useState<EditState>({ mode: "closed" });
@@ -93,13 +97,16 @@ export function CalendarView({
           ))}
         </div>
         {canEdit ? (
-          <button
-            type="button"
-            onClick={() => setEdit({ mode: "create", date: null })}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
-          >
-            + Add event
-          </button>
+          <div className="flex items-center gap-2">
+            <SyncControl status={syncStatus} />
+            <button
+              type="button"
+              onClick={() => setEdit({ mode: "create", date: null })}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+            >
+              + Add event
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -323,6 +330,48 @@ function EventDialog({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function SyncControl({ status }: { status: GoogleSyncStatus | null }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function sync() {
+    setError(null);
+    startTransition(async () => {
+      const res = await syncCalendarNow();
+      if (res.ok) router.refresh();
+      else setError(res.error);
+    });
+  }
+
+  const synced = status?.lastSyncedAt
+    ? new Date(status.lastSyncedAt).toLocaleString(undefined, {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div className="flex items-center gap-2">
+      {error ? (
+        <span className="text-xs text-red-600">{error}</span>
+      ) : synced ? (
+        <span className="text-xs text-slate-400">Synced {synced}</span>
+      ) : null}
+      <button
+        type="button"
+        onClick={sync}
+        disabled={pending}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+      >
+        {pending ? "Syncing…" : "↻ Sync Google"}
+      </button>
     </div>
   );
 }

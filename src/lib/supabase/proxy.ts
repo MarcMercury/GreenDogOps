@@ -40,6 +40,8 @@ export async function updateSession(request: NextRequest) {
     pathname === "/login" ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/ce/signup") ||
+    // Cron endpoint: self-authenticates via the CRON_SECRET bearer token.
+    pathname.startsWith("/api/calendar/sync") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico";
 

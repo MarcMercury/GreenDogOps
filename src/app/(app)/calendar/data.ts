@@ -258,3 +258,27 @@ export async function getCalendarItems(
   ]);
   return [...stored, ...ce, ...interviews, ...timeOff];
 }
+
+export interface GoogleSyncStatus {
+  lastSyncedAt: string | null;
+  status: string | null;
+  error: string | null;
+}
+
+/** Last Google Calendar sync result, or null if never synced / not configured. */
+export async function getGoogleSyncStatus(): Promise<GoogleSyncStatus | null> {
+  const calendarId = process.env.GOOGLE_CALENDAR_ID;
+  if (!calendarId) return null;
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("calendar_sync_state")
+    .select("last_synced_at, last_status, last_error")
+    .eq("google_calendar_id", calendarId)
+    .maybeSingle();
+  if (!data) return null;
+  return {
+    lastSyncedAt: (data.last_synced_at as string | null) ?? null,
+    status: (data.last_status as string | null) ?? null,
+    error: (data.last_error as string | null) ?? null,
+  };
+}
