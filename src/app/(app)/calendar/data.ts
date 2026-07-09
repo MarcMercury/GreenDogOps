@@ -192,71 +192,20 @@ async function getInterviews(
   });
 }
 
-// ---------------------------------------------------------------------------
-// Projected: time-off (person_time_off, start_date..end_date range).
-// ---------------------------------------------------------------------------
-type TimeOffRow = {
-  id: string;
-  kind: string;
-  status: string;
-  start_date: string;
-  end_date: string;
-  person: PersonName | PersonName[] | null;
-};
-
-async function getTimeOff(
-  start: string,
-  end: string,
-): Promise<CalendarItem[]> {
-  const supabase = await createClient();
-  const { data } = await fetchAllRows<TimeOffRow>((from, to) =>
-    supabase
-      .from("person_time_off")
-      .select(`id, kind, status, start_date, end_date, person:person_id (${PERSON_COLS})`)
-      .neq("status", "denied")
-      // Overlap test: request starts on/before the window end and ends on/after
-      // the window start.
-      .lte("start_date", end)
-      .gte("end_date", start)
-      .range(from, to),
-  );
-  return (data ?? []).map((r) => {
-    // FullCalendar treats all-day end as exclusive, so add a day.
-    const endExclusive = new Date(`${r.end_date}T00:00:00`);
-    endExclusive.setDate(endExclusive.getDate() + 1);
-    const label = r.kind.replace(/_/g, " ");
-    return {
-      id: itemId("time_off", r.id),
-      source: "time_off" as const,
-      category: "time_off" as const,
-      title: `${displayName(firstPerson(r.person))} — ${label}${r.status === "requested" ? " (pending)" : ""}`,
-      description: null,
-      location: null,
-      start: `${r.start_date}T00:00:00`,
-      end: endExclusive.toISOString().slice(0, 10),
-      allDay: true,
-      status: "confirmed" as const,
-      href: "/schedule",
-      editable: false,
-    };
-  });
-}
-
 /**
  * All calendar items in [start, end], merging physical calendar_event rows with
- * read-time projections of CE events, interviews, and time-off.
+ * read-time projections of CE events and interviews.
  */
 export async function getCalendarItems(
   start: string,
   end: string,
 ): Promise<CalendarItem[]> {
-  const [stored, ce, interviews, timeOff] = await Promise.all([
+  const [stored, ce, interviews] = await Promise.all([
     getStoredEvents(start, end),
     getCeEvents(start, end),
     getInterviews(start, end),
-    getTimeOff(start, end),
   ]);
-  return [...stored, ...ce, ...interviews, ...timeOff];
+  return [...stored, ...ce, ...interviews];
 }
 
 export interface GoogleSyncStatus {

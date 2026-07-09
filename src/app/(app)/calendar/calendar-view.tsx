@@ -29,7 +29,6 @@ const LEGEND: CalendarCategory[] = [
   "general",
   "ce",
   "interview",
-  "time_off",
 ];
 
 type EditState =
