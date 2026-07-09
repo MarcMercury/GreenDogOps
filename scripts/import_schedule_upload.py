@@ -108,6 +108,36 @@ def clean_name(frag):
     return frag.strip(" .-*")
 
 
+def parse_shift_times(text):
+    """Parse a grid SHIFT cell like "10-6:30 (8)" / "8:30-5" into
+    ("HH:MM:SS", "HH:MM:SS") 24-hour times, or (None, None) if unparseable.
+    Clinic-day heuristic: an hour <= 6 is PM (+12), so "5" -> 17:00 and
+    "6:30" -> 18:30 while morning starts (8-10) stay AM."""
+    if not text:
+        return None, None
+    t = re.sub(r"\(.*?\)", "", str(text)).strip()
+    m = re.match(
+        r"^\s*(\d{1,2})(?::(\d{2}))?\s*[-\u2012\u2013\u2014]\s*"
+        r"(\d{1,2})(?::(\d{2}))?\s*$",
+        t,
+    )
+    if not m:
+        return None, None
+
+    def to24(h, mm):
+        h = int(h)
+        mm = int(mm) if mm else 0
+        if h <= 6:
+            h += 12
+        if h > 23 or mm > 59:
+            return None
+        return f"{h:02d}:{mm:02d}:00"
+
+    start = to24(m.group(1), m.group(2))
+    end = to24(m.group(3), m.group(4))
+    return start, end
+
+
 def _lev1(a, b):
     """True if strings are within edit distance 1 (cheap, for typo tolerance)."""
     if a == b:
@@ -444,9 +474,11 @@ def parse_month_tab(ws, month, matcher, role_lu, loc_ids, weeks, processed,
                         else:
                             role_id, dept_id = resolved
                             idx = len(wk["lines"])
+                            st, et = parse_shift_times(shift)
                             wk["lines"].append({
                                 "idx": idx, "role_id": role_id,
-                                "dept_id": dept_id, "label": shift or role})
+                                "dept_id": dept_id, "label": role,
+                                "start": st, "end": et})
                             for (pid, loc_id, day_idx, wd) in row_cells:
                                 wk["cells"].append({
                                     "line_idx": idx, "loc_id": loc_id,
@@ -666,12 +698,16 @@ def main():
         vals = ",\n".join(
             f"    (wid, {sql_str(ln['dept_id'])}, "
             f"{'NULL' if ln['role_id'] is None else sql_str(ln['role_id'])}, "
-            f"{sql_str(ln['label'])}, {ln['idx']}, true)"
+            f"{sql_str(ln['label'])}, "
+            f"{'NULL' if ln['start'] is None else sql_str(ln['start'])}, "
+            f"{'NULL' if ln['end'] is None else sql_str(ln['end'])}, "
+            f"{ln['idx']}, false)"
             for ln in wk["lines"]
         )
         parts.append(
             "  insert into sched_week_line "
-            "(week_id, department_id, role_id, label, sort_order, is_adhoc) "
+            "(week_id, department_id, role_id, label, start_time, end_time, "
+            "sort_order, is_adhoc) "
             "values\n" + vals + ";")
         for cl in wk["cells"]:
             parts.append(
