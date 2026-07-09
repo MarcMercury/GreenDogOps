@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isEditorRole } from "@/lib/auth/permissions";
@@ -8,12 +9,15 @@ import {
   type CrmContact,
   type CrmCeAttendance,
   type CrmCeEvent,
+  type CrmContactDocument,
+  type CrmContactDocumentWithUrl,
   crmSectionBySlug,
   crmSlugForContactType,
 } from "@/lib/crm/types";
 import { ContactForm } from "./contact-form";
 import { PromoteToRecruiting } from "./promote-controls";
 import { CeAttendanceManager } from "./ce-attendance";
+import { StudentDocuments } from "./student-documents";
 import { getStudentFormOptions } from "@/lib/crm/student-form-data";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +78,34 @@ export default async function ContactDetailPage({
     ceEvents = (ceEventsRes.data ?? []) as CrmCeEvent[];
   }
 
+  // Student attachments (private crm-documents bucket → short-lived signed URLs).
+  // These travel with the profile when the student is promoted to the ATS.
+  let studentDocs: CrmContactDocumentWithUrl[] = [];
+  if (contact.contact_type === "student") {
+    const { data: docData } = await supabase
+      .from("crm_contact_document")
+      .select("*")
+      .eq("contact_id", contact.id)
+      .order("uploaded_at", { ascending: false });
+    const docs = (docData ?? []) as CrmContactDocument[];
+    studentDocs = docs.map((d) => ({ ...d, signed_url: null }));
+    if (docs.length > 0) {
+      const admin = createAdminClient();
+      const { data: signed } = await admin.storage
+        .from("crm-documents")
+        .createSignedUrls(
+          docs.map((d) => d.storage_path),
+          60 * 60,
+        );
+      if (signed) {
+        studentDocs = docs.map((d, i) => ({
+          ...d,
+          signed_url: signed[i]?.signedUrl ?? null,
+        }));
+      }
+    }
+  }
+
   // If this student was promoted, route to wherever that person now lives:
   // the HR roster once hired (employee/contractor/former), else the ATS.
   let promotedHref: string | null = null;
@@ -119,6 +151,13 @@ export default async function ContactDetailPage({
           canEdit && <PromoteToRecruiting contactId={contact.id} />
         ))}
       <ContactForm contact={contact} canEdit={canEdit} options={formOptions} />
+      {contact.contact_type === "student" && (
+        <StudentDocuments
+          contactId={contact.id}
+          documents={studentDocs}
+          canEdit={canEdit}
+        />
+      )}
       {contact.contact_type === "ce_attendee" && (
         <div className="mt-5">
           <CeAttendanceManager

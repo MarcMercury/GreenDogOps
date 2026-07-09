@@ -40,6 +40,8 @@ import type {
   PersonScheduleSettings,
   PersonRoleEligibility,
 } from "../../schedule/data";
+import type { ProfileTransition } from "@/lib/shared/transitions";
+import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
 import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
 
 /** A linked Green Dog Ops login account, surfaced read-only on the profile. */
@@ -119,6 +121,7 @@ export function EmployeeProfile({
   assets,
   documents,
   recruiting,
+  transitions,
   attendance,
   scheduleSettings,
   eligibility,
@@ -139,6 +142,7 @@ export function EmployeeProfile({
   assets: PersonAsset[];
   documents: PersonDocumentWithUrl[];
   recruiting: PersonRecruitingSummary | null;
+  transitions: ProfileTransition[];
   attendance: PersonAttendanceSummary;
   scheduleSettings: PersonScheduleSettings;
   eligibility: PersonRoleEligibility;
@@ -278,7 +282,7 @@ export function EmployeeProfile({
         <AssetsPanel personId={row.id} assets={assets} />
       )}
       {activeTab === "history" && (
-        <HistoryPanel row={row} recruiting={recruiting} />
+        <HistoryPanel row={row} recruiting={recruiting} transitions={transitions} />
       )}
     </div>
   );
@@ -2297,14 +2301,59 @@ function HistoryRow({
 function HistoryPanel({
   row,
   recruiting,
+  transitions,
 }: {
   row: RosterRow;
   recruiting: PersonRecruitingSummary | null;
+  transitions: ProfileTransition[];
 }) {
   const emp = row.person_employment;
 
   return (
     <div className="space-y-5">
+      <Section title="Stage movement">
+        {transitions.length === 0 ? (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <EmptyState>No stage movements recorded yet.</EmptyState>
+          </div>
+        ) : (
+          <ol className="space-y-3 sm:col-span-2 lg:col-span-3">
+            {transitions.map((t) => {
+              const from = stageLabel(t.from_stage);
+              const to = stageLabel(t.to_stage);
+              return (
+                <li
+                  key={t.id}
+                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-slate-900">
+                      {transitionEventLabel(t.event_type)}
+                    </p>
+                    <span className="text-xs text-slate-500">
+                      {fmtDate(t.created_at)}
+                    </span>
+                  </div>
+                  {(from || to) && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {from ?? "\u2014"}
+                      {" \u2192 "}
+                      {to ?? "\u2014"}
+                    </p>
+                  )}
+                  {t.detail && (
+                    <p className="mt-1 text-sm text-slate-700">{t.detail}</p>
+                  )}
+                  {t.actor_name && (
+                    <p className="mt-1 text-xs text-slate-400">by {t.actor_name}</p>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </Section>
+
       <Section title="Employment timeline">
         <dl className="sm:col-span-2 lg:col-span-3">
           <HistoryRow label="Current status" value={STATUS_LABELS[row.status] ?? row.status} />

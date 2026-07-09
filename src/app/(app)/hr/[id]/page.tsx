@@ -17,6 +17,7 @@ import type {
   PersonLicense,
 } from "@/lib/hr/types";
 import { redactCompensation } from "@/lib/hr/types";
+import type { ProfileTransition } from "@/lib/shared/transitions";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canViewAllCompensation, canEditModule } from "@/lib/auth/permissions";
 import {
@@ -94,6 +95,14 @@ export default async function EmployeeDetailPage({
 
   const recruitingRaw = Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null);
   const recruiting = recruitingRaw as PersonRecruitingSummary | null;
+
+  // Stage-movement history (Student CRM → ATS → Roster) for the History tab.
+  const { data: transitionData } = await supabase
+    .from("profile_transition_log")
+    .select("*")
+    .eq("person_id", id)
+    .order("created_at", { ascending: false });
+  const transitions = (transitionData ?? []) as ProfileTransition[];
 
   // Sub-records for the Reviews / Assets / Documents / Attendance / Onboarding tabs.
   const [
@@ -250,6 +259,7 @@ export default async function EmployeeDetailPage({
         assets={assets}
         documents={documentsWithUrls}
         recruiting={recruiting}
+        transitions={transitions}
         attendance={attendance}
         scheduleSettings={scheduleSettings}
         eligibility={eligibility}

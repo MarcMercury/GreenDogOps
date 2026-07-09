@@ -3,7 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser, ensureCanEdit, recordAudit } from "@/lib/auth/session";
+import { logProfileTransition } from "@/lib/shared/transition-log";
 import { isAdminRole } from "@/lib/auth/permissions";
 import {
   workbookToRows,
@@ -158,20 +160,134 @@ export async function deleteInterview(
   return { ok: true };
 }
 
+// ---------------------------------------------------------------------------
+// Documents (attachments) — stored on the SAME person_document rows / bucket
+// (employee-documents) that HR reads, so anything uploaded here follows the
+// candidate straight into the HR/Roster view once they are hired.
+// ---------------------------------------------------------------------------
+const DOCUMENTS_BUCKET = "employee-documents";
+
+export async function uploadCandidateDocument(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Please choose a file to upload." };
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    return { ok: false, error: "File exceeds the 25 MB limit." };
+  }
+
+  const admin = createAdminClient();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const storagePath = `${personId}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await admin.storage
+    .from(DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { error: dbErr } = await admin.from("person_document").insert({
+    person_id: personId,
+    title: str(formData.get("title")) ?? file.name,
+    category: str(formData.get("category")),
+    storage_path: storagePath,
+    file_name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+    source: "Uploaded in ATS",
+  });
+  if (dbErr) {
+    // Roll back the orphaned upload so storage and the table stay in sync.
+    await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+    return { ok: false, error: dbErr.message };
+  }
+
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteCandidateDocument(
+  personId: string,
+  documentId: string,
+  storagePath: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  const admin = createAdminClient();
+
+  await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+  const { error } = await admin
+    .from("person_document")
+    .delete()
+    .eq("id", documentId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath(`/hr/${personId}`);
+  return { ok: true };
+}
+
 // Convert a candidate into an employee: flip status + seed an employment row.
 // The person status trigger cascades the rest (scheduling eligibility, a
-// schedule settings row, and any linked login account).
+// schedule settings row, and any linked login account). Documents already live
+// on the same person row, so they follow into the HR/Roster view automatically.
+// The move is recorded in the profile transition log so the history travels
+// with the profile.
 export async function hireCandidate(personId: string): Promise<void> {
   const gate = await ensureCanEdit("ats");
   if (!gate.ok) redirect(`/ats/${personId}`);
   const supabase = await createClient();
+
+  // Capture the stage we're moving from (usually "applicant") for the log.
+  const { data: before } = await supabase
+    .from("person")
+    .select("status")
+    .eq("id", personId)
+    .maybeSingle();
+  const fromStage = (before as { status?: string } | null)?.status ?? null;
+
   await supabase
     .from("person")
     .update({ status: "employee", status_changed_at: new Date().toISOString() })
     .eq("id", personId);
-  await supabase
+  // Seed the employment row and stamp a hire date if one isn't set yet.
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: emp } = await supabase
     .from("person_employment")
-    .upsert({ person_id: personId }, { onConflict: "person_id" });
+    .select("hire_date")
+    .eq("person_id", personId)
+    .maybeSingle();
+  await supabase.from("person_employment").upsert(
+    {
+      person_id: personId,
+      hire_date: (emp as { hire_date?: string | null } | null)?.hire_date ?? today,
+    },
+    { onConflict: "person_id" },
+  );
+
+  const current = await getCurrentUser();
+  await logProfileTransition({
+    personId,
+    eventType: "hired_to_roster",
+    fromStage,
+    toStage: "employee",
+    detail: "Candidate hired to the roster",
+    actorId: current?.authId ?? null,
+    actorName: current?.appUser.full_name ?? current?.email ?? null,
+  });
+
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath(`/hr/${personId}`);
   revalidatePath("/ats");
   revalidatePath("/hr");
   revalidatePath("/schedule");

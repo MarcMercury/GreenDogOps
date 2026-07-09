@@ -220,17 +220,15 @@ export function OrganizationForm({
             <Field label="Membership level" name="membership_level" defaultValue={org?.membership_level} />
             <Field label="Annual fee" name="annual_fee" type="number" defaultValue={org?.annual_fee} />
             <Field label="Account number" name="account_number" defaultValue={org?.account_number} />
-            <Field label="Account rep" name="account_rep" defaultValue={org?.account_rep} />
             {isReferral && (
               <>
                 <Field label="Total referrals" name="total_referrals" type="number" defaultValue={org?.total_referrals} />
                 <Field label="Revenue" name="revenue" type="number" defaultValue={org?.revenue} />
               </>
             )}
-            <Field label="Monthly spend" name="monthly_spend" type="number" defaultValue={org?.monthly_spend} />
+            <Field label="Confirmed leads to date" name="confirmed_leads" type="number" defaultValue={org?.confirmed_leads} />
+            <Field label="Confirmed clients to date" name="confirmed_clients" type="number" defaultValue={org?.confirmed_clients} />
             <Field label="Spend YTD" name="spend_ytd" type="number" defaultValue={org?.spend_ytd} />
-            <Field label="Relationship score" name="relationship_score" type="number" defaultValue={org?.relationship_score} />
-            <Field label="Internal rating" name="internal_rating" type="number" defaultValue={org?.internal_rating} />
             <Field label="Last visit" name="last_visit_date" type="date" defaultValue={org?.last_visit_date} />
             <Field label="Last contact" name="last_contact_date" type="date" defaultValue={org?.last_contact_date} />
           </Section>

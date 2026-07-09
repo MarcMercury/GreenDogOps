@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ensureEditor } from "@/lib/auth/session";
+import { ensureEditor, getCurrentUser } from "@/lib/auth/session";
+import { logProfileTransition } from "@/lib/shared/transition-log";
 import {
   crmSlugForOrgType,
   crmSlugForContactType,
@@ -66,13 +67,11 @@ function organizationPatch(formData: FormData) {
     membership_level: str(formData.get("membership_level")),
     annual_fee: num(formData.get("annual_fee")),
     account_number: str(formData.get("account_number")),
-    account_rep: str(formData.get("account_rep")),
     total_referrals: num(formData.get("total_referrals")),
     revenue: num(formData.get("revenue")),
-    monthly_spend: num(formData.get("monthly_spend")),
+    confirmed_leads: num(formData.get("confirmed_leads")),
+    confirmed_clients: num(formData.get("confirmed_clients")),
     spend_ytd: num(formData.get("spend_ytd")),
-    relationship_score: num(formData.get("relationship_score")),
-    internal_rating: num(formData.get("internal_rating")),
     is_preferred: bool(formData.get("is_preferred")),
     is_active: bool(formData.get("is_active")),
     agreement_status: str(formData.get("agreement_status")),
@@ -249,6 +248,79 @@ export async function deleteOrgDocument(
   if (error) return { ok: false, error: error.message };
 
   revalidatePath(`/crm/org/${orgId}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Contact document attachments (files go to the private crm-documents Storage
+// bucket under a contact/ prefix; rows live in greendogops.crm_contact_document).
+// When a student is promoted these files are copied onto the new person so the
+// documents travel with the profile into the ATS and then HR/Roster.
+// ---------------------------------------------------------------------------
+export async function uploadContactDocument(
+  contactId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Please choose a file to upload." };
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    return { ok: false, error: "File exceeds the 25 MB limit." };
+  }
+
+  const admin = createAdminClient();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const storagePath = `contact/${contactId}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await admin.storage
+    .from(CRM_DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { error: dbErr } = await admin.from("crm_contact_document").insert({
+    contact_id: contactId,
+    title: str(formData.get("title")) ?? file.name,
+    category: str(formData.get("category")),
+    storage_path: storagePath,
+    file_name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+  });
+  if (dbErr) {
+    await admin.storage.from(CRM_DOCUMENTS_BUCKET).remove([storagePath]);
+    return { ok: false, error: dbErr.message };
+  }
+
+  revalidatePath(`/crm/contact/${contactId}`);
+  return { ok: true };
+}
+
+export async function deleteContactDocument(
+  contactId: string,
+  documentId: string,
+  storagePath: string,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const admin = createAdminClient();
+
+  await admin.storage.from(CRM_DOCUMENTS_BUCKET).remove([storagePath]);
+
+  const { error } = await admin
+    .from("crm_contact_document")
+    .delete()
+    .eq("id", documentId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/crm/contact/${contactId}`);
   return { ok: true };
 }
 
@@ -841,6 +913,76 @@ export async function promoteStudentToRecruiting(
       promoted_at: new Date().toISOString(),
     })
     .eq("id", contact.id);
+
+  // Copy the student's uploaded documents onto the new person so they travel
+  // with the profile into the ATS (and then the Roster once hired). Files move
+  // from the crm-documents bucket into the employee-documents bucket, and a
+  // person_document row is created for each, tagged with its Student-CRM origin.
+  const admin = createAdminClient();
+  let migratedCount = 0;
+  const { data: contactDocs } = await admin
+    .from("crm_contact_document")
+    .select("id, title, category, storage_path, file_name, mime_type, size_bytes")
+    .eq("contact_id", contact.id);
+
+  for (const doc of contactDocs ?? []) {
+    const { data: blob, error: dlErr } = await admin.storage
+      .from("crm-documents")
+      .download(doc.storage_path);
+    if (dlErr || !blob) continue;
+
+    const safeName = (doc.file_name ?? doc.title ?? "document").replace(
+      /[^a-zA-Z0-9._-]+/g,
+      "_",
+    );
+    const destPath = `${person.id}/${Date.now()}_${safeName}`;
+    const { error: upErr } = await admin.storage
+      .from("employee-documents")
+      .upload(destPath, blob, {
+        contentType: doc.mime_type || "application/octet-stream",
+        upsert: false,
+      });
+    if (upErr) continue;
+
+    const { error: insErr } = await admin.from("person_document").insert({
+      person_id: person.id,
+      title: doc.title,
+      category: doc.category,
+      storage_path: destPath,
+      file_name: doc.file_name,
+      mime_type: doc.mime_type,
+      size_bytes: doc.size_bytes,
+      source: "Migrated from Student CRM",
+    });
+    if (!insErr) migratedCount += 1;
+  }
+
+  // Record the moves so the profile history travels with it.
+  const current = await getCurrentUser();
+  const actorId = current?.authId ?? null;
+  const actorName = current?.appUser.full_name ?? current?.email ?? null;
+  await logProfileTransition({
+    personId: person.id,
+    contactId: contact.id,
+    eventType: "promoted_to_ats",
+    fromStage: "student",
+    toStage: "applicant",
+    detail: "Promoted from the Student CRM",
+    actorId,
+    actorName,
+  });
+  if (migratedCount > 0) {
+    await logProfileTransition({
+      personId: person.id,
+      contactId: contact.id,
+      eventType: "documents_migrated",
+      fromStage: "student",
+      toStage: "applicant",
+      detail: `${migratedCount} document${migratedCount === 1 ? "" : "s"} copied from the Student CRM`,
+      actorId,
+      actorName,
+    });
+  }
 
   revalidatePath(`/crm/contact/${contactId}`);
   revalidatePath("/crm/student");

@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
 import type { CandidateRow, PersonInterview } from "@/lib/ats/types";
+import type { PersonDocument, PersonDocumentWithUrl } from "@/lib/hr/types";
+import type { ProfileTransition } from "@/lib/shared/transitions";
 import { CandidateProfile } from "./candidate-profile";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +62,43 @@ export default async function CandidateDetailPage({
     .order("created_at", { ascending: false });
   const interviews = (interviewData ?? []) as PersonInterview[];
 
+  // Documents (attachments) live on the shared person_document rows in the
+  // private employee-documents bucket — the same ones HR reads once hired.
+  const { data: docsData } = await supabase
+    .from("person_document")
+    .select("*")
+    .eq("person_id", id)
+    .order("uploaded_at", { ascending: false });
+  const documents = (docsData ?? []) as PersonDocument[];
+
+  let documentsWithUrls: PersonDocumentWithUrl[] = documents.map((d) => ({
+    ...d,
+    signed_url: null,
+  }));
+  if (documents.length > 0) {
+    const admin = createAdminClient();
+    const { data: signed } = await admin.storage
+      .from("employee-documents")
+      .createSignedUrls(
+        documents.map((d) => d.storage_path),
+        60 * 60,
+      );
+    if (signed) {
+      documentsWithUrls = documents.map((d, i) => ({
+        ...d,
+        signed_url: signed[i]?.signedUrl ?? null,
+      }));
+    }
+  }
+
+  // Stage-movement history (Student CRM → ATS → Roster) for the History tab.
+  const { data: transitionData } = await supabase
+    .from("profile_transition_log")
+    .select("*")
+    .eq("person_id", id)
+    .order("created_at", { ascending: false });
+  const transitions = (transitionData ?? []) as ProfileTransition[];
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link href="/ats" className="text-sm text-emerald-700 hover:text-emerald-900">
@@ -80,6 +120,8 @@ export default async function CandidateDetailPage({
       <CandidateProfile
         row={row}
         interviews={interviews}
+        documents={documentsWithUrls}
+        transitions={transitions}
         isAdmin={isAdmin}
         canEdit={canEdit}
       />

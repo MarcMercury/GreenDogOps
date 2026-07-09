@@ -245,6 +245,7 @@ export interface PersonDocument {
   file_name: string | null;
   mime_type: string | null;
   size_bytes: number | null;
+  source: string | null;
   uploaded_at: string;
   created_at: string;
   updated_at: string;
@@ -318,7 +319,18 @@ export const ASSET_STATUS_LABELS: Record<string, string> = {
   damaged: "Damaged",
 };
 
+// Shared across the whole talent pipeline (Student CRM → ATS → HR) so a
+// document's category label stays friendly wherever the profile lives after it
+// is migrated. Recruiting/student-specific categories are included alongside the
+// HR ones.
 export const DOCUMENT_CATEGORY_LABELS: Record<string, string> = {
+  resume: "Resume / CV",
+  cover_letter: "Cover Letter",
+  application: "Application",
+  transcript: "Transcript / School Records",
+  reference: "Reference",
+  background_check: "Background Check",
+  offer: "Offer Letter",
   contract: "Contract / Offer",
   license: "License",
   certification: "Certification",

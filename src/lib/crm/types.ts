@@ -113,6 +113,8 @@ export interface CrmOrganization {
   spend_ytd: number | null;
   relationship_score: number | null;
   internal_rating: number | null;
+  confirmed_leads: number | null;
+  confirmed_clients: number | null;
   is_preferred: boolean;
   is_active: boolean;
   // Agreement / partnership tracking (generic across vendors & partners)
@@ -150,6 +152,26 @@ export interface CrmOrgDocument {
 
 /** CrmOrgDocument with a short-lived signed URL for the private file. */
 export interface CrmOrgDocumentWithUrl extends CrmOrgDocument {
+  signed_url: string | null;
+}
+
+/** An uploaded document attached to a CRM contact record (e.g. a student). */
+export interface CrmContactDocument {
+  id: string;
+  contact_id: string;
+  title: string;
+  category: string | null;
+  storage_path: string;
+  file_name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  uploaded_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** CrmContactDocument with a short-lived signed URL for the private file. */
+export interface CrmContactDocumentWithUrl extends CrmContactDocument {
   signed_url: string | null;
 }
 
