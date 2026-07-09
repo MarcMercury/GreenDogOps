@@ -611,6 +611,30 @@ function ceEventPatch(formData: FormData) {
     capacity: num(formData.get("capacity")),
     registration_url: str(formData.get("registration_url")),
     notes: str(formData.get("notes")),
+    // CEbroker course record
+    course_type: str(formData.get("course_type")),
+    delivery_method: str(formData.get("delivery_method")),
+    tracking_number: str(formData.get("tracking_number")),
+    learning_objectives: str(formData.get("learning_objectives")),
+    disclosure_statements: str(formData.get("disclosure_statements")),
+    // RACE / AAVSB approval
+    approval_board: str(formData.get("approval_board")),
+    approval_status: str(formData.get("approval_status")),
+    race_approved: bool(formData.get("race_approved")),
+    ce_hours_total: num(formData.get("ce_hours_total")),
+    ce_hours_medical: num(formData.get("ce_hours_medical")),
+    ce_hours_nonmedical: num(formData.get("ce_hours_nonmedical")),
+    effective_start: str(formData.get("effective_start")),
+    effective_end: str(formData.get("effective_end")),
+    projected_offering_date: str(formData.get("projected_offering_date")),
+    rosters_allowed_date: str(formData.get("rosters_allowed_date")),
+    // Presenter & marketing
+    presenter_bio: str(formData.get("presenter_bio")),
+    website_url: str(formData.get("website_url")),
+    // Event logistics
+    whats_included: str(formData.get("whats_included")),
+    who_should_attend: str(formData.get("who_should_attend")),
+    social_dinner: bool(formData.get("social_dinner")),
   };
 }
 
@@ -657,6 +681,35 @@ export async function deleteCeEvent(id: string): Promise<SaveResult> {
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase.from("crm_ce_event").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+// Toggle a single item in a CE event's planning checklist. Read-modify-write on
+// the jsonb map so unknown keys simply get added; missing keys read as false.
+export async function setCeEventChecklistItem(
+  eventId: string,
+  itemKey: string,
+  value: boolean,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { data, error: readErr } = await supabase
+    .from("crm_ce_event")
+    .select("planning_checklist")
+    .eq("id", eventId)
+    .single();
+  if (readErr) return { ok: false, error: readErr.message };
+  const current =
+    (data as { planning_checklist: Record<string, boolean> | null })
+      .planning_checklist ?? {};
+  const next = { ...current, [itemKey]: value };
+  const { error } = await supabase
+    .from("crm_ce_event")
+    .update({ planning_checklist: next })
+    .eq("id", eventId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/crm/ce");
   return { ok: true };

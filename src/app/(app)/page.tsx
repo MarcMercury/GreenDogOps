@@ -91,8 +91,8 @@ const GROUPS: Group[] = [
       },
       {
         href: "/crm/ce",
-        title: "CE Leads",
-        desc: "CE event attendees, outreach & attendance.",
+        title: "CE Leads/Events",
+        desc: "CE events, CEbroker submissions, attendees & attendance.",
         icon: "📋",
         dot: "bg-violet-500",
         module: "crm_ce",

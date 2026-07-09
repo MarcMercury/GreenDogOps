@@ -7,12 +7,17 @@ import {
   CE_AUDIENCE_OPTIONS,
   CE_COST_TYPE_OPTIONS,
   CE_STATUS_OPTIONS,
+  CE_APPROVAL_STATUS_OPTIONS,
+  CE_COURSE_TYPE_OPTIONS,
+  CE_DELIVERY_METHOD_OPTIONS,
+  CE_PLANNING_CHECKLIST,
 } from "@/lib/crm/types";
 import { ContactListView } from "../crm-views";
 import {
   setCeAttendanceField,
   deleteCeEvent,
   assignLeadToCeEvent,
+  setCeEventChecklistItem,
 } from "../actions";
 import { CeEventForm } from "./ce-event-form";
 
@@ -141,7 +146,7 @@ function SortHeader({
 }
 
 
-function CeEventsView({
+function CeAttendeesView({
   contacts,
   attendance,
   events: eventEntities,
@@ -270,9 +275,10 @@ function CeEventsView({
   );
   const active = events.find((e) => e.key === selected) ?? events[0] ?? null;
 
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState(false);
   const [showShare, setShowShare] = useState(false);
+  // "All" = everyone we reached out to; "Confirmed" = only attendees whose
+  // date has been confirmed (i.e. expected to show up).
+  const [confirmedOnly, setConfirmedOnly] = useState(false);
 
   const [sortKey, setSortKey] = useState<SortKey>("attendeeName");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -288,6 +294,9 @@ function CeEventsView({
 
   const sortedRows = useMemo(() => {
     if (!active) return [];
+    const base = confirmedOnly
+      ? active.rows.filter((r) => !!r.confirmed_date)
+      : active.rows;
     const dir = sortDir === "asc" ? 1 : -1;
     const val = (r: AttendeeRow): string | number => {
       switch (sortKey) {
@@ -305,7 +314,7 @@ function CeEventsView({
           return r.materials_prepared ? 1 : 0;
       }
     };
-    return [...active.rows].sort((a, b) => {
+    return [...base].sort((a, b) => {
       const av = val(a);
       const bv = val(b);
       if (av < bv) return -1 * dir;
@@ -313,26 +322,7 @@ function CeEventsView({
       // Stable tie-breaker by name.
       return a.attendeeName.localeCompare(b.attendeeName);
     });
-  }, [active, sortKey, sortDir]);
-
-  if (creating) {
-    return (
-      <CeEventForm
-        onDone={() => setCreating(false)}
-        onCancel={() => setCreating(false)}
-      />
-    );
-  }
-
-  if (editing && active?.event) {
-    return (
-      <CeEventForm
-        event={active.event}
-        onDone={() => setEditing(false)}
-        onCancel={() => setEditing(false)}
-      />
-    );
-  }
+  }, [active, sortKey, sortDir, confirmedOnly]);
 
   if (events.length === 0) {
     return (
@@ -340,18 +330,9 @@ function CeEventsView({
         <p className="text-sm text-slate-500">
           No CE events yet.{" "}
           {canEdit
-            ? "Create one to start rostering CE leads."
+            ? "Create one in the CE Events tab to start rostering CE leads."
             : "CE events will appear here once created."}
         </p>
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-          >
-            + New CE Event
-          </button>
-        )}
       </div>
     );
   }
@@ -362,17 +343,8 @@ function CeEventsView({
       <div className="print:hidden">
         <div className="mb-2 flex items-center justify-between gap-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            CE Events
+            Events
           </p>
-          {canEdit && (
-            <button
-              type="button"
-              onClick={() => setCreating(true)}
-              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
-            >
-              + New
-            </button>
-          )}
         </div>
         <div className="space-y-1.5">
           {events.map((e) => (
@@ -406,12 +378,37 @@ function CeEventsView({
                 {active.rows.length} attendee
                 {active.rows.length === 1 ? "" : "s"}
                 {" · "}
+                {active.rows.filter((r) => r.confirmed_date).length} confirmed ·{" "}
                 {active.rows.filter((r) => r.paid).length} paid ·{" "}
                 {active.rows.filter((r) => r.showed_up).length} showed ·{" "}
                 {active.rows.filter((r) => r.materials_prepared).length} prepped
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2 print:hidden">
+              <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setConfirmedOnly(false)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                    !confirmedOnly
+                      ? "bg-white text-slate-800 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmedOnly(true)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                    confirmedOnly
+                      ? "bg-white text-emerald-700 shadow-sm"
+                      : "text-slate-500 hover:text-slate-700"
+                  }`}
+                >
+                  Confirmed
+                </button>
+              </div>
               {active.event && (
                 <button
                   type="button"
@@ -424,21 +421,6 @@ function CeEventsView({
                 >
                   Sign-up QR
                 </button>
-              )}
-              {canEdit && active.event && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setEditing(true)}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
-                  >
-                    Edit
-                  </button>
-                  <DeleteEventButton
-                    eventId={active.event.id}
-                    eventName={active.event.name}
-                  />
-                </>
               )}
               <button
                 type="button"
@@ -593,6 +575,12 @@ function CeEventsView({
               No attendees yet. Assign a CE lead below to roster them.
             </p>
           )}
+          {active.rows.length > 0 && sortedRows.length === 0 && (
+            <p className="px-5 py-6 text-center text-sm text-slate-500 print:hidden">
+              No confirmed attendees yet. Switch to “All” to see everyone
+              reached out to.
+            </p>
+          )}
           {canEdit && (
             <AssignLead
               event={active.event}
@@ -714,9 +702,26 @@ function EventDetails({ event }: { event: CrmCeEvent }) {
     cost,
     labelFor(CE_STATUS_OPTIONS, event.status),
   ].filter(Boolean);
+  const hours =
+    event.ce_hours_total != null
+      ? `${event.ce_hours_total} CE hrs`
+      : event.ce_hours_medical != null || event.ce_hours_nonmedical != null
+        ? `${event.ce_hours_medical ?? 0}/${event.ce_hours_nonmedical ?? 0} med/non-med hrs`
+        : null;
+  const cebroker = [
+    event.tracking_number ? `CEbroker #${event.tracking_number}` : null,
+    hours,
+    event.race_approved ? "RACE approved" : null,
+    labelFor(CE_APPROVAL_STATUS_OPTIONS, event.approval_status),
+  ].filter(Boolean);
   return (
     <div className="mt-1 space-y-1">
       <p className="text-sm text-slate-600">{bits.join(" · ")}</p>
+      {cebroker.length > 0 && (
+        <p className="text-xs font-medium text-slate-500">
+          {cebroker.join(" · ")}
+        </p>
+      )}
       {event.description && (
         <p className="text-sm text-slate-500">{event.description}</p>
       )}
@@ -853,6 +858,340 @@ function StatCard({
       </p>
       <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
       {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
+    </div>
+  );
+}
+
+/** Interactive per-event planning/resources checklist (CE Events tab). */
+function EventPlanningChecklist({
+  event,
+  canEdit,
+}: {
+  event: CrmCeEvent;
+  canEdit: boolean;
+}) {
+  const [state, setState] = useState<Record<string, boolean>>(
+    event.planning_checklist ?? {},
+  );
+  const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [, startTransition] = useTransition();
+
+  const total = CE_PLANNING_CHECKLIST.reduce((n, g) => n + g.items.length, 0);
+  const done = CE_PLANNING_CHECKLIST.reduce(
+    (n, g) => n + g.items.filter((i) => state[i.key]).length,
+    0,
+  );
+
+  function toggle(key: string) {
+    if (!canEdit) return;
+    const next = !state[key];
+    setState((s) => ({ ...s, [key]: next }));
+    setPending((p) => ({ ...p, [key]: true }));
+    startTransition(async () => {
+      const res = await setCeEventChecklistItem(event.id, key, next);
+      setPending((p) => {
+        const { [key]: _omit, ...rest } = p;
+        return rest;
+      });
+      if (!res.ok) {
+        setState((s) => ({ ...s, [key]: !next }));
+        alert(`Could not update: ${res.error}`);
+      }
+    });
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Planning & resources checklist
+        </p>
+        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
+          {done}/{total} done
+        </span>
+      </div>
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+        <div
+          className="h-full rounded-full bg-emerald-500 transition-all"
+          style={{ width: total ? `${(done / total) * 100}%` : "0%" }}
+        />
+      </div>
+      <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+        {CE_PLANNING_CHECKLIST.map((section) => (
+          <div key={section.group}>
+            <p className="text-xs font-semibold text-slate-700">
+              {section.group}
+            </p>
+            <ul className="mt-2 space-y-1.5">
+              {section.items.map((item) => (
+                <li key={item.key}>
+                  <label
+                    className={`flex items-start gap-2 text-sm ${
+                      canEdit ? "cursor-pointer" : "cursor-default"
+                    } ${state[item.key] ? "text-slate-400 line-through" : "text-slate-700"}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!!state[item.key]}
+                      disabled={!canEdit || !!pending[item.key]}
+                      onChange={() => toggle(item.key)}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    {item.label}
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Expanded field-by-field detail block for an event (CE Events tab). */
+function EventDetailGrid({ event }: { event: CrmCeEvent }) {
+  const rows: { label: string; value: string | null }[] = [
+    {
+      label: "Course type",
+      value: labelFor(CE_COURSE_TYPE_OPTIONS, event.course_type),
+    },
+    {
+      label: "Delivery method",
+      value: labelFor(CE_DELIVERY_METHOD_OPTIONS, event.delivery_method),
+    },
+    { label: "Tracking #", value: event.tracking_number },
+    { label: "Approval board", value: event.approval_board },
+    {
+      label: "Approval status",
+      value: labelFor(CE_APPROVAL_STATUS_OPTIONS, event.approval_status),
+    },
+    { label: "RACE approved", value: event.race_approved ? "Yes" : null },
+    {
+      label: "CE hours",
+      value:
+        event.ce_hours_total != null
+          ? `${event.ce_hours_total} total` +
+            (event.ce_hours_medical != null ||
+            event.ce_hours_nonmedical != null
+              ? ` (${event.ce_hours_medical ?? 0} med / ${event.ce_hours_nonmedical ?? 0} non-med)`
+              : "")
+          : null,
+    },
+    {
+      label: "Effective start",
+      value:
+        fmtDate(event.effective_start) !== "—"
+          ? fmtDate(event.effective_start)
+          : null,
+    },
+    {
+      label: "Effective end",
+      value:
+        fmtDate(event.effective_end) !== "—"
+          ? fmtDate(event.effective_end)
+          : null,
+    },
+    {
+      label: "Projected offering",
+      value:
+        fmtDate(event.projected_offering_date) !== "—"
+          ? fmtDate(event.projected_offering_date)
+          : null,
+    },
+    {
+      label: "Rosters allowed",
+      value:
+        fmtDate(event.rosters_allowed_date) !== "—"
+          ? fmtDate(event.rosters_allowed_date)
+          : null,
+    },
+    { label: "Website", value: event.website_url },
+  ].filter((r) => r.value);
+
+  const blocks: { label: string; value: string | null }[] = [
+    { label: "Learning objectives", value: event.learning_objectives },
+    { label: "Disclosure statements", value: event.disclosure_statements },
+    { label: "Presenter bio", value: event.presenter_bio },
+    { label: "What's included", value: event.whats_included },
+    { label: "Who should attend", value: event.who_should_attend },
+  ].filter((b) => b.value);
+
+  if (rows.length === 0 && blocks.length === 0) return null;
+
+  return (
+    <div className="mt-4 border-t border-slate-100 pt-4">
+      {rows.length > 0 && (
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2 lg:grid-cols-3">
+          {rows.map((r) => (
+            <div key={r.label} className="flex flex-col">
+              <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                {r.label}
+              </dt>
+              <dd className="text-sm text-slate-700">{r.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {blocks.length > 0 && (
+        <div className="mt-4 space-y-3">
+          {blocks.map((b) => (
+            <div key={b.label}>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                {b.label}
+              </p>
+              <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-700">
+                {b.value}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * CE Events management tab — browse events, see full details, create/edit/
+ * delete, and work each event's planning & resources checklist. Attendee
+ * rostering lives in the separate CE Attendees tab.
+ */
+function CeEventsManageView({
+  events,
+  canEdit,
+}: {
+  events: CrmCeEvent[];
+  canEdit: boolean;
+}) {
+  const sorted = useMemo(
+    () => [...events].sort((a, b) => a.name.localeCompare(b.name)),
+    [events],
+  );
+  const [selectedId, setSelectedId] = useState<string | null>(
+    sorted[0]?.id ?? null,
+  );
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const active = sorted.find((e) => e.id === selectedId) ?? sorted[0] ?? null;
+
+  if (creating) {
+    return (
+      <CeEventForm
+        onDone={() => setCreating(false)}
+        onCancel={() => setCreating(false)}
+      />
+    );
+  }
+
+  if (editing && active) {
+    return (
+      <CeEventForm
+        event={active}
+        onDone={() => setEditing(false)}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
+
+  if (sorted.length === 0) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+        <p className="text-sm text-slate-500">
+          No CE events yet.{" "}
+          {canEdit
+            ? "Create one to plan and submit it to CEbroker."
+            : "CE events will appear here once created."}
+        </p>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="mt-4 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+          >
+            + New CE Event
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[240px_1fr]">
+      {/* Event selector */}
+      <div>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Events
+          </p>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => setCreating(true)}
+              className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              + New
+            </button>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          {sorted.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => setSelectedId(e.id)}
+              className={`flex w-full items-center justify-between gap-2 rounded-lg border px-3 py-2 text-left text-sm transition ${
+                active?.id === e.id
+                  ? "border-emerald-300 bg-emerald-50 font-semibold text-emerald-800"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              <span className="truncate">{e.name}</span>
+              {labelFor(CE_STATUS_OPTIONS, e.status) && (
+                <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                  {labelFor(CE_STATUS_OPTIONS, e.status)}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Details + checklist for selected event */}
+      {active && (
+        <div>
+          <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-slate-900">
+                  {active.name}
+                </h2>
+                <EventDetails event={active} />
+              </div>
+              {canEdit && (
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+                  >
+                    Edit
+                  </button>
+                  <DeleteEventButton
+                    eventId={active.id}
+                    eventName={active.name}
+                  />
+                </div>
+              )}
+            </div>
+            <EventDetailGrid event={active} />
+          </div>
+          <EventPlanningChecklist
+            key={active.id}
+            event={active}
+            canEdit={canEdit}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -1085,7 +1424,9 @@ export function CeCrmTabs({
   events: CrmCeEvent[];
   canEdit: boolean;
 }) {
-  const [tab, setTab] = useState<"leads" | "events" | "stats">("leads");
+  const [tab, setTab] = useState<
+    "leads" | "attendees" | "events" | "stats"
+  >("leads");
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -1099,7 +1440,18 @@ export function CeCrmTabs({
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
-          Leads
+          CE Leads
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("attendees")}
+          className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
+            tab === "attendees"
+              ? "bg-emerald-600 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          CE Attendees
         </button>
         <button
           type="button"
@@ -1129,18 +1481,20 @@ export function CeCrmTabs({
         <ContactListView
           contacts={contacts}
           title="CE Leads"
-          description="Continuing-education event attendees & leads"
+          description="Everyone we've reached out to — QR sign-ups, manual entries & uploads"
           icon="📋"
           variant="ce"
           addHref="/crm/contact/new?type=ce_attendee"
         />
-      ) : tab === "events" ? (
-        <CeEventsView
+      ) : tab === "attendees" ? (
+        <CeAttendeesView
           contacts={contacts}
           attendance={attendance}
           events={events}
           canEdit={canEdit}
         />
+      ) : tab === "events" ? (
+        <CeEventsManageView events={events} canEdit={canEdit} />
       ) : (
         <CeStatsView contacts={contacts} attendance={attendance} events={events} />
       )}

@@ -74,7 +74,7 @@ export const MODULES: ModuleDef[] = [
   { key: "crm_vendor", label: "Vendor & Partner CRM", href: "/crm/vendor" },
   { key: "crm_business", label: "Business CRM (merged → Vendor & Partner)", href: "/crm/vendor" },
   { key: "crm_student", label: "Student CRM", href: "/crm/student" },
-  { key: "crm_ce", label: "CE Leads", href: "/crm/ce" },
+  { key: "crm_ce", label: "CE Leads/Events", href: "/crm/ce" },
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
   { key: "ezyvet", label: "ezyVet CRM", href: "/ezyvet" },
   { key: "reporting", label: "Reporting", href: "/reporting" },

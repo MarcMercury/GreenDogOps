@@ -577,9 +577,9 @@ export const CRM_SECTIONS: CrmSection[] = [
   },
   {
     slug: "ce",
-    title: "CE Leads",
-    label: "CE Leads",
-    description: "Continuing-education event attendees & leads.",
+    title: "CE Leads/Events",
+    label: "CE Leads/Events",
+    description: "Continuing-education events, submissions, attendees & leads.",
     icon: "📋",
     entity: "contact",
     contactTypes: ["ce_attendee"],
@@ -650,6 +650,32 @@ export interface CrmCeEvent {
   capacity: number | null;
   registration_url: string | null;
   notes: string | null;
+  // CEbroker course record
+  course_type: string | null;
+  delivery_method: string | null;
+  tracking_number: string | null;
+  learning_objectives: string | null;
+  disclosure_statements: string | null;
+  // RACE / AAVSB approval
+  approval_board: string | null;
+  approval_status: string | null;
+  race_approved: boolean;
+  ce_hours_total: number | null;
+  ce_hours_medical: number | null;
+  ce_hours_nonmedical: number | null;
+  effective_start: string | null;
+  effective_end: string | null;
+  projected_offering_date: string | null;
+  rosters_allowed_date: string | null;
+  // Presenter & marketing
+  presenter_bio: string | null;
+  website_url: string | null;
+  // Event logistics
+  whats_included: string | null;
+  who_should_attend: string | null;
+  social_dinner: boolean;
+  // Per-event planning checklist ({ item_key: boolean })
+  planning_checklist: Record<string, boolean>;
   created_at: string;
   updated_at: string;
 }
@@ -675,6 +701,103 @@ export const CE_STATUS_OPTIONS = [
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
+
+// CEbroker course type (providers.cebroker.com → Course Type).
+export const CE_COURSE_TYPE_OPTIONS = [
+  { value: "live", label: "Live Course" },
+  { value: "online_interactive", label: "RACE Online — Interactive" },
+  { value: "online_noninteractive", label: "RACE Online — Non-interactive" },
+  { value: "recorded", label: "Recorded / On-demand" },
+] as const;
+
+// CEbroker delivery method (providers.cebroker.com → Delivery Method).
+export const CE_DELIVERY_METHOD_OPTIONS = [
+  { value: "seminar_lecture", label: "Seminar/Lecture" },
+  { value: "lab_wetlab", label: "Lab/Wet Lab" },
+  { value: "seminar_and_lab", label: "Seminar/Lecture & Lab/Wet Lab" },
+  { value: "online", label: "Online" },
+  { value: "hybrid", label: "Hybrid" },
+] as const;
+
+// Where the course sits in the CEbroker / RACE approval pipeline.
+export const CE_APPROVAL_STATUS_OPTIONS = [
+  { value: "not_submitted", label: "Not submitted" },
+  { value: "pending", label: "Pending review" },
+  { value: "submitted", label: "Submitted" },
+  { value: "registered", label: "Registered" },
+  { value: "approved", label: "Approved" },
+  { value: "denied", label: "Denied" },
+] as const;
+
+// Common approving boards (free text allowed via ComboField).
+export const CE_APPROVAL_BOARD_SUGGESTIONS = [
+  "American Association of Veterinary State Boards (AAVSB / RACE)",
+  "California Veterinary Medical Board",
+  "Alabama State Board of Veterinary Medical Examiners",
+] as const;
+
+// Per-event planning/resources checklist. Item keys are stable and stored in
+// crm_ce_event.planning_checklist ({ key: boolean }); labels come from the GDD
+// CE setup/registration workflow. Rendered read-only in the New/Edit wizard and
+// interactively in the CE Events management tab.
+export const CE_PLANNING_CHECKLIST: {
+  group: string;
+  items: { key: string; label: string }[];
+}[] = [
+  {
+    group: "Marketing & promotion",
+    items: [
+      { key: "flyer", label: "Create flyer, email & promo sheet" },
+      {
+        key: "invite_clinics",
+        label: "Invite local clinics (email, visits, texts)",
+      },
+      {
+        key: "track_responses",
+        label: "Track responses in Master Referral Sheet",
+      },
+      { key: "program", label: "Build branded event program / itinerary" },
+    ],
+  },
+  {
+    group: "Venue & AV setup",
+    items: [
+      { key: "venue", label: "Confirm venue & room setup" },
+      {
+        key: "av",
+        label: "AV equipment ready (display, mic, clicker, adapters)",
+      },
+      { key: "handouts", label: "Lecture handouts / printed notes in binders" },
+      { key: "goody_bags", label: "GDD-branded goody bags" },
+    ],
+  },
+  {
+    group: "Lab & supplies",
+    items: [
+      {
+        key: "equipment",
+        label: "Confirm equipment per student (tables, instruments)",
+      },
+      {
+        key: "consumables",
+        label: "Order consumables & supplies ahead of deadline",
+      },
+      {
+        key: "presenter_prefs",
+        label: "Confirm presenter preferences / special requests",
+      },
+    ],
+  },
+  {
+    group: "Food, filming & final",
+    items: [
+      { key: "food", label: "Food & refreshments ordered" },
+      { key: "filming", label: "Photographer/videographer scheduled both days" },
+      { key: "testimonials", label: "Collect ≥3 DVM testimonials" },
+      { key: "social_dinner_rsvp", label: "RSVP for social dinner" },
+    ],
+  },
+];
 
 export const CE_SUBJECT_SUGGESTIONS = [
   "Dentistry",

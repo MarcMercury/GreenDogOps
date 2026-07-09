@@ -73,7 +73,7 @@ and only shown to users who can access it.
 - **Vendor & Partner CRM** — vendors, suppliers, and business partners (the former
   Business CRM merged in here).
 - **Student CRM** — students, externs, and program participants.
-- **CE Leads** — continuing-education event attendees, outreach, and attendance.
+- **CE Leads/Events** — continuing-education events (CEbroker submission wizard), attendees, outreach, and attendance.
 - **Influencer CRM** — influencer partnerships, campaigns, and performance.
 - **ezyVet CRM** — client contacts imported from ezyVet, with customer groups,
   revenue, and division trends.
