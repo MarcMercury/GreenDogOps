@@ -300,6 +300,29 @@ def load_dvm_ids():
         "and full_name ilike 'dr.%';")}
 
 
+def load_roles():
+    """(dept_code, norm(role_name)) -> (role_id|None, department_id). dept_code is
+    '' for departments with a NULL code (REMOTE / Clinic-Wellness-UC). Real
+    sched_role rows win; shift templates fill in label-only lines (e.g. REMOTE
+    "Office Admin") that have no backing role, with role_id = None."""
+    lu = {}
+    for r in run_sql(
+        "set search_path=greendogops,public; "
+        "select r.id role_id, r.name role, r.department_id dept_id, "
+        "coalesce(d.code,'') dept from sched_role r "
+        "join sched_department d on d.id=r.department_id where r.is_active;"):
+        lu.setdefault((r["dept"], norm(r["role"])), (r["role_id"], r["dept_id"]))
+    for t in run_sql(
+        "set search_path=greendogops,public; "
+        "select t.role_id, coalesce(rr.name, t.label) role, t.department_id dept_id, "
+        "coalesce(d.code,'') dept from sched_shift_template t "
+        "join sched_department d on d.id=t.department_id "
+        "left join sched_role rr on rr.id=t.role_id where t.is_active;"):
+        if t["role"]:
+            lu.setdefault((t["dept"], norm(t["role"])), (t["role_id"], t["dept_id"]))
+    return lu
+
+
 # ---------------------------------------------------------------------------
 # Month-tab schedule parsing
 # ---------------------------------------------------------------------------
@@ -348,29 +371,37 @@ def build_day_columns(ws, header_row):
     return {"cols": cols, "date_row": date_row, "day_cols": day_cols}
 
 
-def parse_month_tab(ws, month, matcher, by_dr, dvm_ids, loc_ids,
-                    placements, dominant_role, dominant_loc, exceptions):
+def parse_month_tab(ws, month, matcher, role_lu, loc_ids, weeks, processed,
+                    dominant_role, dominant_loc, exceptions):
+    """Populate `weeks[week_start] = {status, lines[], cells[]}` where each grid
+    ROW that has people becomes its own line (so rows never collapse onto one
+    shared line and hide people)."""
     r = 1
-    max_r = ws.max_column and ws.max_row
+    max_r = ws.max_row
     while r <= max_r:
         if norm(cell(ws, r, 2)).startswith("week"):
             info = build_day_columns(ws, r)
             if not info:
                 r += 1
                 continue
-            nums = []
             date_row = info["date_row"]
-            for (c, idx) in info["day_cols"]:
-                nums.append((idx, daynum(ws, date_row, c)))
-            nums.sort()
-            seq = [n for _, n in nums]
-            dates = reconstruct_week(seq, month)
+            nums = sorted((idx, daynum(ws, date_row, c))
+                          for (c, idx) in info["day_cols"])
+            dates = reconstruct_week([n for _, n in nums], month)
             if not dates:
                 r += 1
                 continue
             status = resolve_status(cell(ws, r, 3)) or "published"
             week_start = dates[0]
-            # Walk shift rows until the next WEEK header.
+            # A boundary week can appear in two month tabs; the first tab owns it.
+            if week_start in processed:
+                r += 1
+                while r <= max_r and not norm(cell(ws, r, 2)).startswith("week"):
+                    r += 1
+                continue
+            processed.add(week_start)
+            wk = weeks.setdefault(
+                week_start, {"status": status, "lines": [], "cells": []})
             rr = r + 3
             current_dept = None
             while rr <= max_r and not norm(cell(ws, rr, 2)).startswith("week"):
@@ -379,6 +410,8 @@ def parse_month_tab(ws, month, matcher, by_dr, dvm_ids, loc_ids,
                 if role and norm(role) in ROLE_FIX:
                     role = ROLE_FIX[norm(role)]
                 if role:
+                    shift = cell(ws, rr, 3)
+                    row_cells = []
                     for (c, day_idx, sc) in info["cols"]:
                         name = cell(ws, rr, c)
                         if not name:
@@ -396,36 +429,41 @@ def parse_month_tab(ws, month, matcher, by_dr, dvm_ids, loc_ids,
                             wd = dates[day_idx]
                             if wd >= CLEAR_FROM:
                                 continue
-                            # Faithful to the grid: keep the row's role. Only
-                            # when the row's role has no line do we fall back to
-                            # the department's DVM (rescues a doctor whose name
-                            # sits in a support row with no DVM-able template).
-                            tgt_dept, tgt_role = dept, role
-                            tpls = by_dr.get((tgt_dept or "", norm(tgt_role)))
-                            if not tpls and pid in dvm_ids:
-                                dd = dept or current_dept
-                                if by_dr.get((dd or "", "dvm")):
-                                    tgt_dept, tgt_role = dd, "DVM"
-                                    tpls = by_dr.get((dd or "", "dvm"))
-                            if not tpls:
-                                exceptions.append(
-                                    (ws.title, wd.isoformat(), label, frag,
-                                     f"no-line({tgt_dept}/{tgt_role})"))
-                                continue
                             loc_id = loc_ids.get(sc)
                             if not loc_id:
                                 continue
-                            placements.append({
-                                "week_start": week_start, "status": status,
-                                "tpl": tpls[0], "loc_id": loc_id,
-                                "day": day_idx, "work_date": wd, "pid": pid,
-                            })
-                            dominant_role[pid][(tgt_dept or "", norm(tgt_role))] += 1
-                            dominant_loc[pid][sc] += 1
+                            row_cells.append((pid, loc_id, day_idx, wd))
+                    if row_cells:
+                        resolved = role_lu.get((dept or "", norm(role)))
+                        if not resolved:
+                            for (pid, _l, _d, wd) in row_cells:
+                                exceptions.append(
+                                    (ws.title, wd.isoformat(), label,
+                                     matcher_name(matcher, pid),
+                                     f"no-role({dept}/{role})"))
+                        else:
+                            role_id, dept_id = resolved
+                            idx = len(wk["lines"])
+                            wk["lines"].append({
+                                "idx": idx, "role_id": role_id,
+                                "dept_id": dept_id, "label": shift or role})
+                            for (pid, loc_id, day_idx, wd) in row_cells:
+                                wk["cells"].append({
+                                    "line_idx": idx, "loc_id": loc_id,
+                                    "day": day_idx, "wd": wd, "pid": pid})
+                                dominant_role[pid][role_id] += 1
+                                dominant_loc[pid][loc_id] += 1
                 rr += 1
             r = rr
             continue
         r += 1
+
+
+def matcher_name(matcher, pid):
+    for p in matcher.allp:
+        if p["id"] == pid:
+            return p["full"] or f"{p['first']} {p['last']}"
+    return pid[:8]
 
 
 # ---------------------------------------------------------------------------
@@ -570,20 +608,21 @@ def main():
     wb = openpyxl.load_workbook(XLSX, data_only=True)
 
     matcher = Matcher()
-    by_dr = load_templates()
+    role_lu = load_roles()
     loc_ids = load_locations()
-    dvm_ids = load_dvm_ids()
 
     exceptions = []
-    placements = []
-    dominant_role = defaultdict(Counter)
-    dominant_loc = defaultdict(Counter)
+    weeks = {}
+    processed = set()
+    dominant_role = defaultdict(Counter)   # pid -> Counter[role_id]
+    dominant_loc = defaultdict(Counter)    # pid -> Counter[loc_id]
 
-    # 1) Month schedule tabs.
+    # 1) Month schedule tabs -> per-row lines.
     for tab, month in MONTH_TABS.items():
         if tab in wb.sheetnames:
-            parse_month_tab(wb[tab], month, matcher, by_dr, dvm_ids, loc_ids,
-                            placements, dominant_role, dominant_loc, exceptions)
+            parse_month_tab(wb[tab], month, matcher, role_lu, loc_ids,
+                            weeks, processed, dominant_role, dominant_loc,
+                            exceptions)
 
     # 2) CALLOUT attendance.
     callouts = parse_callout(wb["CALLOUT 26"], matcher, exceptions)
@@ -593,38 +632,57 @@ def main():
 
     # --- Determine every week we touch (schedule + callout) -----------------
     week_status = {}
-    for p in placements:
-        week_status.setdefault(p["week_start"], p["status"])
+    for ws_date, wk in weeks.items():
+        week_status[ws_date] = wk["status"]
     for c in callouts:
         week_status.setdefault(sunday_of(c["work_date"]), "published")
+
+    total_cells = sum(len(w["cells"]) for w in weeks.values())
+    total_lines = sum(len(w["lines"]) for w in weeks.values())
 
     # --- Emit SQL -----------------------------------------------------------
     out = [
         "-- Green Dog Ops — Schedule Upload workbook import.",
-        "-- Generated by scripts/import_schedule_upload.py. Idempotent overlay:",
-        "-- weeks/lines created if missing; assignments never wiped/duplicated.",
+        "-- Generated by scripts/import_schedule_upload.py.",
+        "-- Each grid ROW becomes its own week line (no row collapsing).",
         "set search_path = greendogops, public;",
         "",
-        "-- ============ 1. Ensure weeks (with line + location snapshots) ======",
+        "-- ============ 1. Ensure weeks + locations ==================",
     ]
     for ws_date in sorted(week_status):
         out.append(week_ensure_block(ws_date, week_status[ws_date]))
     out.append("")
-    out.append("-- ============ 2. Schedule assignments (overlay) ============")
-    for p in placements:
-        ws = p["week_start"].isoformat()
-        out.append(
-            "do $$ declare wid uuid; begin\n"
-            f"  select id into wid from sched_week where week_start = {sql_str(ws)};\n"
-            "  insert into sched_assignment (week_id, line_id, location_id, person_id, day_of_week, work_date, attendance_status)\n"
-            f"    select wid, wl.id, {sql_str(p['loc_id'])}, {sql_str(p['pid'])}, {p['day']}, {sql_str(p['work_date'].isoformat())}, 'scheduled'\n"
-            f"    from sched_week_line wl where wl.week_id = wid and wl.template_id = {sql_str(p['tpl'])}\n"
-            "      and not exists (select 1 from sched_assignment a where a.week_id = wid\n"
-            f"        and a.line_id = wl.id and a.location_id = {sql_str(p['loc_id'])}\n"
-            f"        and a.day_of_week = {p['day']} and a.person_id = {sql_str(p['pid'])})\n"
-            "    limit 1;\n"
-            "end $$;"
+    out.append("-- ============ 2. Rebuild week lines + assignments from grid ==")
+    for ws_date in sorted(weeks):
+        wk = weeks[ws_date]
+        if not wk["lines"]:
+            continue
+        ws = ws_date.isoformat()
+        parts = [
+            "do $$ declare wid uuid; begin",
+            f"  select id into wid from sched_week where week_start = {sql_str(ws)};",
+            "  delete from sched_week_line where week_id = wid;",
+        ]
+        vals = ",\n".join(
+            f"    (wid, {sql_str(ln['dept_id'])}, "
+            f"{'NULL' if ln['role_id'] is None else sql_str(ln['role_id'])}, "
+            f"{sql_str(ln['label'])}, {ln['idx']}, true)"
+            for ln in wk["lines"]
         )
+        parts.append(
+            "  insert into sched_week_line "
+            "(week_id, department_id, role_id, label, sort_order, is_adhoc) "
+            "values\n" + vals + ";")
+        for cl in wk["cells"]:
+            parts.append(
+                "  insert into sched_assignment (week_id, line_id, location_id, "
+                "person_id, day_of_week, work_date, attendance_status)\n"
+                f"    select wid, wl.id, {sql_str(cl['loc_id'])}, {sql_str(cl['pid'])}, "
+                f"{cl['day']}, {sql_str(cl['wd'].isoformat())}, 'scheduled'\n"
+                f"    from sched_week_line wl where wl.week_id = wid "
+                f"and wl.sort_order = {cl['line_idx']} limit 1;")
+        parts.append("end $$;")
+        out.append("\n".join(parts))
 
     # --- 3. PTO days + approved time-off ranges + flip scheduled -> pto ------
     out.append("")
@@ -660,10 +718,9 @@ def main():
         wd = c["work_date"]
         ws = sunday_of(wd).isoformat()
         dom = dominant_role[pid].most_common(1)
-        dom_tpl = by_dr.get(dom[0][0], [None])[0] if dom else None
+        dom_role = dom[0][0] if dom else None
         dloc = dominant_loc[pid].most_common(1)
-        loc_sc = dloc[0][0] if dloc else "SO"
-        loc_id = loc_ids.get(loc_sc) or loc_ids.get("SO")
+        loc_id = (dloc[0][0] if dloc else None) or loc_ids.get("SO")
         note = c["note"]
         out.append(
             "do $$ declare wid uuid; lid uuid; begin\n"
@@ -674,8 +731,8 @@ def main():
             f"      where person_id = {sql_str(pid)} and work_date = {sql_str(wd.isoformat())}\n"
             "        and attendance_status in ('scheduled','present');\n"
             "  else\n"
-            + (f"    select wl.id into lid from sched_week_line wl where wl.week_id = wid and wl.template_id = {sql_str(dom_tpl)} limit 1;\n"
-               if dom_tpl else "")
+            + (f"    select id into lid from sched_week_line where week_id = wid and role_id = {sql_str(dom_role)} order by sort_order limit 1;\n"
+               if dom_role else "")
             + "    if lid is null then select id into lid from sched_week_line where week_id = wid order by sort_order limit 1; end if;\n"
             "    if lid is not null then\n"
             "      insert into sched_assignment (week_id, line_id, location_id, person_id, day_of_week, work_date, attendance_status, attendance_note, added_post_publish)\n"
@@ -696,12 +753,26 @@ def main():
         old.unlink()
     stmts = [s for s in out if s.strip() and not s.lstrip().startswith("--")
              and s.strip() != "set search_path = greendogops, public;"]
-    per = 500
+    # Size-aware chunking: the per-week rebuild blocks are large single
+    # statements, so cap each chunk by line count (the Management API runs the
+    # whole body as one request and times out on multi-MB payloads).
+    MAX_LINES = 1500
+    chunks = []
+    cur, cur_lines = [], 0
+    for s in stmts:
+        n = s.count("\n") + 1
+        if cur and cur_lines + n > MAX_LINES:
+            chunks.append(cur)
+            cur, cur_lines = [], 0
+        cur.append(s)
+        cur_lines += n
+    if cur:
+        chunks.append(cur)
     n_chunks = 0
-    for i in range(0, len(stmts), per):
+    for i, group in enumerate(chunks):
         body = "set search_path = greendogops, public;\n" + \
-            "\n".join(stmts[i:i + per]) + "\n"
-        (chunk_dir / f"part_{i // per:03d}.sql").write_text(body)
+            "\n".join(group) + "\n"
+        (chunk_dir / f"part_{i:03d}.sql").write_text(body)
         n_chunks += 1
 
     # --- Report -------------------------------------------------------------
@@ -711,7 +782,7 @@ def main():
     rep.append("SCHEDULE UPLOAD IMPORT — dry parse summary")
     rep.append("=" * 72)
     rep.append(f"Weeks touched:          {len(week_status)}")
-    rep.append(f"Schedule placements:    {len(placements)}")
+    rep.append(f"Schedule lines / cells: {total_lines} / {total_cells}")
     rep.append(f"Callout markings:       {len(callouts)}")
     rep.append(f"PTO people / days:      {len(pto)} / {sum(len(v) for v in pto.values())}")
     rep.append(f"Exceptions:             {len(exceptions)}")

@@ -529,6 +529,27 @@ export async function copyPreviousWeek(
       })),
     );
 
+  // Guarantee the standing default — every active location is closed on Sundays
+  // (day_of_week 0) — even if the source week had a Sunday re-opened. Ignores
+  // duplicates via the (week_id, location_id, day_of_week) unique index.
+  const { data: activeLocs } = await supabase
+    .from("location")
+    .select("id")
+    .eq("is_active", true);
+  const sundayClosures = ((activeLocs ?? []) as { id: string }[]).map((l) => ({
+    week_id: weekId,
+    location_id: l.id,
+    day_of_week: 0,
+    reason: null,
+  }));
+  if (sundayClosures.length > 0)
+    await supabase
+      .from("sched_closure")
+      .upsert(sundayClosures, {
+        onConflict: "week_id,location_id,day_of_week",
+        ignoreDuplicates: true,
+      });
+
   // Copy staffed assignments — same people, days, and times — onto the new
   // lines, with work dates recomputed for the new week and attendance reset.
   const { data: prevAsg } = await supabase
