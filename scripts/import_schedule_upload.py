@@ -46,6 +46,9 @@ XLSX = "public/Schedule Upload GddOPs.xlsx"
 OUT_SQL = ".data/schedule_upload.sql"
 OUT_REPORT = ".data/schedule_upload_report.txt"
 YEAR = 2026
+# Schedule is intentionally blank from this date on (scheduler's clean slate);
+# never (re)create placements or callout shifts on/after it.
+CLEAR_FROM = date(2026, 9, 1)
 
 MONTH_TABS = {
     "January": 1, "FEB": 2, "MAR": 3, "April": 4,
@@ -77,6 +80,25 @@ ROLE_FIX = {
     "surgery tech 1": "Surgery Tech",
     "in house admin marketing assist": "Admin/Mrkt Asst.",
 }
+
+# Department-header rows ("VET-SURGERY", "VET-AP", ...) carry each department's
+# DVM names. classify() in import_schedule_weeks keys on hyphenated tokens, but
+# norm() converts the hyphen to a space, so those headers never match there.
+# Detect them here (hyphen-free) so the running department + its doctors resolve.
+DEPT_HEAD = [
+    ("vet surgery", "SURG"), ("vet ap", "AP"), ("vet nad", "NAD"),
+    ("vet im", "IM"), ("vet exotic", "EXO"), ("vet mpmv", "MPMV"),
+    ("vet cardio", "CARD"),
+]
+
+
+def classify2(label, current):
+    """classify() with robust VET-<dept> header detection."""
+    low = norm(label)
+    for kw, dept in DEPT_HEAD:
+        if kw in low:
+            return dept, "DVM", dept
+    return classify(label, current)
 
 
 def clean_name(frag):
@@ -353,7 +375,7 @@ def parse_month_tab(ws, month, matcher, by_dr, dvm_ids, loc_ids,
             current_dept = None
             while rr <= max_r and not norm(cell(ws, rr, 2)).startswith("week"):
                 label = cell(ws, rr, 2)
-                dept, role, current_dept = classify(label, current_dept)
+                dept, role, current_dept = classify2(label, current_dept)
                 if role and norm(role) in ROLE_FIX:
                     role = ROLE_FIX[norm(role)]
                 if role:
@@ -371,13 +393,20 @@ def parse_month_tab(ws, month, matcher, by_dr, dvm_ids, loc_ids,
                                     (ws.title, week_start.isoformat(),
                                      label, frag, "unmatched"))
                                 continue
+                            wd = dates[day_idx]
+                            if wd >= CLEAR_FROM:
+                                continue
+                            # Faithful to the grid: keep the row's role. Only
+                            # when the row's role has no line do we fall back to
+                            # the department's DVM (rescues a doctor whose name
+                            # sits in a support row with no DVM-able template).
                             tgt_dept, tgt_role = dept, role
-                            if pid in dvm_ids and norm(role) != "dvm":
+                            tpls = by_dr.get((tgt_dept or "", norm(tgt_role)))
+                            if not tpls and pid in dvm_ids:
                                 dd = dept or current_dept
                                 if by_dr.get((dd or "", "dvm")):
                                     tgt_dept, tgt_role = dd, "DVM"
-                            tpls = by_dr.get((tgt_dept or "", norm(tgt_role)))
-                            wd = dates[day_idx]
+                                    tpls = by_dr.get((dd or "", "dvm"))
                             if not tpls:
                                 exceptions.append(
                                     (ws.title, wd.isoformat(), label, frag,
@@ -427,6 +456,8 @@ def parse_callout(ws, matcher, exceptions):
         for c, d in col_date.items():
             mark = cell(ws, r, c).upper()
             if mark not in ATT_MAP:
+                continue
+            if d >= CLEAR_FROM:
                 continue
             font = ws.cell(row=r, column=c).font
             rgb = None
