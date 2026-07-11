@@ -330,7 +330,7 @@ function csvRowToContact(row: Record<string, string>): ImportContactRow {
   return {
     first_name: firstName,
     last_name: lastName,
-    full_name: full ?? [first, last].filter(Boolean).join(" ") || null,
+    full_name: full ?? ([first, last].filter(Boolean).join(" ") || null),
     email: pick("email", "contact email", "e-mail", "email address"),
     phone: pick("phone", "phone number", "mobile", "cell", "telephone"),
     organization: pick("organization", "org", "clinic", "company", "practice"),
