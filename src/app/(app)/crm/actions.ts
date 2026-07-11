@@ -451,7 +451,7 @@ export async function importContacts(
       email: clean(r.email),
       phone: clean(r.phone),
       organization: clean(r.organization),
-      status: clean(r.status),
+      status: clean(r.status) ?? "lead",
       lead_source: clean(r.lead_source),
       ce_events_attended: clean(r.ce_events_attended),
       notes: clean(r.notes),
