@@ -117,7 +117,7 @@ export function exportColumnsCsv<T>(
 }
 
 /** Minimal CSV parser (handles quoted fields + escaped quotes). */
-function parseCsv(text: string): string[][] {
+export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -149,6 +149,36 @@ function parseCsv(text: string): string[][] {
   }
   return rows.filter((r) => r.some((c) => c.trim() !== ""));
 }
+
+/**
+ * Read a picked CSV file and return its rows as an array of objects keyed by
+ * the (trimmed, lower-cased) header names. Resolves to an empty array when the
+ * file has no data rows.
+ */
+export function readCsvAsObjects(file: File): Promise<Record<string, string>[]> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read file"));
+    reader.onload = () => {
+      const rows = parseCsv(String(reader.result ?? ""));
+      if (rows.length < 2) {
+        resolve([]);
+        return;
+      }
+      const headers = rows[0].map((h) => h.trim().toLowerCase());
+      const objects = rows.slice(1).map((cells) => {
+        const obj: Record<string, string> = {};
+        headers.forEach((h, i) => {
+          if (h) obj[h] = (cells[i] ?? "").trim();
+        });
+        return obj;
+      });
+      resolve(objects);
+    };
+    reader.readAsText(file);
+  });
+}
+
 
 /**
  * Parse a picked CSV file and report a preview summary. Bulk writes to the

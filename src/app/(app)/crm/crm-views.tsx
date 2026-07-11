@@ -6,12 +6,13 @@ import {
   type CrmOrganization,
   type CrmContact,
   type CrmInfluencer,
+  type ContactType,
   ORG_TYPE_LABELS,
   subtypeLabel,
   categoryLabel,
   RECOMMENDATION_LEVEL_OPTIONS,
 } from "@/lib/crm/types";
-import { logOrgQuickNote } from "./actions";
+import { logOrgQuickNote, importContacts, type ImportContactRow } from "./actions";
 import {
   type Stat,
   type Column,
@@ -24,6 +25,7 @@ import {
   compactCurrency,
   exportColumnsCsv,
   previewCsvImport,
+  readCsvAsObjects,
 } from "../_components/data-views";
 import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
 
@@ -298,6 +300,52 @@ function QuickNoteDialog({
 // ---------------------------------------------------------------------------
 // Contacts (Student, CE Leads CRMs)
 // ---------------------------------------------------------------------------
+
+/**
+ * Map a CSV row (keyed by lower-cased header) onto an importable contact,
+ * tolerating the common header variations we see in uploaded lists.
+ */
+function csvRowToContact(row: Record<string, string>): ImportContactRow {
+  const pick = (...keys: string[]): string | null => {
+    for (const k of keys) {
+      const v = row[k];
+      if (v != null && v.trim() !== "") return v.trim();
+    }
+    return null;
+  };
+
+  const first = pick("first name", "first_name", "firstname");
+  const last = pick("last name", "last_name", "lastname");
+  const full = pick("name", "full name", "full_name", "contact name", "contact");
+
+  let firstName = first;
+  let lastName = last;
+  // If only a single "Name" column was provided, split it into first/last.
+  if (!firstName && !lastName && full) {
+    const parts = full.split(/\s+/);
+    firstName = parts[0] ?? null;
+    lastName = parts.length > 1 ? parts.slice(1).join(" ") : null;
+  }
+
+  return {
+    first_name: firstName,
+    last_name: lastName,
+    full_name: full ?? [first, last].filter(Boolean).join(" ") || null,
+    email: pick("email", "contact email", "e-mail", "email address"),
+    phone: pick("phone", "phone number", "mobile", "cell", "telephone"),
+    organization: pick("organization", "org", "clinic", "company", "practice"),
+    status: pick("status"),
+    lead_source: pick("lead source", "lead_source", "source"),
+    ce_events_attended: pick(
+      "ce events",
+      "ce event",
+      "ce_events_attended",
+      "events",
+    ),
+    notes: pick("notes", "note", "comments"),
+  };
+}
+
 export function ContactListView({
   contacts,
   title,
@@ -314,6 +362,44 @@ export function ContactListView({
   addHref?: string;
 }) {
   const router = useRouter();
+  const [importing, setImporting] = useState(false);
+
+  const contactType: ContactType =
+    variant === "student" ? "student" : "ce_attendee";
+
+  async function handleImport(file: File) {
+    if (importing) return;
+    setImporting(true);
+    try {
+      const rows = await readCsvAsObjects(file);
+      if (rows.length === 0) {
+        window.alert(`No data rows found in “${file.name}”.`);
+        return;
+      }
+      const mapped = rows.map(csvRowToContact);
+      const result = await importContacts(contactType, mapped);
+      if (!result.ok) {
+        window.alert(`Import failed: ${result.error}`);
+        return;
+      }
+      const skippedNote =
+        result.skipped > 0 ? ` (${result.skipped} empty row(s) skipped)` : "";
+      window.alert(
+        `Imported ${result.inserted} contact${
+          result.inserted === 1 ? "" : "s"
+        } from “${file.name}”.${skippedNote}`,
+      );
+      router.refresh();
+    } catch (err) {
+      window.alert(
+        `Could not read “${file.name}”: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    } finally {
+      setImporting(false);
+    }
+  }
 
   const columns: Column<CrmContact>[] =
     variant === "student"
@@ -442,7 +528,7 @@ export function ContactListView({
         onExport={() =>
           exportColumnsCsv(title.toLowerCase().replace(/\s+/g, "-"), columns, contacts)
         }
-        onImport={(f) => previewCsvImport(f, "contact")}
+        onImport={(f) => void handleImport(f)}
       />
       <StatGrid stats={stats} />
       <DataTable

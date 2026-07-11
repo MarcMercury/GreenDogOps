@@ -406,6 +406,74 @@ export async function createContact(
   redirect(`/crm/contact/${(data as { id: string }).id}`);
 }
 
+/** A single contact row prepared client-side from a parsed CSV import. */
+export type ImportContactRow = {
+  first_name?: string | null;
+  last_name?: string | null;
+  full_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  organization?: string | null;
+  status?: string | null;
+  lead_source?: string | null;
+  ce_events_attended?: string | null;
+  notes?: string | null;
+};
+
+export type ImportResult =
+  | { ok: true; inserted: number; skipped: number }
+  | { ok: false; error: string };
+
+/**
+ * Bulk-insert contacts parsed from an uploaded CSV into crm_contact. Rows with
+ * no name, email, and phone are skipped as empty. Returns a summary so the UI
+ * can confirm how many records were actually written.
+ */
+export async function importContacts(
+  contactType: ContactType,
+  rows: ImportContactRow[],
+): Promise<ImportResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return { ok: false, error: gate.error };
+  const type = contactType in CONTACT_TYPE_LABELS ? contactType : "student";
+
+  const clean = (v: string | null | undefined): string | null => {
+    if (v == null) return null;
+    const s = String(v).trim();
+    return s === "" ? null : s;
+  };
+
+  const records = rows
+    .map((r) => ({
+      first_name: clean(r.first_name),
+      last_name: clean(r.last_name),
+      full_name: clean(r.full_name),
+      email: clean(r.email),
+      phone: clean(r.phone),
+      organization: clean(r.organization),
+      status: clean(r.status),
+      lead_source: clean(r.lead_source),
+      ce_events_attended: clean(r.ce_events_attended),
+      notes: clean(r.notes),
+      contact_type: type,
+      source: "import",
+    }))
+    .filter(
+      (r) =>
+        r.full_name || r.first_name || r.last_name || r.email || r.phone,
+    );
+
+  const skipped = rows.length - records.length;
+  if (records.length === 0) return { ok: true, inserted: 0, skipped };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("crm_contact").insert(records);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/crm", "layout");
+  return { ok: true, inserted: records.length, skipped };
+}
+
 function influencerPatch(formData: FormData) {
   return {
     contact_name: str(formData.get("contact_name")),
