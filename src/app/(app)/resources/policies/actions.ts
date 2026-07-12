@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser, recordAudit } from "@/lib/auth/session";
-import { isEditorRole } from "@/lib/auth/permissions";
+import { canEditGeneral } from "@/lib/auth/permissions";
 
 const RESOURCES_BUCKET = "resources";
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -54,7 +54,7 @@ export async function uploadPolicyDocument(
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "Not signed in." };
 
-  if (!isEditorRole(current.appUser.role)) {
+  if (!canEditGeneral(current.appUser)) {
     return { ok: false, error: "You don't have permission to upload." };
   }
 
@@ -131,7 +131,7 @@ export async function createResourceCategory(
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "Not signed in." };
 
-  if (!isEditorRole(current.appUser.role)) {
+  if (!canEditGeneral(current.appUser)) {
     return {
       ok: false,
       error: "You don't have permission to create categories.",
@@ -189,7 +189,7 @@ export async function createResourceLink(
 ): Promise<UploadResult> {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "Not signed in." };
-  if (!isEditorRole(current.appUser.role)) {
+  if (!canEditGeneral(current.appUser)) {
     return { ok: false, error: "You don't have permission to add links." };
   }
 
@@ -243,7 +243,7 @@ export async function updateResourceCategory(
 ): Promise<UploadResult> {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "Not signed in." };
-  if (!isEditorRole(current.appUser.role)) {
+  if (!canEditGeneral(current.appUser)) {
     return { ok: false, error: "You don't have permission to edit categories." };
   }
 
@@ -280,7 +280,7 @@ export async function deleteResourceCategory(
 ): Promise<UploadResult> {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "Not signed in." };
-  if (!isEditorRole(current.appUser.role)) {
+  if (!canEditGeneral(current.appUser)) {
     return {
       ok: false,
       error: "You don't have permission to delete categories.",
@@ -329,7 +329,7 @@ export async function updateResourceDocument(
 ): Promise<UploadResult> {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "Not signed in." };
-  if (!isEditorRole(current.appUser.role)) {
+  if (!canEditGeneral(current.appUser)) {
     return { ok: false, error: "You don't have permission to edit resources." };
   }
 
@@ -389,7 +389,7 @@ export async function deleteResourceDocument(
 ): Promise<UploadResult> {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "Not signed in." };
-  if (!isEditorRole(current.appUser.role)) {
+  if (!canEditGeneral(current.appUser)) {
     return { ok: false, error: "You don't have permission to delete resources." };
   }
 

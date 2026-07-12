@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isEditorRole } from "@/lib/auth/permissions";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import type { CrmInfluencer } from "@/lib/crm/types";
 import { InfluencerForm } from "./influencer-form";
 
@@ -16,7 +16,7 @@ export default async function InfluencerDetailPage({
   const { id } = await params;
   const supabase = await createClient();
   const current = await getCurrentUser();
-  const canEdit = current ? isEditorRole(current.appUser.role) : false;
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
   const { data, error } = await supabase
     .from("marketing_influencers")
     .select("*")

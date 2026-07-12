@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isEditorRole } from "@/lib/auth/permissions";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import { InfluencerForm } from "../[id]/influencer-form";
 
 export const dynamic = "force-dynamic";
 
 export default async function NewInfluencerPage() {
   const current = await getCurrentUser();
-  const canEdit = current ? isEditorRole(current.appUser.role) : false;
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
   if (!canEdit) redirect("/crm/influencer");
 
   return (

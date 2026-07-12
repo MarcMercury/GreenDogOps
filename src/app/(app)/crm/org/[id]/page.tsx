@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isEditorRole } from "@/lib/auth/permissions";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import {
   type CrmOrganization,
   type CrmOrgDocument,
@@ -25,7 +25,7 @@ export default async function OrganizationDetailPage({
   const { id } = await params;
   const supabase = await createClient();
   const current = await getCurrentUser();
-  const canEdit = current ? isEditorRole(current.appUser.role) : false;
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
   const { data, error } = await supabase
     .from("crm_organization")
     .select("*")

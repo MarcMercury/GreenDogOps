@@ -479,3 +479,87 @@ export async function createCandidates(
   revalidatePath("/ats");
   return { ok: true, created, failed, errors };
 }
+
+export type CreateCandidateResult =
+  | { ok: true; id: string }
+  | { ok: false; error: string };
+
+/**
+ * Create a single recruiting candidate from a manual entry form. Inserts a
+ * `person` (status = applicant) plus, when any recruiting field is provided, a
+ * `person_recruiting` row. Returns the new person id so the caller can open the
+ * candidate detail view.
+ */
+export async function createCandidate(
+  formData: FormData,
+): Promise<CreateCandidateResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const firstName = str(formData.get("first_name"));
+  const lastName = str(formData.get("last_name"));
+  const email = str(formData.get("email"));
+  const fullName = [firstName, lastName].filter(Boolean).join(" ") || null;
+
+  if (!firstName && !lastName && !email) {
+    return { ok: false, error: "Enter a name or email to create a candidate." };
+  }
+
+  const { data: person, error: pErr } = await supabase
+    .from("person")
+    .insert({
+      status: "applicant",
+      first_name: firstName,
+      last_name: lastName,
+      full_name: fullName,
+      email,
+      phone_mobile: str(formData.get("phone_mobile")),
+      phone_home: str(formData.get("phone_home")),
+      phone_other: str(formData.get("phone_other")),
+      opportunity_type: str(formData.get("opportunity_type")),
+    })
+    .select("id")
+    .single();
+
+  if (pErr || !person) {
+    return { ok: false, error: pErr?.message ?? "Could not create candidate." };
+  }
+
+  const recPatch = {
+    person_id: person.id,
+    target_title: str(formData.get("target_title")),
+    pipeline: str(formData.get("pipeline")),
+    stage: str(formData.get("stage")),
+    source: str(formData.get("source")),
+    interview_date: str(formData.get("interview_date")),
+    score: num(formData.get("score")),
+    keep_for_future: bool(formData.get("keep_for_future")),
+    follow_up_date: str(formData.get("follow_up_date")),
+    status_notes: str(formData.get("status_notes")),
+    notes: str(formData.get("notes")),
+  };
+  const hasRecruiting = Object.entries(recPatch).some(
+    ([k, v]) => k !== "person_id" && v != null && v !== false,
+  );
+  if (hasRecruiting) {
+    const { error: rErr } = await supabase
+      .from("person_recruiting")
+      .upsert(recPatch, { onConflict: "person_id" });
+    if (rErr) {
+      return { ok: false, error: `Candidate saved, but recruiting details failed: ${rErr.message}` };
+    }
+  }
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "create",
+    entity: "person",
+    entityId: person.id,
+    summary: `Added recruiting candidate ${fullName ?? email ?? person.id}`,
+  });
+
+  revalidatePath("/ats");
+  return { ok: true, id: person.id };
+}

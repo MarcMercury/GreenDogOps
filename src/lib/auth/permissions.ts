@@ -35,7 +35,7 @@ export const ROLE_DESCRIPTIONS: Record<AppRole, string> = {
   manager:
     "Manage and edit everything except the Admin panel; can view all compensation.",
   schedule_admin:
-    "Read-only everywhere like Staff, but can fully edit the Schedule.",
+    "Edit every module they can see (Schedule, CRM, HR, ATS, Resources, etc.); no Admin panel and cannot view all compensation.",
   staff:
     "Read-only access to everything except the Admin panel; sees only their own compensation.",
 };
@@ -151,16 +151,29 @@ export function isEditorRole(role: AppRole): boolean {
 
 /**
  * Can this user make edits within the given module?
- * - owner/admin/manager: edit any module they can access.
- * - schedule_admin: edit only the Schedule module (read-only elsewhere).
+ * - owner/admin/executive/manager: edit any module they can access.
+ * - schedule_admin: edit any module they can access (i.e. every non-admin
+ *   module, including all CRM pages) — they have write access everywhere they
+ *   have a view. They still cannot reach the Admin panel or view all
+ *   compensation (that remains gated by isEditorRole).
  * - staff: read-only everywhere.
  */
 export function canEditModule(user: AppUser, key: ModuleKey): boolean {
   if (!canAccessModule(user, key)) return false;
   if (isEditorRole(user.role)) return true;
-  if (user.role === "schedule_admin")
-    return key === "schedule" || key === "planning";
+  if (user.role === "schedule_admin") return true;
   return false;
+}
+
+/**
+ * Can this user edit "general" (non-admin) modules that don't gate on a single
+ * fixed module key — e.g. the shared CRM and Resources surfaces? This is the
+ * write-side counterpart to isEditorRole, additionally including Schedule
+ * Admins (who now have write access to every module they can view). Kept
+ * separate from isEditorRole so it does NOT grant compensation visibility.
+ */
+export function canEditGeneral(user: AppUser): boolean {
+  return isEditorRole(user.role) || user.role === "schedule_admin";
 }
 
 /** Roles allowed to view every employee's compensation/benefits data. */

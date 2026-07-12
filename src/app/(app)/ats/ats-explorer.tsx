@@ -18,6 +18,7 @@ import {
   exportColumnsCsv,
 } from "../_components/data-views";
 import { ImportDialog } from "./import-dialog";
+import { AddCandidateDialog } from "./add-candidate-dialog";
 
 function candidateName(r: CandidateRow): string {
   if (r.full_name) return r.full_name;
@@ -35,6 +36,7 @@ function fmtDate(d: string | null | undefined): string | null {
 export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
   const router = useRouter();
   const [importOpen, setImportOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   const counts: Record<string, number> = {};
   for (const r of rows) {
@@ -171,16 +173,25 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
         countLabel="candidates"
         onExport={() => exportColumnsCsv("recruiting-ats", columns, rows)}
         actions={
-          <button
-            onClick={() => setImportOpen(true)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            ⬆ Import
-          </button>
+          <>
+            <button
+              onClick={() => setImportOpen(true)}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              ⬆ Import
+            </button>
+            <button
+              onClick={() => setAddOpen(true)}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
+            >
+              + Add
+            </button>
+          </>
         }
       />
 
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <AddCandidateDialog open={addOpen} onClose={() => setAddOpen(false)} />
 
       <StatGrid stats={stats} />
 

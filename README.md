@@ -105,7 +105,7 @@ over role defaults.
 | **Admin**        | Full control of users, settings, and every module. |
 | **Executive**    | View/edit every module except Admin; can view all compensation. |
 | **Manager/HR**   | Manage/edit everything except Admin; can view all compensation. |
-| **Schedule Admin** | Read-only everywhere like Staff, but can fully edit the Schedule (and Planning). |
+| **Schedule Admin** | Edit every module they can see (Schedule, Planning, all CRM, HR, ATS, Resources, etc.); no Admin panel and cannot view all compensation. |
 | **Staff**        | Read-only everywhere except Admin; sees only their own compensation. |
 
 Admin-only modules (`admin`, `reporting`, `emp_reporting`) are hidden from

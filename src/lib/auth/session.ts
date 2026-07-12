@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { AppUser, ModuleKey } from "./permissions";
-import { isAdminRole, canEditModule, isEditorRole } from "./permissions";
+import { isAdminRole, canEditModule, canEditGeneral } from "./permissions";
 
 export interface CurrentUser {
   authId: string;
@@ -76,13 +76,13 @@ export async function ensureCanEdit(moduleKey: ModuleKey): Promise<EditGate> {
 /**
  * Gate a mutating server action that applies to a general (non-schedule)
  * module without a single fixed module key — e.g. the shared CRM actions.
- * Only Owner/Admin/Manager-HR may edit; Staff and Schedule Admins are
- * read-only here.
+ * Owner/Admin/Executive/Manager-HR may edit, as may Schedule Admins (who have
+ * write access to every module they can view). Staff are read-only here.
  */
 export async function ensureEditor(): Promise<EditGate> {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "You are not signed in." };
-  if (isEditorRole(current.appUser.role)) {
+  if (canEditGeneral(current.appUser)) {
     return { ok: true, current };
   }
   return { ok: false, error: NO_EDIT_MESSAGE };

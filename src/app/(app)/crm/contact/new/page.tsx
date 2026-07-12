@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isEditorRole } from "@/lib/auth/permissions";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import {
   type ContactType,
   CONTACT_TYPE_LABELS,
@@ -25,7 +25,7 @@ export default async function NewContactPage({
   const section = crmSectionBySlug(crmSlugForContactType(contactType));
 
   const current = await getCurrentUser();
-  const canEdit = current ? isEditorRole(current.appUser.role) : false;
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
   if (!canEdit) redirect(section ? `/crm/${section.slug}` : "/crm");
 
   const formOptions = await getStudentFormOptions();

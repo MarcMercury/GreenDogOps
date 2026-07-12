@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isEditorRole } from "@/lib/auth/permissions";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import {
   type OrgType,
   ORG_TYPE_LABELS,
@@ -27,7 +27,7 @@ export default async function NewOrganizationPage({
   }
 
   const current = await getCurrentUser();
-  const canEdit = current ? isEditorRole(current.appUser.role) : false;
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
   if (!canEdit) redirect(`/crm/${section.slug}`);
 
   const supabase = await createClient();

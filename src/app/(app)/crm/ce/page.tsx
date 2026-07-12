@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { CrmContact, CrmCeAttendance, CrmCeEvent } from "@/lib/crm/types";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isEditorRole } from "@/lib/auth/permissions";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import { CeCrmTabs } from "./ce-tabs";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export default async function CeLeadsCrmPage() {
     getCurrentUser(),
   ]);
 
-  const canEdit = current ? isEditorRole(current.appUser.role) : false;
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
 
   if (contactsRes.error) {
     return (
