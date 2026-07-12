@@ -242,7 +242,7 @@ function docxXmlToText(xml: string): string {
 //
 // Configure any subset of these environment variables (more keys = more
 // resilience):
-//   GEMINI_API_KEY   (or GOOGLE_API_KEY)   GEMINI_MODEL     default gemini-2.0-flash
+//   GEMINI_API_KEY   (or GOOGLE_API_KEY)   GEMINI_MODEL     default gemini-2.5-flash
 //   OPENAI_API_KEY                          OPENAI_MODEL     default gpt-4o-mini
 //   ANTHROPIC_API_KEY                       ANTHROPIC_MODEL  default claude-3-5-haiku-latest
 //   OPENROUTER_API_KEY                      OPENROUTER_MODEL default google/gemini-2.0-flash-exp:free
@@ -333,7 +333,7 @@ async function callOpenAICompatible(
 /** Google Gemini (generativeLanguage API). Handles text, images, and PDFs. */
 async function callGemini(system: string, parts: LlmPart[]): Promise<ProviderCall> {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-  const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const geminiParts = parts.map((p) => {
     if (p.kind === "text") return { text: p.text };
     if (p.kind === "image") return { inlineData: { mimeType: p.mime, data: p.base64 } };
