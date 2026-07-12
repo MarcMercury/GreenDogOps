@@ -6,6 +6,7 @@ import {
   type CandidateRow,
   RECRUITING_PIPELINE_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
+  RECRUITING_POSITION_OPTIONS,
 } from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { CopyForSlackButton } from "./copy-for-slack";
@@ -17,11 +18,13 @@ function Field({
   name,
   defaultValue,
   type = "text",
+  list,
 }: {
   label: string;
   name: string;
   defaultValue?: string | number | null;
   type?: string;
+  list?: string;
 }) {
   return (
     <label className="flex flex-col gap-1">
@@ -29,6 +32,7 @@ function Field({
       <input
         name={name}
         type={type}
+        list={list}
         defaultValue={defaultValue ?? ""}
         step={type === "number" ? "any" : undefined}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
@@ -215,14 +219,27 @@ export function CandidateForm({
         <Field label="Cell phone" name="phone_mobile" type="tel" defaultValue={row.phone_mobile} />
         <Field label="Home phone" name="phone_home" type="tel" defaultValue={row.phone_home} />
         <Field label="Other phone" name="phone_other" type="tel" defaultValue={row.phone_other} />
+        <Field label="Date of birth" name="date_of_birth" type="date" defaultValue={row.date_of_birth} />
+        <Field label="ZIP / postal code" name="postal_code" defaultValue={row.postal_code} />
       </Section>
 
       <Section title="Pipeline">
-        <Field label="Position applied for" name="target_title" defaultValue={rec?.target_title} />
+        <Field
+          label="Position applied for"
+          name="target_title"
+          defaultValue={rec?.target_title}
+          list="recruiting-position-options"
+        />
+        <datalist id="recruiting-position-options">
+          {RECRUITING_POSITION_OPTIONS.map((p) => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
         <OpportunityTypeField defaultValue={row.opportunity_type} />
         <Select label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} options={RECRUITING_PIPELINE_OPTIONS} />
         <Field label="Stage" name="stage" defaultValue={rec?.stage} />
         <Select label="Source (found on)" name="source" defaultValue={rec?.source} options={RECRUITING_SOURCE_OPTIONS} />
+        <Field label="Application date" name="application_date" type="date" defaultValue={rec?.application_date} />
         <Field label="Interview date" name="interview_date" type="date" defaultValue={rec?.interview_date} />
         <Field label="Score" name="score" type="number" defaultValue={rec?.score} />
         <Field label="Resume" name="resume_url" defaultValue={rec?.resume_url} />

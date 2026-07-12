@@ -5,6 +5,7 @@ export interface PersonRecruiting {
   stage: string | null;
   status_notes: string | null;
   source: string | null;
+  application_date: string | null;
   interview_date: string | null;
   score: number | null;
   resume_url: string | null;
@@ -68,6 +69,21 @@ export const RECRUITING_SOURCE_OPTIONS = [
   { value: "Other", label: "Other" },
 ] as const;
 
+// Common positions candidates apply for. Used as datalist suggestions on the
+// import/edit forms; the field stays free-text so unusual titles still save.
+export const RECRUITING_POSITION_OPTIONS = [
+  "DVM",
+  "CSR",
+  "Vet Tech",
+  "Vet Assistant",
+  "Practice Manager",
+  "Receptionist",
+  "Kennel Technician",
+  "Groomer",
+  "Remote CSR",
+  "Volunteer / Extern",
+] as const;
+
 export const INTERVIEW_STATUS_LABELS: Record<string, string> = {
   scheduled: "Scheduled",
   completed: "Completed",
@@ -112,6 +128,8 @@ export interface CandidateRow {
   phone_mobile: string | null;
   phone_home: string | null;
   phone_other: string | null;
+  date_of_birth: string | null;
+  postal_code: string | null;
   opportunity_type: string | null;
   notes: string | null;
   source_contact_id: string | null;

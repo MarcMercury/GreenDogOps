@@ -17,6 +17,10 @@ type FieldKey =
   | "full_name"
   | "email"
   | "phone_mobile"
+  | "phone_home"
+  | "phone_other"
+  | "date_of_birth"
+  | "postal_code"
   | "target_title"
   | "pipeline"
   | "stage"
@@ -42,6 +46,22 @@ const HEADER_ALIASES: { field: FieldKey; aliases: string[] }[] = [
   {
     field: "phone_mobile",
     aliases: ["phone", "mobile", "cell", "telephone", "phone number", "contact number"],
+  },
+  {
+    field: "phone_home",
+    aliases: ["home phone", "home", "phone home", "secondary phone"],
+  },
+  {
+    field: "phone_other",
+    aliases: ["other phone", "work phone", "alternate phone", "phone other"],
+  },
+  {
+    field: "date_of_birth",
+    aliases: ["date of birth", "dob", "birth date", "birthday", "birthdate"],
+  },
+  {
+    field: "postal_code",
+    aliases: ["postal code", "zip", "zip code", "zipcode", "postcode"],
   },
   {
     field: "target_title",
@@ -263,11 +283,16 @@ const EXTRACTION_SCHEMA_HINT = `Return ONLY JSON. Each candidate object uses the
   "last_name": string|null,
   "full_name": string|null,
   "email": string|null,
-  "phone_mobile": string|null,
-  "target_title": string|null,   // role/position they are applying for or most recent job title
-  "source": string|null,         // where they applied from, if stated
-  "notes": string|null           // 1-3 sentence summary: years of experience, key skills, certifications
-}`;
+  "phone_mobile": string|null,  // primary / cell number
+  "phone_home": string|null,    // secondary home number if a second phone is listed
+  "phone_other": string|null,   // any additional phone (work, etc.)
+  "date_of_birth": string|null, // ISO format YYYY-MM-DD if a birth date is stated
+  "postal_code": string|null,   // ZIP / postal code from an address block
+  "target_title": string|null,  // role/position they are applying for or most recent job title
+  "source": string|null,        // where they applied from, if stated
+  "notes": string|null          // 2-4 sentence summary: years of experience, most recent roles/employers, key skills, certifications, education
+}
+Extract every field you can find. Prefer real values over null. Never invent data that is not present.`;
 
 type ProviderCall = { ok: true; content: string } | { ok: false; error: string };
 
@@ -567,6 +592,10 @@ function coerceCandidate(raw: Record<string, unknown>): ParsedCandidate {
   }
   c.email = get("email");
   c.phone_mobile = get("phone_mobile") ?? get("phone");
+  c.phone_home = get("phone_home");
+  c.phone_other = get("phone_other");
+  c.date_of_birth = get("date_of_birth") ?? get("dob");
+  c.postal_code = get("postal_code") ?? get("zip") ?? get("zip_code");
   c.target_title = get("target_title") ?? get("title");
   c.source = get("source");
   c.notes = get("notes") ?? get("summary");

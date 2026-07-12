@@ -13,6 +13,12 @@ export interface ParsedCandidate {
   full_name: string | null;
   email: string | null;
   phone_mobile: string | null;
+  phone_home: string | null;
+  phone_other: string | null;
+  /** ISO date (YYYY-MM-DD) if a birth date is stated on the resume. */
+  date_of_birth: string | null;
+  /** ZIP / postal code parsed from an address block. */
+  postal_code: string | null;
   /** Position / role they are applying for (person_recruiting.target_title). */
   target_title: string | null;
   pipeline: string | null;
@@ -20,6 +26,8 @@ export interface ParsedCandidate {
   source: string | null;
   opportunity_type: string | null;
   score: number | null;
+  /** Date the candidate applied / resume was received (person_recruiting.application_date). */
+  application_date: string | null;
   /** Free-form summary (work history highlights, etc.). */
   notes: string | null;
   status_notes: string | null;
@@ -32,12 +40,17 @@ export function emptyCandidate(): ParsedCandidate {
     full_name: null,
     email: null,
     phone_mobile: null,
+    phone_home: null,
+    phone_other: null,
+    date_of_birth: null,
+    postal_code: null,
     target_title: null,
     pipeline: null,
     stage: null,
     source: null,
     opportunity_type: null,
     score: null,
+    application_date: null,
     notes: null,
     status_notes: null,
   };

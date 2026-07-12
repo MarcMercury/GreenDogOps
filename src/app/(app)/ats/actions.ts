@@ -56,6 +56,8 @@ export async function updateCandidate(
     phone_mobile: str(formData.get("phone_mobile")),
     phone_home: str(formData.get("phone_home")),
     phone_other: str(formData.get("phone_other")),
+    date_of_birth: str(formData.get("date_of_birth")),
+    postal_code: str(formData.get("postal_code")),
     opportunity_type: str(formData.get("opportunity_type")),
   };
   const { error: pErr } = await supabase
@@ -70,6 +72,7 @@ export async function updateCandidate(
     stage: str(formData.get("stage")),
     target_title: str(formData.get("target_title")),
     source: str(formData.get("source")),
+    application_date: str(formData.get("application_date")),
     interview_date: str(formData.get("interview_date")),
     score: num(formData.get("score")),
     resume_url: str(formData.get("resume_url")),
@@ -167,6 +170,48 @@ export async function deleteInterview(
 // ---------------------------------------------------------------------------
 const DOCUMENTS_BUCKET = "employee-documents";
 
+/**
+ * Store an uploaded file on a person's document shelf (the shared
+ * `employee-documents` bucket + `person_document` row that HR also reads).
+ * Rolls back the storage object if the row insert fails so the two stay in
+ * sync. Used by both the manual "upload document" action and the resume-import
+ * flow, which attaches the original resume to the new candidate.
+ */
+async function storePersonDocument(
+  personId: string,
+  file: File,
+  meta: { title?: string | null; category?: string | null; source?: string | null },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const admin = createAdminClient();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const storagePath = `${personId}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await admin.storage
+    .from(DOCUMENTS_BUCKET)
+    .upload(storagePath, file, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { error: dbErr } = await admin.from("person_document").insert({
+    person_id: personId,
+    title: meta.title ?? file.name,
+    category: meta.category ?? null,
+    storage_path: storagePath,
+    file_name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+    source: meta.source ?? "Uploaded in ATS",
+  });
+  if (dbErr) {
+    // Roll back the orphaned upload so storage and the table stay in sync.
+    await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+    return { ok: false, error: dbErr.message };
+  }
+  return { ok: true };
+}
+
 export async function uploadCandidateDocument(
   personId: string,
   _prev: SaveResult | null,
@@ -183,33 +228,12 @@ export async function uploadCandidateDocument(
     return { ok: false, error: "File exceeds the 25 MB limit." };
   }
 
-  const admin = createAdminClient();
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const storagePath = `${personId}/${Date.now()}_${safeName}`;
-
-  const { error: upErr } = await admin.storage
-    .from(DOCUMENTS_BUCKET)
-    .upload(storagePath, file, {
-      contentType: file.type || "application/octet-stream",
-      upsert: false,
-    });
-  if (upErr) return { ok: false, error: upErr.message };
-
-  const { error: dbErr } = await admin.from("person_document").insert({
-    person_id: personId,
-    title: str(formData.get("title")) ?? file.name,
+  const stored = await storePersonDocument(personId, file, {
+    title: str(formData.get("title")),
     category: str(formData.get("category")),
-    storage_path: storagePath,
-    file_name: file.name,
-    mime_type: file.type || null,
-    size_bytes: file.size,
     source: "Uploaded in ATS",
   });
-  if (dbErr) {
-    // Roll back the orphaned upload so storage and the table stay in sync.
-    await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
-    return { ok: false, error: dbErr.message };
-  }
+  if (!stored.ok) return stored;
 
   revalidatePath(`/ats/${personId}`);
   revalidatePath(`/hr/${personId}`);
@@ -418,6 +442,8 @@ export async function createCandidates(
   let created = 0;
   let failed = 0;
   const errors: string[] = [];
+  // Default intake date for anything the upload didn't carry: the upload day.
+  const uploadedOn = new Date().toISOString().slice(0, 10);
 
   for (const c of valid) {
     const label =
@@ -434,6 +460,10 @@ export async function createCandidates(
         full_name: fullName,
         email: c.email,
         phone_mobile: c.phone_mobile,
+        phone_home: c.phone_home,
+        phone_other: c.phone_other,
+        date_of_birth: c.date_of_birth,
+        postal_code: c.postal_code,
         opportunity_type: c.opportunity_type,
         notes: c.notes,
       })
@@ -446,23 +476,22 @@ export async function createCandidates(
       continue;
     }
 
-    const hasRecruiting =
-      c.target_title || c.pipeline || c.stage || c.source || c.score != null || c.status_notes;
-    if (hasRecruiting) {
-      const { error: rErr } = await supabase.from("person_recruiting").upsert(
-        {
-          person_id: person.id,
-          target_title: c.target_title,
-          pipeline: c.pipeline,
-          stage: c.stage,
-          source: c.source,
-          score: c.score,
-          status_notes: c.status_notes,
-        },
-        { onConflict: "person_id" },
-      );
-      if (rErr) errors.push(`${label}: saved, but recruiting details failed (${rErr.message}).`);
-    }
+    // Every applicant gets a recruiting row so the intake (application) date is
+    // always recorded, even when no other recruiting field was provided.
+    const { error: rErr } = await supabase.from("person_recruiting").upsert(
+      {
+        person_id: person.id,
+        target_title: c.target_title,
+        pipeline: c.pipeline,
+        stage: c.stage,
+        source: c.source,
+        score: c.score,
+        application_date: c.application_date ?? uploadedOn,
+        status_notes: c.status_notes,
+      },
+      { onConflict: "person_id" },
+    );
+    if (rErr) errors.push(`${label}: saved, but recruiting details failed (${rErr.message}).`);
 
     created++;
   }
@@ -478,6 +507,103 @@ export async function createCandidates(
 
   revalidatePath("/ats");
   return { ok: true, created, failed, errors };
+}
+
+export type CreateResumeCandidateResult =
+  | { ok: true; id: string; documentSaved: boolean; documentError?: string }
+  | { ok: false; error: string };
+
+/**
+ * Create one recruiting candidate from a parsed+reviewed resume and attach the
+ * original resume file to that person's document shelf (Documents tab). The
+ * candidate is created first; if the file upload then fails the candidate is
+ * still kept and the failure is reported so the recruiter can re-attach it.
+ */
+export async function createResumeCandidate(
+  candidate: ParsedCandidate,
+  file: File | null,
+): Promise<CreateResumeCandidateResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!candidateHasIdentity(candidate)) {
+    return { ok: false, error: "Enter a name or email before creating the candidate." };
+  }
+  if (file && file.size > 25 * 1024 * 1024) {
+    return { ok: false, error: "Resume file exceeds the 25 MB limit." };
+  }
+
+  const supabase = await createClient();
+  const uploadedOn = new Date().toISOString().slice(0, 10);
+  const fullName =
+    candidate.full_name ||
+    [candidate.first_name, candidate.last_name].filter(Boolean).join(" ") ||
+    null;
+
+  const { data: person, error: pErr } = await supabase
+    .from("person")
+    .insert({
+      status: "applicant",
+      first_name: candidate.first_name,
+      last_name: candidate.last_name,
+      full_name: fullName,
+      email: candidate.email,
+      phone_mobile: candidate.phone_mobile,
+      phone_home: candidate.phone_home,
+      phone_other: candidate.phone_other,
+      date_of_birth: candidate.date_of_birth,
+      postal_code: candidate.postal_code,
+      opportunity_type: candidate.opportunity_type,
+      notes: candidate.notes,
+    })
+    .select("id")
+    .single();
+  if (pErr || !person) {
+    return { ok: false, error: pErr?.message ?? "Could not create candidate." };
+  }
+
+  const { error: rErr } = await supabase.from("person_recruiting").upsert(
+    {
+      person_id: person.id,
+      target_title: candidate.target_title,
+      pipeline: candidate.pipeline,
+      stage: candidate.stage,
+      source: candidate.source,
+      score: candidate.score,
+      application_date: candidate.application_date ?? uploadedOn,
+      status_notes: candidate.status_notes,
+    },
+    { onConflict: "person_id" },
+  );
+
+  let documentSaved = false;
+  let documentError: string | undefined;
+  if (file && file.size > 0) {
+    const stored = await storePersonDocument(person.id, file, {
+      title: file.name,
+      category: "Resume",
+      source: "Resume upload (ATS)",
+    });
+    documentSaved = stored.ok;
+    if (!stored.ok) documentError = stored.error;
+  }
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "create",
+    entity: "person",
+    entityId: person.id,
+    summary: `Added recruiting candidate ${fullName ?? candidate.email ?? person.id} from resume`,
+  });
+
+  revalidatePath("/ats");
+  revalidatePath(`/ats/${person.id}`);
+  return {
+    ok: true,
+    id: person.id,
+    documentSaved,
+    documentError: documentError ?? (rErr ? `Recruiting details: ${rErr.message}` : undefined),
+  };
 }
 
 export type CreateCandidateResult =
@@ -517,6 +643,8 @@ export async function createCandidate(
       phone_mobile: str(formData.get("phone_mobile")),
       phone_home: str(formData.get("phone_home")),
       phone_other: str(formData.get("phone_other")),
+      date_of_birth: str(formData.get("date_of_birth")),
+      postal_code: str(formData.get("postal_code")),
       opportunity_type: str(formData.get("opportunity_type")),
     })
     .select("id")
@@ -532,6 +660,7 @@ export async function createCandidate(
     pipeline: str(formData.get("pipeline")),
     stage: str(formData.get("stage")),
     source: str(formData.get("source")),
+    application_date: str(formData.get("application_date")),
     interview_date: str(formData.get("interview_date")),
     score: num(formData.get("score")),
     keep_for_future: bool(formData.get("keep_for_future")),

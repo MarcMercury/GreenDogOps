@@ -6,8 +6,13 @@ import {
   parseCandidateList,
   parseResumeFile,
   createCandidates,
+  createResumeCandidate,
 } from "./actions";
 import { emptyCandidate, type ParsedCandidate } from "@/lib/ats/import-types";
+import {
+  RECRUITING_SOURCE_OPTIONS,
+  RECRUITING_POSITION_OPTIONS,
+} from "@/lib/ats/types";
 
 type Mode = "list" | "resume";
 
@@ -22,6 +27,146 @@ const FIELDS: { key: keyof ParsedCandidate; label: string; placeholder: string }
   { key: "source", label: "Source", placeholder: "Source" },
 ];
 
+const POSITION_DATALIST_ID = "ats-position-options";
+
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Small labeled input used by the resume detail editor.
+function TextField({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  list,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  placeholder?: string;
+  list?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <input
+        type={type}
+        list={list}
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      />
+    </label>
+  );
+}
+
+function SourceField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const known = value === "" || RECRUITING_SOURCE_OPTIONS.some((o) => o.value === value);
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+      >
+        <option value="">—</option>
+        {RECRUITING_SOURCE_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+        {!known && <option value={value}>{value} (current)</option>}
+      </select>
+    </label>
+  );
+}
+
+// Full single-candidate form shown after a resume is parsed so the user can
+// review the auto-filled profile and add the pieces a resume never carries
+// (lead source, position applying for, application date).
+function ResumeEditor({
+  candidate,
+  onChange,
+}: {
+  candidate: ParsedCandidate;
+  onChange: (patch: Partial<ParsedCandidate>) => void;
+}) {
+  const v = (k: keyof ParsedCandidate) => (candidate[k] as string | null) ?? "";
+  const set = (k: keyof ParsedCandidate) => (val: string) =>
+    onChange({ [k]: val === "" ? null : val } as Partial<ParsedCandidate>);
+
+  return (
+    <div className="space-y-5">
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Contact
+        </h4>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <TextField label="First name" value={v("first_name")} onChange={set("first_name")} />
+          <TextField label="Last name" value={v("last_name")} onChange={set("last_name")} />
+          <TextField label="Email" type="email" value={v("email")} onChange={set("email")} />
+          <TextField label="Cell phone" type="tel" value={v("phone_mobile")} onChange={set("phone_mobile")} />
+          <TextField label="Home phone" type="tel" value={v("phone_home")} onChange={set("phone_home")} />
+          <TextField label="Other phone" type="tel" value={v("phone_other")} onChange={set("phone_other")} />
+          <TextField label="Date of birth" type="date" value={v("date_of_birth")} onChange={set("date_of_birth")} />
+          <TextField label="ZIP / postal code" value={v("postal_code")} onChange={set("postal_code")} />
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
+        <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
+          Application details
+        </h4>
+        <p className="mb-3 text-xs text-slate-500">
+          A resume rarely states these — fill them in before creating the candidate.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <TextField
+            label="Position applying for"
+            value={v("target_title")}
+            onChange={set("target_title")}
+            placeholder="e.g. CSR"
+            list={POSITION_DATALIST_ID}
+          />
+          <SourceField label="Lead source" value={v("source")} onChange={set("source")} />
+          <TextField
+            label="Application date"
+            type="date"
+            value={v("application_date")}
+            onChange={set("application_date")}
+          />
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Summary
+        </h4>
+        <textarea
+          rows={4}
+          value={v("notes")}
+          onChange={(e) => set("notes")(e.target.value)}
+          placeholder="Experience, key skills, certifications, education…"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      </section>
+    </div>
+  );
+}
+
 export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -33,6 +178,15 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [parsing, startParse] = useTransition();
   const [saving, startSave] = useTransition();
 
+  // The original resume file, kept so it can be attached to the new candidate's
+  // Documents tab when they are created (resume mode only).
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+
+  // Bulk-fill controls for list imports (only touch rows missing a value).
+  const [bulkPosition, setBulkPosition] = useState("");
+  const [bulkSource, setBulkSource] = useState("");
+  const [bulkAppliedDate, setBulkAppliedDate] = useState("");
+
   if (!open) return null;
 
   function reset() {
@@ -40,6 +194,10 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setWarnings([]);
     setError(null);
     setResult(null);
+    setResumeFile(null);
+    setBulkPosition("");
+    setBulkSource("");
+    setBulkAppliedDate("");
   }
 
   function handleClose() {
@@ -71,7 +229,12 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
           setError(res.error);
           return;
         }
-        setStaged((prev) => [...prev, res.candidate]);
+        // Keep the original file so it can be saved to the new candidate's
+        // Documents tab, and default the application date to today (upload day).
+        setResumeFile(file);
+        setStaged([
+          { ...res.candidate, application_date: res.candidate.application_date ?? todayISO() },
+        ]);
         setWarnings([]);
       }
     });
@@ -83,6 +246,10 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     );
   }
 
+  function patchResume(patch: Partial<ParsedCandidate>) {
+    setStaged((prev) => prev.map((c, i) => (i === 0 ? { ...c, ...patch } : c)));
+  }
+
   function removeRow(index: number) {
     setStaged((prev) => prev.filter((_, i) => i !== index));
   }
@@ -91,9 +258,41 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setStaged((prev) => [...prev, emptyCandidate()]);
   }
 
+  function applyBulk(key: keyof ParsedCandidate, value: string) {
+    const v = value.trim();
+    if (!v) return;
+    setStaged((prev) =>
+      prev.map((c) => {
+        const existing = (c[key] as string | null) ?? "";
+        return existing.trim() ? c : { ...c, [key]: v };
+      }),
+    );
+  }
+
   function handleCreate() {
     setError(null);
     startSave(async () => {
+      // Resume mode: create the single candidate and attach the uploaded file
+      // to their Documents tab in one server call.
+      if (mode === "resume") {
+        const res = await createResumeCandidate(staged[0], resumeFile);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        const parts = ["Created candidate."];
+        if (resumeFile) {
+          parts.push(res.documentSaved ? "Resume saved to Documents." : "Resume file could not be saved.");
+        }
+        if (!res.documentSaved && res.documentError) parts.push(res.documentError);
+        setResult(parts.join(" "));
+        setStaged([]);
+        setResumeFile(null);
+        setWarnings([]);
+        router.refresh();
+        return;
+      }
+
       const res = await createCandidates(staged);
       if (!res.ok) {
         setError(res.error);
@@ -109,9 +308,19 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   }
 
   const busy = parsing || saving;
+  const showResumeEditor = mode === "resume" && staged.length > 0;
+
+  // Count list rows still missing a position / source for the bulk-fill hints.
+  const missingPosition = staged.filter((c) => !(c.target_title ?? "").trim()).length;
+  const missingSource = staged.filter((c) => !(c.source ?? "").trim()).length;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <datalist id={POSITION_DATALIST_ID}>
+        {RECRUITING_POSITION_OPTIONS.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
       <div className="flex max-h-[88vh] w-full max-w-4xl flex-col rounded-xl bg-white shadow-xl">
         {/* Header */}
         <div className="flex items-start justify-between border-b border-slate-200 p-4">
@@ -153,8 +362,8 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
           <p className="mt-2 text-xs text-slate-500">
             {mode === "list"
-              ? "CSV or Excel with columns like Name, Email, Phone, Position. PDF/image rosters are read with AI."
-              : "PDF, Word, image, or text. The system extracts contact details and a short summary."}
+              ? "CSV or Excel with columns like Name, Email, Phone, Position. PDF/image rosters are read with AI. After uploading you can bulk-fill any missing Position or Lead source."
+              : "PDF, Word, image, or text. The system extracts contact details and a summary, then you fill in the position, lead source, and application date."}
           </p>
 
           <input
@@ -176,7 +385,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
             >
               {parsing ? "Reading…" : mode === "list" ? "⬆ Choose file" : "⬆ Choose resume"}
             </button>
-            {staged.length > 0 ? (
+            {mode === "list" && staged.length > 0 ? (
               <button
                 onClick={addBlankRow}
                 disabled={busy}
@@ -202,12 +411,97 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
           ) : null}
         </div>
 
-        {/* Review table */}
+        {/* Bulk-fill bar (list mode only) */}
+        {mode === "list" && staged.length > 0 ? (
+          <div className="border-b border-slate-200 bg-slate-50 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Bulk fill missing fields
+            </h4>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Only rows that are still blank are updated.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-500">
+                  Position {missingPosition > 0 ? `(${missingPosition} blank)` : ""}
+                </span>
+                <div className="flex gap-2">
+                  <input
+                    value={bulkPosition}
+                    list={POSITION_DATALIST_ID}
+                    placeholder="e.g. CSR"
+                    onChange={(e) => setBulkPosition(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <button
+                    onClick={() => applyBulk("target_title", bulkPosition)}
+                    disabled={!bulkPosition.trim()}
+                    className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-500">
+                  Lead source {missingSource > 0 ? `(${missingSource} blank)` : ""}
+                </span>
+                <div className="flex gap-2">
+                  <select
+                    value={bulkSource}
+                    onChange={(e) => setBulkSource(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">—</option>
+                    {RECRUITING_SOURCE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => applyBulk("source", bulkSource)}
+                    disabled={!bulkSource.trim()}
+                    className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-medium text-slate-500">Application date</span>
+                <div className="flex gap-2">
+                  <input
+                    type="date"
+                    value={bulkAppliedDate}
+                    onChange={(e) => setBulkAppliedDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <button
+                    onClick={() => applyBulk("application_date", bulkAppliedDate)}
+                    disabled={!bulkAppliedDate.trim()}
+                    className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-40"
+                  >
+                    Apply
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Review area */}
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {staged.length === 0 ? (
             <div className="flex h-32 items-center justify-center text-sm text-slate-400">
-              No candidates staged yet. Upload a file to begin.
+              {mode === "resume"
+                ? "No resume parsed yet. Upload a resume to begin."
+                : "No candidates staged yet. Upload a file to begin."}
             </div>
+          ) : showResumeEditor ? (
+            <ResumeEditor candidate={staged[0]} onChange={patchResume} />
           ) : (
             <table className="w-full border-collapse text-sm">
               <thead>
@@ -229,6 +523,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
                           value={(c[f.key] as string | null) ?? ""}
                           onChange={(e) => updateRow(i, f.key, e.target.value)}
                           placeholder={f.placeholder}
+                          list={f.key === "target_title" ? POSITION_DATALIST_ID : undefined}
                           className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none"
                         />
                       </td>
