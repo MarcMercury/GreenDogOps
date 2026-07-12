@@ -698,8 +698,19 @@ export interface CrmCeEvent {
   social_dinner: boolean;
   // Per-event planning checklist ({ item_key: boolean })
   planning_checklist: Record<string, boolean>;
+  // Editable run-of-show itinerary (list of timed lines)
+  itinerary: CeItineraryLine[];
   created_at: string;
   updated_at: string;
+}
+
+// A single line in a CE event's editable itinerary. `day` is an ISO date
+// (YYYY-MM-DD), `time` is 24h HH:MM.
+export interface CeItineraryLine {
+  id: string;
+  day: string;
+  time: string;
+  description: string;
 }
 
 export const CE_COST_TYPE_OPTIONS = [

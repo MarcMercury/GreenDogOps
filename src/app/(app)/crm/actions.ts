@@ -855,6 +855,30 @@ export async function setCeEventChecklistItem(
   return { ok: true };
 }
 
+// Replace a CE event's itinerary with the provided list of timed lines. The
+// UI owns the full list (add/edit/delete/reorder), so we simply overwrite the
+// stored jsonb array.
+export async function setCeEventItinerary(
+  eventId: string,
+  itinerary: {
+    id: string;
+    day: string;
+    time: string;
+    description: string;
+  }[],
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_event")
+    .update({ itinerary })
+    .eq("id", eventId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
 // Roster an existing CE lead onto a CE event (creates a linked attendance row).
 export async function assignLeadToCeEvent(
   eventId: string,

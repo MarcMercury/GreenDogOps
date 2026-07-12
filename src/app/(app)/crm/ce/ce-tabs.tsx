@@ -2,7 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { QRCodeCanvas } from "qrcode.react";
-import type { CrmContact, CrmCeAttendance, CrmCeEvent } from "@/lib/crm/types";
+import type {
+  CrmContact,
+  CrmCeAttendance,
+  CrmCeEvent,
+  CeItineraryLine,
+} from "@/lib/crm/types";
 import {
   CE_AUDIENCE_OPTIONS,
   CE_COST_TYPE_OPTIONS,
@@ -18,6 +23,7 @@ import {
   deleteCeEvent,
   assignLeadToCeEvent,
   setCeEventChecklistItem,
+  setCeEventItinerary,
 } from "../actions";
 import { CeEventForm } from "./ce-event-form";
 
@@ -949,6 +955,322 @@ function EventPlanningChecklist({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Editable event itinerary (run-of-show) — build / edit / download / print.
+// ---------------------------------------------------------------------------
+
+function uid(): string {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function parseHour(t: string | null): number | null {
+  if (!t) return null;
+  const m = /^(\d{1,2})/.exec(t.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  return h >= 0 && h <= 23 ? h : null;
+}
+
+/** Blank hourly lines across the event day(s), start_time→end_time (08–17). */
+function buildDefaultItinerary(event: CrmCeEvent): CeItineraryLine[] {
+  const day =
+    event.event_date ??
+    event.effective_start ??
+    event.projected_offering_date ??
+    null;
+  if (!day) return [];
+  const startHour = parseHour(event.start_time) ?? 8;
+  const endHour = Math.max(parseHour(event.end_time) ?? 17, startHour);
+  const lines: CeItineraryLine[] = [];
+  for (let h = startHour; h <= endHour; h += 1) {
+    lines.push({
+      id: uid(),
+      day,
+      time: `${String(h).padStart(2, "0")}:00`,
+      description: "",
+    });
+  }
+  return lines;
+}
+
+function fmtTime(t: string): string {
+  const m = /^(\d{1,2}):(\d{2})/.exec(t.trim());
+  if (!m) return t;
+  let h = Number(m[1]);
+  const min = m[2];
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${h}:${min} ${ampm}`;
+}
+
+function groupByDay(lines: CeItineraryLine[]): [string, CeItineraryLine[]][] {
+  const map = new Map<string, CeItineraryLine[]>();
+  for (const line of lines) {
+    const arr = map.get(line.day);
+    if (arr) arr.push(line);
+    else map.set(line.day, [line]);
+  }
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function itineraryHtml(event: CrmCeEvent, lines: CeItineraryLine[]): string {
+  const esc = (s: string) =>
+    s.replace(
+      /[&<>"']/g,
+      (c) =>
+        ((
+          {
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;",
+          } as Record<string, string>
+        )[c]),
+    );
+  const days = groupByDay(lines);
+  const subtitle = [
+    event.location,
+    event.presenters ? `Presenter: ${event.presenters}` : null,
+  ]
+    .filter(Boolean)
+    .map((s) => esc(String(s)))
+    .join(" · ");
+  const body = days
+    .map(([day, dayLines]) => {
+      const rows = [...dayLines]
+        .sort((a, b) => a.time.localeCompare(b.time))
+        .map(
+          (l) =>
+            `<tr><td class="t">${esc(fmtTime(l.time))}</td><td>${esc(
+              l.description,
+            )}</td></tr>`,
+        )
+        .join("");
+      return `<h2>${esc(fmtDate(day))}</h2><table><thead><tr><th class="t">Time</th><th>Item</th></tr></thead><tbody>${rows}</tbody></table>`;
+    })
+    .join("");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(
+    event.name,
+  )} — Itinerary</title><style>
+    body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;margin:32px;}
+    h1{font-size:22px;margin:0 0 4px;}
+    .sub{color:#475569;font-size:13px;margin:0 0 20px;}
+    h2{font-size:15px;margin:22px 0 8px;color:#047857;border-bottom:2px solid #d1fae5;padding-bottom:4px;}
+    table{width:100%;border-collapse:collapse;font-size:13px;}
+    th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top;}
+    th{color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em;}
+    td.t,th.t{width:110px;white-space:nowrap;color:#334155;font-weight:600;}
+    @media print{body{margin:0;}}
+  </style></head><body><h1>${esc(event.name)}</h1>${
+    subtitle ? `<p class="sub">${subtitle}</p>` : ""
+  }${body || "<p>No itinerary items.</p>"}</body></html>`;
+}
+
+/**
+ * Editable itinerary for a CE event. Defaults to blank hourly lines across the
+ * event day(s); users add/edit/delete lines and can download or print. Saved
+ * as a jsonb array on the event (debounced auto-save). Remount per event via
+ * key={event.id}.
+ */
+function EventItinerary({
+  event,
+  canEdit,
+}: {
+  event: CrmCeEvent;
+  canEdit: boolean;
+}) {
+  const [lines, setLines] = useState<CeItineraryLine[]>(() =>
+    event.itinerary && event.itinerary.length > 0
+      ? event.itinerary
+      : buildDefaultItinerary(event),
+  );
+  const [, startTransition] = useTransition();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function scheduleSave(next: CeItineraryLine[]) {
+    if (!canEdit) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      startTransition(async () => {
+        const res = await setCeEventItinerary(event.id, next);
+        if (!res.ok) alert(`Could not save itinerary: ${res.error}`);
+      });
+    }, 700);
+  }
+
+  function commit(next: CeItineraryLine[]) {
+    setLines(next);
+    scheduleSave(next);
+  }
+
+  function updateLine(id: string, patch: Partial<CeItineraryLine>) {
+    commit(lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  }
+
+  function deleteLine(id: string) {
+    commit(lines.filter((l) => l.id !== id));
+  }
+
+  function addLine(day: string) {
+    const dayLines = lines.filter((l) => l.day === day);
+    const lastTime = dayLines
+      .map((l) => l.time)
+      .sort((a, b) => a.localeCompare(b))
+      .at(-1);
+    const nextHour = lastTime ? Math.min((parseHour(lastTime) ?? 8) + 1, 23) : 9;
+    commit([
+      ...lines,
+      {
+        id: uid(),
+        day,
+        time: `${String(nextHour).padStart(2, "0")}:00`,
+        description: "",
+      },
+    ]);
+  }
+
+  const days = groupByDay(lines);
+
+  function print() {
+    const w = window.open("", "_blank", "width=820,height=920");
+    if (!w) return;
+    w.document.write(itineraryHtml(event, lines));
+    w.document.close();
+    w.focus();
+    w.print();
+  }
+
+  function download() {
+    const blob = new Blob([itineraryHtml(event, lines)], {
+      type: "text/html",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${event.name.replace(/[^\w-]+/g, "_")}-itinerary.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Itinerary
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={download}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+          >
+            Download
+          </button>
+          <button
+            type="button"
+            onClick={print}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+          >
+            Print
+          </button>
+        </div>
+      </div>
+
+      {lines.length === 0 ? (
+        <div className="mt-4 rounded-lg border border-dashed border-slate-200 p-4 text-center">
+          <p className="text-sm text-slate-500">
+            No itinerary yet
+            {!event.event_date && " — set an event date to auto-fill hours"}.
+          </p>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() =>
+                commit(
+                  buildDefaultItinerary(event).length
+                    ? buildDefaultItinerary(event)
+                    : [
+                        {
+                          id: uid(),
+                          day: new Date().toISOString().slice(0, 10),
+                          time: "09:00",
+                          description: "",
+                        },
+                      ],
+                )
+              }
+              className="mt-3 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              Generate default itinerary
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-4 space-y-5">
+          {days.map(([day, dayLines]) => (
+            <div key={day}>
+              <p className="text-sm font-semibold text-slate-700">
+                {fmtDate(day)}
+              </p>
+              <div className="mt-2 space-y-1.5">
+                {[...dayLines]
+                  .sort((a, b) => a.time.localeCompare(b.time))
+                  .map((line) => (
+                    <div key={line.id} className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={line.time}
+                        disabled={!canEdit}
+                        onChange={(e) =>
+                          updateLine(line.id, { time: e.target.value })
+                        }
+                        className="w-28 shrink-0 rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 disabled:bg-slate-50"
+                      />
+                      <input
+                        type="text"
+                        value={line.description}
+                        disabled={!canEdit}
+                        placeholder="Add itinerary item…"
+                        onChange={(e) =>
+                          updateLine(line.id, { description: e.target.value })
+                        }
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 disabled:bg-slate-50"
+                      />
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => deleteLine(line.id)}
+                          aria-label="Delete line"
+                          className="shrink-0 rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  ))}
+              </div>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => addLine(day)}
+                  className="mt-2 text-xs font-medium text-emerald-700 hover:underline"
+                >
+                  + Add line
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Expanded field-by-field detail block for an event (CE Events tab). */
 function EventDetailGrid({ event }: { event: CrmCeEvent }) {
   const rows: { label: string; value: string | null }[] = [
@@ -1190,6 +1512,7 @@ function CeEventsManageView({
             event={active}
             canEdit={canEdit}
           />
+          <EventItinerary key={`itin-${active.id}`} event={active} canEdit={canEdit} />
         </div>
       )}
     </div>
