@@ -573,12 +573,33 @@ function coerceCandidate(raw: Record<string, unknown>): ParsedCandidate {
   return c;
 }
 
+/**
+ * Extract selectable text from a PDF with unpdf (serverless-friendly, no
+ * native deps). Returns null for scanned/image-only PDFs that carry no text
+ * layer, so the caller can fall back to sending the PDF to a multimodal model.
+ */
+async function extractPdfText(buffer: Buffer): Promise<string | null> {
+  try {
+    const { getDocumentProxy, extractText } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    const { text } = await extractText(pdf, { mergePages: true });
+    const clean = (Array.isArray(text) ? text.join("\n") : text)
+      .replace(/[ \t]+\n/g, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    // A few stray glyphs usually means an image-only scan, not real text.
+    return clean.length >= 30 ? clean : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Build provider-agnostic content parts for an uploaded document of any type. */
-function fileToContentParts(
+async function fileToContentParts(
   filename: string,
   mime: string,
   buffer: Buffer,
-): LlmPart[] | { error: string } {
+): Promise<LlmPart[] | { error: string }> {
   const lower = filename.toLowerCase();
   const isImage = mime.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/.test(lower);
   const isPdf = mime === "application/pdf" || lower.endsWith(".pdf");
@@ -589,6 +610,12 @@ function fileToContentParts(
     return [{ kind: "image", mime: mime || "image/png", base64: buffer.toString("base64") }];
   }
   if (isPdf) {
+    // Prefer local text extraction: a text PDF then works with ANY provider
+    // (including free, high-quota text models like Groq) instead of requiring
+    // a multimodal/paid model. Scanned PDFs with no text layer fall back to
+    // sending the raw PDF to a multimodal provider.
+    const text = await extractPdfText(buffer);
+    if (text) return [{ kind: "text", text: text.slice(0, 200_000) }];
     return [{ kind: "pdf", filename, base64: buffer.toString("base64") }];
   }
   if (isDocx) {
@@ -610,7 +637,7 @@ export async function extractResumeCandidate(
   mime: string,
   buffer: Buffer,
 ): Promise<{ ok: true; candidate: ParsedCandidate } | { ok: false; error: string }> {
-  const parts = fileToContentParts(filename, mime, buffer);
+  const parts = await fileToContentParts(filename, mime, buffer);
   if ("error" in parts) return { ok: false, error: parts.error };
 
   const result = await callLLM(
@@ -645,7 +672,7 @@ export async function extractListCandidates(
   mime: string,
   buffer: Buffer,
 ): Promise<{ ok: true; candidates: ParsedCandidate[] } | { ok: false; error: string }> {
-  const parts = fileToContentParts(filename, mime, buffer);
+  const parts = await fileToContentParts(filename, mime, buffer);
   if ("error" in parts) return { ok: false, error: parts.error };
 
   const result = await callLLM(
