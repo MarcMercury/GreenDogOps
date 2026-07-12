@@ -398,22 +398,49 @@ async function searchTavily(query: string): Promise<{
 }
 
 /**
- * Runs web search across providers in order (OpenAI → Claude → Google →
- * Tavily), falling through to the next whenever one is rate-limited,
- * unconfigured, or fails. Tavily is a native search API independent of the
- * LLM providers' quotas, so it keeps working when the others are throttled.
- * Returns the first working result, or a combined error if all fail.
+ * Runs web search across providers, falling through to the next whenever one
+ * is rate-limited, unconfigured, or fails. The default order leads with free
+ * grounding (Google) and a quota-independent search API (Tavily) so paid
+ * OpenAI / Claude tokens are only spent as a last resort; override the order
+ * with WEB_SEARCH_PROVIDER_ORDER. Returns the first working result, or a
+ * combined error if all fail.
  */
 async function searchWeb(query: string): Promise<WebSearchResult> {
-  const providers: Array<{
-    name: string;
-    run: (q: string) => Promise<{ answer: string; sources: Source[] }>;
-  }> = [
-    { name: "OpenAI", run: searchOpenAI },
-    { name: "Claude", run: searchClaude },
-    { name: "Google", run: searchGemini },
-    { name: "Tavily", run: searchTavily },
+  const registry: Record<
+    string,
+    (q: string) => Promise<{ answer: string; sources: Source[] }>
+  > = {
+    google: searchGemini,
+    tavily: searchTavily,
+    openai: searchOpenAI,
+    claude: searchClaude,
+  };
+  const label: Record<string, string> = {
+    google: "Google",
+    tavily: "Tavily",
+    openai: "OpenAI",
+    claude: "Claude",
+  };
+  // Free grounding (Google) and quota-independent search (Tavily) lead so paid
+  // OpenAI / Claude tokens are only spent when the free tiers are unavailable.
+  // Override with WEB_SEARCH_PROVIDER_ORDER (comma-separated, e.g.
+  // "openai,claude,google,tavily").
+  const defaultOrder = ["google", "tavily", "openai", "claude"];
+  const raw = process.env.WEB_SEARCH_PROVIDER_ORDER;
+  const wanted = raw
+    ? raw
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter((n) => n in registry)
+    : [];
+  const order = [
+    ...wanted,
+    ...defaultOrder.filter((n) => !wanted.includes(n)),
   ];
+  const providers = order.map((name) => ({
+    name: label[name],
+    run: registry[name],
+  }));
 
   const failures: string[] = [];
   for (const provider of providers) {
