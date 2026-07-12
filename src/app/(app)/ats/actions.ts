@@ -20,6 +20,7 @@ import {
   type ParseResumeResult,
   type CreateCandidatesResult,
 } from "@/lib/ats/import-types";
+import { ACCEPTED_LEAD_STAGE, DECLINED_STAGE } from "@/lib/ats/types";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -343,6 +344,57 @@ export async function deleteCandidate(personId: string): Promise<void> {
 
   revalidatePath("/ats");
   redirect("/ats");
+}
+
+// ---------------------------------------------------------------------------
+// Intake review queue — accept / reject auto-ingested applicants
+// (Gmail poller + Indeed webhook). Pending applicants land in the Review tab;
+// accepting promotes them to an active lead, rejecting marks them Declined but
+// keeps the record for re-apply detection.
+// ---------------------------------------------------------------------------
+
+async function setReviewStatus(
+  personId: string,
+  reviewStatus: "accepted" | "declined",
+  stage: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("person_recruiting")
+    .update({
+      review_status: reviewStatus,
+      stage,
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: gate.current.authId,
+    })
+    .eq("person_id", personId);
+  if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "update",
+    entity: "person",
+    entityId: personId,
+    summary: reviewStatus === "accepted" ? "Accepted applicant into pipeline" : "Declined applicant",
+  });
+
+  revalidatePath("/ats");
+  revalidatePath(`/ats/${personId}`);
+  return { ok: true };
+}
+
+/** Accept a pending applicant: promote to an active lead in the pipeline. */
+export async function acceptCandidate(personId: string): Promise<SaveResult> {
+  return setReviewStatus(personId, "accepted", ACCEPTED_LEAD_STAGE);
+}
+
+/** Reject a pending applicant: mark Declined but keep for re-apply detection. */
+export async function declineCandidate(personId: string): Promise<SaveResult> {
+  return setReviewStatus(personId, "declined", DECLINED_STAGE);
 }
 
 // ---------------------------------------------------------------------------

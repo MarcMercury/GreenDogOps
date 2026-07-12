@@ -17,8 +17,9 @@ export default async function AtsPage() {
        source_contact_id, created_at, updated_at,
        person_recruiting (
          person_id, target_position_id, pipeline, stage, status_notes, source,
-         interview_date, score, resume_url, keep_for_future, follow_up_date,
-         notes, target_title, created_at, updated_at
+         application_date, interview_date, score, resume_url, keep_for_future,
+         follow_up_date, notes, target_title, review_status, reviewed_at,
+         reviewed_by, created_at, updated_at
        )`,
       )
       .eq("status", "applicant")

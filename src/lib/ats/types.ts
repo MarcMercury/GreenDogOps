@@ -13,9 +13,23 @@ export interface PersonRecruiting {
   follow_up_date: string | null;
   notes: string | null;
   target_title: string | null;
+  review_status: ReviewStatus | null;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
   created_at: string;
   updated_at: string;
 }
+
+// Intake triage state. Auto-ingested applicants (Gmail / Indeed webhook) start
+// as "pending"; a recruiter accepts (→ active lead) or declines them. Manual
+// entries default to "accepted" so they skip the queue.
+export type ReviewStatus = "pending" | "accepted" | "declined";
+
+// Stage set when an applicant is accepted from the review queue into the
+// active pipeline, and when one is declined. Kept here so the intake actions
+// and the pipeline bucketing agree on the wording.
+export const ACCEPTED_LEAD_STAGE = "New Lead";
+export const DECLINED_STAGE = "Declined";
 
 export interface InterviewResponse {
   question: string;

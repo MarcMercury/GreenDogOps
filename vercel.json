@@ -3,6 +3,10 @@
     {
       "path": "/api/calendar/sync",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/ats/gmail",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

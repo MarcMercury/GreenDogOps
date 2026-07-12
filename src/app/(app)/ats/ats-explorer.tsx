@@ -19,6 +19,7 @@ import {
 } from "../_components/data-views";
 import { ImportDialog } from "./import-dialog";
 import { AddCandidateDialog } from "./add-candidate-dialog";
+import { IntakeReview } from "./intake-review";
 
 function candidateName(r: CandidateRow): string {
   if (r.full_name) return r.full_name;
@@ -38,18 +39,31 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
+  // Split auto-intake awaiting triage (pending) from the active pipeline
+  // (accepted + declined + legacy). The Review tab handles the queue.
+  const reviewRows = rows.filter(
+    (r) => r.person_recruiting?.review_status === "pending",
+  );
+  const pipelineRows = rows.filter(
+    (r) => r.person_recruiting?.review_status !== "pending",
+  );
+
+  const [tab, setTab] = useState<"pipeline" | "review">(
+    reviewRows.length > 0 ? "review" : "pipeline",
+  );
+
   const counts: Record<string, number> = {};
-  for (const r of rows) {
+  for (const r of pipelineRows) {
     const b = bucketForStage(r.person_recruiting?.stage ?? null);
     counts[b] = (counts[b] ?? 0) + 1;
   }
 
-  const upcomingInterviews = rows.filter(
+  const upcomingInterviews = pipelineRows.filter(
     (r) => r.interview_meta?.next_date,
   ).length;
 
   const stats: Stat[] = [
-    { label: "Total", value: String(rows.length), tone: "text-emerald-700" },
+    { label: "Total", value: String(pipelineRows.length), tone: "text-emerald-700" },
     { label: "Active", value: String(counts.active ?? 0), tone: "text-emerald-600" },
     { label: "Interviews Set", value: String(upcomingInterviews), tone: "text-violet-700" },
     { label: "Hired", value: String(counts.hired ?? 0), tone: "text-indigo-700" },
@@ -169,9 +183,9 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
         eyebrow="Recruiting"
         title="Recruiting (ATS)"
         description="Candidate pipeline, stages & outreach"
-        count={rows.length}
+        count={pipelineRows.length}
         countLabel="candidates"
-        onExport={() => exportColumnsCsv("recruiting-ats", columns, rows)}
+        onExport={() => exportColumnsCsv("recruiting-ats", columns, pipelineRows)}
         actions={
           <>
             <button
@@ -193,23 +207,58 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
       <ImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <AddCandidateDialog open={addOpen} onClose={() => setAddOpen(false)} />
 
-      <StatGrid stats={stats} />
+      {/* Tabs: active pipeline vs. the auto-intake review queue. */}
+      <div className="mb-4 flex gap-1 border-b border-slate-200">
+        <button
+          onClick={() => setTab("pipeline")}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
+            tab === "pipeline"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Pipeline
+        </button>
+        <button
+          onClick={() => setTab("review")}
+          className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
+            tab === "review"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Review Queue
+          {reviewRows.length > 0 && (
+            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">
+              {reviewRows.length}
+            </span>
+          )}
+        </button>
+      </div>
 
-      <DataTable
-        rows={rows}
-        columns={columns}
-        filters={filters}
-        searchPlaceholder="Search name, position, source…"
-        searchExtra={(r) => [
-          r.email,
-          r.person_recruiting?.target_title,
-          r.person_recruiting?.pipeline,
-          r.person_recruiting?.source,
-          r.person_recruiting?.status_notes,
-        ]}
-        onRowClick={(r) => router.push(`/ats/${r.id}`)}
-        emptyLabel="No candidates match your filters."
-      />
+      {tab === "review" ? (
+        <IntakeReview rows={reviewRows} />
+      ) : (
+        <>
+          <StatGrid stats={stats} />
+
+          <DataTable
+            rows={pipelineRows}
+            columns={columns}
+            filters={filters}
+            searchPlaceholder="Search name, position, source…"
+            searchExtra={(r) => [
+              r.email,
+              r.person_recruiting?.target_title,
+              r.person_recruiting?.pipeline,
+              r.person_recruiting?.source,
+              r.person_recruiting?.status_notes,
+            ]}
+            onRowClick={(r) => router.push(`/ats/${r.id}`)}
+            emptyLabel="No candidates match your filters."
+          />
+        </>
+      )}
     </div>
   );
 }
