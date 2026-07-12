@@ -40,13 +40,3 @@ export function getCalendarClient(): calendar_v3.Calendar {
   });
   return google.calendar({ version: "v3", auth });
 }
-
-export function getCalendarId(): string {
-  const id = process.env.GOOGLE_CALENDAR_ID;
-  if (!id) {
-    throw new Error(
-      "GOOGLE_CALENDAR_ID is not set. Add the calendar's ID to .env.local / Vercel.",
-    );
-  }
-  return id;
-}

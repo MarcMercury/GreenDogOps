@@ -1,8 +1,10 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { getGoogleCalendars } from "@/lib/calendar/config";
 import {
   type CalendarItem,
+  type CalendarCategory,
   combineDateTime,
   itemId,
 } from "@/lib/calendar/types";
@@ -60,7 +62,15 @@ type CalendarEventRow = {
   ends_at: string | null;
   all_day: boolean;
   status: "confirmed" | "tentative" | "cancelled";
+  category: string | null;
 };
+
+/** Colour bucket for a stored calendar_event row. */
+function rowCategory(r: CalendarEventRow): CalendarCategory {
+  if (r.source === "custom") return "general";
+  // Google rows carry the category written by the sync job (google | interview).
+  return r.category === "interview" ? "interview" : "google";
+}
 
 async function getStoredEvents(
   start: string,
@@ -71,7 +81,7 @@ async function getStoredEvents(
     supabase
       .from("calendar_event")
       .select(
-        "id, source, title, description, location, starts_at, ends_at, all_day, status",
+        "id, source, title, description, location, starts_at, ends_at, all_day, status, category",
       )
       .neq("status", "cancelled")
       .gte("starts_at", `${start}T00:00:00`)
@@ -82,7 +92,7 @@ async function getStoredEvents(
   return (data ?? []).map((r) => ({
     id: itemId(r.source, r.id),
     source: r.source,
-    category: r.source === "google" ? "google" : "general",
+    category: rowCategory(r),
     title: r.title,
     description: r.description,
     location: r.location,
@@ -214,20 +224,42 @@ export interface GoogleSyncStatus {
   error: string | null;
 }
 
-/** Last Google Calendar sync result, or null if never synced / not configured. */
+/**
+ * Combined Google Calendar sync status across every configured calendar, or
+ * null if none are configured / none have synced. Surfaces an error if any
+ * calendar's last run failed and reports the most recent sync time.
+ */
 export async function getGoogleSyncStatus(): Promise<GoogleSyncStatus | null> {
-  const calendarId = process.env.GOOGLE_CALENDAR_ID;
-  if (!calendarId) return null;
+  const calendars = getGoogleCalendars();
+  if (calendars.length === 0) return null;
   const supabase = await createClient();
   const { data } = await supabase
     .from("calendar_sync_state")
-    .select("last_synced_at, last_status, last_error")
-    .eq("google_calendar_id", calendarId)
-    .maybeSingle();
-  if (!data) return null;
+    .select("google_calendar_id, last_synced_at, last_status, last_error")
+    .in(
+      "google_calendar_id",
+      calendars.map((c) => c.id),
+    );
+  if (!data || data.length === 0) return null;
+
+  const labelById = new Map(calendars.map((c) => [c.id, c.label]));
+  let lastSyncedAt: string | null = null;
+  let anyError = false;
+  const errors: string[] = [];
+
+  for (const row of data) {
+    const synced = (row.last_synced_at as string | null) ?? null;
+    if (synced && (!lastSyncedAt || synced > lastSyncedAt)) lastSyncedAt = synced;
+    if ((row.last_status as string | null) === "error") {
+      anyError = true;
+      const label = labelById.get(row.google_calendar_id as string) ?? "Calendar";
+      errors.push(`${label}: ${(row.last_error as string | null) ?? "sync failed"}`);
+    }
+  }
+
   return {
-    lastSyncedAt: (data.last_synced_at as string | null) ?? null,
-    status: (data.last_status as string | null) ?? null,
-    error: (data.last_error as string | null) ?? null,
+    lastSyncedAt,
+    status: anyError ? "error" : "ok",
+    error: errors.length > 0 ? errors.join("; ") : null,
   };
 }
