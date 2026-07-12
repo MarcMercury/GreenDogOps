@@ -208,7 +208,7 @@ export async function createApplicantProfile(
 
   // Auto-ingested applicants start in the review queue (pending); a recruiter
   // accepts or rejects them from the ATS Review tab.
-  await admin.from("person_recruiting").upsert(
+  const { error: rErr } = await admin.from("person_recruiting").upsert(
     {
       person_id: personId,
       source: input.source,
@@ -219,6 +219,12 @@ export async function createApplicantProfile(
     },
     { onConflict: "person_id" },
   );
+  if (rErr) {
+    // Roll back the just-created person so we never leave a recruiting-less
+    // shell record (which would be invisible in the ATS and un-triageable).
+    await admin.from("person").delete().eq("id", personId);
+    return { status: "error", error: `Recruiting details failed to save: ${rErr.message}` };
+  }
 
   for (const resume of resumes) {
     await storeResume(admin, personId, resume);
