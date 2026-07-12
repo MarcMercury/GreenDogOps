@@ -207,30 +207,6 @@ export function CeEventForm({
             type="number"
             defaultValue={event?.ce_hours_nonmedical}
           />
-          <Field
-            label="Effective start"
-            name="effective_start"
-            type="date"
-            defaultValue={event?.effective_start}
-          />
-          <Field
-            label="Effective end"
-            name="effective_end"
-            type="date"
-            defaultValue={event?.effective_end}
-          />
-          <Field
-            label="Projected offering date"
-            name="projected_offering_date"
-            type="date"
-            defaultValue={event?.projected_offering_date}
-          />
-          <Field
-            label="Rosters allowed beginning"
-            name="rosters_allowed_date"
-            type="date"
-            defaultValue={event?.rosters_allowed_date}
-          />
           <div className="flex items-end pb-2">
             <Checkbox
               label="RACE approved"
@@ -265,10 +241,16 @@ export function CeEventForm({
             defaultValue={event?.presenter_bio}
           />
           <Field
-            label="Date"
+            label="Start date"
             name="event_date"
             type="date"
             defaultValue={event?.event_date}
+          />
+          <Field
+            label="End date"
+            name="end_date"
+            type="date"
+            defaultValue={event?.end_date}
           />
           <Field
             label="Start time"

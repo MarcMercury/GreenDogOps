@@ -696,8 +696,14 @@ function EventDetails({ event }: { event: CrmCeEvent }) {
         ? `Paid · $${event.cost_amount}`
         : "Paid"
       : labelFor(CE_COST_TYPE_OPTIONS, event.cost_type);
+  const startStr = fmtDate(event.event_date) !== "—" ? fmtDate(event.event_date) : null;
+  const endStr = fmtDate(event.end_date) !== "—" ? fmtDate(event.end_date) : null;
+  const dateRange =
+    startStr && endStr && startStr !== endStr
+      ? `${startStr} – ${endStr}`
+      : (startStr ?? endStr);
   const bits = [
-    fmtDate(event.event_date) !== "—" ? fmtDate(event.event_date) : null,
+    dateRange,
     time,
     event.location,
     event.subject,
@@ -975,22 +981,29 @@ function parseHour(t: string | null): number | null {
 
 /** Blank hourly lines across the event day(s), start_time→end_time (08–17). */
 function buildDefaultItinerary(event: CrmCeEvent): CeItineraryLine[] {
-  const day =
-    event.event_date ??
-    event.effective_start ??
-    event.projected_offering_date ??
-    null;
-  if (!day) return [];
+  const start = event.event_date ?? event.end_date ?? null;
+  if (!start) return [];
+  const end = event.end_date ?? start;
+  // Enumerate each day from start through end (inclusive), capped for safety.
+  const days: string[] = [];
+  const cursor = new Date(`${start}T00:00:00`);
+  const last = new Date(`${end < start ? start : end}T00:00:00`);
+  for (let i = 0; i < 60 && cursor <= last; i += 1) {
+    days.push(cursor.toISOString().slice(0, 10));
+    cursor.setDate(cursor.getDate() + 1);
+  }
   const startHour = parseHour(event.start_time) ?? 8;
   const endHour = Math.max(parseHour(event.end_time) ?? 17, startHour);
   const lines: CeItineraryLine[] = [];
-  for (let h = startHour; h <= endHour; h += 1) {
-    lines.push({
-      id: uid(),
-      day,
-      time: `${String(h).padStart(2, "0")}:00`,
-      description: "",
-    });
+  for (const day of days) {
+    for (let h = startHour; h <= endHour; h += 1) {
+      lines.push({
+        id: uid(),
+        day,
+        time: `${String(h).padStart(2, "0")}:00`,
+        description: "",
+      });
+    }
   }
   return lines;
 }
@@ -1298,34 +1311,6 @@ function EventDetailGrid({ event }: { event: CrmCeEvent }) {
             event.ce_hours_nonmedical != null
               ? ` (${event.ce_hours_medical ?? 0} med / ${event.ce_hours_nonmedical ?? 0} non-med)`
               : "")
-          : null,
-    },
-    {
-      label: "Effective start",
-      value:
-        fmtDate(event.effective_start) !== "—"
-          ? fmtDate(event.effective_start)
-          : null,
-    },
-    {
-      label: "Effective end",
-      value:
-        fmtDate(event.effective_end) !== "—"
-          ? fmtDate(event.effective_end)
-          : null,
-    },
-    {
-      label: "Projected offering",
-      value:
-        fmtDate(event.projected_offering_date) !== "—"
-          ? fmtDate(event.projected_offering_date)
-          : null,
-    },
-    {
-      label: "Rosters allowed",
-      value:
-        fmtDate(event.rosters_allowed_date) !== "—"
-          ? fmtDate(event.rosters_allowed_date)
           : null,
     },
     { label: "Website", value: event.website_url },

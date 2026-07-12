@@ -738,6 +738,7 @@ function ceEventPatch(formData: FormData) {
   return {
     name: str(formData.get("name")) ?? "Untitled CE Event",
     event_date: str(formData.get("event_date")),
+    end_date: str(formData.get("end_date")),
     start_time: str(formData.get("start_time")),
     end_time: str(formData.get("end_time")),
     location: str(formData.get("location")),
@@ -764,10 +765,6 @@ function ceEventPatch(formData: FormData) {
     ce_hours_total: num(formData.get("ce_hours_total")),
     ce_hours_medical: num(formData.get("ce_hours_medical")),
     ce_hours_nonmedical: num(formData.get("ce_hours_nonmedical")),
-    effective_start: str(formData.get("effective_start")),
-    effective_end: str(formData.get("effective_end")),
-    projected_offering_date: str(formData.get("projected_offering_date")),
-    rosters_allowed_date: str(formData.get("rosters_allowed_date")),
     // Presenter & marketing
     presenter_bio: str(formData.get("presenter_bio")),
     website_url: str(formData.get("website_url")),

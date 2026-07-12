@@ -659,6 +659,7 @@ export interface CrmCeEvent {
   id: string;
   name: string;
   event_date: string | null;
+  end_date: string | null;
   start_time: string | null;
   end_time: string | null;
   location: string | null;
