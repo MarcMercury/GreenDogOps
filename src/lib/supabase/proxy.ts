@@ -42,6 +42,9 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/ce/signup") ||
     // Cron endpoint: self-authenticates via the CRON_SECRET bearer token.
     pathname.startsWith("/api/calendar/sync") ||
+    // ATS intake endpoints self-authenticate: the Gmail cron via CRON_SECRET,
+    // the Indeed Apply webhook via its X-Indeed-Signature HMAC.
+    pathname.startsWith("/api/ats/") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico";
 
