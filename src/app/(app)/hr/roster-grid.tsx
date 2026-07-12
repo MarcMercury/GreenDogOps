@@ -18,7 +18,6 @@ import {
   exportColumnsCsv,
   previewCsvImport,
 } from "../_components/data-views";
-import { OpportunityBadge } from "../_components/opportunity-type-field";
 import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
 import { NewEmployeeWizard } from "./new-employee-wizard";
 
@@ -39,17 +38,6 @@ function displayName(r: RosterRow): string {
 
 function jobTitle(r: RosterRow): string | null {
   return r.person_employment?.adp_job_title ?? r.person_employment?.offer_title ?? null;
-}
-
-function formatHireDate(raw: string | null | undefined): string {
-  if (!raw) return "—";
-  const dt = new Date(raw.length <= 10 ? `${raw}T00:00:00` : raw);
-  if (Number.isNaN(dt.getTime())) return raw;
-  return dt.toLocaleDateString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
 }
 
 export function RosterGrid({
@@ -85,6 +73,7 @@ export function RosterGrid({
       ),
     },
     { key: "email", header: "Email", value: (r) => r.email },
+    { key: "phone", header: "Primary Phone", value: (r) => r.phone_mobile },
     { key: "title", header: "Title", value: jobTitle },
     {
       key: "location",
@@ -99,18 +88,6 @@ export function RosterGrid({
         r.person_employment?.work_schedule
           ? SCHEDULE_LABELS[r.person_employment.work_schedule]
           : null,
-    },
-    {
-      key: "opportunity",
-      header: "Opportunity",
-      value: (r) => opportunityShortLabel(r.opportunity_type),
-      render: (r) => <OpportunityBadge value={r.opportunity_type} />,
-    },
-    {
-      key: "hire_date",
-      header: "Hire Date",
-      value: (r) => r.person_employment?.hire_date,
-      render: (r) => formatHireDate(r.person_employment?.hire_date),
     },
     {
       key: "status",

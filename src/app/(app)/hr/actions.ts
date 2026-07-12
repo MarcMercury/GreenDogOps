@@ -1,10 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ensureCanEdit } from "@/lib/auth/session";
-import { canViewAllCompensation } from "@/lib/auth/permissions";
+import { ensureCanEdit, getCurrentUser, recordAudit } from "@/lib/auth/session";
+import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
 
 const DOCUMENTS_BUCKET = "employee-documents";
@@ -767,4 +768,47 @@ export async function deleteDocument(
 
   revalidatePath(`/hr/${personId}`);
   return { ok: true };
+}
+
+// Permanently delete an employee record in its entirety. Admin/Owner only.
+// Removes any stored documents from the bucket, then deletes the person row so
+// the FK cascades clear employment, reviews, assets, scheduling, etc.
+export async function deleteEmployee(personId: string): Promise<void> {
+  const current = await getCurrentUser();
+  if (!current || !isAdminRole(current.appUser.role)) {
+    redirect(`/hr/${personId}`);
+  }
+
+  const admin = createAdminClient();
+
+  // Purge any uploaded documents from storage first to avoid orphaned files.
+  const { data: docs } = await admin
+    .from("person_document")
+    .select("storage_path")
+    .eq("person_id", personId);
+  const paths = (docs ?? [])
+    .map((d) => (d as { storage_path: string | null }).storage_path)
+    .filter((p): p is string => Boolean(p));
+  if (paths.length > 0) {
+    await admin.storage.from(DOCUMENTS_BUCKET).remove(paths);
+  }
+
+  const { error } = await admin.from("person").delete().eq("id", personId);
+  if (error) {
+    throw new Error(`Could not delete employee: ${error.message}`);
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "delete",
+    entity: "person",
+    entityId: personId,
+    summary: "Deleted employee/roster record",
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/schedule");
+  revalidatePath("/schedule/setup");
+  redirect("/hr");
 }

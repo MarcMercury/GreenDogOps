@@ -68,6 +68,7 @@ import {
   deleteComplianceEntry,
   saveLicense,
   deleteLicense,
+  deleteEmployee,
   type SaveResult,
 } from "../actions";
 import { setPersonRoles, setStudentRoleFlags } from "../../schedule/actions";
@@ -134,6 +135,7 @@ export function EmployeeProfile({
   canViewComp,
   canEdit,
   canEditSchedule,
+  isAdmin = false,
   locations,
 }: {
   row: RosterRow;
@@ -155,6 +157,7 @@ export function EmployeeProfile({
   canViewComp: boolean;
   canEdit: boolean;
   canEditSchedule: boolean;
+  isAdmin?: boolean;
   locations: LocationOption[];
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
@@ -192,6 +195,7 @@ export function EmployeeProfile({
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
             {STATUS_LABELS[row.status] ?? row.status}
           </span>
+          {isAdmin && <DeleteEmployeeButton personId={row.id} />}
         </div>
       </div>
 
@@ -292,6 +296,30 @@ export function EmployeeProfile({
 // Shared bits
 // ---------------------------------------------------------------------------
 
+function DeleteEmployeeButton({ personId }: { personId: string }) {
+  const [pending, startTransition] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => {
+        if (
+          confirm(
+            "Permanently delete this employee record and everything attached to it (employment, reviews, assets, documents, scheduling)? This cannot be undone.",
+          )
+        ) {
+          startTransition(() => {
+            void deleteEmployee(personId);
+          });
+        }
+      }}
+      className="rounded-full border border-red-300 px-3 py-1 text-xs font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+    >
+      {pending ? "Deleting…" : "Delete record"}
+    </button>
+  );
+}
+
 function fmtDate(d: string | null): string {
   if (!d) return "—";
   const dt = new Date(d.length <= 10 ? `${d}T00:00:00` : d);
@@ -317,8 +345,7 @@ function AddButton({ children }: { children: React.ReactNode }) {
   return (
     <button
       type="submit"
-      disabled={pending}
-      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
+      disabled={pending}      className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
     >
       {pending ? "Saving…" : children}
     </button>

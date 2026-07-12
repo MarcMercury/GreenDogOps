@@ -19,7 +19,7 @@ import type {
 import { redactCompensation } from "@/lib/hr/types";
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canViewAllCompensation, canEditModule } from "@/lib/auth/permissions";
+import { canViewAllCompensation, canEditModule, isAdminRole } from "@/lib/auth/permissions";
 import {
   getPersonAttendance,
   getPersonScheduleSettings,
@@ -47,6 +47,7 @@ export default async function EmployeeDetailPage({
   const canEditSchedule = current
     ? canEditModule(current.appUser, "schedule")
     : false;
+  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
 
   const { data, error } = await supabase
     .from("person")
@@ -271,6 +272,7 @@ export default async function EmployeeDetailPage({
         account={account}
         canViewComp={canViewComp}
         canEdit={canEdit}
+        isAdmin={isAdmin}
         canEditSchedule={canEditSchedule}
         locations={locations}
       />
