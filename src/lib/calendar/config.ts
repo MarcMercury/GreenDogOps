@@ -27,6 +27,15 @@ export function getGoogleCalendars(): GoogleCalendarConfig[] {
     calendars.push({ id: company, category: "google", label: "Company Calendar" });
   }
 
+  const companyShared = process.env.GOOGLE_COMPANY_CALENDAR_ID?.trim();
+  if (companyShared) {
+    calendars.push({
+      id: companyShared,
+      category: "google",
+      label: "Green Dog Company Calendar",
+    });
+  }
+
   const interviews = process.env.GOOGLE_INTERVIEW_CALENDAR_ID?.trim();
   if (interviews) {
     calendars.push({ id: interviews, category: "interview", label: "Interviews" });
