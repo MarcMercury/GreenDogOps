@@ -71,14 +71,64 @@ export default async function ReferralCrmPage() {
   const contacts = (contactsRes.data ?? []) as PartnerContact[];
   const notes = (notesRes.data ?? []) as PartnerNote[];
 
-  // Derive unmatched upload entries from the most recent sync details. Any
-  // clinic that now corresponds to an existing partner (e.g. it was just
-  // quick-added) is treated as resolved and dropped from the list.
+  // Referral sources that appear in uploaded revenue but are NOT linked to any
+  // partner ("Match" candidates). Sourced from orphaned ledger rows (partner_id
+  // is null) so bulk imports surface here too, not only interactive uploads.
+  const { data: orphanRows } = await fetchAllRows<{
+    csv_clinic_name: string | null;
+    amount: number | null;
+    transaction_date: string | null;
+    upload_id: string | null;
+  }>((from, to) =>
+    supabase
+      .from("referral_revenue_line_items")
+      .select("csv_clinic_name, amount, transaction_date, upload_id")
+      .is("partner_id", null)
+      .range(from, to),
+  );
+
+  // Derive unmatched upload entries. Any clinic that now corresponds to an
+  // existing partner (e.g. it was just quick-added) is treated as resolved and
+  // dropped from the list.
   const normalizeName = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
   const partnerNameSet = new Set(
     partners.map((p) => normalizeName(p.name ?? p.hospital_name ?? "")).filter(Boolean),
   );
+  const historyDateById = new Map(history.map((h) => [h.id, h.upload_date]));
   const unmatchedMap = new Map<string, UnmatchedEntry>();
+
+  // 1) Orphaned ledger rows — authoritative, carry real revenue + dates.
+  const orphanAgg = new Map<
+    string,
+    { visits: number; revenue: number; minDate: string | null; maxDate: string | null; uploadDate: string | null }
+  >();
+  for (const r of orphanRows ?? []) {
+    const name = (r.csv_clinic_name ?? "").trim();
+    if (!name) continue;
+    if (partnerNameSet.has(normalizeName(name))) continue;
+    const e = orphanAgg.get(name) ?? { visits: 0, revenue: 0, minDate: null, maxDate: null, uploadDate: null };
+    e.visits += 1;
+    e.revenue += Number(r.amount) || 0;
+    const d = r.transaction_date;
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      if (!e.minDate || d < e.minDate) e.minDate = d;
+      if (!e.maxDate || d > e.maxDate) e.maxDate = d;
+    }
+    const up = r.upload_id ? historyDateById.get(r.upload_id) : null;
+    if (up && (!e.uploadDate || up > e.uploadDate)) e.uploadDate = up;
+    orphanAgg.set(name, e);
+  }
+  for (const [name, e] of orphanAgg) {
+    unmatchedMap.set(name.toLowerCase(), {
+      clinicName: name,
+      visits: e.visits,
+      revenue: Math.round(e.revenue * 100) / 100,
+      uploadDate: e.uploadDate ?? e.maxDate ?? "",
+      dateRange: e.minDate && e.maxDate ? `${e.minDate} → ${e.maxDate}` : "—",
+    });
+  }
+
+  // 2) Statistics-only unmatched clinics from interactive upload sync details.
   for (const h of history) {
     const details = (h.sync_details?.clinicDetails as ClinicDetail[] | undefined) ?? [];
     const range =

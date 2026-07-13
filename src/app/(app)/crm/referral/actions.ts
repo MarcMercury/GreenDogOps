@@ -258,6 +258,40 @@ export async function addUnmatchedPartner(formData: FormData): Promise<ActionRes
 }
 
 // ---------------------------------------------------------------------------
+// Dismiss an unmatched clinic from the Match list ("Delete").
+// Removes the orphaned revenue line items recorded under this CSV clinic name
+// WITHOUT creating a partner. Because these rows carry no partner_id they never
+// contributed to any profile total, so no recalculation is needed.
+// ---------------------------------------------------------------------------
+export async function dismissUnmatched(clinicName: string): Promise<ActionResult> {
+  const current = await requireReferralUser();
+  if (!clinicName) return { ok: false, error: "Clinic name is required." };
+  const admin = createAdminClient();
+
+  const { data: removed, error } = await admin
+    .from("referral_revenue_line_items")
+    .delete()
+    .is("partner_id", null)
+    .eq("csv_clinic_name", clinicName)
+    .select("id");
+  if (error) return { ok: false, error: error.message };
+  const count = removed?.length ?? 0;
+
+  await recordAudit({
+    actorId: current.authId, actorEmail: current.email,
+    action: "referral.unmatched.dismiss",
+    summary: `Dismissed unmatched clinic ${clinicName}`,
+    metadata: { lineItemsRemoved: count },
+  });
+
+  revalidatePath("/crm/referral");
+  return {
+    ok: true,
+    message: `Removed "${clinicName}" from the match list${count ? ` (${count.toLocaleString()} row${count === 1 ? "" : "s"} deleted)` : ""}.`,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Partner contacts CRUD
 // ---------------------------------------------------------------------------
 export async function saveContact(formData: FormData): Promise<ActionResult> {

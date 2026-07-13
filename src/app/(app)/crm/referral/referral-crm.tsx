@@ -34,6 +34,7 @@ import {
   logQuickVisit,
   deletePartner,
   addUnmatchedPartner,
+  dismissUnmatched,
   saveContact,
   deleteContact,
   saveNote,
@@ -286,6 +287,13 @@ export function ReferralCrm({
             startTransition(async () => {
               const r = await addUnmatchedPartner(fd);
               notify(r.ok ? r.message ?? "Partner added." : `Error: ${r.error}`);
+            });
+          }}
+          onDismissUnmatched={(clinicName) => {
+            if (!confirm(`Remove "${clinicName}" from the match list? Its uploaded referral rows will be deleted and no partner will be created.`)) return;
+            startTransition(async () => {
+              const r = await dismissUnmatched(clinicName);
+              notify(r.ok ? r.message ?? "Removed." : `Error: ${r.error}`);
             });
           }}
         />
@@ -906,7 +914,7 @@ function ActivityTab({ visits }: { visits: ClinicVisit[] }) {
 // Upload Log tab
 // ===========================================================================
 function UploadLogTab({
-  history, unmatched, isAdmin, onUndo, onClearAll, onAddUnmatched,
+  history, unmatched, isAdmin, onUndo, onClearAll, onAddUnmatched, onDismissUnmatched,
 }: {
   history: SyncHistoryRow[];
   unmatched: UnmatchedEntry[];
@@ -914,8 +922,10 @@ function UploadLogTab({
   onUndo: (id: string) => void;
   onClearAll: () => void;
   onAddUnmatched: (clinicName: string) => void;
+  onDismissUnmatched: (clinicName: string) => void;
 }) {
   const [adding, setAdding] = useState<string | null>(null);
+  const [dismissing, setDismissing] = useState<string | null>(null);
   return (
     <div className="space-y-5">
       {isAdmin && (
@@ -928,8 +938,11 @@ function UploadLogTab({
         </div>
       )}
       <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
-          Unmatched Upload Entries {unmatched.length > 0 && <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">{unmatched.length}</span>}
+        <div className="border-b border-slate-100 px-4 py-3">
+          <div className="text-sm font-semibold text-slate-800">
+            Match — Referral Sources Not in CRM {unmatched.length > 0 && <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">{unmatched.length}</span>}
+          </div>
+          <p className="mt-0.5 text-xs text-slate-500">Clinics found in uploaded reports with no matching partner. <strong>Add</strong> creates a full profile and links their referral data; <strong>Delete</strong> just removes them from this list.</p>
         </div>
         {unmatched.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">No unmatched entries.</p>
@@ -954,15 +967,25 @@ function UploadLogTab({
                     <td className="px-3 py-2 text-right tabular-nums">{formatCurrency(u.revenue)}</td>
                     <td className="px-3 py-2 text-xs text-slate-500">{formatDate(u.uploadDate)}</td>
                     <td className="px-3 py-2 text-xs text-slate-500">{u.dateRange}</td>
-                    <td className="px-3 py-2 text-right">
-                      <button
-                        onClick={() => { setAdding(u.clinicName); onAddUnmatched(u.clinicName); }}
-                        disabled={adding === u.clinicName}
-                        className="rounded-lg border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
-                        title="Create a partner from this clinic and link its referrals"
-                      >
-                        {adding === u.clinicName ? "Adding…" : "+ Add as Partner"}
-                      </button>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => { setAdding(u.clinicName); onAddUnmatched(u.clinicName); }}
+                          disabled={adding === u.clinicName || dismissing === u.clinicName}
+                          className="rounded-lg border border-emerald-200 px-2.5 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                          title="Create a partner from this clinic and link its referrals"
+                        >
+                          {adding === u.clinicName ? "Adding…" : "+ Add to CRM"}
+                        </button>
+                        <button
+                          onClick={() => { setDismissing(u.clinicName); onDismissUnmatched(u.clinicName); }}
+                          disabled={adding === u.clinicName || dismissing === u.clinicName}
+                          className="rounded-lg border border-red-200 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          title="Remove from the match list without adding a partner"
+                        >
+                          {dismissing === u.clinicName ? "Removing…" : "Delete"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
