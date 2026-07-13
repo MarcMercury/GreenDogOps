@@ -1089,8 +1089,8 @@ function formatMonthLabel(ym: string): string {
 }
 
 function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
-  const byTier = REFERRAL_TIERS.map((t) => ({ label: t, count: partners.filter((p) => p.tier === t).length }));
-  const byPriority = REFERRAL_PRIORITIES.map((t) => ({ label: t, count: partners.filter((p) => p.priority === t).length }));
+  const byTier = REFERRAL_TIERS.map((t) => ({ label: t, count: partners.filter((p) => p.tier === t).length, criteria: TIER_CRITERIA[t] }));
+  const byPriority = REFERRAL_PRIORITIES.map((t) => ({ label: t, count: partners.filter((p) => p.priority === t).length, criteria: PRIORITY_CRITERIA[t] }));
   const top = [...partners].sort((a, b) => (Number(b.total_revenue_all_time) || 0) - (Number(a.total_revenue_all_time) || 0)).slice(0, 10);
   const atRisk = partners.filter((p) => (p.relationship_health ?? 100) < 40).sort((a, b) => (a.relationship_health ?? 0) - (b.relationship_health ?? 0)).slice(0, 10);
 
@@ -1310,13 +1310,33 @@ function ReportStat({ label, value, sub }: { label: string; value: string; sub?:
   );
 }
 
-function Breakdown({ title, rows, total }: { title: string; rows: { label: string; count: number }[]; total: number }) {
+// Fixed-threshold criteria surfaced on hover (mirror recalculate_partner_metrics()).
+const TIER_CRITERIA: Record<string, string> = {
+  Platinum: "$30,000+ lifetime revenue",
+  Gold: "$15,000 – $30,000 lifetime revenue",
+  Silver: "$5,000 – $15,000 lifetime revenue",
+  Bronze: "$500 – $5,000 lifetime revenue",
+  Coal: "Under $500 lifetime revenue",
+};
+
+const PRIORITY_CRITERIA: Record<string, string> = {
+  "Very High": "20+ lifetime referrals",
+  High: "10 – 19 lifetime referrals",
+  Medium: "3 – 9 lifetime referrals",
+  Low: "Under 3 lifetime referrals",
+};
+
+function Breakdown({ title, rows, total }: { title: string; rows: { label: string; count: number; criteria?: string }[]; total: number }) {
   return (
     <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
       <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">{title}</div>
       <div className="space-y-2 p-4">
         {rows.map((r) => (
-          <div key={r.label} className="flex items-center gap-3">
+          <div
+            key={r.label}
+            className="flex items-center gap-3"
+            title={r.criteria ? `${r.label}: ${r.criteria}` : undefined}
+          >
             <span className="w-20 shrink-0 text-xs text-slate-500">{r.label}</span>
             <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
               <div className="h-full bg-emerald-500" style={{ width: `${total ? (r.count / total) * 100 : 0}%` }} />
