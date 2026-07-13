@@ -597,6 +597,127 @@ export async function clearReferralStats(): Promise<ActionResult> {
   return { ok: true, message: "All referral stats cleared." };
 }
 
+// ===========================================================================
+// Date-range referral report
+// ===========================================================================
+export interface ReferralReportClinic {
+  partnerId: string | null;
+  name: string;
+  matched: boolean;
+  revenue: number;
+  referrals: number;
+}
+export interface ReferralReport {
+  start: string;
+  end: string;
+  totalRevenue: number;
+  totalReferrals: number;
+  matchedRevenue: number;
+  unmatchedRevenue: number;
+  uniqueClinics: number;
+  topClinics: ReferralReportClinic[];
+  byDivision: { division: string; revenue: number; referrals: number }[];
+  monthly: { month: string; revenue: number; referrals: number }[];
+}
+export type ReferralReportResult =
+  | { ok: true; report: ReferralReport }
+  | { ok: false; error: string };
+
+/**
+ * Aggregate revenue line items whose `transaction_date` falls within
+ * [start, end] (inclusive, YYYY-MM-DD). Returns totals, top clinics by
+ * revenue, a per-division breakdown, and a monthly time series. Read-only —
+ * available to any user who can view the Referral CRM.
+ */
+export async function getReferralReport(start: string, end: string): Promise<ReferralReportResult> {
+  await requireUser();
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  if (!iso.test(start) || !iso.test(end)) return { ok: false, error: "Invalid date range." };
+  if (start > end) return { ok: false, error: "Start date must be on or before end date." };
+
+  const supabase = await createClient();
+
+  const { data: rows, error } = await fetchAllRows<{
+    partner_id: string | null;
+    csv_clinic_name: string | null;
+    amount: number | null;
+    division: string | null;
+    transaction_date: string | null;
+  }>((from, to) =>
+    supabase
+      .from("referral_revenue_line_items")
+      .select("partner_id, csv_clinic_name, amount, division, transaction_date")
+      .gte("transaction_date", start)
+      .lte("transaction_date", end)
+      .range(from, to),
+  );
+  if (error) return { ok: false, error: error.message };
+
+  // Map partner ids to display names.
+  const { data: partnerRows } = await supabase.from("referral_partners").select("id, name");
+  const partnerNames = new Map<string, string>((partnerRows ?? []).map((p) => [p.id as string, (p.name as string) ?? "Unnamed"]));
+
+  const clinics = new Map<string, ReferralReportClinic>();
+  const divisions = new Map<string, { revenue: number; referrals: number }>();
+  const months = new Map<string, { revenue: number; referrals: number }>();
+  let totalRevenue = 0;
+  let matchedRevenue = 0;
+
+  for (const r of rows) {
+    const amount = Number(r.amount) || 0;
+    totalRevenue += amount;
+
+    const key = r.partner_id ?? `csv:${(r.csv_clinic_name ?? "").toLowerCase()}`;
+    const existing = clinics.get(key);
+    if (existing) {
+      existing.revenue += amount;
+      existing.referrals += 1;
+    } else {
+      clinics.set(key, {
+        partnerId: r.partner_id ?? null,
+        name: r.partner_id ? partnerNames.get(r.partner_id) ?? r.csv_clinic_name ?? "Unnamed" : r.csv_clinic_name ?? "Unmatched",
+        matched: Boolean(r.partner_id),
+        revenue: amount,
+        referrals: 1,
+      });
+    }
+    if (r.partner_id) matchedRevenue += amount;
+
+    const div = r.division?.trim() || "Uncategorized";
+    const d = divisions.get(div) ?? { revenue: 0, referrals: 0 };
+    d.revenue += amount;
+    d.referrals += 1;
+    divisions.set(div, d);
+
+    const month = (r.transaction_date ?? "").slice(0, 7); // YYYY-MM
+    if (iso.test(r.transaction_date ?? "")) {
+      const m = months.get(month) ?? { revenue: 0, referrals: 0 };
+      m.revenue += amount;
+      m.referrals += 1;
+      months.set(month, m);
+    }
+  }
+
+  const clinicList = [...clinics.values()];
+  const report: ReferralReport = {
+    start,
+    end,
+    totalRevenue,
+    totalReferrals: rows.length,
+    matchedRevenue,
+    unmatchedRevenue: totalRevenue - matchedRevenue,
+    uniqueClinics: clinicList.length,
+    topClinics: clinicList.sort((a, b) => b.revenue - a.revenue).slice(0, 15),
+    byDivision: [...divisions.entries()]
+      .map(([division, v]) => ({ division, ...v }))
+      .sort((a, b) => b.revenue - a.revenue),
+    monthly: [...months.entries()]
+      .map(([month, v]) => ({ month, ...v }))
+      .sort((a, b) => a.month.localeCompare(b.month)),
+  };
+  return { ok: true, report };
+}
+
 // ---------------------------------------------------------------------------
 // Undo a single upload (admin only)
 // ---------------------------------------------------------------------------

@@ -38,7 +38,9 @@ import {
   deleteContact,
   saveNote,
   deleteNote,
+  getReferralReport,
   type UploadResult,
+  type ReferralReport,
 } from "./actions";
 import { PartnerDialog } from "./partner-dialog";
 import { PartnerMap } from "./partner-map";
@@ -1027,14 +1029,218 @@ function UploadLogTab({
 // ===========================================================================
 // Reports tab
 // ===========================================================================
+type RangePreset = "30d" | "90d" | "6m" | "12m" | "ytd" | "custom";
+
+const RANGE_PRESETS: { key: RangePreset; label: string }[] = [
+  { key: "30d", label: "Last 30 Days" },
+  { key: "90d", label: "Last 90 Days" },
+  { key: "6m", label: "Last 6 Months" },
+  { key: "12m", label: "Last 12 Months" },
+  { key: "ytd", label: "Year to Date" },
+  { key: "custom", label: "Custom Range" },
+];
+
+function isoDay(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function rangeForPreset(preset: RangePreset): { from: string; to: string } {
+  const today = new Date();
+  const to = isoDay(today);
+  const start = new Date(today);
+  switch (preset) {
+    case "30d": start.setDate(start.getDate() - 30); break;
+    case "90d": start.setDate(start.getDate() - 90); break;
+    case "6m": start.setMonth(start.getMonth() - 6); break;
+    case "12m": start.setFullYear(start.getFullYear() - 1); break;
+    case "ytd": start.setMonth(0, 1); break;
+    default: start.setDate(start.getDate() - 30); break;
+  }
+  return { from: isoDay(start), to };
+}
+
+function formatMonthLabel(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  if (!y || !m) return ym;
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+}
+
 function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
   const byTier = REFERRAL_TIERS.map((t) => ({ label: t, count: partners.filter((p) => p.tier === t).length }));
   const byPriority = REFERRAL_PRIORITIES.map((t) => ({ label: t, count: partners.filter((p) => p.priority === t).length }));
   const top = [...partners].sort((a, b) => (Number(b.total_revenue_all_time) || 0) - (Number(a.total_revenue_all_time) || 0)).slice(0, 10);
   const atRisk = partners.filter((p) => (p.relationship_health ?? 100) < 40).sort((a, b) => (a.relationship_health ?? 0) - (b.relationship_health ?? 0)).slice(0, 10);
 
+  const initial = rangeForPreset("30d");
+  const [preset, setPreset] = useState<RangePreset>("30d");
+  const [from, setFrom] = useState(initial.from);
+  const [to, setTo] = useState(initial.to);
+  const [report, setReport] = useState<ReferralReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function onPresetChange(next: RangePreset) {
+    setPreset(next);
+    if (next !== "custom") {
+      const r = rangeForPreset(next);
+      setFrom(r.from);
+      setTo(r.to);
+    }
+  }
+
+  function generate() {
+    setError(null);
+    startTransition(async () => {
+      const res = await getReferralReport(from, to);
+      if (res.ok) {
+        setReport(res.report);
+      } else {
+        setReport(null);
+        setError(res.error);
+      }
+    });
+  }
+
+  const maxMonthly = report ? Math.max(1, ...report.monthly.map((m) => m.revenue)) : 1;
+
   return (
     <div className="space-y-5">
+      {/* --- Date range report --- */}
+      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-wrap items-end gap-3 border-b border-slate-100 p-4">
+          <div className="flex flex-col gap-1">
+            <span className={fieldLabel}>Time Period</span>
+            <select
+              value={preset}
+              onChange={(e) => onPresetChange(e.target.value as RangePreset)}
+              className={`${fieldInput} min-w-44`}
+            >
+              {RANGE_PRESETS.map((p) => (
+                <option key={p.key} value={p.key}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className={fieldLabel}>From</span>
+            <input
+              type="date"
+              value={from}
+              max={to}
+              onChange={(e) => { setFrom(e.target.value); setPreset("custom"); }}
+              className={fieldInput}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className={fieldLabel}>To</span>
+            <input
+              type="date"
+              value={to}
+              min={from}
+              onChange={(e) => { setTo(e.target.value); setPreset("custom"); }}
+              className={fieldInput}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={generate}
+            disabled={pending}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+          >
+            📊 {pending ? "Generating…" : "Generate"}
+          </button>
+        </div>
+
+        {error && (
+          <p className="px-4 py-3 text-sm text-red-600">{error}</p>
+        )}
+
+        {!report && !error && (
+          <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
+            <span className="text-3xl text-slate-300">📈</span>
+            <p className="text-sm font-medium text-slate-500">Select a time period and click Generate</p>
+            <p className="text-xs text-slate-400">View referral metrics, top clinics, visit counts, and revenue breakdowns</p>
+          </div>
+        )}
+
+        {report && (
+          <div className="space-y-5 p-4">
+            <p className="text-xs text-slate-500">
+              {formatDate(report.start)} – {formatDate(report.end)}
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <ReportStat label="Total Revenue" value={formatCurrency(report.totalRevenue)} />
+              <ReportStat label="Total Referrals" value={report.totalReferrals.toLocaleString()} />
+              <ReportStat label="Referring Clinics" value={report.uniqueClinics.toLocaleString()} />
+              <ReportStat
+                label="Matched Revenue"
+                value={formatCurrency(report.matchedRevenue)}
+                sub={report.unmatchedRevenue > 0 ? `${formatCurrency(report.unmatchedRevenue)} unmatched` : undefined}
+              />
+            </div>
+
+            {report.totalReferrals === 0 ? (
+              <p className="rounded-lg bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                No referral revenue recorded in this period.
+              </p>
+            ) : (
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-xl border border-slate-200/80 bg-white">
+                  <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Top Clinics by Revenue</div>
+                  <ol className="divide-y divide-slate-100">
+                    {report.topClinics.map((c, i) => (
+                      <li key={`${c.partnerId ?? c.name}-${i}`} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                        <span className="truncate text-slate-700">
+                          {i + 1}. {c.name}
+                          {!c.matched && <span className="ml-1 text-xs text-amber-600">(unmatched)</span>}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-3">
+                          <span className="text-xs text-slate-400">{c.referrals} ref</span>
+                          <span className="tabular-nums text-slate-600">{formatCurrency(c.revenue)}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="rounded-xl border border-slate-200/80 bg-white">
+                    <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Monthly Trend</div>
+                    <div className="space-y-2 p-4">
+                      {report.monthly.length === 0 ? (
+                        <p className="text-center text-xs text-slate-400">No dated line items.</p>
+                      ) : report.monthly.map((m) => (
+                        <div key={m.month} className="flex items-center gap-3">
+                          <span className="w-20 shrink-0 text-xs text-slate-500">{formatMonthLabel(m.month)}</span>
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                            <div className="h-full bg-emerald-500" style={{ width: `${(m.revenue / maxMonthly) * 100}%` }} />
+                          </div>
+                          <span className="w-20 shrink-0 text-right text-xs tabular-nums text-slate-600">{formatCompactCurrency(m.revenue)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {report.byDivision.length > 0 && (
+                    <div className="rounded-xl border border-slate-200/80 bg-white">
+                      <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Revenue by Division</div>
+                      <ol className="divide-y divide-slate-100">
+                        {report.byDivision.map((d) => (
+                          <li key={d.division} className="flex items-center justify-between px-4 py-2 text-sm">
+                            <span className="truncate text-slate-700">{d.division}</span>
+                            <span className="tabular-nums text-slate-600">{formatCurrency(d.revenue)}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* --- All-time partner breakdowns --- */}
       <div className="grid gap-4 md:grid-cols-2">
         <Breakdown title="Partners by Tier" rows={byTier} total={partners.length} />
         <Breakdown title="Partners by Priority" rows={byPriority} total={partners.length} />
@@ -1067,6 +1273,16 @@ function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReportStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-slate-50 px-4 py-3">
+      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-slate-900">{value}</div>
+      {sub && <div className="text-xs text-slate-400">{sub}</div>}
     </div>
   );
 }
