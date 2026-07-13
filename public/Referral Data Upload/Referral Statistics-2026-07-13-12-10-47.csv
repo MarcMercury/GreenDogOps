@@ -1,0 +1,138 @@
+"Clinic Name",Vet,"Date of Last Referral","Date of Second to Last Referral",Difference,"Total Referrals 6 Months to 05-31-2026","Total Referrals 12 Months to 05-31-2026","Total Referrals 24 Months to 05-31-2026","Monthly Average 12 Months to 05-31-2026"
+"Limehouse Veterinary Clinic","Limehouse Veterinary Clinic",05-12-2026,N/A,N/A,5,5,10,0.42
+"Rancho Park Veterinary Clinic","Rancho Park Veterinary Clinic",05-22-2026,N/A,N/A,6,8,11,0.67
+"VCA West Los Angeles Animal Hospital","VCA West Los Angeles Animal Hospital",05-30-2026,05-29-2026,"23 hours and 45 minutes",42,110,136,9.17
+"Overland Veterinary Clinic","Overland Veterinary Clinic",05-30-2026,05-27-2026,"3 days and 2 hours",25,41,49,3.42
+"Emerald Animal Hospital","Emerald Animal Hospital",05-21-2026,N/A,N/A,5,10,17,0.83
+"The Cat Hospital","The Cat Hospital",05-01-2026,N/A,N/A,5,7,7,0.58
+"Shane Veterinary Medical Center","Shane Veterinary Medical Center",05-05-2026,N/A,N/A,10,15,19,1.25
+"Animal Wellness Centers","Animal Wellness Centers",05-22-2026,N/A,N/A,9,11,11,0.92
+"Westside Pet Clinic","Westside Pet Clinic",05-20-2026,N/A,N/A,5,8,8,0.67
+"Veterinary Emergency Group","Veterinary Emergency Group",05-18-2026,05-14-2026,"3 days and 23 hours",8,14,15,1.17
+"Palms & Paws Veterinary Center","Palms & Paws Veterinary Center",05-21-2026,05-20-2026,"1 day and 5 hours",34,47,54,3.92
+"Boulevard Animal Hospital","Boulevard Animal Hospital",05-28-2026,05-28-2026,"15 minutes",5,5,5,0.42
+"Malibu Coast Animal Hospital","Malibu Coast Animal Hospital",05-22-2026,05-15-2026,"6 days and 23 hours",14,24,29,2.00
+"Centinela Animal Hospital","Centinela Animal Hospital",05-30-2026,05-28-2026,"1 day and 20 hours",112,224,328,18.67
+"VCA Venture Animal Hospital","VCA Venture Animal Hospital",05-23-2026,05-23-2026,"15 minutes",9,11,13,0.92
+"VCA Miller-Robertson","VCA Miller-Robertson",05-20-2026,05-09-2026,"10 days and 20 hours",4,11,17,0.92
+"Beverly Hills Small Animal Hospital","Beverly Hills Small Animal Hospital",05-26-2026,05-09-2026,"17 days and 6 hours",15,16,18,1.33
+"Encino Veterinary Center","Encino Veterinary Center",05-23-2026,05-20-2026,"2 days and 16 hours",31,37,44,3.08
+"Larchmont Village Vet","Larchmont Village Vet",05-09-2026,N/A,N/A,4,7,13,0.58
+"Sherman Oaks Veterinary Group","Sherman Oaks Veterinary Group",05-29-2026,05-07-2026,"21 days and 19 hours",32,38,45,3.17
+"Van Nuys Veterinary Clinic","Van Nuys Veterinary Clinic",05-30-2026,05-29-2026,"1 day and 5 hours",83,115,146,9.58
+"Marina Veterinary Center","Marina Veterinary Center",05-29-2026,05-27-2026,"1 day and 17 hours",34,46,51,3.83
+"Beverly Pet Clinic","Beverly Pet Clinic",05-27-2026,N/A,N/A,4,4,4,0.33
+"Metropolitan Animal Specialty Hospital","Metropolitan Animal Specialty Hospital",05-27-2026,N/A,N/A,10,14,14,1.17
+"West Hollywood Animal Hospital","West Hollywood Animal Hospital",05-23-2026,05-18-2026,"5 days and 3 hours",5,5,5,0.42
+"Culver City Animal Hospital","Culver City Animal Hospital",05-11-2026,N/A,N/A,5,6,6,0.50
+"Rancho Park Veterinary Clinic","Rancho Park Veterinary Clinic",05-29-2026,05-27-2026,"1 day and 20 hours",9,22,24,1.83
+"Santa Monica Pet Medical Center","Santa Monica Pet Medical Center",05-28-2026,05-12-2026,"16 days and 6 hours",17,30,41,2.50
+"VCA Wilshire Animal Hospital","VCA Wilshire Animal Hospital",05-15-2026,N/A,N/A,16,21,24,1.75
+"VCA Marina Bay Cities Animal Hospital","VCA Marina Bay Cities Animal Hospital",05-29-2026,05-18-2026,"10 days and 21 hours",53,69,86,5.75
+"Westchester Veterinary Center & Cat Clinic","Westchester Veterinary Center & Cat Clinic",05-28-2026,05-20-2026,"7 days and 22 hours",3,3,3,0.25
+Dogcatdoc@yourdoor,Dogcatdoc@yourdoor,05-27-2026,05-23-2026,"4 days and 1 hour",2,2,2,0.17
+"Elite Veterinary Care","Elite Veterinary Care",05-29-2026,05-12-2026,"17 days and 1 hour",23,38,46,3.17
+"Paws and Claws Hospital & Mobile Vet","Paws and Claws Hospital & Mobile Vet",05-22-2026,05-16-2026,"5 days and 19 hours",10,17,17,1.42
+"VCA Santa Monica Dog and Cat Hospital","VCA Santa Monica Dog and Cat Hospital",05-29-2026,05-19-2026,"9 days and 19 hours",15,23,41,1.92
+"Pasternak Vet Center","Pasternak Vet Center",05-27-2026,05-21-2026,"6 days and 3 hours",13,15,19,1.25
+"Stewart Veterinary Group","Stewart Veterinary Group",05-30-2026,N/A,N/A,10,11,14,0.92
+"ACCESS Specialty Animal Hospitals - San Fernando Valley","ACCESS Specialty Animal Hospitals - San Fernando Valley",05-27-2026,05-20-2026,"7 days",4,5,8,0.42
+"VCA McClave Veterinary Hospital","VCA McClave Veterinary Hospital",05-01-2026,N/A,N/A,10,11,13,0.92
+"McGrath Veterinary Center","McGrath Veterinary Center",05-29-2026,05-29-2026,"15 minutes",40,44,48,3.67
+"True Care For Pets","True Care For Pets",05-20-2026,N/A,N/A,6,6,6,0.50
+"VCA Animal Specialty Group","VCA Animal Specialty Group",05-30-2026,05-27-2026,"3 days and 30 minutes",6,6,6,0.50
+"Beverly Oaks Animal Hospital","Beverly Oaks Animal Hospital",05-22-2026,05-16-2026,"5 days and 16 hours",16,22,22,1.83
+"VCA Veterinary Specialists of the Valley","VCA Veterinary Specialists of the Valley",05-11-2026,05-05-2026,"5 days and 22 hours",9,10,14,0.83
+"The Pet Doctors of Sherman Oaks","The Pet Doctors of Sherman Oaks",05-30-2026,05-23-2026,"6 days and 19 hours",24,24,24,2.00
+"VCA Animal Specialty & Emergency Center","VCA Animal Specialty & Emergency Center",05-26-2026,05-16-2026,"10 days and 15 minutes",23,36,46,3.00
+"Carlsen Animal Hospital","Carlsen Animal Hospital",05-08-2026,N/A,N/A,1,1,1,0.08
+"Pacific Palisades Veterinary Center","Pacific Palisades Veterinary Center",05-11-2026,N/A,N/A,9,10,11,0.83
+"Modern Animal","Modern Animal",05-29-2026,05-29-2026,"3 hours and 15 minutes",112,143,170,11.92
+"California Animal Rehabilitation","California Animal Rehabilitation",05-18-2026,N/A,N/A,2,9,10,0.75
+"Sepulveda Animal Hospital","Sepulveda Animal Hospital",05-01-2026,N/A,N/A,8,8,8,0.67
+"Fox Hills Animal Hospital","Fox Hills Animal Hospital",05-05-2026,N/A,N/A,1,1,1,0.08
+"Value Vet Inc.","Value Vet Inc.",05-05-2026,05-02-2026,"3 days",8,9,10,0.75
+"The Village Vet","The Village Vet",05-15-2026,05-01-2026,"14 days and 5 hours",5,5,5,0.42
+"West LA Veterinary Group","West LA Veterinary Group",05-15-2026,05-01-2026,"14 days",7,13,14,1.08
+"VCA Animal Medical Center of Southern California","VCA Animal Medical Center of Southern California",05-29-2026,05-29-2026,"6 hours",18,22,22,1.83
+"Bay Animal Hospital","Bay Animal Hospital",05-07-2026,N/A,N/A,3,3,4,0.25
+"Redondo Shores Veterinary Center","Redondo Shores Veterinary Center",05-30-2026,N/A,N/A,2,2,2,0.17
+"Los Angeles Veterinary Center","Los Angeles Veterinary Center",05-29-2026,05-07-2026,"21 days and 23 hours",4,5,6,0.42
+"Laurel Pet Hospital","Laurel Pet Hospital",05-02-2026,N/A,N/A,9,11,14,0.92
+"VCA TLC Animal Hospital","VCA TLC Animal Hospital",05-05-2026,N/A,N/A,4,7,8,0.58
+"Southpaw Vets","Southpaw Vets",05-13-2026,N/A,N/A,12,21,23,1.75
+"Los Feliz Small Animal Hospital","Los Feliz Small Animal Hospital",05-27-2026,05-19-2026,"8 days and 2 hours",13,21,24,1.75
+"Veterinary Medical Center","Veterinary Medical Center",05-07-2026,N/A,N/A,3,3,9,0.25
+"Studio City Animal Hospital","Studio City Animal Hospital",05-28-2026,05-05-2026,"22 days and 23 hours",9,14,16,1.17
+"Animal Medical Center Valencia","Animal Medical Center Valencia",05-04-2026,N/A,N/A,7,8,9,0.67
+"El Segundo Animal Hospital","El Segundo Animal Hospital",05-15-2026,05-07-2026,"8 days and 3 hours",3,4,4,0.33
+"Holistika Veterinary","Holistika Veterinary",05-30-2026,N/A,N/A,5,14,16,1.17
+"Affordable Animal Hospital Silver Lake","Affordable Animal Hospital Silver Lake",05-23-2026,05-16-2026,"7 days and 30 minutes",11,13,14,1.08
+"Cahuenga Animal Hospital","Cahuenga Animal Hospital",05-30-2026,05-04-2026,"25 days and 22 hours",7,8,8,0.67
+"Melrose Veterinary Hospital","Melrose Veterinary Hospital",05-15-2026,05-02-2026,"12 days and 17 hours",11,16,18,1.33
+"Glendale Small Animal Hospital","Glendale Small Animal Hospital",05-28-2026,05-11-2026,"16 days and 22 hours",8,18,18,1.50
+"Mohawk Alley Animal Hospital","Mohawk Alley Animal Hospital",05-20-2026,05-20-2026,"3 hours and 30 minutes",6,6,7,0.50
+"Winnetka Animal Clinic","Winnetka Animal Clinic",05-07-2026,05-06-2026,"23 hours and 15 minutes",4,10,11,0.83
+"Vet Villa Animal Hospital","Vet Villa Animal Hospital",05-21-2026,N/A,N/A,5,6,6,0.50
+"Tarzana Pet Clinic","Tarzana Pet Clinic",05-19-2026,N/A,N/A,10,13,15,1.08
+"Calabasas Animal Clinic & Holistic Veterinary Center","Calabasas Animal Clinic & Holistic Veterinary Center",05-30-2026,05-23-2026,"7 days and 1 hour",15,21,21,1.75
+"VCA Arden Animal Hospital","VCA Arden Animal Hospital",05-16-2026,05-02-2026,"14 days and 2 hours",9,10,10,0.83
+"Panorama Pet Hospital","Panorama Pet Hospital",05-08-2026,N/A,N/A,3,4,4,0.33
+"Cozycroft Pet Hospital","Cozycroft Pet Hospital",05-29-2026,N/A,N/A,2,6,6,0.50
+"Banfield Pet Hospital (Northridge)","Banfield Pet Hospital (Northridge)",05-22-2026,05-05-2026,"17 days and 5 hours",3,4,4,0.33
+"Ambassador Dog & Cat Hospital","Ambassador Dog & Cat Hospital",05-28-2026,05-23-2026,"5 days and 23 minutes",5,5,5,0.42
+"Mission Veterinary Clinic and Animal Emergency Hospital","Mission Veterinary Clinic and Animal Emergency Hospital",05-23-2026,05-02-2026,"21 days",12,15,15,1.25
+"Media City Animal Hospital","Media City Animal Hospital",05-30-2026,05-29-2026,"1 day and 2 hours",16,19,19,1.58
+"Burbank Veterinary Center","Burbank Veterinary Center",05-20-2026,05-14-2026,"5 days and 16 hours",4,7,7,0.58
+"Veterinary Healthcare Center","Veterinary Healthcare Center",05-22-2026,05-07-2026,"14 days and 20 hours",14,16,16,1.33
+"Park La Brea Veterinary Care","Park La Brea Veterinary Care",05-26-2026,N/A,N/A,3,5,5,0.42
+"El Segundo Animal Hospital","El Segundo Animal Hospital",05-11-2026,05-02-2026,"8 days and 21 hours",7,7,7,0.58
+"VCA Brentwood Animal Hospital","VCA Brentwood Animal Hospital",05-29-2026,05-19-2026,"9 days and 19 hours",6,6,6,0.50
+"Fillmore Animal Hopsital","Fillmore Animal Hopsital",05-28-2026,05-18-2026,"10 days and 1 hour",8,8,8,0.67
+"Treehouse Animal Hospital","Treehouse Animal Hospital",05-26-2026,05-04-2026,"22 days and 3 hours",8,8,8,0.67
+"Capri Pet Plaza Clinic","Capri Pet Plaza Clinic",05-21-2026,N/A,N/A,4,4,4,0.33
+"South Pasadena Animal Hospital","South Pasadena Animal Hospital",05-22-2026,05-16-2026,"6 days and 45 minutes",8,8,8,0.67
+"Shadow Hills Pet Clinic","Shadow Hills Pet Clinic",05-09-2026,N/A,N/A,6,6,6,0.50
+"Cinema Veterinary Centre","Cinema Veterinary Centre",05-13-2026,05-12-2026,"20 hours",7,7,7,0.58
+"Petco Pasadena","Petco Pasadena",05-12-2026,05-08-2026,"4 days and 6 hours",3,3,3,0.25
+"Culver Palms Animal Hospital","Culver Palms Animal Hospital",05-23-2026,05-23-2026,"15 minutes",5,5,5,0.42
+"Sharp Pet Hospital","Sharp Pet Hospital",05-07-2026,N/A,N/A,2,2,2,0.17
+"VCA Santa Monica Main Street Animal Hospital","VCA Santa Monica Main Street Animal Hospital",05-04-2026,N/A,N/A,9,9,9,0.75
+"Modern Animal Playa Vista","Modern Animal Playa Vista",05-29-2026,05-19-2026,"9 days and 23 hours",9,9,9,0.75
+"CAMP Clinic LA","CAMP Clinic LA",05-04-2026,05-01-2026,"2 days and 23 hours",2,2,2,0.17
+"Dr. Shipp's Animal Hospital and The Amanda Foundation","Dr. Shipp's Animal Hospital and The Amanda Foundation",05-27-2026,05-01-2026,"26 days and 1 hour",4,4,4,0.33
+"Aloro Pet Hospital","Aloro Pet Hospital",05-30-2026,05-20-2026,"9 days and 21 hours",6,6,6,0.50
+"Five Star Veterinary Center","Five Star Veterinary Center",05-19-2026,N/A,N/A,2,2,2,0.17
+"Nordhoff Veterinary Hospital","Nordhoff Veterinary Hospital",05-07-2026,N/A,N/A,1,1,1,0.08
+"Bixby Animal Specialty & Emergency","Bixby Animal Specialty & Emergency",05-16-2026,05-09-2026,"7 days and 2 hours",3,3,3,0.25
+"Montrose Pet Hospital","Montrose Pet Hospital",05-30-2026,N/A,N/A,3,3,3,0.25
+"Brighter Veterinary Center","Brighter Veterinary Center",05-02-2026,N/A,N/A,7,7,7,0.58
+" Animal Hospital, Center Sinai"," Animal Hospital, Center Sinai",05-26-2026,05-06-2026,"20 days and 6 hours",4,4,4,0.33
+"Echo Park Veterinary","Echo Park Veterinary",05-11-2026,N/A,N/A,2,2,2,0.17
+"Anza Animal Clinic","Anza Animal Clinic",05-14-2026,N/A,N/A,1,1,1,0.08
+"VCA Animal Hospital Mar Vista","VCA Animal Hospital Mar Vista",05-14-2026,N/A,N/A,2,2,2,0.17
+"Conejo Valley Veterinary Hospital","Conejo Valley Veterinary Hospital",05-30-2026,05-06-2026,"24 days and 3 hours",7,7,7,0.58
+"VCA Coast Animal Hospital","VCA Coast Animal Hospital",05-21-2026,N/A,N/A,4,4,4,0.33
+"All Pets Animal Hospital","All Pets Animal Hospital",05-28-2026,05-09-2026,"18 days and 21 hours",5,5,5,0.42
+"Rosemead Animal Hospital","Rosemead Animal Hospital",05-13-2026,05-06-2026,"6 days and 15 hours",8,8,8,0.67
+"Your Pet Dentist","Your Pet Dentist",05-27-2026,N/A,N/A,2,2,2,0.17
+"Hollypark Pet Clinc","Hollypark Pet Clinc",05-11-2026,05-05-2026,"5 days and 18 hours",8,8,8,0.67
+"Valley Animal Hospital","Valley Animal Hospital",05-20-2026,05-09-2026,"10 days and 23 hours",5,5,5,0.42
+"North Valley Veterinary Clinic","North Valley Veterinary Clinic",05-04-2026,N/A,N/A,3,3,3,0.25
+"Balboa Veterinary Medical Center","Balboa Veterinary Medical Center",05-27-2026,05-27-2026,"15 minutes",18,18,18,1.50
+"Banfield Tujunga","Banfield Tujunga",05-13-2026,N/A,N/A,1,1,1,0.08
+"VCA Magnolia Animal Hospital","VCA Magnolia Animal Hospital",05-14-2026,N/A,N/A,2,2,2,0.17
+"Vet Villa Animal Hospital","Vet Villa Animal Hospital",05-23-2026,N/A,N/A,1,1,1,0.08
+"Granada Hills Vet Hospital","Granada Hills Vet Hospital",05-27-2026,05-11-2026,"15 days and 23 hours",5,5,5,0.42
+"Ohana Pet Hospital of Agoura Hills","Ohana Pet Hospital of Agoura Hills",05-14-2026,05-08-2026,"6 days and 5 hours",3,3,3,0.25
+"Pasadena Pets Veterinary Hospital","Pasadena Pets Veterinary Hospital",05-20-2026,05-13-2026,"6 days and 23 hours",5,5,5,0.42
+"Little Paws dog and cat hospital","Little Paws dog and cat hospital",05-02-2026,N/A,N/A,2,2,2,0.17
+"Banfield Santa Clarita","Banfield Santa Clarita",05-02-2026,N/A,N/A,2,2,2,0.17
+Unknown," Burbank, Vetco",05-01-2026,N/A,N/A,1,1,1,0.08
+" Glendale, Vetco"," Glendale, Vetco",05-04-2026,N/A,N/A,1,1,1,0.08
+"Vetco Total Care 588 - Burbank","Vetco Total Care 588 - Burbank",05-18-2026,N/A,N/A,1,1,1,0.08
+"Shatto Veterinary Center","Shatto Veterinary Center",05-30-2026,05-22-2026,"7 days and 23 hours",2,2,2,0.17
+"Olmpic Pet Hospital","Olmpic Pet Hospital",05-19-2026,N/A,N/A,1,1,1,0.08
+"Roswinn Pet Hospital","Roswinn Pet Hospital",05-30-2026,05-28-2026,"1 day and 17 hours",5,5,5,0.42
+"Pet Care Veterinary Center","Pet Care Veterinary Center",05-28-2026,05-28-2026,"15 minutes",2,2,2,0.17
+

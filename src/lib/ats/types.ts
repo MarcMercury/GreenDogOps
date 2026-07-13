@@ -160,6 +160,21 @@ export interface CandidateInterviewMeta {
   last_grade: string | null; // grade of the most recent graded interview
 }
 
+// A candidate's attached document (resume, cover letter, etc.) plus a
+// short-lived signed download URL. Returned by the `getCandidateDocuments`
+// action for the Review Queue's expandable tile.
+export interface CandidateDocument {
+  id: string;
+  title: string;
+  category: string | null;
+  file_name: string | null;
+  mime_type: string | null;
+  size_bytes: number | null;
+  source: string | null;
+  uploaded_at: string;
+  signed_url: string | null;
+}
+
 // Normalize a free-form stage string into a coarse bucket for filtering/badges.
 export type StageBucket =
   | "hired"

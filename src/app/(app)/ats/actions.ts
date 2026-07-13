@@ -20,7 +20,7 @@ import {
   type ParseResumeResult,
   type CreateCandidatesResult,
 } from "@/lib/ats/import-types";
-import { ACCEPTED_LEAD_STAGE, DECLINED_STAGE } from "@/lib/ats/types";
+import { ACCEPTED_LEAD_STAGE, DECLINED_STAGE, type CandidateDocument } from "@/lib/ats/types";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -260,6 +260,64 @@ export async function deleteCandidateDocument(
   revalidatePath(`/ats/${personId}`);
   revalidatePath(`/hr/${personId}`);
   return { ok: true };
+}
+
+/**
+ * Fetch a candidate's attached documents (resumes, cover letters, etc.) with
+ * short-lived signed download URLs. Used by the Review Queue's expandable tile
+ * to show attachments on demand without generating signed URLs for the whole
+ * queue up front. Read-gated to any signed-in user.
+ */
+export async function getCandidateDocuments(
+  personId: string,
+): Promise<
+  | { ok: true; documents: CandidateDocument[] }
+  | { ok: false; error: string }
+> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "You are not signed in." };
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("person_document")
+    .select("id, title, category, storage_path, file_name, mime_type, size_bytes, source, uploaded_at")
+    .eq("person_id", personId)
+    .order("uploaded_at", { ascending: false });
+  if (error) return { ok: false, error: error.message };
+
+  const docs = (data ?? []) as Array<{
+    id: string;
+    title: string;
+    category: string | null;
+    storage_path: string;
+    file_name: string | null;
+    mime_type: string | null;
+    size_bytes: number | null;
+    source: string | null;
+    uploaded_at: string;
+  }>;
+  if (docs.length === 0) return { ok: true, documents: [] };
+
+  const { data: signed } = await admin.storage
+    .from(DOCUMENTS_BUCKET)
+    .createSignedUrls(
+      docs.map((d) => d.storage_path),
+      60 * 60,
+    );
+
+  const documents: CandidateDocument[] = docs.map((d, i) => ({
+    id: d.id,
+    title: d.title,
+    category: d.category,
+    file_name: d.file_name,
+    mime_type: d.mime_type,
+    size_bytes: d.size_bytes,
+    source: d.source,
+    uploaded_at: d.uploaded_at,
+    signed_url: signed?.[i]?.signedUrl ?? null,
+  }));
+
+  return { ok: true, documents };
 }
 
 // Convert a candidate into an employee: flip status + seed an employment row.

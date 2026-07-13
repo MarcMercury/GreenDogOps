@@ -1,0 +1,649 @@
+Date/Time,Referring Vet Clinic,Referring Vet,Client,Animal,Division,Amount
+,Sepulveda Animal Hospital,,,,,-88
+04-18-2026 8:30am,Sepulveda Animal Hospital,Sepulveda Animal Hospital," Silver, Delaney",Monty Silver,Green Dog - Van Nuys,-88
+,Larchmont Village Vet,,,,,12.41
+05-09-2026 12:15pm,Larchmont Village Vet,Larchmont Village Vet," Thompson, Kaley",Kiko Thompson,Green Dog - Van Nuys,12.41
+,Hillcrest Pet Hospital,,,,,22.2
+06-10-2026 12:30pm,Hillcrest Pet Hospital,Unknown Vet," Nemeth, Phyllis",Salsa Nemeth,Green Dog - Van Nuys,22.2
+,San Roque Veterinary Hospital,,,,,88
+06-11-2026 3:15pm,San Roque Veterinary Hospital,San Roque Veterinary Hospital," Cowan Sanchez, Amanda",Vino Cowan Sanchez,Green Dog - Van Nuys,88
+,VCA Santa Monica Main Street Animal Hospital,,,,,88
+06-17-2026 4:00pm,VCA Santa Monica Main Street Animal Hospital,Unknown Vet," Slack, Stephanie",Princie Slack,Green Dog - Van Nuys,88
+,Panorama Pet Hospital,,,,,100.8
+04-07-2026 9:42am,Panorama Pet Hospital,Panorama Pet Hospital," Paris, Gina",Louie Paris,Green Dog - Van Nuys,100.8
+,Shane Veterinary Medical Center,,,,,106
+05-05-2026 12:45pm,Shane Veterinary Medical Center,Shane Veterinary Medical Center," Harrison, Chase",Larry David Harrison,Green Dog - Van Nuys,106
+,Veterinary Emergency Group,,,,,129
+01-15-2026 11:00am,Veterinary Emergency Group,Veterinary Emergency Group," Russel, John",Dodger Russel,Green Dog - Van Nuys,129
+,Crescenta Canada Pet Hospital,,,,,135
+03-09-2026 1:45pm,Crescenta Canada Pet Hospital,Crescenta Canada Pet Hospital," Cooney, Roberta",Nellie Belle Cooney,Green Dog - Van Nuys,135
+,Sharp Pet Hospital,,,,,220
+03-07-2026 10:45am,Sharp Pet Hospital,Sharp Pet Hospital," Lokmanian, Shusig",Palka Lokmanian,Green Dog - Van Nuys,220
+,Cahuenga Animal Hospital,,,,,249
+02-06-2026 11:30am,Cahuenga Animal Hospital,Unknown Vet," Gilovitz, Benjamin",Scout Gilovitz,Green Dog - Van Nuys,249
+,Olmpic Pet Hospital,,,,,252
+05-19-2026 10:00am,Olmpic Pet Hospital,Unknown Vet," Torres, Gretchen",Skylar Torres,Green Dog - Van Nuys,252
+,Holistika Veterinary,,,,,252
+04-28-2026 11:30am,Holistika Veterinary,Holistika Veterinary," Robert, Rayne",Samuel Bowie Robert,Green Dog - Van Nuys,252
+,Elite Veterinary Care,,,,,308
+05-29-2026 10:15am,Elite Veterinary Care,Unknown Vet," Risko, Victoria",Cutie Risko,Green Dog - Van Nuys,308
+,Nordhoff Veterinary Hospital,,,,,350
+07-02-2026 11:45am,Nordhoff Veterinary Hospital,Nordhoff Veterinary Hospital," Deleon, Brian",Gus Deleon,Green Dog - Van Nuys,350
+,VCA Chatsworth Veterinary Center,,,,,350
+07-08-2026 11:30am,VCA Chatsworth Veterinary Center,VCA Chatsworth Veterinary Center," Knudsen, Diana",Luna Knudsen,Green Dog - Van Nuys,350
+,Townsgate Pet Hospital,,,,,427
+03-02-2026 3:15pm,Townsgate Pet Hospital,Townsgate Pet Hospital," Bravo, Camila",Canelo Bravo,Green Dog - Van Nuys,427
+,Santa Monica Veterinary Group,,,,,486.4
+06-10-2026 9:30am,Santa Monica Veterinary Group,Unknown Vet," Welch, Janet",Babs Welch,Green Dog - Van Nuys,486.4
+,North Hollywood Animal Care Center,,,,,709.12
+06-24-2026 2:40pm,North Hollywood Animal Care Center,Unknown Vet," Miller, John",Maddie Miller,Green Dog - Van Nuys,709.12
+,Pasternak Vet Center,,,,,750
+01-21-2026 10:00am,Pasternak Vet Center,Pasternak Vet Center," Arzuyan, Veronika",Danzig Arzuyan,Green Dog - Van Nuys,750
+,Petco Pasadena,,,,,904.02
+06-08-2026 8:15am,Petco Pasadena,Petco Pasadena," Hooper, Alesia",Finster Hooper,Green Dog - Van Nuys,904.02
+,Your Pet Dentist,,,,,962
+03-18-2026 9:45am,Your Pet Dentist,Unknown Vet," Fass, Alex",Max Fass,Green Dog - Van Nuys,962
+,Anza Animal Clinic,,,,,981.92
+05-14-2026 9:00am,Anza Animal Clinic,Anza Animal Clinic," Twors, Laura",Sampson Twors,Green Dog - Van Nuys,981.92
+,Vermont Animal Hospital,,,,,1383.78
+04-28-2026 9:00am,Vermont Animal Hospital,Vermont Animal Hospital," Lee, Suuny",Teddy Lee,Green Dog - Van Nuys,1383.78
+,Highland Park Animal Hospital,,,,,1880.33
+03-23-2026 9:30am,Highland Park Animal Hospital,Unknown Vet," Ploos-Solis, Natalie",Loki Ploos-Solis,Green Dog - Van Nuys,1880.33
+,Shatto Veterinary Center,,,,,2184.25
+05-22-2026 8:45am,Shatto Veterinary Center,Shatto Veterinary Center," Kim, Jonathan",Busby Kim,Green Dog - Van Nuys,2184.25
+,Slaton Veterinary Hospital,,,,,2197.02
+03-04-2026 8:45am,Slaton Veterinary Hospital,Unknown Vet," Berman, Robin",April Berman,Green Dog - Van Nuys,2197.02
+,Eagle Glen Veterinary Clinic,,,,,2300
+03-09-2026 8:15am,Eagle Glen Veterinary Clinic,Unknown Vet," Delizo, Kristine",Belle Delizo,Green Dog - Van Nuys,2300
+,Blue Veterinary Center (TEST),,,,,2312.8
+06-10-2026 9:45am,Blue Veterinary Center (TEST),Unknown Vet," Fattorini, Gladys",Maui Fattorini,Green Dog - Van Nuys,2312.8
+,San Dimas Animal Hospital,,,,,2400
+03-20-2026 8:45am,San Dimas Animal Hospital,San Dimas Animal Hospital," Stavropoulos, Sierra",Scout Stavropoulos,Green Dog - Van Nuys,2400
+,Happy Pets Veterinary Center,,,,,2600
+04-14-2026 9:30am,Happy Pets Veterinary Center,Happy Pets Veterinary Center," Best, Elizabeth",Harley Best,Green Dog - Van Nuys,2600
+,Vetco Total Care 588 - Burbank,,,,,2653.3
+05-18-2026 8:30am,Vetco Total Care 588 - Burbank,Unknown Vet," Adams, Jonell",Belle Adams,Green Dog - Van Nuys,2653.3
+,TAGS Veterinary Clinic,,,,,3000
+03-23-2026 9:15am,TAGS Veterinary Clinic,Unknown Vet," Cipperley, Jenda",Reign Cipperley,Green Dog - Van Nuys,3000
+,Banfield Santa Clarita,,,,,3100
+04-24-2026 8:45am,Banfield Santa Clarita,Banfield Santa Clarita," Bell, Justin",Caramel Bell,Green Dog - Van Nuys,3100
+,Animal Clinic of Encino,,,,,3212.26
+07-01-2026 8:45am,Animal Clinic of Encino,Unknown Vet," Maramot, Rainier",Phoebe Maramot,Green Dog - Van Nuys,3212.26
+,El Segundo Animal Hospital,,,,,3567.56
+04-15-2026 9:30am,El Segundo Animal Hospital,El Segundo Animal Hospital," Burkhart, Duane",Daisy Burkhart,Green Dog - Van Nuys,3567.56
+,Petra Pet Clinic,,,,,3997.82
+04-18-2026 9:45am,Petra Pet Clinic,Unknown Vet," Kim, Elaine",Kopa Kim,Green Dog - Van Nuys,3997.82
+,Woodland Hills Pet Clinic,,,,,5234.42
+03-24-2026 8:15am,Woodland Hills Pet Clinic,Woodland Hills Pet Clinic," Stevens, Sandra",Marlie Stevens,Green Dog - Van Nuys,5234.42
+,Little Paws dog and cat hospital,,,,,5441.27
+05-02-2026 9:00am,Little Paws dog and cat hospital,Little Paws dog and cat hospital," Penya, Carolyn",Max Penya,Green Dog - Van Nuys,5441.27
+,North Figueroa Animal Hospital,,,,,7333.11
+06-03-2026 8:15am,North Figueroa Animal Hospital,Unknown Vet," Phu, Jacklyn",Waldo Phu,Green Dog - Van Nuys,7333.11
+,VCA Franklin Park Animal Hospital,,,,,90
+06-03-2026 4:45pm,VCA Franklin Park Animal Hospital,VCA Franklin Park Animal Hospital," Velez, Marisol",Dolly Velez,Green Dog - Van Nuys,90
+,Blue Cross Pet Hospital,,,,,172
+06-04-2026 3:30pm,Blue Cross Pet Hospital,Blue Cross Pet Hospital," Swan-Brandle, Joye",Charlotte Swan-Brandle,Green Dog - Van Nuys,172
+,Beverly Robertson Veterinarian,,,,,252
+03-16-2026 10:00am,Beverly Robertson Veterinarian,Unknown Vet," Klugman, Pam",Quinn Klugman,Green Dog - Van Nuys,252
+,Blue Cross Pet Hospital,,,,,308
+04-04-2026 9:15am,Blue Cross Pet Hospital,Unknown Vet," Quintanilla, Manuela",Teddy Quintanilla,Green Dog - Van Nuys,88
+06-20-2026 9:45am,Blue Cross Pet Hospital,Unknown Vet," Pomerenke, Megan",Frankie Pomerenke,Green Dog - Van Nuys,220
+,Grace Animal Hospital,,,,,320.6
+03-04-2026 9:30am,Grace Animal Hospital,Unknown Vet," Kurosawa, Martha",Baki Kurosawa,Green Dog - Van Nuys,320.6
+,Rainbow Veterinary Hospital,,,,,434.05
+04-11-2026 8:15am,Rainbow Veterinary Hospital,Unknown Vet," Olsen, Tammy",Sadie Olsen,Green Dog - Van Nuys,434.05
+,Echo Park Veterinary,,,,,806.15
+03-10-2026 8:15am,Echo Park Veterinary,Echo Park Veterinary," Vasquez, Alma",Lola Vasquez,Green Dog - Van Nuys,806.15
+,Mesquite Animal Clinic,,,,,1048.26
+04-08-2026 8:45am,Mesquite Animal Clinic,Unknown Vet," Pham, Lexy",Arizona Pham,Green Dog - Van Nuys,1048.26
+,Altadena Pet Hospital,,,,,1527.73
+06-15-2026 2:00pm,Altadena Pet Hospital,Unknown Vet," Mcclain, Charles",Gracie Mcclain,Green Dog - Van Nuys,1527.73
+,VCA Noah's Ark Animal Hospital,,,,,1746.2
+01-02-2026 9:00am,VCA Noah's Ark Animal Hospital,VCA Noah's Ark Animal Hospital," Dayal, Sabina",Bob Dayal,Green Dog - Van Nuys,1746.2
+,Animal Dermatology Center,,,,,2953.2
+06-20-2026 9:15am,Animal Dermatology Center,Animal Dermatology Center," Wahl, Diana",S'mores Wahl,Green Dog - Van Nuys,2953.2
+,PAW CENTER Veterinary Hospital/Urgent Care,,,,,2969.85
+02-10-2026 9:15am,PAW CENTER Veterinary Hospital/Urgent Care,PAW CENTER Veterinary Hospital/Urgent Care," Ojeda, Anthony",Simba Ojeda,Green Dog - Van Nuys,2969.85
+,East Valley Veterinary Clinic,,,,,3270.92
+06-25-2026 10:00am,East Valley Veterinary Clinic,Unknown Vet," Margolis, Michelle",Wheeler Margolis,Green Dog - Van Nuys,2764.66
+06-12-2026 8:45am,East Valley Veterinary Clinic,Unknown Vet," Hernandez, Eli",Koa Hernandez,Green Dog - Van Nuys,506.26
+,La Canada Pet Clinic,,,,,3361.78
+06-10-2026 9:30am,La Canada Pet Clinic,Unknown Vet," Ferguson, Piper",Little Guy Ferguson,Green Dog - Van Nuys,88
+06-20-2026 8:30am,La Canada Pet Clinic,Unknown Vet," Lancz, Nicole",Ducky Lancz,Green Dog - Van Nuys,3273.78
+,Pet Care Veterinary Center,,,,,3976.13
+06-12-2026 8:30am,Pet Care Veterinary Center,Unknown Vet," Tejeda, Deborah",Leia Tejeda,Green Dog - Van Nuys,3976.13
+,Treehouse Animal Hospital,,,,,4006.91
+04-27-2026 8:45am,Treehouse Animal Hospital,Unknown Vet," Davar, Tracy",Juliet Davar,Green Dog - Van Nuys,240
+04-27-2026 8:45am,Treehouse Animal Hospital,Unknown Vet," Davar, Tracy",Sophie Davar,Green Dog - Van Nuys,3766.91
+,Overland Veterinary Clinic,,,,,5035.57
+03-07-2026 3:15pm,Overland Veterinary Clinic,Unknown Vet," Frost, Patrick",Mr. Kitty Frost,Green Dog - Van Nuys,5035.57
+,Limehouse Veterinary Clinic,,,,,5055.75
+04-10-2026 9:30am,Limehouse Veterinary Clinic,Unknown Vet," Bushong, Gwen",Hamlet Bushong,Green Dog - Van Nuys,4967.75
+04-28-2026 9:00am,Limehouse Veterinary Clinic,Unknown Vet," Oliver, Wynn",Sport Oliver,Green Dog - Van Nuys,88
+,Lake Balboa Veterinary Care,,,,,5179.68
+06-13-2026 8:30am,Lake Balboa Veterinary Care,Unknown Vet," Drizhal, Amy",Gilbert Drizhal,Green Dog - Van Nuys,1699.68
+03-31-2026 9:15am,Lake Balboa Veterinary Care,Unknown Vet," Justin, Oriella",Gucci Justin,Green Dog - Van Nuys,3480
+,Vet Villa Animal Hospital,,,,,6122.01
+04-15-2026 12:00pm,Vet Villa Animal Hospital,Vet Villa Animal Hospital," Wang, Zhuqi",Simba Wang,Green Dog - Van Nuys,1625.05
+02-27-2026 8:45am,Vet Villa Animal Hospital,Vet Villa Animal Hospital," Park, Deborah",Rufio Park,Green Dog - Van Nuys,4496.96
+,VETCO- Porter Ranch,,,,,6374.31
+06-12-2026 8:15am,VETCO- Porter Ranch,Unknown Vet," Valencia, Dominique",Taro Valencia,Green Dog - Van Nuys,3024.32
+04-17-2026 9:30am,VETCO- Porter Ranch,Unknown Vet," Valdez, Kelly",Diego Valdez,Green Dog - Van Nuys,3349.99
+,West Hollywood Animal Hospital,,,,,7031.5
+05-16-2026 1:01pm,West Hollywood Animal Hospital,Unknown Vet," Tsanas, Andrea",Wolfie Tsanas,Green Dog - Van Nuys,7031.5
+,Burbank Veterinary Center,,,,,585
+04-24-2026 12:45pm,Burbank Veterinary Center,Burbank Veterinary Center," Lee, Hedvig",Buster Lee,Green Dog - Van Nuys,25
+05-14-2026 4:30pm,Burbank Veterinary Center,Unknown Vet," Lagman, Carsen",June Lagman,Green Dog - Van Nuys,560
+,Grand Park Animal Hospital,,,,,886.98
+03-28-2026 11:15am,Grand Park Animal Hospital,Unknown Vet," Lee, Amber",Sora Lee,Green Dog - Van Nuys,88
+04-18-2026 8:45am,Grand Park Animal Hospital,Grand Park Animal Hospital," Lee, Amber",Sora Lee,Green Dog - Van Nuys,798.98
+,Valley Animal Hospital,,,,,898.38
+05-07-2026 5:07pm,Valley Animal Hospital,Valley Animal Hospital," Gevorgan, Marianna",Mona Gevorgan,Green Dog - Van Nuys,898.38
+,VCA Magnolia Animal Hospital,,,,,1699.53
+03-23-2026 4:30pm,VCA Magnolia Animal Hospital,Unknown Vet," Montoya, Esteban",Athena Montoya,Green Dog - Van Nuys,1699.53
+,North Valley Veterinary Clinic,,,,,1701.91
+04-20-2026 9:00am,North Valley Veterinary Clinic,Unknown Vet," Serio, Simona",Melanie Serio,Green Dog - Van Nuys,1701.91
+,Dog and Cat Hospital Calabasas,,,,,1903.81
+06-02-2026 10:00am,Dog and Cat Hospital Calabasas,Unknown Vet," Meyer, Joshua",Cici Meyer,Green Dog - Van Nuys,164
+03-21-2026 8:15am,Dog and Cat Hospital Calabasas,Dog and Cat Hospital Calabasas," Raschkovsky, Ruxandra",Bond Raschkovsky,Green Dog - Van Nuys,1739.81
+,VCA Arden Animal Hospital,,,,,2729.98
+01-10-2026 9:00am,VCA Arden Animal Hospital,Unknown Vet," Demirjian, Arman",Apollo Demirjian,Green Dog - Van Nuys,2477.98
+03-27-2026 10:00am,VCA Arden Animal Hospital,Unknown Vet," Mira, Janet",Chloe Mira,Green Dog - Van Nuys,252
+,Family Pet Clinic of Redondo Beach,,,,,2790.73
+03-14-2026 11:45am,Family Pet Clinic of Redondo Beach,Unknown Vet," Walker, Ellie",Gandalf Walker,Green Dog - Van Nuys,2790.73
+," Glendale, Vetco",,,,,3259.69
+06-30-2026 8:30am," Glendale, Vetco"," Glendale, Vetco"," Munley, Rebecca",Blue Munley,Green Dog - Van Nuys,2951.69
+06-23-2026 3:15pm," Glendale, Vetco"," Glendale, Vetco"," Telmi, Edith",Buffy Telmi,Green Dog - Van Nuys,308
+,Banfield Pet Hospital (Northridge),,,,,3418.71
+06-05-2026 3:00pm,Banfield Pet Hospital (Northridge),Banfield Pet Hospital (Northridge)," Chistoff, Jake",Bowie Chistoff,Green Dog - Van Nuys,259.85
+02-20-2026 8:45am,Banfield Pet Hospital (Northridge),Banfield Pet Hospital (Northridge)," Sigarodi, Neeki",Winston Sigarodi,Green Dog - Van Nuys,3158.86
+,West LA Veterinary Group,,,,,3518.32
+02-09-2026 12:00pm,West LA Veterinary Group,West LA Veterinary Group," Sharpe, Cheryl",Rocky Sharpe,Green Dog - Van Nuys,3518.32
+,Parkview Pet Clinic,,,,,3684.32
+03-07-2026 8:30am,Parkview Pet Clinic,Parkview Pet Clinic,"Ms Mendoza, Cristal",Sam Mendoza,Green Dog - Van Nuys,3307.32
+03-12-2026 9:15am,Parkview Pet Clinic,Unknown Vet," Withrow, Kevin",Ives Withrow,Green Dog - Van Nuys,377
+,Ambassador Dog & Cat Hospital,,,,,409.2
+03-11-2026 2:15pm,Ambassador Dog & Cat Hospital,Unknown Vet," Recko, Laura",Misio Recko,Green Dog - Van Nuys,252
+05-28-2026 10:38am,Ambassador Dog & Cat Hospital,Ambassador Dog & Cat Hospital," Chavarria, Vanessa",Goku Chavarria,Green Dog - Van Nuys,157.2
+,Marina Veterinary Center,,,,,630.4
+05-27-2026 4:00pm,Marina Veterinary Center,Marina Veterinary Center," Bieselin, Malea",Remy Bieselin,Green Dog - Van Nuys,180.4
+01-23-2026 9:00am,Marina Veterinary Center,Unknown Vet," Kray, Debra",Lily Kray,Green Dog - Van Nuys,350
+04-14-2026 10:30am,Marina Veterinary Center,Unknown Vet," Haro, Angelica",Liz Lemon Haro,Green Dog - Van Nuys,100
+,Veterinary Healthcare Center,,,,,798.23
+02-21-2026 10:00am,Veterinary Healthcare Center,Unknown Vet," Martin, Marissa",Bypsy Martin,Green Dog - Van Nuys,363.4
+03-16-2026 11:30am,Veterinary Healthcare Center,Unknown Vet," Chang, Kammy",Luna Chang,Green Dog - Van Nuys,434.83
+,ACCESS Specialty Animal Hospitals - San Fernando Valley,,,,,1123.8
+06-13-2026 10:30am,ACCESS Specialty Animal Hospitals - San Fernando Valley,Unknown Vet," Luong, Hannah",Bella Luong,Green Dog - Van Nuys,368.8
+05-20-2026 12:45pm,ACCESS Specialty Animal Hospitals - San Fernando Valley,Unknown Vet," Koner, Arthur",Einstein Koner,Green Dog - Van Nuys,173.3
+05-11-2026 9:00am,ACCESS Specialty Animal Hospitals - San Fernando Valley,Unknown Vet," Preciado, Betty",Kiwi Preciado,Green Dog - Van Nuys,581.7
+,Sunnyvale Veterinary Clinic,,,,,1227.29
+04-01-2026 11:45am,Sunnyvale Veterinary Clinic,Unknown Vet," Ragozzine, Gemma",Liam Ragozzine,Green Dog - Van Nuys,1227.29
+,Malibu Coast Animal Hospital,,,,,1375.87
+06-26-2026 4:45pm,Malibu Coast Animal Hospital,Malibu Coast Animal Hospital," Moran, Jacquelyn",Bernadette Moran,Green Dog - Van Nuys,1025.87
+06-16-2026 8:45am,Malibu Coast Animal Hospital,Unknown Vet," Masakayan, Marie",Lola Masakayan,Green Dog - Van Nuys,350
+,Boulevard Animal Hospital,,,,,1475.16
+05-28-2026 12:45pm,Boulevard Animal Hospital,Boulevard Animal Hospital," Dragotta, Pat",Harley Dragotta,Green Dog - Van Nuys,1475.16
+,Best Care Pet Clinic,,,,,1488.7
+04-14-2026 9:00am,Best Care Pet Clinic,Best Care Pet Clinic," Ohannesian, Holly",Charlie Ohannesian,Green Dog - Van Nuys,378.26
+06-05-2026 10:45am,Best Care Pet Clinic,Unknown Vet," Zare, Evette",Charley Zare,Green Dog - Van Nuys,987.64
+06-15-2026 4:15pm,Best Care Pet Clinic,Unknown Vet," Allahyarrin, Albert",Cooper Allahyarrin,Green Dog - Van Nuys,122.8
+,VCA Burbank,,,,,2387.52
+04-22-2026 9:30am,VCA Burbank,Unknown Vet," Hernandez, Melissa",Biscotti Hernandez,Green Dog - Van Nuys,1412.52
+04-30-2026 12:00pm,VCA Burbank,VCA Burbank," Fuller, Sonja",Peanut Fuller,Green Dog - Van Nuys,975
+,CAMP Clinic LA,,,,,2520.97
+05-04-2026 8:45am,CAMP Clinic LA,CAMP Clinic LA," Jones, Camille",Fifi Jones,Green Dog - Van Nuys,2307.97
+07-01-2026 2:00pm,CAMP Clinic LA,Unknown Vet," Gutierrez, Maricela",Little Bear Gutierrez,Green Dog - Van Nuys,88
+05-01-2026 9:15am,CAMP Clinic LA,Unknown Vet," Torres, Enrique",Cora Torres,Green Dog - Van Nuys,125
+,Melrose Veterinary Hospital,,,,,2582.55
+04-30-2026 9:15am,Melrose Veterinary Hospital,Unknown Vet," Castro, Ben",Cayenne Castro,Green Dog - Van Nuys,2494.55
+05-02-2026 3:30pm,Melrose Veterinary Hospital,Melrose Veterinary Hospital," Bishop, Jessica",Gracie Bishop,Green Dog - Van Nuys,88
+,Veterinary Medical Center,,,,,3207.02
+06-29-2026 4:00pm,Veterinary Medical Center,Veterinary Medical Center," DiMartino, Elizabeth",Kenta DiMartino,Green Dog - Van Nuys,94
+04-02-2026 11:30am,Veterinary Medical Center,Unknown Vet," Tobin, Stacy",Dakota Tobin,Green Dog - Van Nuys,327.8
+05-07-2026 9:00am,Veterinary Medical Center,Unknown Vet," Matyas, Robert",Milo Matyas,Green Dog - Van Nuys,2785.22
+,VCA Coast Animal Hospital,,,,,4664.17
+03-12-2026 8:30am,VCA Coast Animal Hospital,Unknown Vet," Burris, Noah",Taxi Burris,Green Dog - Van Nuys,932.83
+04-15-2026 9:15am,VCA Coast Animal Hospital,VCA Coast Animal Hospital," Burris, Noah",Taxi Burris,Green Dog - Van Nuys,3731.34
+,Ohana Pet Hospital of Agoura Hills,,,,,4674.99
+05-14-2026 2:00pm,Ohana Pet Hospital of Agoura Hills,Unknown Vet," Munoz, Danny",Meelo Munoz,Green Dog - Van Nuys,308
+05-08-2026 8:45am,Ohana Pet Hospital of Agoura Hills,Ohana Pet Hospital of Agoura Hills," Alvaro, Rio",Luna Alvaro,Green Dog - Van Nuys,4366.99
+,VCA Miller-Robertson,,,,,5251.62
+06-13-2026 2:45pm,VCA Miller-Robertson,Unknown Vet," Franzese, Courtney",Bugsy Franzese,Green Dog - Van Nuys,4058.71
+03-13-2026 3:00pm,VCA Miller-Robertson,Unknown Vet," Plavoukos, Cassandra",Mac Plavoukos,Green Dog - Van Nuys,603.69
+03-13-2026 3:00pm,VCA Miller-Robertson,Unknown Vet," Plavoukos, Cassandra",Mila Plavoukos,Green Dog - Van Nuys,589.22
+,Value Vet Canoga Park,,,,,5574.1
+03-14-2026 2:00pm,Value Vet Canoga Park,Unknown Vet," Garza, Jessica",Beyonce Garza,Green Dog - Van Nuys,2385.77
+03-28-2026 3:00pm,Value Vet Canoga Park,Unknown Vet," Lozano, Genesis",Toby Lozano,Green Dog - Van Nuys,3188.33
+,Laurel Pet Hospital,,,,,6015.48
+04-09-2026 9:00am,Laurel Pet Hospital,Laurel Pet Hospital," Gomez, Carlos",Dunkin Gomez,Green Dog - Van Nuys,3200
+03-02-2026 3:00pm,Laurel Pet Hospital,Unknown Vet," Jessalyn Gilsig, Penelope",Buttercup Jessalyn Gilsig,Green Dog - Van Nuys,2815.48
+,VCA TLC Animal Hospital,,,,,10095.5
+06-11-2026 8:15am,VCA TLC Animal Hospital,Unknown Vet," Eisert, Samantha",Big Daddy Eisert,Green Dog - Van Nuys,787.57
+05-05-2026 9:15am,VCA TLC Animal Hospital,VCA TLC Animal Hospital," Chon, Melissa",Gunner Chon,Green Dog - Van Nuys,7307.93
+03-30-2026 9:45am,VCA TLC Animal Hospital,VCA TLC Animal Hospital," Melkon, Aline",Nakota Melkon,Green Dog - Van Nuys,2000
+,Foothill Vet Clinic,,,,,811.57
+03-02-2026 4:00pm,Foothill Vet Clinic,Unknown Vet," Abundez, Monica",Blue Abundez,Green Dog - Van Nuys,303.61
+03-02-2026 4:00pm,Foothill Vet Clinic,Unknown Vet," Abundez, Monica",Amoricito Abundez,Green Dog - Van Nuys,292.35
+03-02-2026 4:00pm,Foothill Vet Clinic,Unknown Vet," Abundez, Monica",Coco Abundez,Green Dog - Van Nuys,215.61
+,Mid Valley Veterinary Hospital,,,,,831.33
+02-11-2026 2:00pm,Mid Valley Veterinary Hospital,Mid Valley Veterinary Hospital," Hughes, Terry",Bentley Hughes,Green Dog - Van Nuys,249
+03-30-2026 9:30am,Mid Valley Veterinary Hospital,Unknown Vet," Seidler, Bernie",Mr. T Seidler,Green Dog - Van Nuys,420.07
+06-24-2026 4:00pm,Mid Valley Veterinary Hospital,Unknown Vet," Lagman, Carsen",Fred Lagman,Green Dog - Van Nuys,162.26
+," Animal Hospital, Center Sinai",,,,,1578.65
+06-08-2026 9:00am," Animal Hospital, Center Sinai",Unknown Vet," Cuellar, Adriana",Cookie Cuellar,Green Dog - Van Nuys,1477.85
+06-05-2026 1:45pm," Animal Hospital, Center Sinai",Unknown Vet," Short, Steve",Han Short,Green Dog - Van Nuys,100.8
+,West Hills Animal Hospital,,,,,2011.78
+04-08-2026 8:30am,West Hills Animal Hospital,West Hills Animal Hospital," Loftus, Siobhan",Dulce Loftus,Green Dog - Van Nuys,546.3
+04-14-2026 10:45am,West Hills Animal Hospital,Unknown Vet," Derksen, Noelle",Albie Derksen,Green Dog - Van Nuys,1465.48
+,Angel City Animal Hospital,,,,,2290.68
+01-08-2026 12:15pm,Angel City Animal Hospital,Unknown Vet," Stuart, Micah",Robert Stuart,Green Dog - Van Nuys,1124
+04-09-2026 9:00am,Angel City Animal Hospital,Angel City Animal Hospital," Oliva, Kate",Wiley Oliva,Green Dog - Van Nuys,1166.68
+,Capri Pet Plaza Clinic,,,,,2457.19
+04-29-2026 9:15am,Capri Pet Plaza Clinic,Capri Pet Plaza Clinic," Goad, Greg",Frankie Goad,Green Dog - Van Nuys,1694.19
+05-21-2026 2:00pm,Capri Pet Plaza Clinic,Capri Pet Plaza Clinic," Hilton, Heavyn",Ora Hilton,Green Dog - Van Nuys,305
+03-12-2026 11:00am,Capri Pet Plaza Clinic,Unknown Vet," Opdyke, Ethan",Squatch Opdyke,Green Dog - Van Nuys,229
+06-19-2026 2:00pm,Capri Pet Plaza Clinic,Unknown Vet," McCullough, Tina",Cheddar McCullough,Green Dog - Van Nuys,229
+,Agoura Hills Animal Hospital,,,,,3137.61
+02-19-2026 12:00pm,Agoura Hills Animal Hospital,Unknown Vet," Bun, Katie",Smores Bun,Green Dog - Van Nuys,371.66
+06-16-2026 8:15am,Agoura Hills Animal Hospital,Agoura Hills Animal Hospital," Lefkovitz, Gabriel",Petal Lefkovitz,Green Dog - Van Nuys,1576.23
+04-13-2026 9:15am,Agoura Hills Animal Hospital,Agoura Hills Animal Hospital," Dexter, Christiana",Angie Dexter,Green Dog - Van Nuys,1164.72
+03-30-2026 12:00pm,Agoura Hills Animal Hospital,Agoura Hills Animal Hospital," Damiano, Dennis",Roxy Damiano,Green Dog - Van Nuys,25
+,Warner Center Pet Clinic,,,,,3176.97
+03-31-2026 8:45am,Warner Center Pet Clinic,Warner Center Pet Clinic," Weisberg, Leila",Lambo Weisberg,Green Dog - Van Nuys,1150.81
+03-21-2026 12:15pm,Warner Center Pet Clinic,Unknown Vet," Lozo, Monika",Dakota Lozo,Green Dog - Van Nuys,252
+02-25-2026 9:00am,Warner Center Pet Clinic,Unknown Vet," Crawford, Amanda",Ladybird Crawford,Green Dog - Van Nuys,1774.16
+,Pet Cure Veterinary Center,,,,,5702.18
+04-16-2026 12:00pm,Pet Cure Veterinary Center,Unknown Vet," Tagarao, Kevin",Oreo Tagarao,Green Dog - Van Nuys,5370.78
+06-10-2026 9:30am,Pet Cure Veterinary Center,Pet Cure Veterinary Center," Lazarus, Eunice",Pharaoh Lazarus,Green Dog - Van Nuys,331.4
+,Roswinn Pet Hospital,,,,,11536.76
+05-30-2026 8:15am,Roswinn Pet Hospital,Roswinn Pet Hospital," Sheets, Natalia",Sancho Sheets,Green Dog - Van Nuys,2849.51
+06-26-2026 12:00pm,Roswinn Pet Hospital,Roswinn Pet Hospital," Pak, Michelle",Patrix Pak,Green Dog - Van Nuys,30.75
+05-14-2026 8:30am,Roswinn Pet Hospital,Unknown Vet," Narssiyan, Artin",Oliver Narssiyan,Green Dog - Van Nuys,6028.82
+06-15-2026 9:15am,Roswinn Pet Hospital,Unknown Vet," Yoo, Joe",Somi Yoo,Green Dog - Van Nuys,2627.68
+,South Pasadena Animal Hospital,,,,,1123.4
+04-17-2026 10:30am,South Pasadena Animal Hospital,South Pasadena Animal Hospital," Santos, Gregory",Darla Santos,Green Dog - Van Nuys,131.55
+02-19-2026 2:15pm,South Pasadena Animal Hospital,Unknown Vet," Valensi, Nick",Simba Valensi,Green Dog - Van Nuys,369
+02-19-2026 2:15pm,South Pasadena Animal Hospital,Unknown Vet," Valensi, Nick",Finn Valensi,Green Dog - Van Nuys,369
+05-16-2026 2:00pm,South Pasadena Animal Hospital,Unknown Vet," Gamble, Joe",Ollie Gamble,Green Dog - Van Nuys,253.85
+,Souther California Veterinary Hospital,,,,,1890.88
+01-07-2026 11:30am,Souther California Veterinary Hospital,Souther California Veterinary Hospital," Gonzalez, Marlen",Lola G Gonzalez,Green Dog - Van Nuys,1150.68
+03-12-2026 10:45am,Souther California Veterinary Hospital,Unknown Vet," Mercado, Elia",Lola Mercado,Green Dog - Van Nuys,740.2
+,Glendale Small Animal Hospital,,,,,2729.12
+06-04-2026 11:00am,Glendale Small Animal Hospital,Unknown Vet," Basil, Anastasia",Mochi Basil,Green Dog - Van Nuys,964.27
+04-08-2026 11:49am,Glendale Small Animal Hospital,Glendale Small Animal Hospital," McLoughlin, Tommy",Ash McLoughlin,Green Dog - Van Nuys,1456.85
+06-05-2026 2:00pm,Glendale Small Animal Hospital,Glendale Small Animal Hospital," Vizcarra, Rocio",Khloe Vizcarra,Green Dog - Van Nuys,308
+,VCA Animal Specialty Group,,,,,3082.14
+04-07-2026 3:15pm,VCA Animal Specialty Group,Unknown Vet," Gaide, Kimberly",Snoopy Gaide,Green Dog - Van Nuys,113
+06-10-2026 9:00am,VCA Animal Specialty Group,VCA Animal Specialty Group,"Mr Hidalgo, Erika",Luna Hidalgo,Green Dog - Van Nuys,570
+06-02-2026 9:15am,VCA Animal Specialty Group,VCA Animal Specialty Group," Smith, Shelly",Scout Smith,Green Dog - Van Nuys,2399.14
+,Montrose Pet Hospital,,,,,3205.65
+02-21-2026 11:00am,Montrose Pet Hospital,Unknown Vet," Yu, Kristen",Molly Yu,Green Dog - Van Nuys,249
+05-30-2026 8:45am,Montrose Pet Hospital,Montrose Pet Hospital," Fletes Guerrero, Natalie",Bella Fletes Guerrero,Green Dog - Van Nuys,2956.65
+,The Village Vet,,,,,5147.53
+02-13-2026 12:45pm,The Village Vet,The Village Vet," Niday, Pat",Ember Niday,Green Dog - Van Nuys,896.05
+05-01-2026 9:00am,The Village Vet,Unknown Vet," Borghetti, Chiara",Tilly Borghetti,Green Dog - Van Nuys,4251.48
+,Animal Medical Center Valencia,,,,,6028.23
+04-08-2026 9:30am,Animal Medical Center Valencia,Unknown Vet," Kelber, John",Polly Kelber,Green Dog - Van Nuys,1114.43
+03-19-2026 1:30pm,Animal Medical Center Valencia,Unknown Vet," Wolfe, Rebecca",Charlie Wolfe,Green Dog - Van Nuys,4913.8
+,Beverly Hills Small Animal Hospital,,,,,12562.26
+04-13-2026 8:30am,Beverly Hills Small Animal Hospital,Beverly Hills Small Animal Hospital," Connell, Victoria",Fidgit Connell,Green Dog - Van Nuys,4528.29
+03-18-2026 9:15am,Beverly Hills Small Animal Hospital,Unknown Vet," Levy, Debra",Gumi Levy,Green Dog - Van Nuys,1152.79
+04-15-2026 8:45am,Beverly Hills Small Animal Hospital,Unknown Vet," Wheeler, Ronald",Lucy Wheeler,Green Dog - Van Nuys,1681.18
+07-01-2026 8:15am,Beverly Hills Small Animal Hospital,Unknown Vet," Soffer, Janet",Sophie Soffer,Green Dog - Van Nuys,5200
+,True Care For Pets,,,,,646.26
+06-29-2026 4:00pm,True Care For Pets,Unknown Vet," DiMartino, Elizabeth",Maui DiMartino,Green Dog - Van Nuys,121
+04-02-2026 4:00pm,True Care For Pets,True Care For Pets," Ross, Susie",Shorty McFierce Ross,Green Dog - Van Nuys,525.26
+,Beverly Pet Clinic,,,,,1452.59
+04-20-2026 9:00am,Beverly Pet Clinic,Beverly Pet Clinic," Jones, Ryan",Blue Jones,Green Dog - Van Nuys,286.63
+04-15-2026 2:30pm,Beverly Pet Clinic,Unknown Vet," Lee, Michael",Mongsil Lee,Green Dog - Van Nuys,547.8
+06-29-2026 11:30am,Beverly Pet Clinic,Unknown Vet," Park, Alexis",Logan Park,Green Dog - Van Nuys,618.16
+,Shadow Hills Pet Clinic,,,,,1788.51
+03-24-2026 8:45am,Shadow Hills Pet Clinic,Unknown Vet," Tolentino, Yna",Luka Tolentino,Green Dog - Van Nuys,604.51
+05-09-2026 11:00am,Shadow Hills Pet Clinic,Shadow Hills Pet Clinic," Petrosyan, Anna",Louie Petrosyan,Green Dog - Van Nuys,88
+02-19-2026 1:00pm,Shadow Hills Pet Clinic,Shadow Hills Pet Clinic," DerGregorian, Jennifer",Simon DerGregorian,Green Dog - Van Nuys,1096
+,Pinnacle Veterinary Center,,,,,1948.67
+03-04-2026 10:00am,Pinnacle Veterinary Center,Pinnacle Veterinary Center," Chavez, Vanessa",Wednesday Chavez,Green Dog - Van Nuys,463
+03-07-2026 12:00pm,Pinnacle Veterinary Center,Unknown Vet," Godshall, Ayla",Crumpet Godshall,Green Dog - Van Nuys,1229.22
+02-13-2026 11:00am,Pinnacle Veterinary Center,Unknown Vet," Surette, Samantha",Stewart Surette,Green Dog - Van Nuys,256.45
+,Tarzana Pet Clinic,,,,,3548.99
+02-17-2026 12:45pm,Tarzana Pet Clinic,Unknown Vet," Peahl, Susan",Sally Peahl,Green Dog - Van Nuys,756.05
+04-03-2026 8:30am,Tarzana Pet Clinic,Unknown Vet," Hanley, Ashley",Bubba Hanley,Green Dog - Van Nuys,2792.94
+,VCA McClave Veterinary Hospital,,,,,3653.28
+03-02-2026 8:45am,VCA McClave Veterinary Hospital,Unknown Vet," Ortega, Mauricio",Luna Ortega,Green Dog - Van Nuys,1509.28
+04-30-2026 1:15pm,VCA McClave Veterinary Hospital,VCA McClave Veterinary Hospital," Lalayan, Ruby",Louii Lalayan,Green Dog - Van Nuys,975
+03-20-2026 9:15am,VCA McClave Veterinary Hospital,VCA McClave Veterinary Hospital," Ortega, Mauricio",Luna Ortega,Green Dog - Van Nuys,917
+04-04-2026 3:00pm,VCA McClave Veterinary Hospital,VCA McClave Veterinary Hospital," Mitchell, Shari",Duke Mitchell,Green Dog - Van Nuys,252
+,Winnetka Animal Clinic,,,,,4083.41
+05-06-2026 9:45am,Winnetka Animal Clinic,Winnetka Animal Clinic," Hernandez, Jeremy",Kai Hernandez,Green Dog - Van Nuys,3133.51
+06-12-2026 4:00pm,Winnetka Animal Clinic,Unknown Vet," Silva, Jovany",Zeus Silva,Green Dog - Van Nuys,949.9
+,VCA Parkwood Animal Hospital,,,,,6178.47
+02-20-2026 8:15am,VCA Parkwood Animal Hospital,VCA Parkwood Animal Hospital," Duzian, Claudia",Rosie Duzian,Green Dog - Van Nuys,2195
+02-19-2026 9:30am,VCA Parkwood Animal Hospital,VCA Parkwood Animal Hospital," Gonzalez, Eben",Loki Gonzalez,Green Dog - Van Nuys,1360.68
+03-02-2026 10:00am,VCA Parkwood Animal Hospital,Unknown Vet," Glazer, David",Lola Glazer,Green Dog - Van Nuys,113
+04-27-2026 8:30am,VCA Parkwood Animal Hospital,Unknown Vet," Clem, Samantha",Chino Clem,Green Dog - Van Nuys,2142.77
+04-06-2026 9:00am,VCA Parkwood Animal Hospital,Unknown Vet," Hayakawa, Lisa",Miko Hayakawa,Green Dog - Van Nuys,367.02
+,Cozycroft Pet Hospital,,,,,7107.26
+06-11-2026 9:15am,Cozycroft Pet Hospital,Unknown Vet," Alfinito, Angelina",Betty Alfinito,Green Dog - Van Nuys,504
+05-29-2026 9:30am,Cozycroft Pet Hospital,Unknown Vet," Richardson, Michelle",Patrick Richardson,Green Dog - Van Nuys,6295.26
+06-16-2026 11:00am,Cozycroft Pet Hospital,Unknown Vet," Cho, Dana",Mocha Cho,Green Dog - Van Nuys,308
+,Granada Hills Vet Hospital,,,,,8785
+05-11-2026 10:00am,Granada Hills Vet Hospital,Unknown Vet," Schauer, Regina",Rami Schauer,Green Dog - Van Nuys,252
+04-06-2026 2:15pm,Granada Hills Vet Hospital,Granada Hills Vet Hospital," Shirtz, Loretta",Curious Shirtz,Green Dog - Van Nuys,7333
+05-27-2026 9:00am,Granada Hills Vet Hospital,Granada Hills Vet Hospital," Koletsky, Barbara",Romeo Koletsky,Green Dog - Van Nuys,1200
+,Brighter Veterinary Center,,,,,11626.57
+06-03-2026 10:30am,Brighter Veterinary Center,Unknown Vet," Garrison, Britney",Blue Garrison,Green Dog - Van Nuys,443.08
+03-07-2026 9:15am,Brighter Veterinary Center,Unknown Vet," Alvarez, Karina",Sesame Alvarez,Green Dog - Van Nuys,1980.5
+04-08-2026 11:30am,Brighter Veterinary Center,Unknown Vet," Konick, Wendy",Millie Konick,Green Dog - Van Nuys,9202.99
+,Conejo Valley Veterinary Hospital,,,,,2770.28
+06-20-2026 11:45am,Conejo Valley Veterinary Hospital,Conejo Valley Veterinary Hospital," McNicoll, Clare",Winston McNicoll,Green Dog - Van Nuys,71
+03-03-2026 9:00am,Conejo Valley Veterinary Hospital,Unknown Vet," Jimenez, Sabeldi",Lucky Jimenez,Green Dog - Van Nuys,82
+06-26-2026 8:30am,Conejo Valley Veterinary Hospital,Unknown Vet," Caisin, Iurii",Spooky Caisin,Green Dog - Van Nuys,1663
+06-02-2026 11:30am,Conejo Valley Veterinary Hospital,Unknown Vet," Papanicolaou, Cherry",Rocket Papanicolaou,Green Dog - Van Nuys,252
+05-06-2026 9:00am,Conejo Valley Veterinary Hospital,Unknown Vet," Rooke, Carra",Cherry Rooke,Green Dog - Van Nuys,702.28
+,VCA Veterinary Specialists of the Valley,,,,,3142.51
+03-30-2026 4:30pm,VCA Veterinary Specialists of the Valley,VCA Veterinary Specialists of the Valley," Rodgers, Mark",Keaton Rodgers,Green Dog - Van Nuys,88
+03-23-2026 9:30am,VCA Veterinary Specialists of the Valley,VCA Veterinary Specialists of the Valley," Yocco, Emily",Mark Yocco,Green Dog - Van Nuys,833.74
+07-01-2026 9:30am,VCA Veterinary Specialists of the Valley,Unknown Vet," Naimy, Skyler",Bohdi Naimy,Green Dog - Van Nuys,148.8
+01-06-2026 9:15am,VCA Veterinary Specialists of the Valley,Unknown Vet," Aguilar, Devin",Minnie Aguilar,Green Dog - Van Nuys,1599.97
+05-05-2026 2:15pm,VCA Veterinary Specialists of the Valley,Unknown Vet," Wroblewski, Karen",Robin Wroblewski,Green Dog - Van Nuys,472
+,Rosemead Animal Hospital,,,,,5373.2
+06-05-2026 10:15am,Rosemead Animal Hospital,Rosemead Animal Hospital," Jei, Sophia",Aria Jei,Green Dog - Van Nuys,252
+05-13-2026 8:15am,Rosemead Animal Hospital,Unknown Vet," Kim, Hanna",Charlie Kim,Green Dog - Van Nuys,561.2
+05-13-2026 8:15am,Rosemead Animal Hospital,Unknown Vet," Kim, Hanna",Toby Bear Kim Kim,Green Dog - Van Nuys,2720
+05-13-2026 8:15am,Rosemead Animal Hospital,Unknown Vet," Kim, Hanna",Lovebug Kim Kim,Green Dog - Van Nuys,1840
+,Mohawk Alley Animal Hospital,,,,,7780.99
+05-20-2026 1:45pm,Mohawk Alley Animal Hospital,Unknown Vet," Le, Nini",Winston Le,Green Dog - Van Nuys,3037.63
+03-21-2026 10:00am,Mohawk Alley Animal Hospital,Unknown Vet," Wickstrom, Michael",Ivan Wickstrom,Green Dog - Van Nuys,795.2
+05-02-2026 2:15pm,Mohawk Alley Animal Hospital,Unknown Vet," Gyodakyan, Carol",Chuck Gyodakyan,Green Dog - Van Nuys,252
+06-19-2026 9:45am,Mohawk Alley Animal Hospital,Mohawk Alley Animal Hospital," Perese, Tess",Morris Perese,Green Dog - Van Nuys,2964.16
+02-27-2026 8:30am,Mohawk Alley Animal Hospital,Mohawk Alley Animal Hospital," Saxon, Griffin",Maple Saxon,Green Dog - Van Nuys,480
+05-20-2026 10:15am,Mohawk Alley Animal Hospital,Mohawk Alley Animal Hospital," Martin, Chris",Santi Martin,Green Dog - Van Nuys,252
+,Beverly Oaks Animal Hospital,,,,,8312.36
+03-05-2026 10:00am,Beverly Oaks Animal Hospital,Beverly Oaks Animal Hospital," Velez, Nonie",Pepper Velez,Green Dog - Van Nuys,899
+03-24-2026 2:30pm,Beverly Oaks Animal Hospital,Unknown Vet," Lazaryan, Kathrine",Leo Lazaryan,Green Dog - Van Nuys,380
+05-22-2026 9:00am,Beverly Oaks Animal Hospital,Unknown Vet," Corbin, John",Charlie Corbin,Green Dog - Van Nuys,3791.74
+05-22-2026 9:00am,Beverly Oaks Animal Hospital,Unknown Vet," Corbin, John",Lulu Corbin,Green Dog - Van Nuys,2400.24
+01-19-2026 9:45am,Beverly Oaks Animal Hospital,Unknown Vet," Vaissie, Pauline",Olive Vaissie,Green Dog - Van Nuys,100.8
+02-21-2026 9:00am,Beverly Oaks Animal Hospital,Unknown Vet," Kennedy, Patricia",Grizzly Kennedy,Green Dog - Van Nuys,740.58
+,Palms & Paws Veterinary Center,,,,,9167.82
+02-25-2026 9:45am,Palms & Paws Veterinary Center,Unknown Vet," Juanavorian, Parker",Moose Juanavorian,Green Dog - Van Nuys,4982.73
+03-03-2026 10:00am,Palms & Paws Veterinary Center,Palms & Paws Veterinary Center," Juanavorian, Parker",Moose Juanavorian,Green Dog - Van Nuys,2851.6
+05-07-2026 8:15am,Palms & Paws Veterinary Center,Palms & Paws Veterinary Center," Brennglass, Ellen",Bentley Brennglass,Green Dog - Van Nuys,1333.49
+,Mission Veterinary Clinic and Animal Emergency Hospital,,,,,9252.44
+03-14-2026 10:45am,Mission Veterinary Clinic and Animal Emergency Hospital,Mission Veterinary Clinic and Animal Emergency Hospital," Sweeney, Megan",Juice Sweeney,Green Dog - Van Nuys,4377.68
+06-12-2026 9:15am,Mission Veterinary Clinic and Animal Emergency Hospital,Unknown Vet," Bognot, Vanessa",Lily Bognot,Green Dog - Van Nuys,4268.36
+03-23-2026 10:30am,Mission Veterinary Clinic and Animal Emergency Hospital,Unknown Vet," Cortez, Emely",Darcy Cortez,Green Dog - Van Nuys,606.4
+,Five Star Veterinary Center,,,,,1996.35
+06-18-2026 9:45am,Five Star Veterinary Center,Unknown Vet," Sanchez, Jesus",Valentin Sanchez,Green Dog - Van Nuys,570.85
+06-11-2026 1:00pm,Five Star Veterinary Center,Unknown Vet," Hogan, Kerry",Flower Hogan,Green Dog - Van Nuys,975
+06-30-2026 3:30pm,Five Star Veterinary Center,Five Star Veterinary Center," Nunez, Alex",Troy Nunez,Green Dog - Van Nuys,277.2
+06-08-2026 12:15pm,Five Star Veterinary Center,Five Star Veterinary Center," Ackerman, Noah",Casper Ackerman,Green Dog - Van Nuys,100.8
+04-03-2026 12:45pm,Five Star Veterinary Center,Five Star Veterinary Center," Murdock, Kira",Rayo Murdock,Green Dog - Van Nuys,72.5
+,Los Feliz Small Animal Hospital,,,,,3088.36
+01-26-2026 11:15am,Los Feliz Small Animal Hospital,Los Feliz Small Animal Hospital," Heebner, David",Noodle Heebner,Green Dog - Van Nuys,466.05
+05-19-2026 9:15am,Los Feliz Small Animal Hospital,Unknown Vet," Osorio, Alyssa",Sgt. Pepper Osorio,Green Dog - Van Nuys,1538.31
+03-27-2026 2:15pm,Los Feliz Small Animal Hospital,Unknown Vet," Gallard, Jillian",Koda Gallard,Green Dog - Van Nuys,88
+01-21-2026 9:30am,Los Feliz Small Animal Hospital,Unknown Vet," Hynek, Janice",Cally Hynek,Green Dog - Van Nuys,646
+07-03-2026 11:30am,Los Feliz Small Animal Hospital,Unknown Vet," Gillen, Leah",Ophelia Gillen,Green Dog - Van Nuys,350
+,VCA Animal Specialty & Emergency Center,,,,,4502.31
+05-16-2026 12:45pm,VCA Animal Specialty & Emergency Center,VCA Animal Specialty & Emergency Center," Marin, Miriam",Colocho Marin,Green Dog - Van Nuys,1860.55
+06-09-2026 10:15am,VCA Animal Specialty & Emergency Center,VCA Animal Specialty & Emergency Center," Rowe, Alex",Horchata Rowe,Green Dog - Van Nuys,2641.76
+,Affordable Animal Hospital Silver Lake,,,,,5411.75
+06-22-2026 8:45am,Affordable Animal Hospital Silver Lake,Unknown Vet," Norris, Kelly",Miles Norris,Green Dog - Van Nuys,1317.82
+01-30-2026 2:15pm,Affordable Animal Hospital Silver Lake,Affordable Animal Hospital Silver Lake," Hernandez, Michelle",Cookie Hernandez,Green Dog - Van Nuys,1089.03
+02-25-2026 12:30pm,Affordable Animal Hospital Silver Lake,Affordable Animal Hospital Silver Lake," Berger, Alix",Denver Berger,Green Dog - Van Nuys,3004.9
+,Paws and Claws Hospital & Mobile Vet,,,,,7256.16
+05-07-2026 11:30am,Paws and Claws Hospital & Mobile Vet,Unknown Vet," Forslund, Peter",Bruno Forslund,Green Dog - Van Nuys,314
+06-23-2026 9:00am,Paws and Claws Hospital & Mobile Vet,Paws and Claws Hospital & Mobile Vet," Boaz, Batsheba",Sirius Boaz,Green Dog - Van Nuys,1400
+05-12-2026 9:15am,Paws and Claws Hospital & Mobile Vet,Paws and Claws Hospital & Mobile Vet," Stolz, Scott",AJ Stolz,Green Dog - Van Nuys,1600.46
+05-05-2026 9:30am,Paws and Claws Hospital & Mobile Vet,Paws and Claws Hospital & Mobile Vet," Weitzman, Paul",Ozzie Weitzman,Green Dog - Van Nuys,1008
+05-22-2026 9:30am,Paws and Claws Hospital & Mobile Vet,Paws and Claws Hospital & Mobile Vet," Sill, Nicci",Bosco Sill,Green Dog - Van Nuys,2933.7
+,Studio City Animal Hospital,,,,,5188.67
+05-28-2026 9:00am,Studio City Animal Hospital,Studio City Animal Hospital," Siemons, Alexandra",Bunny Siemons,Green Dog - Van Nuys,950.25
+02-06-2026 3:15pm,Studio City Animal Hospital,Unknown Vet," Elwood, Sheri",Ninja Elwood,Green Dog - Van Nuys,280
+04-20-2026 10:15am,Studio City Animal Hospital,Unknown Vet," Miller, Elissa",Theodore Miller,Green Dog - Van Nuys,88
+05-01-2026 4:15pm,Studio City Animal Hospital,Unknown Vet," Brunell, John",Po Brunell,Green Dog - Van Nuys,441.2
+03-16-2026 9:45am,Studio City Animal Hospital,Unknown Vet," Martinez, Jason",Beau Martinez,Green Dog - Van Nuys,3429.22
+,Fillmore Animal Hopsital,,,,,6607.78
+04-20-2026 12:00pm,Fillmore Animal Hopsital,Fillmore Animal Hopsital," Solomon, Alyssa",Layla Solomon,Green Dog - Van Nuys,252
+06-22-2026 9:30am,Fillmore Animal Hopsital,Unknown Vet," Siordia, Jasmine",Juno Siordia,Green Dog - Van Nuys,2350.53
+05-05-2026 12:00pm,Fillmore Animal Hopsital,Unknown Vet," Solomon, Alyssa",Dash Solomon,Green Dog - Van Nuys,4005.25
+,VCA Wilshire Animal Hospital,,,,,7592.92
+01-30-2026 9:00am,VCA Wilshire Animal Hospital,VCA Wilshire Animal Hospital," Kau, Tweeny",Princess Chewie Kau,Green Dog - Van Nuys,5652.92
+03-25-2026 2:00pm,VCA Wilshire Animal Hospital,VCA Wilshire Animal Hospital," Imani, Mona",Bobby Imani,Green Dog - Van Nuys,128
+06-26-2026 8:45am,VCA Wilshire Animal Hospital,Unknown Vet," Laurice, Amelie",Topo Chico or Chico Laurice,Green Dog - Van Nuys,350
+01-07-2026 9:00am,VCA Wilshire Animal Hospital,Unknown Vet," Walters, Marlene",Louie Walters,Green Dog - Van Nuys,1088
+01-23-2026 9:00am,VCA Wilshire Animal Hospital,Unknown Vet," Kau, Tweeny",Princess Chewie Kau,Green Dog - Van Nuys,374
+,Aloro Pet Hospital,,,,,15376.94
+06-24-2026 9:00am,Aloro Pet Hospital,Unknown Vet," Singh, Ranbir",Fauji Singh,Green Dog - Van Nuys,252
+04-30-2026 8:15am,Aloro Pet Hospital,Unknown Vet," Romanova, Lana",Biscuit Romanova,Green Dog - Van Nuys,2912
+05-20-2026 12:00pm,Aloro Pet Hospital,Aloro Pet Hospital," Kyababchyan, Elizabeth",Mickey Kyababchyan,Green Dog - Van Nuys,3585.81
+04-13-2026 9:30am,Aloro Pet Hospital,Aloro Pet Hospital," Ward, Carter",Poppy Seed Ward,Green Dog - Van Nuys,7940.67
+06-16-2026 10:00am,Aloro Pet Hospital,Aloro Pet Hospital," Smith, Rhonda",Roxy Smith,Green Dog - Van Nuys,90.23
+06-08-2026 11:30am,Aloro Pet Hospital,Aloro Pet Hospital," Dragotta, Pat",Oliver Dragotta,Green Dog - Van Nuys,596.23
+,Exotic Animal Veterinary Center,,,,,3949.96
+07-01-2026 11:00am,Exotic Animal Veterinary Center,Exotic Animal Veterinary Center," Estrada, Jeannen",Pepper Estrada,Green Dog - Van Nuys,100
+06-26-2026 2:00pm,Exotic Animal Veterinary Center,Unknown Vet," Harris, Anna",Snowball Harris,Green Dog - Van Nuys,3849.96
+,Southpaw Vets,,,,,5317.86
+03-30-2026 2:30pm,Southpaw Vets,Southpaw Vets," Imbergamo, Bella",Alfie Imbergamo,Green Dog - Van Nuys,252
+03-21-2026 3:15pm,Southpaw Vets,Southpaw Vets," Garrett, Geoffrey",Maggie Garrett,Green Dog - Van Nuys,88
+05-13-2026 2:30pm,Southpaw Vets,Southpaw Vets," Bascha- Yocum, Ana",Obi Bascha- Yocum,Green Dog - Van Nuys,533.1
+03-10-2026 8:30am,Southpaw Vets,Unknown Vet," Tousey, Cece",Lucy Tousey,Green Dog - Van Nuys,941.02
+03-18-2026 8:15am,Southpaw Vets,Unknown Vet,"Mr Peterhof, Oliver",Pan Peterhof,Green Dog - Van Nuys,2767.75
+03-19-2026 10:00am,Southpaw Vets,Unknown Vet," Elizondo, Albert",Grizabella Elizondo,Green Dog - Van Nuys,305.99
+03-19-2026 10:00am,Southpaw Vets,Unknown Vet," Elizondo, Albert",Pantera Elizondo,Green Dog - Van Nuys,430
+,Centinela Animal Hospital,,,,,5430.49
+06-27-2026 8:30am,Centinela Animal Hospital,Unknown Vet," Bright, Isaac",Yofi Bright,Green Dog - Van Nuys,1808
+01-31-2026 3:00pm,Centinela Animal Hospital,Unknown Vet," Hernandez, Daniella",Luna Hernandez,Green Dog - Van Nuys,1262.68
+06-20-2026 12:44pm,Centinela Animal Hospital,Centinela Animal Hospital," Wilson, Peyton",Charlie Wilson,Green Dog - Van Nuys,100.8
+03-31-2026 8:45am,Centinela Animal Hospital,Centinela Animal Hospital," Turner, Kasha",Sophie Turner,Green Dog - Van Nuys,350
+03-21-2026 9:00am,Centinela Animal Hospital,Centinela Animal Hospital," Normandin, Allison",Thunder Normandin,Green Dog - Van Nuys,350
+05-20-2026 2:00pm,Centinela Animal Hospital,Centinela Animal Hospital," Morse, Elisa",Gracie Morse,Green Dog - Van Nuys,506.71
+01-27-2026 9:00am,Centinela Animal Hospital,Centinela Animal Hospital," Watkins, Ina",Pippin Watkins,Green Dog - Van Nuys,350
+04-14-2026 9:30am,Centinela Animal Hospital,Centinela Animal Hospital," Ryant, Maile",Bentley Ryant,Green Dog - Van Nuys,702.3
+,Metropolitan Animal Specialty Hospital,,,,,12193.5
+03-26-2026 8:30am,Metropolitan Animal Specialty Hospital,Metropolitan Animal Specialty Hospital," Ramos, Angelica",Nina Ortega Ramos Ramos,Green Dog - Van Nuys,700.65
+03-05-2026 9:00am,Metropolitan Animal Specialty Hospital,Unknown Vet," Hoang, Rachel",Minnie Hoang,Green Dog - Van Nuys,3008.7
+05-27-2026 9:00am,Metropolitan Animal Specialty Hospital,Unknown Vet," Wohl, Amelia",Nala Wohl,Green Dog - Van Nuys,3314.36
+06-25-2026 10:15am,Metropolitan Animal Specialty Hospital,Unknown Vet," Perez, Dennine",Bosco Perez,Green Dog - Van Nuys,5169.79
+,Balboa Veterinary Medical Center,,,,,4146.8
+05-14-2026 1:15pm,Balboa Veterinary Medical Center,Unknown Vet," Magdaro, Kaleo",Gus Magdaro,Green Dog - Van Nuys,760.31
+04-04-2026 11:45am,Balboa Veterinary Medical Center,Unknown Vet," Mercado, Juana",Marley Mercado,Green Dog - Van Nuys,2143.42
+04-10-2026 9:00am,Balboa Veterinary Medical Center,Unknown Vet," Gill, Harmandeep",Dabbu Gill,Green Dog - Van Nuys,380
+05-09-2026 9:15am,Balboa Veterinary Medical Center,Unknown Vet," Claudio, Minette",Benny Bean Claudio,Green Dog - Van Nuys,775.07
+04-28-2026 12:00pm,Balboa Veterinary Medical Center,Unknown Vet," Saroukhanyan, Diana",Chai Saroukhanyan,Green Dog - Van Nuys,88
+,Cinema Veterinary Centre,,,,,7379.16
+05-13-2026 10:00am,Cinema Veterinary Centre,Unknown Vet," Martin, William",Theo Martin,Green Dog - Van Nuys,5014.85
+02-03-2026 10:00am,Cinema Veterinary Centre,Cinema Veterinary Centre," Ginsburg, David",Cloudy Ginsburg,Green Dog - Van Nuys,229
+06-03-2026 8:45am,Cinema Veterinary Centre,Cinema Veterinary Centre," Parkes, Gloria",Buster Parkes,Green Dog - Van Nuys,1712.7
+06-25-2026 10:00am,Cinema Veterinary Centre,Cinema Veterinary Centre," Ziehl, Cathy",Kiki Ziehl,Green Dog - Van Nuys,178.61
+04-03-2026 3:30pm,Cinema Veterinary Centre,Cinema Veterinary Centre," Lara, Ari",Darwin Lara,Green Dog - Van Nuys,244
+,VCA Animal Medical Center of Southern California,,,,,8239.86
+04-02-2026 2:00pm,VCA Animal Medical Center of Southern California,Unknown Vet," Contreras, Lisa",Franklin Contreras,Green Dog - Van Nuys,380
+04-06-2026 8:15am,VCA Animal Medical Center of Southern California,Unknown Vet," Keizer, Anna",Winston Keizer,Green Dog - Van Nuys,1350
+05-21-2026 8:45am,VCA Animal Medical Center of Southern California,VCA Animal Medical Center of Southern California," Slater, Mogan",Rosie Slater,Green Dog - Van Nuys,2941.06
+02-05-2026 2:00pm,VCA Animal Medical Center of Southern California,VCA Animal Medical Center of Southern California," Sprout, Allison",Savannah Sprout,Green Dog - Van Nuys,85
+02-05-2026 2:00pm,VCA Animal Medical Center of Southern California,VCA Animal Medical Center of Southern California," Sprout, Allison",Sierra Sprout,Green Dog - Van Nuys,85
+05-04-2026 8:30am,VCA Animal Medical Center of Southern California,VCA Animal Medical Center of Southern California," Marcus, Patricia",Penny Marcus,Green Dog - Van Nuys,2308
+05-29-2026 8:30am,VCA Animal Medical Center of Southern California,VCA Animal Medical Center of Southern California," Dubin, Stephen",Rosie Dubin,Green Dog - Van Nuys,799.8
+01-14-2026 3:00pm,VCA Animal Medical Center of Southern California,VCA Animal Medical Center of Southern California," Garcia, Gabriela",Kodiak Garcia,Green Dog - Van Nuys,291
+,Best Friends Animal Hospital,,,,,6691.31
+04-21-2026 11:30am,Best Friends Animal Hospital,Best Friends Animal Hospital," Young, Snow",Jet Young,Green Dog - Van Nuys,705.55
+02-16-2026 9:00am,Best Friends Animal Hospital,Best Friends Animal Hospital," Szynczak, Marta",Puszek Szynczak,Green Dog - Van Nuys,743.4
+06-25-2026 3:00pm,Best Friends Animal Hospital,Best Friends Animal Hospital," Xie, Coca",Kato Xie,Green Dog - Van Nuys,252
+03-09-2026 2:00pm,Best Friends Animal Hospital,Unknown Vet," Evans, Bruce",Lilly Evans,Green Dog - Van Nuys,428.3
+03-09-2026 2:00pm,Best Friends Animal Hospital,Unknown Vet," Evans, Bruce",Josie Evans,Green Dog - Van Nuys,344.4
+04-03-2026 4:15pm,Best Friends Animal Hospital,Unknown Vet," Young, Elizabeth",Soybean Young,Green Dog - Van Nuys,820
+02-09-2026 2:15pm,Best Friends Animal Hospital,Unknown Vet," Ignatova, Aleksandra",Belkin Ignatova,Green Dog - Van Nuys,85
+03-02-2026 12:45pm,Best Friends Animal Hospital,Unknown Vet," Alejandre, Adriana",Calvin Alejandre,Green Dog - Van Nuys,148.8
+06-24-2026 9:00am,Best Friends Animal Hospital,Unknown Vet," Lehmann, Sara",Bradie Lehmann,Green Dog - Van Nuys,2516.36
+03-09-2026 8:45am,Best Friends Animal Hospital,Unknown Vet," Su, Grace",Moki Su,Green Dog - Van Nuys,647.5
+,Media City Animal Hospital,,,,,19616.29
+03-18-2026 9:30am,Media City Animal Hospital,Media City Animal Hospital," Delgado, Andrea",Chops Delgado,Green Dog - Van Nuys,3018
+05-29-2026 9:00am,Media City Animal Hospital,Media City Animal Hospital," Poveda, Leo",Chilindrina Poveda,Green Dog - Van Nuys,1500
+06-29-2026 8:15am,Media City Animal Hospital,Media City Animal Hospital," Pham, Vicky",Samson Pham,Green Dog - Van Nuys,8789.98
+06-27-2026 12:30pm,Media City Animal Hospital,Media City Animal Hospital," Augustus, Rebecca",Walter Augustus,Green Dog - Van Nuys,400.8
+01-23-2026 4:00pm,Media City Animal Hospital,Unknown Vet," ONeal, Kelly",Leo ONeal,Green Dog - Van Nuys,646.69
+04-15-2026 9:30am,Media City Animal Hospital,Unknown Vet," Johnson, Daniel",John Oats Johnson,Green Dog - Van Nuys,845.6
+03-04-2026 9:30am,Media City Animal Hospital,Unknown Vet," Coppola, David",Millie Coppola,Green Dog - Van Nuys,1179.16
+03-11-2026 11:00am,Media City Animal Hospital,Unknown Vet," Poveda, Leo",Shaila Poveda,Green Dog - Van Nuys,2745.26
+06-08-2026 9:15am,Media City Animal Hospital,Unknown Vet," Cordero, Denise",Cody Cordero,Green Dog - Van Nuys,402.8
+06-30-2026 11:15am,Media City Animal Hospital,Unknown Vet," Roundtree, Scarlett",Cooper Roundtree,Green Dog - Van Nuys,88
+,Calabasas Animal Clinic & Holistic Veterinary Center,,,,,12138.21
+05-20-2026 10:45am,Calabasas Animal Clinic & Holistic Veterinary Center,Calabasas Animal Clinic & Holistic Veterinary Center," Gohn, Claudia",Charlie Gohn,Green Dog - Van Nuys,6686.93
+06-02-2026 8:30am,Calabasas Animal Clinic & Holistic Veterinary Center,Calabasas Animal Clinic & Holistic Veterinary Center," Milan, Carmina",Bobby Milan,Green Dog - Van Nuys,1900
+05-23-2026 9:00am,Calabasas Animal Clinic & Holistic Veterinary Center,Calabasas Animal Clinic & Holistic Veterinary Center," Hernandez, Diana",Turkey Hernandez,Green Dog - Van Nuys,609
+05-30-2026 10:00am,Calabasas Animal Clinic & Holistic Veterinary Center,Calabasas Animal Clinic & Holistic Veterinary Center," Aronson, Lorens",Honey Aronson,Green Dog - Van Nuys,94
+02-28-2026 9:15am,Calabasas Animal Clinic & Holistic Veterinary Center,Unknown Vet," Shovlowsky, Laura",Sugar Shovlowsky,Green Dog - Van Nuys,627.75
+02-11-2026 2:00pm,Calabasas Animal Clinic & Holistic Veterinary Center,Unknown Vet," Lee, Allison",Cooper Lee,Green Dog - Van Nuys,307.75
+04-16-2026 6:03am,Calabasas Animal Clinic & Holistic Veterinary Center,Unknown Vet," Gallagher, Megan",Gibble Gallagher,Green Dog - Van Nuys,1571.38
+03-10-2026 10:00am,Calabasas Animal Clinic & Holistic Veterinary Center,Unknown Vet," Friedman, Deborah",Aspen Friedman,Green Dog - Van Nuys,312.4
+01-17-2026 9:00am,Calabasas Animal Clinic & Holistic Veterinary Center,Unknown Vet," Nakano, Takashi",Jax Nakano,Green Dog - Van Nuys,29
+,The Pet Doctors of Sherman Oaks,,,,,15445.87
+05-16-2026 8:30am,The Pet Doctors of Sherman Oaks,The Pet Doctors of Sherman Oaks," Nwosu, Ngozi",Bailey Nwosu,Green Dog - Van Nuys,-88
+06-02-2026 11:45am,The Pet Doctors of Sherman Oaks,The Pet Doctors of Sherman Oaks," Schiffman, Bonnie",Quincy Schiffman,Green Dog - Van Nuys,182.8
+07-01-2026 10:45am,The Pet Doctors of Sherman Oaks,The Pet Doctors of Sherman Oaks," Stark, Gracie",Bear Stark,Green Dog - Van Nuys,378.43
+06-16-2026 8:30am,The Pet Doctors of Sherman Oaks,The Pet Doctors of Sherman Oaks," Gastwirth, Rachel",Miley Gastwirth,Green Dog - Van Nuys,1543.16
+04-09-2026 9:30am,The Pet Doctors of Sherman Oaks,Unknown Vet," Mejia, Teresa",Jack Mejia,Green Dog - Van Nuys,5975
+02-24-2026 9:15am,The Pet Doctors of Sherman Oaks,Unknown Vet," Weinrieb, Tiffany",Berkeley Weinrieb,Green Dog - Van Nuys,252
+05-22-2026 3:00pm,The Pet Doctors of Sherman Oaks,Unknown Vet," Harlow, Carrie",Billie Harlow,Green Dog - Van Nuys,199.41
+04-15-2026 11:00am,The Pet Doctors of Sherman Oaks,Unknown Vet," Myers-Washington, Andre",Zaxter Myers-Washington,Green Dog - Van Nuys,2418.79
+06-15-2026 10:00am,The Pet Doctors of Sherman Oaks,Unknown Vet," Antonio, Susan",Ollie Antonio,Green Dog - Van Nuys,2826.26
+06-04-2026 9:00am,The Pet Doctors of Sherman Oaks,Unknown Vet," Viele, Pamela",Chanel Viele,Green Dog - Van Nuys,1286.02
+06-04-2026 9:00am,The Pet Doctors of Sherman Oaks,Unknown Vet," Viele, Pamela",Coco Viele,Green Dog - Van Nuys,472
+,Encino Veterinary Center,,,,,9843.49
+04-27-2026 4:45pm,Encino Veterinary Center,Encino Veterinary Center," Beyer, Nicoletta",Jazzy Beyer,Green Dog - Van Nuys,1740.26
+02-27-2026 9:30am,Encino Veterinary Center,Encino Veterinary Center," Farbenbloom, Susan",Snowy Farbenbloom,Green Dog - Van Nuys,269.63
+03-27-2026 1:45pm,Encino Veterinary Center,Encino Veterinary Center," Gibson, Michelle",Porsche Gibson,Green Dog - Van Nuys,1111.53
+02-24-2026 9:15am,Encino Veterinary Center,Encino Veterinary Center," Cohen, Debrin",Hyde Cohen,Green Dog - Van Nuys,4982.22
+03-06-2026 4:30pm,Encino Veterinary Center,Unknown Vet," Mesick, Anna",Wink Mesick,Green Dog - Van Nuys,88
+03-19-2026 2:00pm,Encino Veterinary Center,Unknown Vet," Clark, Kevin",Hailey Clark,Green Dog - Van Nuys,305
+07-01-2026 8:30am,Encino Veterinary Center,Unknown Vet," Ellis, David",Yogi Ellis,Green Dog - Van Nuys,826
+06-25-2026 10:00am,Encino Veterinary Center,Unknown Vet," Livshin, Susan",Marley Livshin,Green Dog - Van Nuys,350
+03-06-2026 1:45pm,Encino Veterinary Center,Unknown Vet," Hinks, Gigi",Rocco Hinks,Green Dog - Van Nuys,170.85
+,Sherman Oaks Veterinary Group,,,,,36511.05
+03-02-2026 10:00am,Sherman Oaks Veterinary Group,Sherman Oaks Veterinary Group," Hoang, Thu",Yuki Hoang,Green Dog - Van Nuys,1687.79
+03-14-2026 9:00am,Sherman Oaks Veterinary Group,Sherman Oaks Veterinary Group," Peimanizar, Shery",Cookie Peimanizar,Green Dog - Van Nuys,1550
+06-19-2026 2:00pm,Sherman Oaks Veterinary Group,Sherman Oaks Veterinary Group," Charbanic, Diane",Oscar Charbanic,Green Dog - Van Nuys,374.8
+04-18-2026 9:30am,Sherman Oaks Veterinary Group,Unknown Vet," Johnson, Dina",Eebi Johnson,Green Dog - Van Nuys,1309.74
+02-16-2026 2:00pm,Sherman Oaks Veterinary Group,Unknown Vet," Martirosian, Anait",Tessa Martirosian,Green Dog - Van Nuys,1412.8
+04-08-2026 12:30pm,Sherman Oaks Veterinary Group,Unknown Vet," Jansen, Sean",King Jansen,Green Dog - Van Nuys,100
+04-18-2026 1:00pm,Sherman Oaks Veterinary Group,Unknown Vet," Novitski, Keirstin",Buddha Novitski,Green Dog - Van Nuys,1089.36
+05-29-2026 9:15am,Sherman Oaks Veterinary Group,Unknown Vet," Shah, Sapna",Kaju Shah,Green Dog - Van Nuys,2500
+06-05-2026 9:30am,Sherman Oaks Veterinary Group,Unknown Vet," Zakeri, Elly",Stitch Zakeri,Green Dog - Van Nuys,2142.63
+06-08-2026 9:45am,Sherman Oaks Veterinary Group,Unknown Vet," Pan, Aileen",Dexter Pan,Green Dog - Van Nuys,6302.03
+04-28-2026 9:30am,Sherman Oaks Veterinary Group,Unknown Vet," Andersen, Rose",Georgia Andersen,Green Dog - Van Nuys,5557.82
+04-07-2026 9:30am,Sherman Oaks Veterinary Group,Unknown Vet," Sherman, Denise",Molly Sherman,Green Dog - Van Nuys,2343.96
+04-29-2026 8:15am,Sherman Oaks Veterinary Group,Unknown Vet," Tstsirulsky, Maya",Tony Tstsirulsky,Green Dog - Van Nuys,2992.48
+02-14-2026 11:00am,Sherman Oaks Veterinary Group,Unknown Vet," Housner, Courtney",Bloom Housner,Green Dog - Van Nuys,273
+01-21-2026 9:00am,Sherman Oaks Veterinary Group,Unknown Vet," Roberts, Luke",Chief Roberts,Green Dog - Van Nuys,6774.64
+02-25-2026 9:30am,Sherman Oaks Veterinary Group,Unknown Vet," Noori, Ali",Vigo Noori,Green Dog - Van Nuys,100
+,VCA West Los Angeles Animal Hospital,,,,,13083.26
+05-16-2026 11:15am,VCA West Los Angeles Animal Hospital,VCA West Los Angeles Animal Hospital," Kim, Pamela",Luie Kim,Green Dog - Van Nuys,220
+06-12-2026 12:00pm,VCA West Los Angeles Animal Hospital,VCA West Los Angeles Animal Hospital," Van Brink, Jordan",Daisy Van Brink,Green Dog - Van Nuys,442.77
+06-12-2026 3:30pm,VCA West Los Angeles Animal Hospital,VCA West Los Angeles Animal Hospital," Thompson, Charlotte",Luna Thompson,Green Dog - Van Nuys,606.6
+06-20-2026 12:15pm,VCA West Los Angeles Animal Hospital,VCA West Los Angeles Animal Hospital," Hansen, Sam",Moose Hansen,Green Dog - Van Nuys,380
+03-02-2026 3:15pm,VCA West Los Angeles Animal Hospital,VCA West Los Angeles Animal Hospital," Salehi, Amir",Frankie Salehi,Green Dog - Van Nuys,4015.38
+05-02-2026 2:30pm,VCA West Los Angeles Animal Hospital,VCA West Los Angeles Animal Hospital," Aguilera, Adela",Roger Aguilera,Green Dog - Van Nuys,179
+01-13-2026 2:00pm,VCA West Los Angeles Animal Hospital,VCA West Los Angeles Animal Hospital," Basco, Kristen",Loafy Basco,Green Dog - Van Nuys,435.25
+05-09-2026 3:30pm,VCA West Los Angeles Animal Hospital,Unknown Vet," McBride, Amanda",Peach McBride,Green Dog - Van Nuys,496
+05-08-2026 3:30pm,VCA West Los Angeles Animal Hospital,Unknown Vet," Baldridge, Melissa",Nala Baldridge,Green Dog - Van Nuys,252
+02-10-2026 2:30pm,VCA West Los Angeles Animal Hospital,Unknown Vet," Simmons, Danielle",Marlene Simmons,Green Dog - Van Nuys,722.31
+03-31-2026 8:30am,VCA West Los Angeles Animal Hospital,Unknown Vet," Brebenel, Diana",Freckles Brebenel,Green Dog - Van Nuys,1893.77
+03-13-2026 4:45pm,VCA West Los Angeles Animal Hospital,Unknown Vet," Banayan, Bob",Leo Banayan,Green Dog - Van Nuys,288.54
+03-05-2026 10:30am,VCA West Los Angeles Animal Hospital,Unknown Vet," Travis, Steven",Tweeter Travis,Green Dog - Van Nuys,1934.44
+04-09-2026 9:00am,VCA West Los Angeles Animal Hospital,Unknown Vet," Parlier, Mark",Petra Parlier,Green Dog - Van Nuys,143.2
+01-31-2026 2:30pm,VCA West Los Angeles Animal Hospital,Unknown Vet," Yavorsky, Kelley",Petals Yavorsky,Green Dog - Van Nuys,278
+02-14-2026 11:00am,VCA West Los Angeles Animal Hospital,Unknown Vet," Van Brink, Jordan",Peter Van Brink,Green Dog - Van Nuys,398
+02-14-2026 11:00am,VCA West Los Angeles Animal Hospital,Unknown Vet," Van Brink, Jordan",Daisy Van Brink,Green Dog - Van Nuys,398
+,McGrath Veterinary Center,,,,,20725.05
+05-04-2026 9:00am,McGrath Veterinary Center,McGrath Veterinary Center," Allen, Molly",Pam Allen,Green Dog - Van Nuys,2919.58
+04-20-2026 12:45pm,McGrath Veterinary Center,McGrath Veterinary Center," Clark, Tonia",Tommy Clark,Green Dog - Van Nuys,165
+04-30-2026 9:15am,McGrath Veterinary Center,McGrath Veterinary Center," Lopino, Cassandra",Sundae Lopino,Green Dog - Van Nuys,5626.59
+04-08-2026 11:30am,McGrath Veterinary Center,McGrath Veterinary Center," Elzey, Briana",Yoda Elzey,Green Dog - Van Nuys,1191.12
+04-28-2026 8:15am,McGrath Veterinary Center,McGrath Veterinary Center," Miller, Robert",Red Miller,Green Dog - Van Nuys,889
+02-24-2026 2:30pm,McGrath Veterinary Center,Unknown Vet,"Mr Bilson, Danny",Bandit Bilson,Green Dog - Van Nuys,1451.28
+04-10-2026 10:30am,McGrath Veterinary Center,Unknown Vet," Lopino, Cassandra",Faye Lopino,Green Dog - Van Nuys,2401.01
+05-28-2026 9:00am,McGrath Veterinary Center,Unknown Vet," Deych, Gregory",Sunny Deych,Green Dog - Van Nuys,44.03
+05-28-2026 11:00am,McGrath Veterinary Center,Unknown Vet," Shah, Shabana",Bamboo Shah,Green Dog - Van Nuys,252
+04-25-2026 1:40pm,McGrath Veterinary Center,Unknown Vet," Borsai, Les",Hudson Borsai,Green Dog - Van Nuys,1344.38
+05-20-2026 9:45am,McGrath Veterinary Center,Unknown Vet," Cullum, Maureen",Ela Cullum,Green Dog - Van Nuys,3076.11
+06-08-2026 9:30am,McGrath Veterinary Center,Unknown Vet," Mora, Sherline",Teddy Mora,Green Dog - Van Nuys,528.95
+03-04-2026 9:00am,McGrath Veterinary Center,Unknown Vet," Conley, Elizabeth",Pebble Conley,Green Dog - Van Nuys,584
+04-18-2026 11:00am,McGrath Veterinary Center,Unknown Vet," Guillen, Melissa",Pelusa Guillen,Green Dog - Van Nuys,252
+,Modern Animal,,,,,24007.55
+04-03-2026 9:00am,Modern Animal,Modern Animal," Sweeney, René",Frank Sweeney,Green Dog - Van Nuys,3606.86
+05-29-2026 9:30am,Modern Animal,Modern Animal," Mandarano, Melanie",Chance Mandarano,Green Dog - Van Nuys,100
+02-21-2026 11:15am,Modern Animal,Modern Animal," Borer, Bergen",Diesel Borer,Green Dog - Van Nuys,88
+02-27-2026 1:00pm,Modern Animal,Modern Animal," Stiteler, Alison",Winnie Stiteler,Green Dog - Van Nuys,27.81
+04-27-2026 8:15am,Modern Animal,Modern Animal," Mills, Kimberly",Scruffy Mills,Green Dog - Van Nuys,3933.92
+06-17-2026 10:00am,Modern Animal,Modern Animal," Granat, Jeannette",Jax Granat,Green Dog - Van Nuys,743.15
+06-10-2026 9:15am,Modern Animal,Modern Animal,"Mrs Decludt, Kili",Barrel Decludt,Green Dog - Van Nuys,252
+06-18-2026 8:15am,Modern Animal,Modern Animal," Niksic, Nancy",Ace Niksic,Green Dog - Van Nuys,538.64
+03-12-2026 10:15am,Modern Animal,Unknown Vet," Sanchez, Carolina",Bowie Sanchez,Green Dog - Van Nuys,30.75
+03-07-2026 3:45pm,Modern Animal,Unknown Vet," Gurton, Samantha",Buster Gurton,Green Dog - Van Nuys,3440.45
+04-04-2026 2:00pm,Modern Animal,Unknown Vet," Wilkinson, Ryan",Max Wilkinson,Green Dog - Van Nuys,252
+03-16-2026 11:30am,Modern Animal,Unknown Vet," Osuna, Camila",Zola Osuna,Green Dog - Van Nuys,88
+03-25-2026 9:15am,Modern Animal,Unknown Vet," Yen, Lunani",Khartsaga Yen,Green Dog - Van Nuys,1454.28
+04-25-2026 9:45am,Modern Animal,Unknown Vet," Plavoukos, Cassandra",Toast Plavoukos,Green Dog - Van Nuys,915.84
+03-23-2026 8:45am,Modern Animal,Unknown Vet," Danner, Jessica",Miles Danner,Green Dog - Van Nuys,2652.02
+05-05-2026 10:00am,Modern Animal,Unknown Vet," Kleinberg, Lee",Fletcher Kleinberg,Green Dog - Van Nuys,1358.94
+06-02-2026 8:45am,Modern Animal,Unknown Vet," Horland, Erin",Brooke Horland,Green Dog - Van Nuys,2744.29
+03-05-2026 11:30am,Modern Animal,Unknown Vet," Broda, Lee",Sunday Broda,Green Dog - Van Nuys,252
+02-27-2026 1:45pm,Modern Animal,Unknown Vet," Wallos, Brian",Benchie Wallos,Green Dog - Van Nuys,398.1
+02-06-2026 3:30pm,Modern Animal,Unknown Vet," McDaniels, Amanda",Bailey McDaniels,Green Dog - Van Nuys,85
+05-01-2026 2:00pm,Modern Animal,Unknown Vet," Schuck, Kevin",Bubz Schuck,Green Dog - Van Nuys,406
+04-22-2026 10:00am,Modern Animal,Unknown Vet," Riihimaki, Lauren",Diggy Riihimaki,Green Dog - Van Nuys,377
+06-26-2026 9:15am,Modern Animal,Unknown Vet," Weidner, Annie",Indie Weidner,Green Dog - Van Nuys,252
+06-09-2026 12:30pm,Modern Animal,Unknown Vet," Ryan, Carl",Rosie Ryan,Green Dog - Van Nuys,10.5
+,Van Nuys Veterinary Clinic,,,,,89113.79
+04-13-2026 9:00am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Brooks, Madison",Ryder Brooks,Green Dog - Van Nuys,4063
+03-23-2026 11:00am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Sahakyan, Ani",Bruna Sahakyan,Green Dog - Van Nuys,118.75
+03-05-2026 11:00am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Babcock, Traci",Felix Babcock,Green Dog - Van Nuys,1750.96
+05-16-2026 1:00pm,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Costello, Megan",Ginger Costello,Green Dog - Van Nuys,3603.01
+04-08-2026 8:15am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Arista, Melanie",Rocky Arista,Green Dog - Van Nuys,2633.48
+06-10-2026 4:00pm,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Singh, Gia",Canelo Singh,Green Dog - Van Nuys,1224.75
+06-16-2026 9:45am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Assis, Vicky",Bug Assis,Green Dog - Van Nuys,2000
+06-03-2026 9:00am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Park, Brandon",Happy Park,Green Dog - Van Nuys,5500
+06-25-2026 12:30pm,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Miller, Sebastian",Ashton Miller,Green Dog - Van Nuys,1063
+05-28-2026 9:30am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Saltonstall, Allane",Toby Saltonstall,Green Dog - Van Nuys,700.33
+05-11-2026 8:45am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Nguyen, Phuong",Gato Nguyen,Green Dog - Van Nuys,7247.57
+05-27-2026 9:45am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Lewis, Jessica",Toby Lewis,Green Dog - Van Nuys,5356.65
+05-27-2026 9:45am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Lewis, Jessica",Gadget Lewis,Green Dog - Van Nuys,4422.65
+05-23-2026 9:00am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Paniagua, Natalie",Lulu Paniagua,Green Dog - Van Nuys,3500
+02-24-2026 8:30am,Van Nuys Veterinary Clinic,Van Nuys Veterinary Clinic," Mora, Katieann",Chowder Mora,Green Dog - Van Nuys,5851.8
+05-18-2026 11:15am,Van Nuys Veterinary Clinic,Unknown Vet," Lotts, Tanya",Ginger Lotts,Green Dog - Van Nuys,2039.54
+03-11-2026 4:30pm,Van Nuys Veterinary Clinic,Unknown Vet," Joyner, Bryan",Muffin Joyner,Green Dog - Van Nuys,88
+02-23-2026 9:15am,Van Nuys Veterinary Clinic,Unknown Vet," Moghtader, Simona",Hennessy Moghtader,Green Dog - Van Nuys,4962.95
+04-24-2026 8:15am,Van Nuys Veterinary Clinic,Unknown Vet," Flores, Rosa",Hunter Flores,Green Dog - Van Nuys,3942
+05-01-2026 9:00am,Van Nuys Veterinary Clinic,Unknown Vet," Collins, Lauren",Jubilee Collins,Green Dog - Van Nuys,5335.77
+04-18-2026 8:15am,Van Nuys Veterinary Clinic,Unknown Vet," Kong, Kenny",Kona Kong,Green Dog - Van Nuys,7300
+04-30-2026 3:45pm,Van Nuys Veterinary Clinic,Unknown Vet," Hirota, Nozomu",Cayenne Hirota,Green Dog - Van Nuys,300
+04-10-2026 10:15am,Van Nuys Veterinary Clinic,Unknown Vet," Rostenberg, Tova",Zoey Rostenberg,Green Dog - Van Nuys,252
+06-20-2026 8:45am,Van Nuys Veterinary Clinic,Unknown Vet," Rojas, Yovana",Lily Rojas,Green Dog - Van Nuys,600
+05-06-2026 11:15am,Van Nuys Veterinary Clinic,Unknown Vet," Shefter Bishop, Lane",Chloe Shefter Bishop,Green Dog - Van Nuys,1193.65
+06-09-2026 3:00pm,Van Nuys Veterinary Clinic,Unknown Vet," Delwood, Christine",Gwada Delwood,Green Dog - Van Nuys,803.5
+05-28-2026 9:00am,Van Nuys Veterinary Clinic,Unknown Vet," Deibert, Dallas",Athena Deibert,Green Dog - Van Nuys,4700.82
+05-05-2026 9:30am,Van Nuys Veterinary Clinic,Unknown Vet," Ordonez-Chu, Nathan",Kodiak Ordonez-Chu,Green Dog - Van Nuys,542.75
+05-26-2026 2:00pm,Van Nuys Veterinary Clinic,Unknown Vet," Alderman, Vanessa",Missy Alderman,Green Dog - Van Nuys,308
+05-26-2026 2:00pm,Van Nuys Veterinary Clinic,Unknown Vet," Alderman, Vanessa",Madelyn Alderman,Green Dog - Van Nuys,88
+05-19-2026 8:15am,Van Nuys Veterinary Clinic,Unknown Vet," Bertoldi, Thamys",Roy Bertoldi,Green Dog - Van Nuys,2725.07
+02-24-2026 12:15pm,Van Nuys Veterinary Clinic,Unknown Vet," Lee, Looly",Nori Lee,Green Dog - Van Nuys,2589.79
+03-05-2026 3:00pm,Van Nuys Veterinary Clinic,Unknown Vet," Willibey, Holli",Jack Willibey,Green Dog - Van Nuys,111
+02-18-2026 8:30am,Van Nuys Veterinary Clinic,Unknown Vet," Arista, Melanie",Rocky Arista,Green Dog - Van Nuys,2195
+,Unknown Clinic,,,,,2367892.58
+05-23-2026 12:30pm,Unknown Clinic,Shane Veterinary Medical Center," Werkheiser, Devon",Florence Werkheiser,Green Dog - Van Nuys,444.08
+05-26-2026 9:15am,Unknown Clinic,Mohawk Alley Animal Hospital," Kreader, Ben",Gilbert Kreader,Green Dog - Van Nuys,1222.5
+05-01-2026 8:45am,Unknown Clinic," Burbank, Vetco"," Bold, Mary",Lugnut Bold,Green Dog - Van Nuys,2924.44
+04-08-2026 10:30am,Unknown Clinic,VCA West Los Angeles Animal Hospital," Damico, Andrea",Boots Damico,Green Dog - Van Nuys,472
+04-25-2026 9:00am,Unknown Clinic,Veterinary Emergency Group," Lewis, Carla",Momo Lewis,Green Dog - Van Nuys,1369.86
+01-09-2026 2:00pm,Unknown Clinic,VCA Animal Specialty & Emergency Center," Marin, Miriam",Colocho Marin,Green Dog - Van Nuys,828
+03-05-2026 8:45am,Unknown Clinic,South Pasadena Animal Hospital," Santos, Gregory",Darla Santos,Green Dog - Van Nuys,2564.74
+03-26-2026 12:15pm,Unknown Clinic,Banfield Pet Hospital (Northridge)," Brooks, Jonathan",Jax Brooks,Green Dog - Van Nuys,2388
+05-14-2026 4:15pm,Unknown Clinic,Holistika Veterinary," Moss, Chris",Wizard Moss,Green Dog - Van Nuys,308
+02-24-2026 8:45am,Unknown Clinic," Veterinary Hospital, Conejo Valley"," Foligno, Hannah",Finn Foligno,Green Dog - Van Nuys,4553.5
+04-01-2026 3:15pm,Unknown Clinic,Modern Animal," Waterman, Lacey",Valley Waterman,Green Dog - Van Nuys,755.96
+05-06-2026 9:15am,Unknown Clinic,Modern Animal," Varelas, Paulette",Sora Varelas,Green Dog - Van Nuys,2179.76
+05-16-2026 3:15pm,Unknown Clinic,Van Nuys Veterinary Clinic," Tahmasian, Sean",Milo Tahmasian,Green Dog - Van Nuys,252
+05-20-2026 11:00am,Unknown Clinic,Van Nuys Veterinary Clinic," Burton, Mary",Patches Burton,Green Dog - Van Nuys,252
+06-18-2026 9:15am,Unknown Clinic,Laurel Pet Hospital," Ellis, Emma",Benji Ellis,Green Dog - Van Nuys,4756.46
