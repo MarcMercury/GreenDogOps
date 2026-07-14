@@ -46,6 +46,25 @@ export async function ensureRun(agentKey, targetDate, trigger = "scheduled") {
   return json.runId;
 }
 
+/** Rebuild the ezyVet reporting matviews (dedicated step; retried). */
+export async function refreshReporting(retries = 2) {
+  let lastErr = "";
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(`${APP_URL}/api/agents/ezyvet/refresh`, {
+        method: "POST",
+        headers: authHeaders(),
+      });
+      const json = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+      if (res.ok && json.ok) return json;
+      lastErr = json.error ?? `HTTP ${res.status}`;
+    } catch (err) {
+      lastErr = err?.message ?? String(err);
+    }
+  }
+  throw new Error(`Reporting refresh failed: ${lastErr}`);
+}
+
 /**
  * Upload a scraped CSV file to an ezyVet data-sink endpoint.
  * @param endpoint  e.g. "ezyvet/invoice-lines" or "ezyvet/contacts"

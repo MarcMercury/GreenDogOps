@@ -67,7 +67,9 @@ export async function ingestInvoiceCsvText(
     }
   }
 
-  // Record basic import stats + refresh the reporting matviews.
+  // Record basic import stats. The (heavy) reporting roll-up refresh is run by
+  // the agent's dedicated /api/agents/ezyvet/refresh step after all uploads, so
+  // it doesn't block or time out inside this request.
   const dates = rows.map((r) => r.line_date).filter(Boolean).sort() as string[];
   await admin
     .from("ezyvet_invoice_import")
@@ -79,21 +81,6 @@ export async function ingestInvoiceCsvText(
       details: { source: "agent", lines: rows.length },
     })
     .eq("id", importId);
-
-  const { error: refreshErr } = await admin.rpc("refresh_ezyvet_reporting");
-  if (refreshErr) {
-    // The lines ARE saved; only the (heavy) matview refresh timed out. Don't
-    // fail the ingest — the roll-ups get rebuilt on the next successful upload,
-    // and the Reporting page can be refreshed manually. Surface as a warning.
-    return {
-      ok: true,
-      importId,
-      parsed: rows.length,
-      inserted,
-      skipped: parsed.skipped,
-      warning: `Imported ${inserted} lines; report refresh deferred (${refreshErr.message}).`,
-    };
-  }
 
   return { ok: true, importId, parsed: rows.length, inserted, skipped: parsed.skipped };
 }
