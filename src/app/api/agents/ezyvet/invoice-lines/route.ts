@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ingestInvoiceCsvText } from "@/lib/reporting/agent-ingest";
+import { readCsvBody } from "@/lib/agents/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-  const text = await req.text();
+  const text = await readCsvBody(req);
   if (!text || text.length < 10) {
     return NextResponse.json({ ok: false, error: "empty CSV body" }, { status: 400 });
   }

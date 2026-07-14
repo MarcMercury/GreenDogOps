@@ -1,6 +1,7 @@
 // Worker → app communication: report run progress to /api/agents/ingest and
 // POST scraped CSVs to the ezyVet data sinks. All calls are CRON_SECRET-gated.
 import { readFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 
 const APP_URL = (process.env.APP_BASE_URL ?? "http://localhost:3000").replace(/\/$/, "");
 const SECRET = process.env.CRON_SECRET ?? "";
@@ -52,12 +53,16 @@ export async function ensureRun(agentKey, targetDate, trigger = "scheduled") {
  */
 export async function uploadCsv(endpoint, filePath, query = {}) {
   const text = readFileSync(filePath, "utf8");
+  // gzip so large exports (e.g. the full Contacts list) stay under the
+  // serverless request-body size limit. The endpoints sniff the gzip magic
+  // bytes and inflate. Content-Encoding is set too (harmless if stripped).
+  const body = gzipSync(Buffer.from(text, "utf8"));
   const qs = new URLSearchParams(query).toString();
   const url = `${APP_URL}/api/agents/${endpoint}${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "text/csv" }),
-    body: text,
+    headers: authHeaders({ "Content-Type": "text/csv", "Content-Encoding": "gzip" }),
+    body,
   });
   const json = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
   if (!res.ok || !json.ok) {

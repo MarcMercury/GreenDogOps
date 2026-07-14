@@ -46,16 +46,21 @@ export async function switchLocation(page, locationKey, log = () => {}) {
   }
   if (!opened) throw new Error("could not open the department switcher modal");
 
-  // Set Select Department: click the field, type the clinic name, then click the
-  // option anchor in the AJAX dropdown list (a.dropDown inside .dropDownList).
+  // Set Select Department: click the field to open the (small) department list,
+  // then click the option anchor. If the list needs a keystroke to populate,
+  // type the clinic name to trigger the AJAX filter.
   const dept = page.locator('xpath=//*[normalize-space(text())="Select Department"]/following::input[1]').first();
-  const option = page.locator(".dropDownList a.dropDown").filter({ hasText: base }).first();
+  const anchors = page.locator(".dropDownList a.dropDown");
+  const option = anchors.filter({ hasText: base }).first();
   let picked = false;
   for (let attempt = 0; attempt < 3 && !picked; attempt++) {
     await dept.click();
-    await dept.fill("");
-    await dept.pressSequentially(shortName, { delay: 70 });
-    // Poll for the AJAX-filtered option (hasJaxRequest can be slow).
+    await page.waitForTimeout(1500);
+    // If the list didn't populate on click, type to trigger the AJAX filter.
+    if ((await anchors.count()) === 0) {
+      await dept.fill("");
+      await dept.pressSequentially(shortName, { delay: 80 });
+    }
     for (let i = 0; i < 15; i++) {
       await page.waitForTimeout(1000);
       if ((await option.count()) && (await option.isVisible().catch(() => false))) {
@@ -67,8 +72,9 @@ export async function switchLocation(page, locationKey, log = () => {}) {
   }
   if (!picked) {
     const deptVal = await dept.inputValue().catch(() => "(no input)");
-    const anyOpt = await page.locator(".dropDownList a.dropDown").count().catch(() => -1);
+    const anyOpt = await anchors.count().catch(() => -1);
     const modalOpen = await page.getByText("Change department or inventory location", { exact: false }).isVisible().catch(() => false);
+    await page.screenshot({ path: `.secrets/ezyvet-probe/switch-fail-${shortName.replace(/\s+/g, "_")}.png`, fullPage: true }).catch(() => {});
     throw new Error(`Select Department option for "${base}" never appeared (deptField="${deptVal}", dropDownAnchors=${anyOpt}, modalOpen=${modalOpen})`);
   }
   await page.waitForTimeout(2000);

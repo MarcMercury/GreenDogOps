@@ -56,8 +56,8 @@ jobs:
           TARGET_DATE: ${{ github.event.inputs.target_date }}
         run: node agent/run.mjs
 
-      - name: Upload debug artifacts on failure
-        if: failure()
+      - name: Upload debug artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ezyvet-agent-debug
