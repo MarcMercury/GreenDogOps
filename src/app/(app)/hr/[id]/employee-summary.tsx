@@ -472,6 +472,7 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
 <meta charset="utf-8" />
 <title>Employee Summary — ${esc(name)}</title>
 <style>
+  @page { size: letter; margin: 0.5in; }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
   body {
@@ -479,7 +480,11 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
     color: #1e293b;
     font-size: 12px;
     line-height: 1.45;
-    padding: 32px;
+    padding: 0.5in;
+    max-width: 8.5in;
+    margin: 0 auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
   header.doc {
     border-bottom: 3px solid #059669;
@@ -501,17 +506,17 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
   }
   h3 { font-size: 12px; color: #334155; margin: 12px 0 6px; }
   dl.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; margin: 0; }
-  dl.grid .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; }
-  dl.grid dt { color: #64748b; }
-  dl.grid dd { margin: 0; text-align: right; font-weight: 500; color: #1e293b; }
-  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
-  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  dl.grid .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; min-width: 0; }
+  dl.grid dt { color: #64748b; flex-shrink: 0; }
+  dl.grid dd { margin: 0; text-align: right; font-weight: 500; color: #1e293b; min-width: 0; overflow-wrap: anywhere; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; table-layout: fixed; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
   th { background: #f0fdf4; color: #047857; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
   .empty { color: #94a3b8; font-style: italic; margin: 4px 0; }
-  .notes { white-space: pre-wrap; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; }
+  .notes { white-space: pre-wrap; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; overflow-wrap: anywhere; }
   footer.doc { margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 8px; color: #94a3b8; font-size: 10px; }
   @media print {
-    body { padding: 0; }
+    body { padding: 0; max-width: none; }
     section { break-inside: avoid; }
   }
 </style>
