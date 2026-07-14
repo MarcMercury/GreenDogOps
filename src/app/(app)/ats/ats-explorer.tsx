@@ -41,9 +41,17 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
 
   // Split auto-intake awaiting triage (pending) from the active pipeline
   // (accepted + declined + legacy). The Review tab handles the queue.
-  const reviewRows = rows.filter(
-    (r) => r.person_recruiting?.review_status === "pending",
-  );
+  // Order the queue newest-first to mirror the email inbox: application_date is
+  // derived from each message's internalDate, with created_at breaking same-day
+  // ties in ingestion order.
+  const reviewRows = rows
+    .filter((r) => r.person_recruiting?.review_status === "pending")
+    .sort((a, b) => {
+      const ad = a.person_recruiting?.application_date ?? a.created_at;
+      const bd = b.person_recruiting?.application_date ?? b.created_at;
+      if (ad !== bd) return bd.localeCompare(ad);
+      return b.created_at.localeCompare(a.created_at);
+    });
   const pipelineRows = rows.filter(
     (r) => r.person_recruiting?.review_status !== "pending",
   );
