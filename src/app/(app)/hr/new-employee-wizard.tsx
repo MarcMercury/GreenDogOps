@@ -386,7 +386,6 @@ export function NewEmployeeWizard() {
                   "—"
                 }
               />
-              <ReviewRow label="Preferred name" value={form.preferred_name} />
               <ReviewRow label="Grid name" value={form.grid_name} />
               <ReviewRow label="Email" value={form.email} />
               <ReviewRow label="Cell phone" value={form.phone_mobile} />
