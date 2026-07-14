@@ -50,8 +50,12 @@ export async function savePartner(formData: FormData): Promise<ActionResult> {
   const supabase = await createClient();
 
   const id = str(formData.get("id"));
+  const partnerName = str(formData.get("name")) ?? "Unnamed Partner";
   const patch: Record<string, unknown> = {
-    name: str(formData.get("name")) ?? "Unnamed Partner",
+    name: partnerName,
+    // Legacy NOT-NULL column mirrored from public.referral_partners; keep it in
+    // sync with name so inserts never violate its not-null constraint.
+    hospital_name: partnerName,
     status: str(formData.get("status")) ?? "active",
     contact_name: str(formData.get("contact_name")),
     email: str(formData.get("email")),
@@ -210,6 +214,8 @@ export async function addUnmatchedPartner(formData: FormData): Promise<ActionRes
     .from("referral_partners")
     .insert({
       name: clinicName,
+      // Legacy NOT-NULL column mirrored from public.referral_partners.
+      hospital_name: clinicName,
       status: "active",
       last_data_source: "csv_upload",
       last_sync_date: now,
