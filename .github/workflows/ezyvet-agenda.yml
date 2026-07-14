@@ -78,6 +78,20 @@ jobs:
             echo "::endgroup::"
           done
 
+      # Once a day (with the first cron / any manual run) also re-pull the recent
+      # PAST days so the Appointment Review report can see what actually rendered
+      # vs. what was booked.
+      - name: Run Agenda review look-back
+        if: github.event.schedule == '0 12 * * *' || github.event_name == 'workflow_dispatch'
+        env:
+          EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
+          EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}
+          EZYVET_PASSWORD: ${{ secrets.EZYVET_PASSWORD }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+        run: node agent/agenda-review.mjs
+
       - name: Upload debug artifacts
         if: always()
         uses: actions/upload-artifact@v4

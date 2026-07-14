@@ -287,6 +287,24 @@ export interface ContactImportRow {
   created_at: string;
 }
 
+/**
+ * One (location, department, day) row of the Appointment Review report:
+ * booked (expected) vs rendered (actual) appointment counts for a past day.
+ * `rendered_count` is null when the day has not been re-scanned yet (pending).
+ */
+export interface AppointmentReviewRow {
+  location_id: string;
+  location_name: string;
+  department_id: string;
+  department_name: string;
+  department_color: string | null;
+  appt_date: string;
+  expected_count: number;
+  rendered_count: number | null;
+  expected_snapshot: string | null;
+  rendered_snapshot: string | null;
+}
+
 export const LOCATION_LABELS: Record<LocationKey, string> = {
   sherman_oaks: "Sherman Oaks",
   van_nuys: "Van Nuys",

@@ -36,10 +36,12 @@ import {
   fmtNumber,
 } from "./charts";
 import { ImportHistory } from "./import-history";
+import { AppointmentReview } from "./appointment-review";
 
 type TabKey =
   | "revenue"
   | "appointments"
+  | "appointment-review"
   | "products"
   | "staff"
   | "dvm-dept"
@@ -49,6 +51,7 @@ type TabKey =
 const TABS: { key: TabKey; label: string }[] = [
   { key: "revenue", label: "Revenue" },
   { key: "appointments", label: "Appointments" },
+  { key: "appointment-review", label: "Appointment Review" },
   { key: "products", label: "Products/Services" },
   { key: "staff", label: "Doctors/Staff" },
   { key: "dvm-dept", label: "DVM by Dept" },
@@ -1049,6 +1052,8 @@ export function ReportingTabs(props: ReportingTabsProps) {
       )}
 
       {/* ---------------------------------------------------------------- */}
+      {tab === "appointment-review" && <AppointmentReview />}
+
       {tab === "uploads" && (
         <div className="space-y-6">
           <SectionCard

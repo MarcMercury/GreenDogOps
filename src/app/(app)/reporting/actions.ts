@@ -10,6 +10,7 @@ import type {
   StaffBreakdown,
   StaffProductRow,
   StaffProductGroupRow,
+  AppointmentReviewRow,
 } from "@/lib/reporting/types";
 
 export type ActionResult =
@@ -72,6 +73,39 @@ export async function getStaffBreakdown(
     topGroups: (groupsRes.data ?? []) as StaffProductGroupRow[],
     topProducts: (productsRes.data ?? []) as StaffProductRow[],
   };
+}
+
+/**
+ * Appointment Review: for each past day in [startDate, endDate], the booked
+ * (expected) vs rendered (actual) appointment counts per location / department,
+ * derived from the dated ezyVet Agenda snapshots. The range is capped at 92
+ * days and must be in the past.
+ */
+export async function getAppointmentReview(
+  startDate: string,
+  endDate: string,
+): Promise<{ ok: true; rows: AppointmentReviewRow[] } | { ok: false; error: string }> {
+  await requireReportingAccess();
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
+    return { ok: false, error: "Invalid date range." };
+  }
+  let start = startDate;
+  let end = endDate;
+  if (start > end) [start, end] = [end, start];
+  const spanDays = Math.round(
+    (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000,
+  );
+  if (spanDays > 92) {
+    return { ok: false, error: "Please choose a range of 92 days or fewer." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("appointment_review", {
+    p_start: start,
+    p_end: end,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rows: (data ?? []) as AppointmentReviewRow[] };
 }
 
 /** Begin an invoice import session; returns the new import id. */

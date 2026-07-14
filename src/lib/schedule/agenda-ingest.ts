@@ -53,6 +53,12 @@ function toIsoDate(mmddyyyy: string): string {
   return `${yr}-${mo.padStart(2, "0")}-${da.padStart(2, "0")}`;
 }
 
+/** Current date in America/Los_Angeles as ISO YYYY-MM-DD. */
+function todayIsoLA(): string {
+  const la = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
+  return `${la.getFullYear()}-${String(la.getMonth() + 1).padStart(2, "0")}-${String(la.getDate()).padStart(2, "0")}`;
+}
+
 /**
  * Ingest an ezyVet "Agenda" CSV export (raw text) with the service-role client.
  * Counts booked appointments (rows with a client) per location / day / schedule
@@ -164,6 +170,23 @@ export async function ingestAgendaCsvText(text: string): Promise<AgendaIngestRes
     const { error } = await admin.from("ezyvet_agenda_count").insert(rows.slice(i, i + 500));
     if (error) {
       return { ok: false, error: error.message, parsed: table.length - 1, counted, inserted: i };
+    }
+  }
+
+  // Also record a dated snapshot of these aggregates so the Appointment Review
+  // report can compare what was booked (a snapshot taken on/before a day) with
+  // what rendered (a snapshot taken after the day). Keyed by snapshot_date so
+  // re-running on the same day overwrites rather than duplicating.
+  const snapshotDate = todayIsoLA();
+  const snapshotRows = rows.map((r) => ({ ...r, snapshot_date: snapshotDate }));
+  for (let i = 0; i < snapshotRows.length; i += 500) {
+    const { error } = await admin
+      .from("ezyvet_agenda_snapshot")
+      .upsert(snapshotRows.slice(i, i + 500), {
+        onConflict: "location_id,appt_date,department_id,snapshot_date",
+      });
+    if (error) {
+      return { ok: false, error: error.message, parsed: table.length - 1, counted, inserted: rows.length };
     }
   }
 
