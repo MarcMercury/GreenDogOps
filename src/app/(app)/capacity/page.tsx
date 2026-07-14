@@ -4,6 +4,7 @@ import {
   getWeekData,
   getActiveGuides,
   getCapacityRules,
+  getAgendaCounts,
 } from "../schedule/data";
 import { WeekPicker } from "../schedule/week-picker";
 import { CapacityView } from "./capacity-view";
@@ -43,6 +44,10 @@ export default async function CapacityPage({
   const selectedId = weekParam ?? defaultWeek?.id ?? null;
   const weekData = selectedId ? await getWeekData(selectedId) : null;
 
+  const agendaCounts = weekData
+    ? await getAgendaCounts(weekData.week.week_start)
+    : [];
+
   return (
     <div className="space-y-5">
       <PageHeader
@@ -69,6 +74,8 @@ export default async function CapacityPage({
           ]}
           locations={setup.locations}
           weekId={weekData.week.id}
+          weekStart={weekData.week.week_start}
+          agendaCounts={agendaCounts}
           canEdit={canEdit}
         />
       ) : (

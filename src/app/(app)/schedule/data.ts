@@ -100,6 +100,29 @@ export async function getWeekTimeOff(
   return (data ?? []) as PersonTimeOff[];
 }
 
+/** One (location, day, department) booked-appointment count from ezyVet Agenda. */
+export interface AgendaCount {
+  location_id: string;
+  appt_date: string;
+  department_id: string;
+  appt_count: number;
+}
+
+/**
+ * Booked-appointment counts (from the ezyVet Agenda ingest) for the seven days
+ * of a schedule week. Powers the per-department demand overlay on the grid.
+ */
+export async function getAgendaCounts(weekStart: string): Promise<AgendaCount[]> {
+  const supabase = await createClient();
+  const weekEnd = dateForDay(weekStart, 6);
+  const { data } = await supabase
+    .from("ezyvet_agenda_count")
+    .select("location_id, appt_date, department_id, appt_count")
+    .gte("appt_date", weekStart)
+    .lte("appt_date", weekEnd);
+  return (data ?? []) as AgendaCount[];
+}
+
 export interface SetupData {
   departments: SchedDepartment[];
   roles: SchedRole[];

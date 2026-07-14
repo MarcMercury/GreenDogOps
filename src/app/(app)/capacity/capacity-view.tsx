@@ -3,10 +3,11 @@
 import { useMemo, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { DAY_LABELS } from "@/lib/schedule/types";
+import { DAY_LABELS, dateForDay } from "@/lib/schedule/types";
 import type { DayLocationCapacity } from "@/lib/planning/resolve";
 import { STAFF_CATEGORIES } from "@/lib/planning/resolve";
 import { generateGuideFromCapacity } from "../schedule/actions";
+import type { AgendaCount } from "../schedule/data";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -26,11 +27,15 @@ export function CapacityView({
   cells,
   locations,
   weekId,
+  weekStart,
+  agendaCounts = [],
   canEdit,
 }: {
   cells: DayLocationCapacity[];
   locations: LocLite[];
   weekId: string;
+  weekStart: string;
+  agendaCounts?: AgendaCount[];
   canEdit: boolean;
 }) {
   const router = useRouter();
@@ -39,6 +44,14 @@ export function CapacityView({
     () => new Map(cells.map((c) => [`${c.day}|${c.locationId}`, c])),
     [cells],
   );
+  // Booked-appointment demand (ezyVet Agenda) keyed by dept|location|date.
+  const demandByKey = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of agendaCounts) {
+      m.set(`${a.department_id}|${a.location_id}|${a.appt_date}`, a.appt_count);
+    }
+    return m;
+  }, [agendaCounts]);
   const orderedLocations = useMemo(
     () => locations.filter((l) => cells.some((c) => c.locationId === l.id)),
     [locations, cells],
@@ -100,6 +113,9 @@ export function CapacityView({
                       {loc.short_code ?? loc.name}
                     </div>
                     {cell!.entries.map((e) => {
+                      const booked = demandByKey.get(
+                        `${e.departmentId}|${loc.id}|${dateForDay(weekStart, d)}`,
+                      );
                       return (
                         <div
                           key={`${d}|${loc.id}|${e.departmentId}`}
@@ -116,6 +132,18 @@ export function CapacityView({
                               {e.departmentName}
                             </span>
                           </div>
+                          {booked && booked > 0 ? (
+                            <div
+                              className="mt-1 flex items-center justify-between gap-1 rounded px-1.5 py-0.5 text-[11px] font-semibold text-white"
+                              style={{ backgroundColor: e.departmentColor }}
+                              title={`${booked} appointment${booked === 1 ? "" : "s"} already booked (ezyVet Agenda)`}
+                            >
+                              <span className="truncate">Booked</span>
+                              <span className="shrink-0 tabular-nums">
+                                {booked} appt
+                              </span>
+                            </div>
+                          ) : null}
                           <div className="mt-1 flex flex-wrap gap-1">
                             {STAFF_CATEGORIES.map(({ key, label }) => {
                               const n = e.staffing[key];

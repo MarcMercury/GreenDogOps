@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { SetupData, WeekData } from "./data";
+import type { SetupData, WeekData, AgendaCount } from "./data";
 import {
   ATTENDANCE_LABELS,
   ATTENDANCE_TONE,
@@ -119,12 +119,14 @@ export function ScheduleGrid({
   weekData,
   setup,
   timeOff,
+  agendaCounts = [],
   canEdit = false,
 }: {
   weeks: SchedWeek[];
   weekData: WeekData;
   setup: SetupData;
   timeOff: { person_id: string; status: string; start_date: string; end_date: string }[];
+  agendaCounts?: AgendaCount[];
   canEdit?: boolean;
 }) {
   const router = useRouter();
@@ -259,6 +261,22 @@ export function ScheduleGrid({
     return m;
   }, [events]);
 
+  // Booked-appointment demand (ezyVet Agenda) keyed by dept|location|date.
+  // Only future days within the ingested 4-week window carry counts, so past
+  // weeks render blank automatically.
+  const agendaCountMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of agendaCounts) {
+      m.set(`${a.department_id}|${a.location_id}|${a.appt_date}`, a.appt_count);
+    }
+    return m;
+  }, [agendaCounts]);
+
+  const agendaDeptIds = useMemo(
+    () => new Set(agendaCounts.map((a) => a.department_id)),
+    [agendaCounts],
+  );
+
   // Lines grouped by department, in order.
   const grouped = useMemo(() => {
     const byDept = new Map<string, SchedWeekLine[]>();
@@ -268,14 +286,14 @@ export function ScheduleGrid({
     }
     const order = [...setup.departments]
       .sort((a, b) => a.sort_order - b.sort_order)
-      .filter((d) => byDept.has(d.id));
+      .filter((d) => byDept.has(d.id) || agendaDeptIds.has(d.id));
     return order.map((d) => ({
       dept: d,
       lines: (byDept.get(d.id) ?? []).sort(
         (a, b) => a.sort_order - b.sort_order,
       ),
     }));
-  }, [lines, setup.departments]);
+  }, [lines, setup.departments, agendaDeptIds]);
 
   // Per-employee shift list for the "Export per employee" printout: every
   // active assignment grouped by person, then sorted by date and start time so
@@ -687,6 +705,10 @@ export function ScheduleGrid({
                 span={1 + DAYS.length * Math.max(colCount, 1)}
                 collapsed={collapsedDepts.has(dept.id)}
                 lineCount={deptLines.length}
+                shownLocations={shownLocations}
+                closureSet={closureSet}
+                weekStart={week.week_start}
+                agendaCountMap={agendaCountMap}
                 onToggle={() => toggleDept(dept.id)}
                 onAddLine={() =>
                   setLineModal({ line: null, deptId: dept.id })
@@ -1234,6 +1256,10 @@ function DeptSection({
   span,
   collapsed,
   lineCount,
+  shownLocations,
+  closureSet,
+  weekStart,
+  agendaCountMap,
   onToggle,
   onAddLine,
   onEditDept,
@@ -1243,16 +1269,24 @@ function DeptSection({
   span: number;
   collapsed: boolean;
   lineCount: number;
+  shownLocations: ScheduleLocation[];
+  closureSet: Set<string>;
+  weekStart: string;
+  agendaCountMap: Map<string, number>;
   onToggle: () => void;
   onAddLine: () => void;
   onEditDept: () => void;
   children: React.ReactNode;
 }) {
+  // The dept name/toggle cell spans just the sticky "Shift" column; the day/
+  // location cells that follow carry the booked-appointment demand so the
+  // number lands under its clinic column, in the department's own color.
+  const showDemand = shownLocations.length > 0;
   return (
     <>
       <tr>
         <td
-          colSpan={span}
+          colSpan={showDemand ? 1 : span}
           className="group/dept sticky left-0 z-10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white"
           style={{ background: dept.color }}
         >
@@ -1293,6 +1327,37 @@ function DeptSection({
             </button>
           </div>
         </td>
+        {showDemand &&
+          DAYS.map((d) => {
+            const date = dateForDay(weekStart, d);
+            return shownLocations.map((loc, locIdx) => {
+              const closed = closureSet.has(`${loc.id}|${d}`);
+              const count = agendaCountMap.get(`${dept.id}|${loc.id}|${date}`) ?? 0;
+              return (
+                <td
+                  key={`demand-${d}-${loc.id}`}
+                  className="px-1 py-1 text-center text-[11px] font-bold tabular-nums text-white/95"
+                  style={{
+                    background: dept.color,
+                    width: closed ? 18 : 128,
+                    minWidth: closed ? 18 : 128,
+                    maxWidth: closed ? 18 : 128,
+                    borderLeft:
+                      locIdx === 0
+                        ? "2px solid rgba(255,255,255,0.5)"
+                        : "1px solid rgba(255,255,255,0.25)",
+                  }}
+                  title={
+                    count > 0
+                      ? `${count} appointment${count === 1 ? "" : "s"} booked — ${dept.name} @ ${loc.short_code ?? loc.name}`
+                      : undefined
+                  }
+                >
+                  {closed ? "" : count > 0 ? count : ""}
+                </td>
+              );
+            });
+          })}
       </tr>
       {children}
     </>

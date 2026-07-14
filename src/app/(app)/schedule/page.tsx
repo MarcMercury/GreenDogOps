@@ -1,4 +1,4 @@
-import { getSetupData, getWeeks, getWeekData, getWeekTimeOff } from "./data";
+import { getSetupData, getWeeks, getWeekData, getWeekTimeOff, getAgendaCounts } from "./data";
 import { ScheduleGrid } from "./schedule-grid";
 import { WeekPicker } from "./week-picker";
 import { PageHeader } from "../_components/ui";
@@ -51,5 +51,7 @@ export default async function SchedulePage({
 
   const timeOff = await getWeekTimeOff(weekData.week.week_start);
 
-  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} timeOff={timeOff} canEdit={canEdit} />;
+  const agendaCounts = await getAgendaCounts(weekData.week.week_start);
+
+  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} timeOff={timeOff} agendaCounts={agendaCounts} canEdit={canEdit} />;
 }
