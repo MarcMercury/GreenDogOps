@@ -40,21 +40,6 @@ const PER_LOCATION_REPORTS = [
   { key: "referral_revenue", name: "Referrer Revenue", dated: true, endpoint: "ezyvet/referral" },
 ];
 
-// Forward-looking reports: instead of "yesterday", they pull a window of FUTURE
-// days so the app can plan staffing ahead. Agenda = the appointment schedule
-// for the next 4 weeks; one run (blank resource) returns every clinic.
-const AGENDA_WINDOW_DAYS = 28;
-
-function todayLA() {
-  const la = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
-  return `${la.getFullYear()}-${String(la.getMonth() + 1).padStart(2, "0")}-${String(la.getDate()).padStart(2, "0")}`;
-}
-function addDaysIso(iso, days) {
-  const d = new Date(`${iso}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 const log = (m) => console.log(`[worker] ${m}`);
 async function emit(update) {
   if (RUN_ID) await reportRun({ runId: RUN_ID, ...update });
@@ -116,51 +101,6 @@ async function main() {
     }
   }
 
-  // Agenda: forward-looking appointment schedule. Runs "Agenda" for today ..
-  // today+AGENDA_WINDOW_DAYS with the detailed report on (so the Division and
-  // Client columns are present), then rebuilds the per-day/location/department
-  // booked-appointment counts. One run returns every clinic.
-  async function runAgenda() {
-    const slug = "agenda";
-    const t0 = Date.now();
-    const from = todayLA();
-    const to = addDaysIso(from, AGENDA_WINDOW_DAYS);
-    try {
-      await emit({ logs: [{ message: `Running Agenda (${from} → ${to})…` }] });
-      await openReporting(session.page, log);
-      const csvPath = join(dir, `agenda-${from}.csv`);
-      await runCsvReport(session.page, {
-        name: "Agenda",
-        fromIso: from,
-        toIso: to,
-        downloadPath: csvPath,
-        log,
-        configure: async (p) => {
-          // Enable the detailed report so Division(s) + Client Name columns are
-          // included (leave "Include cancelled appointments" off = default).
-          const detailed = p.getByText("Show detailed report", { exact: false }).first();
-          if (await detailed.count()) await detailed.click().catch(() => {});
-          await p.waitForTimeout(400);
-        },
-      });
-      const result = await uploadCsv("ezyvet/agenda", csvPath, { filename: `agenda-${from}.csv` });
-      detail[slug] = { status: "success", ...result, ms: Date.now() - t0 };
-      anySuccess = true;
-      await emit({
-        recordsProcessed: result.parsed ?? 0,
-        recordsNew: result.inserted ?? 0,
-        detail: { ...detail },
-        logs: [{ message: `Agenda: ${result.parsed ?? 0} rows, ${result.counted ?? 0} appts across ${result.inserted ?? 0} day/dept cells` }],
-      });
-    } catch (err) {
-      anyFailure = true;
-      const msg = err?.message ?? String(err);
-      detail[slug] = { status: "error", error: msg, ms: Date.now() - t0 };
-      await emit({ detail: { ...detail }, logs: [{ level: "error", message: `Agenda failed: ${msg}` }] });
-      log(`ERROR Agenda: ${msg}`);
-    }
-  }
-
   try {
     await openReporting(session.page, log);
 
@@ -168,9 +108,6 @@ async function main() {
     for (const report of GLOBAL_REPORTS) {
       await runOne(report);
     }
-
-    // 1b) Agenda: forward appointment schedule (next 4 weeks, all clinics).
-    await runAgenda();
 
     // 2) Per-location reports: switch the clinic, then run.
     for (const report of PER_LOCATION_REPORTS) {

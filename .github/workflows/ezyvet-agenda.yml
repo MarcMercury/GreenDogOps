@@ -1,0 +1,88 @@
+name: ezyVet Agenda Look-ahead
+
+# Pulls the ezyVet Agenda (appointment schedule) ONE WEEK PER RUN so the
+# Schedule always has the next 4 weeks of booked-appointment demand loaded,
+# without a single heavy 28-day pull. Four runs fire 10 minutes apart starting
+# at 5:00 AM PT (12:00 UTC). The week each run pulls is derived from the cron
+# that triggered it (0→this week, 10→+1, 20→+2, 30→+3).
+on:
+  schedule:
+    - cron: "0 12 * * *" # 5:00 AM PT → week 0 (this week)
+    - cron: "10 12 * * *" # 5:10 AM PT → week 1
+    - cron: "20 12 * * *" # 5:20 AM PT → week 2
+    - cron: "30 12 * * *" # 5:30 AM PT → week 3
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "agent_run id (from the app). Leave blank to create one."
+        required: false
+      week_offset:
+        description: "Week offset 0..3 (0 = this week). Blank = run all 4 in sequence."
+        required: false
+
+concurrency:
+  # Never let the same week's run overlap its previous (slow) run, but let the
+  # four different weeks run independently.
+  group: ezyvet-agenda-${{ github.event.schedule || github.event.inputs.week_offset || 'all' }}
+  cancel-in-progress: false
+
+jobs:
+  agenda:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Map the triggering cron minute to a week offset. Manual dispatch uses
+      # the provided week_offset (blank = all 4 weeks in sequence).
+      - name: Resolve week offsets
+        id: weeks
+        run: |
+          case "${{ github.event.schedule }}" in
+            "0 12 * * *")  echo "list=0" >> "$GITHUB_OUTPUT" ;;
+            "10 12 * * *") echo "list=1" >> "$GITHUB_OUTPUT" ;;
+            "20 12 * * *") echo "list=2" >> "$GITHUB_OUTPUT" ;;
+            "30 12 * * *") echo "list=3" >> "$GITHUB_OUTPUT" ;;
+            *)
+              if [ -n "${{ github.event.inputs.week_offset }}" ]; then
+                echo "list=${{ github.event.inputs.week_offset }}" >> "$GITHUB_OUTPUT"
+              else
+                echo "list=0 1 2 3" >> "$GITHUB_OUTPUT"
+              fi
+              ;;
+          esac
+
+      - name: Run Agenda look-ahead
+        env:
+          EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
+          EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}
+          EZYVET_PASSWORD: ${{ secrets.EZYVET_PASSWORD }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+        run: |
+          for w in ${{ steps.weeks.outputs.list }}; do
+            echo "::group::Agenda week $w"
+            WEEK_OFFSET="$w" node agent/agenda-week.mjs
+            echo "::endgroup::"
+          done
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezyvet-agenda-debug
+          path: .secrets/ezyvet-probe/*.png
+          if-no-files-found: ignore
+          retention-days: 5
