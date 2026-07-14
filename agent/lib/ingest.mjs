@@ -54,14 +54,15 @@ export async function ensureRun(agentKey, targetDate, trigger = "scheduled") {
 export async function uploadCsv(endpoint, filePath, query = {}) {
   const text = readFileSync(filePath, "utf8");
   // gzip so large exports (e.g. the full Contacts list) stay under the
-  // serverless request-body size limit. The endpoints sniff the gzip magic
-  // bytes and inflate. Content-Encoding is set too (harmless if stripped).
+  // serverless request-body size limit. Send as octet-stream WITHOUT a
+  // Content-Encoding header (which makes the platform auto-decompress and
+  // corrupt the body); the endpoint inflates by sniffing the gzip magic bytes.
   const body = gzipSync(Buffer.from(text, "utf8"));
   const qs = new URLSearchParams(query).toString();
   const url = `${APP_URL}/api/agents/${endpoint}${qs ? `?${qs}` : ""}`;
   const res = await fetch(url, {
     method: "POST",
-    headers: authHeaders({ "Content-Type": "text/csv", "Content-Encoding": "gzip" }),
+    headers: authHeaders({ "Content-Type": "application/octet-stream" }),
     body,
   });
   const json = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
