@@ -56,7 +56,7 @@ export async function switchLocation(page, locationKey, log = () => {}) {
     await dept.fill("");
     await dept.pressSequentially(shortName, { delay: 70 });
     // Poll for the AJAX-filtered option (hasJaxRequest can be slow).
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 15; i++) {
       await page.waitForTimeout(1000);
       if ((await option.count()) && (await option.isVisible().catch(() => false))) {
         await option.click();
@@ -65,7 +65,12 @@ export async function switchLocation(page, locationKey, log = () => {}) {
       }
     }
   }
-  if (!picked) throw new Error(`Select Department option for "${base}" never appeared`);
+  if (!picked) {
+    const deptVal = await dept.inputValue().catch(() => "(no input)");
+    const anyOpt = await page.locator(".dropDownList a.dropDown").count().catch(() => -1);
+    const modalOpen = await page.getByText("Change department or inventory location", { exact: false }).isVisible().catch(() => false);
+    throw new Error(`Select Department option for "${base}" never appeared (deptField="${deptVal}", dropDownAnchors=${anyOpt}, modalOpen=${modalOpen})`);
+  }
   await page.waitForTimeout(2000);
 
   // Confirm if the modal is still open (Inventory Location auto-matches). Some
@@ -127,26 +132,25 @@ export async function openReport(page, name, log = () => {}) {
   await filter.pressSequentially(name, { delay: 40 });
   await page.waitForTimeout(2500);
 
-  // Click the matching left-catalog row (tolerant text match, exclude the main
-  // panel heading by scoping to a clickable list item near the search box).
-  const candidates = [
-    page.getByText(name, { exact: true }),
-    page.locator(`li:has-text("${name}")`),
-    page.locator(`[class*="report" i]:has-text("${name}")`),
-    page.getByText(name, { exact: false }),
-  ];
-  let clicked = false;
-  for (const loc of candidates) {
-    const first = loc.first();
-    if ((await first.count()) && (await first.isVisible().catch(() => false))) {
-      await first.click();
-      clicked = true;
-      break;
+  // Click the report row in the LEFT CATALOG only (a.listClickOpenTab inside
+  // ul.theSideList). Scoping here avoids matching the top-nav menu or the
+  // Report Queue history for common names like "Contacts".
+  const row = page
+    .locator(".theSideList a.listClickOpenTab")
+    .filter({ has: page.getByText(name, { exact: true }) })
+    .first();
+  try {
+    await row.waitFor({ state: "visible", timeout: 12000 });
+    await row.click();
+  } catch {
+    // Fallback: any visible catalog anchor whose text contains the name.
+    const alt = page.locator(".theSideList a.listClickOpenTab", { hasText: name }).first();
+    if ((await alt.count()) && (await alt.isVisible().catch(() => false))) {
+      await alt.click();
+    } else {
+      await page.screenshot({ path: ".secrets/ezyvet-probe/51-open-report-fail.png", fullPage: true }).catch(() => {});
+      throw new Error(`Could not find report "${name}" in the catalog.`);
     }
-  }
-  if (!clicked) {
-    await page.screenshot({ path: ".secrets/ezyvet-probe/51-open-report-fail.png", fullPage: true }).catch(() => {});
-    throw new Error(`Could not find report "${name}" in the catalog.`);
   }
   await page.waitForTimeout(4000);
   log(`opened report form: ${name}`);

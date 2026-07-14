@@ -66,6 +66,9 @@ async function main() {
     const label = locationLabel ? `${report.name} (${locationLabel})` : report.name;
     try {
       await emit({ logs: [{ message: `Running ${label}…` }] });
+      // Re-open the Report Center each time so prior report tabs/filters don't
+      // leave the catalog in a state where the next report can't be found.
+      await openReporting(session.page, log);
       const csvPath = join(dir, `${slug}-${TARGET_DATE}.csv`);
       await runCsvReport(session.page, {
         name: report.name,

@@ -6,6 +6,7 @@ import { parseInvoiceCsv, parseContactCsv } from "./parse";
 export interface CsvIngestResult {
   ok: boolean;
   error?: string;
+  warning?: string;
   importId?: string;
   parsed: number;
   inserted: number;
@@ -81,7 +82,17 @@ export async function ingestInvoiceCsvText(
 
   const { error: refreshErr } = await admin.rpc("refresh_ezyvet_reporting");
   if (refreshErr) {
-    return { ok: false, error: `Imported ${inserted} lines but report refresh failed: ${refreshErr.message}`, importId, parsed: rows.length, inserted, skipped: parsed.skipped };
+    // The lines ARE saved; only the (heavy) matview refresh timed out. Don't
+    // fail the ingest — the roll-ups get rebuilt on the next successful upload,
+    // and the Reporting page can be refreshed manually. Surface as a warning.
+    return {
+      ok: true,
+      importId,
+      parsed: rows.length,
+      inserted,
+      skipped: parsed.skipped,
+      warning: `Imported ${inserted} lines; report refresh deferred (${refreshErr.message}).`,
+    };
   }
 
   return { ok: true, importId, parsed: rows.length, inserted, skipped: parsed.skipped };
