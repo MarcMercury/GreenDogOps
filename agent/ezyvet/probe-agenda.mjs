@@ -15,7 +15,7 @@ function iso(d) {
 }
 const today = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Los_Angeles" }));
 const to = new Date(today);
-to.setDate(to.getDate() + 4);
+to.setDate(to.getDate() + 28);
 
 const browser = await chromium.launch({
   headless: true,

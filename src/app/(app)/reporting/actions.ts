@@ -194,20 +194,22 @@ export async function finalizeInvoiceImport(
     })
     .eq("id", importId);
 
-  // Rebuild every materialized reporting roll-up so all tabs/sections reflect
-  // this import. Surface a failure rather than silently serving stale data.
-  const { error: refreshError } = await admin.rpc("refresh_ezyvet_reporting");
+  // Request a server-side rebuild of every materialized reporting roll-up. This
+  // returns instantly; a pg_cron worker performs the heavy (~3 min) refresh with
+  // no API gateway in the path (migration 0094). Rebuilding synchronously here
+  // over HTTP exceeds the gateway's ~150s limit ("upstream request timeout").
+  const { error: refreshError } = await admin.rpc("request_reporting_refresh");
   if (refreshError) {
     return {
       ok: false,
-      error: `Imported ${newRows.toLocaleString()} lines, but refreshing the reports failed: ${refreshError.message}. Re-run an upload or contact an admin to refresh.`,
+      error: `Imported ${newRows.toLocaleString()} lines, but queuing the report refresh failed: ${refreshError.message}. Contact an admin to refresh.`,
     };
   }
 
   revalidatePath("/reporting");
   return {
     ok: true,
-    message: `Imported ${newRows.toLocaleString()} new line${newRows === 1 ? "" : "s"} · ${appointmentCount.toLocaleString()} appointments · $${Math.round(revenue).toLocaleString()} revenue.`,
+    message: `Imported ${newRows.toLocaleString()} new line${newRows === 1 ? "" : "s"} · ${appointmentCount.toLocaleString()} appointments · $${Math.round(revenue).toLocaleString()} revenue. Reports refresh within a minute.`,
   };
 }
 
@@ -225,9 +227,9 @@ export async function deleteInvoiceImport(importId: string): Promise<ActionResul
     .delete()
     .eq("id", importId);
   if (error) return { ok: false, error: error.message };
-  await admin.rpc("refresh_ezyvet_reporting");
+  await admin.rpc("request_reporting_refresh");
   revalidatePath("/reporting");
-  return { ok: true, message: "Import removed." };
+  return { ok: true, message: "Import removed. Reports refresh within a minute." };
 }
 
 /** Wipe ALL invoice-line reporting data (admin only, destructive). */
@@ -244,7 +246,7 @@ export async function resetInvoiceData(): Promise<ActionResult> {
     .delete()
     .not("id", "is", null);
   if (e2) return { ok: false, error: e2.message };
-  await admin.rpc("refresh_ezyvet_reporting");
+  await admin.rpc("request_reporting_refresh");
   revalidatePath("/reporting");
-  return { ok: true, message: "All invoice reporting data cleared." };
+  return { ok: true, message: "All invoice reporting data cleared. Reports refresh within a minute." };
 }
