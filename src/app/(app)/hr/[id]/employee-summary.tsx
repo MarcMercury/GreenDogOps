@@ -140,10 +140,9 @@ function summarizePtoDays(days: PersonPtoDay[]): PtoRange[] {
   const ranges: PtoRange[] = [];
   for (const d of sorted) {
     const last = ranges[ranges.length - 1];
-    const cur = new Date(`${d.pto_date}T00:00:00`);
     const noteList = d.note && d.note.trim() ? [d.note.trim()] : [];
     if (last) {
-      const prev = new Date(`${last.end}T00:00:00`);
+      const prev = new Date(`${last.end}T00:00:00Z`);
       const nextDay = new Date(prev.getTime() + 86_400_000);
       const isConsecutive =
         nextDay.toISOString().slice(0, 10) === d.pto_date;
