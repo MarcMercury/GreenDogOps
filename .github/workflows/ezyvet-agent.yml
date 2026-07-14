@@ -1,0 +1,66 @@
+name: ezyVet Daily Ingest Agent
+
+# Runs the ezyVet browser-automation worker. Scheduled daily, and manually
+# dispatchable (the app's Admin ▸ Agents "Run now" button triggers this via the
+# GitHub API, passing run_id/agent_key/target_date).
+on:
+  schedule:
+    # 12:00 UTC = 5:00 AM PDT (4:00 AM PST). Always after local midnight, so the
+    # previous day's data is complete. GitHub cron is UTC only.
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "agent_run id (from the app). Leave blank to create one."
+        required: false
+      agent_key:
+        description: "Agent key"
+        required: false
+        default: "ezyvet_daily_ingest"
+      target_date:
+        description: "Target date YYYY-MM-DD (default: previous LA day)"
+        required: false
+
+concurrency:
+  # Never let two ingest runs overlap.
+  group: ezyvet-agent
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ezyVet ingest worker
+        env:
+          EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
+          EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}
+          EZYVET_PASSWORD: ${{ secrets.EZYVET_PASSWORD }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+          AGENT_KEY: ${{ github.event.inputs.agent_key || 'ezyvet_daily_ingest' }}
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
+        run: node agent/run.mjs
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezyvet-agent-debug
+          path: .secrets/ezyvet-probe/*.png
+          if-no-files-found: ignore
+          retention-days: 5
