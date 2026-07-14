@@ -893,7 +893,7 @@ function SchedAttendancePanel({
                       <th className="px-3 py-2 font-medium">Note</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-200">
                     {visibleRecords.map((r) => (
                       <tr key={r.assignmentId} className="hover:bg-slate-50/50">
                         <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-800">

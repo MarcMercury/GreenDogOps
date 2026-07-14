@@ -10,13 +10,12 @@ import {
 } from "@/lib/calendar/types";
 
 const PERSON_COLS =
-  "id, first_name, last_name, preferred_name, grid_name, full_name";
+  "id, first_name, last_name, grid_name, full_name";
 
 type PersonName = {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  preferred_name: string | null;
   grid_name: string | null;
   full_name: string | null;
 };
@@ -26,7 +25,7 @@ function displayName(p: PersonName | null | undefined): string {
   return (
     p.full_name ||
     p.grid_name ||
-    [p.preferred_name || p.first_name, p.last_name].filter(Boolean).join(" ") ||
+    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
     "Unknown"
   );
 }

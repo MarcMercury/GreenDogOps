@@ -521,7 +521,7 @@ function PartnerTable({
             {renderTh("Actions", { right: true })}
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-slate-200">
           {sorted.map((p) => (
             <tr key={p.id} className="group cursor-pointer transition hover:bg-emerald-50/40" onClick={() => onView(p)}>
               <td className="px-4 py-3">
@@ -950,7 +950,7 @@ function UploadLogTab({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2">Clinic Name</th>
                   <th className="px-3 py-2 text-right">Visits</th>
                   <th className="px-3 py-2 text-right">Revenue</th>
@@ -959,7 +959,7 @@ function UploadLogTab({
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-200">
                 {unmatched.map((u) => (
                   <tr key={u.clinicName}>
                     <td className="px-4 py-2 text-slate-800">{u.clinicName}</td>
@@ -1003,7 +1003,7 @@ function UploadLogTab({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="px-4 py-2">Uploaded</th>
                   <th className="px-3 py-2">File</th>
                   <th className="px-3 py-2">Type</th>
@@ -1014,7 +1014,7 @@ function UploadLogTab({
                   {isAdmin && <th className="px-3 py-2 text-right">Actions</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-200">
                 {history.map((h) => {
                   const undone = !!(h.sync_details && (h.sync_details as Record<string, unknown>).undone_at);
                   return (
@@ -1878,7 +1878,7 @@ function UploadDialog({
                 {showDetails && (
                   <div className="mt-2 max-h-60 overflow-y-auto rounded-lg border border-slate-200 bg-white">
                     <table className="w-full text-xs">
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-slate-200">
                         {result.details.map((d, i) => (
                           <tr key={i}>
                             <td className="px-3 py-1.5 text-slate-700">{d.clinicName}</td>

@@ -22,14 +22,12 @@ function personName(r: {
   full_name: string | null;
   first_name: string | null;
   last_name: string | null;
-  preferred_name: string | null;
   grid_name: string | null;
 }): string {
   const composed = [r.first_name, r.last_name].filter(Boolean).join(" ").trim();
   return (
     r.full_name?.trim() ||
     composed ||
-    r.preferred_name?.trim() ||
     r.grid_name?.trim() ||
     "Unnamed"
   );
@@ -45,7 +43,7 @@ async function searchInternal(term: string): Promise<{
     supabase
       .from("person")
       .select(
-        "id, status, first_name, last_name, full_name, preferred_name, grid_name, email",
+        "id, status, first_name, last_name, full_name, grid_name, email",
       )
       .or(
         ilikeOr(
@@ -53,7 +51,6 @@ async function searchInternal(term: string): Promise<{
             "first_name",
             "last_name",
             "full_name",
-            "preferred_name",
             "grid_name",
             "email",
           ],

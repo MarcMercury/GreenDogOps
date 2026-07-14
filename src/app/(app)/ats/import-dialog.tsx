@@ -516,7 +516,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
               </thead>
               <tbody>
                 {staged.map((c, i) => (
-                  <tr key={i} className="border-t border-slate-100">
+                  <tr key={i} className="border-t border-slate-200">
                     {FIELDS.map((f) => (
                       <td key={f.key} className="px-1 py-1">
                         <input

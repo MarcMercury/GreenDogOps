@@ -164,7 +164,7 @@ export default async function EzyvetCrmPage({
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead>
-                <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wider text-slate-400">
+                <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400">
                   <th className="py-2 pr-3 font-semibold">Name</th>
                   <th className="py-2 pr-3 font-semibold">Contact</th>
                   <th className="py-2 pr-3 font-semibold">Location</th>

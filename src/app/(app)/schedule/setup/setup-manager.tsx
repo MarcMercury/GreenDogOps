@@ -976,7 +976,7 @@ function Employees({ data }: { data: SetupData }) {
               <th className="py-2 pr-4 font-medium">Schedulable</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-200">
             {people.map((p) => {
               const s = settingByPerson.get(p.id);
               return (

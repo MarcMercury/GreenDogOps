@@ -57,7 +57,6 @@ export async function createEmployee(
   const personInsert = {
     first_name: firstName,
     last_name: lastName,
-    preferred_name: str(formData.get("preferred_name")),
     grid_name: str(formData.get("grid_name")),
     full_name: fullName,
     email: str(formData.get("email")),
@@ -130,7 +129,6 @@ export async function updateEmployee(
   const personPatch = {
     first_name: str(formData.get("first_name")),
     last_name: str(formData.get("last_name")),
-    preferred_name: str(formData.get("preferred_name")),
     grid_name: str(formData.get("grid_name")),
     email: str(formData.get("email")),
     phone_mobile: str(formData.get("phone_mobile")),
@@ -236,7 +234,6 @@ type FieldKind = "text" | "date" | "number" | "money" | "boolean";
 const PERSON_EDIT_FIELDS: Record<string, FieldKind> = {
   first_name: "text",
   last_name: "text",
-  preferred_name: "text",
   grid_name: "text",
   email: "text",
   phone_mobile: "text",

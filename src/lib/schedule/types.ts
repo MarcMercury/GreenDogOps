@@ -237,7 +237,6 @@ export interface SchedPerson {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  preferred_name: string | null;
   grid_name: string | null;
   full_name: string | null;
   /** Preferred work location, sourced from HR (person_employment). */
@@ -257,8 +256,6 @@ export interface SchedPerson {
 export function gridName(p: SchedPerson): string {
   const grid = p.grid_name?.trim();
   if (grid && grid !== "#N/A") return grid;
-  const preferred = p.preferred_name?.trim();
-  if (preferred) return `${preferred} ${p.last_name ?? ""}`.trim();
   const parts = [p.first_name, p.last_name].map((s) => s?.trim()).filter(Boolean);
   if (parts.length) return parts.join(" ");
   return p.full_name?.trim() || "—";

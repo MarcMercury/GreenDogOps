@@ -21,7 +21,6 @@ export interface Person {
   status_changed_at: string;
   first_name: string | null;
   last_name: string | null;
-  preferred_name: string | null;
   grid_name: string | null;
   full_name: string | null;
   email: string | null;

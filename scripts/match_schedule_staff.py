@@ -105,32 +105,29 @@ def load_people(statuses=("employee", "contractor")):
     in_list = ",".join(sql_str(s) for s in statuses)
     rows = run_sql(
         "set search_path=greendogops,public; "
-        "select id, first_name, last_name, preferred_name, grid_name, full_name "
+        "select id, first_name, last_name, grid_name, full_name "
         f"from person where status in ({in_list});"
     )
     people = []
     for r in rows:
         first = norm(r.get("first_name"))
         last = norm(r.get("last_name"))
-        pref = norm(r.get("preferred_name"))
         grid = norm(r.get("grid_name"))
         full = norm(DR_PREFIX.sub("", r.get("full_name") or ""))
         # Candidate exact display strings this person answers to.
         names = set()
         if first and last:
             names.add(f"{first} {last}")
-        if pref and last:
-            names.add(f"{pref} {last}")
         if grid:
             names.add(grid)
         if full:
             names.add(full)
         people.append({
             "id": r["id"],
-            "first": first, "last": last, "pref": pref, "grid": grid,
+            "first": first, "last": last, "grid": grid,
             "full": full,
             "names": names,
-            "tokens": tokens(r.get("full_name")) | {first, last, pref, grid} - {""},
+            "tokens": tokens(r.get("full_name")) | {first, last, grid} - {""},
         })
     return people
 
@@ -227,8 +224,7 @@ def match_person(name: str, people):
     # 3) First + last exact pair (handles middle names on either side).
     if len(ktoks) >= 2:
         fl = [p for p in people
-              if {p["first"], p["last"]} <= ktoks or
-                 {p["pref"], p["last"]} <= ktoks]
+              if {p["first"], p["last"]} <= ktoks]
         if len(fl) == 1:
             return fl[0], "first-last"
         if len(fl) > 1:

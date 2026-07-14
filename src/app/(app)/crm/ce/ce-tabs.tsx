@@ -508,7 +508,7 @@ function CeAttendeesView({
                 {sortedRows.map((r) => (
                   <tr
                     key={r.id}
-                    className="border-b border-slate-100 last:border-0"
+                    className="border-b border-slate-200 last:border-0"
                   >
                     <td className="px-5 py-2.5 font-medium text-slate-900">
                       {r.attendeeName}

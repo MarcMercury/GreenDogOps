@@ -155,7 +155,7 @@ export function AttendanceTable({
               />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-slate-200">
             {filtered.map((e) => (
               <tr key={e.personId} className="hover:bg-slate-50/50">
                 <td className="px-3 py-2 font-medium text-slate-800">

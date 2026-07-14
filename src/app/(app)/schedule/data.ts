@@ -30,7 +30,7 @@ import type { GuideWithCapacity } from "@/lib/planning/resolve";
 import type { PlanningGuide, PlanningCapacityRule } from "@/lib/planning/types";
 
 const PERSON_COLS =
-  "id, first_name, last_name, preferred_name, grid_name, full_name";
+  "id, first_name, last_name, grid_name, full_name";
 
 type LocLookupRow = {
   id: string;

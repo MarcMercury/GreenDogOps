@@ -20,7 +20,6 @@ const STEPS: Array<{ key: StepKey; title: string }> = [
 interface FormState {
   first_name: string;
   last_name: string;
-  preferred_name: string;
   grid_name: string;
   email: string;
   phone_mobile: string;
@@ -40,7 +39,6 @@ interface FormState {
 const EMPTY: FormState = {
   first_name: "",
   last_name: "",
-  preferred_name: "",
   grid_name: "",
   email: "",
   phone_mobile: "",
@@ -257,11 +255,6 @@ export function NewEmployeeWizard() {
                 value={form.last_name}
                 onChange={(v) => set("last_name", v)}
                 required
-              />
-              <TextField
-                label="Preferred name"
-                value={form.preferred_name}
-                onChange={(v) => set("preferred_name", v)}
               />
               <TextField
                 label="Grid name"

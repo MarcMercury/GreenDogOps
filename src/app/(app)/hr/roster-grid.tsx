@@ -172,20 +172,6 @@ export function RosterGrid({
     nameColumn,
     // — Overview: personal —
     {
-      key: "preferred_name",
-      header: "Preferred Name",
-      value: (r) => r.preferred_name,
-      render: (r) => (
-        <EditableCell
-          personId={r.id}
-          field="preferred_name"
-          kind="text"
-          rawValue={r.preferred_name}
-          disabled={!editable}
-        />
-      ),
-    },
-    {
       key: "grid_name",
       header: "Grid Name",
       value: (r) => r.grid_name,
@@ -853,6 +839,7 @@ export function RosterGrid({
         columns={columns}
         filters={filters}
         initialActive={{ status: STATUS_LABELS.employee }}
+        stickyScroll={detailedEnabled}
         searchPlaceholder="Search name, title, email…"
         searchExtra={(r) => [
           r.grid_name,

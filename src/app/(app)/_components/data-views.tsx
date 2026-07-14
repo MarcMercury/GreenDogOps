@@ -7,7 +7,7 @@
  * spacing and behavior across the whole app.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 // ---------------------------------------------------------------------------
 // Number / text helpers
@@ -374,6 +374,7 @@ export function DataTable<T extends { id: string }>({
   onRowClick,
   emptyLabel = "No records match your search.",
   initialActive,
+  stickyScroll = false,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -385,6 +386,13 @@ export function DataTable<T extends { id: string }>({
   emptyLabel?: string;
   /** Optional default-selected filter values, keyed by filter key. */
   initialActive?: Record<string, string>;
+  /**
+   * When true, the body scrolls inside a bounded, sticky-header container and a
+   * horizontal scrollbar is pinned to the top of the grid — so you keep the
+   * ability to scroll left/right no matter how far down the rows you scroll.
+   * Intended for very wide grids (e.g. the HR Roster detailed view).
+   */
+  stickyScroll?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -463,6 +471,93 @@ export function DataTable<T extends { id: string }>({
   const hasActiveFilters =
     Object.values(active).some((v) => v && v !== "all") || query.trim() !== "";
 
+  // Pinned-scrollbar plumbing for the sticky-scroll variant. The top scrollbar
+  // is a thin element whose inner spacer mirrors the table width; scrolling
+  // either the top bar or the body keeps both in sync.
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const bodyScrollRef = useRef<HTMLDivElement>(null);
+  const [scrollWidth, setScrollWidth] = useState(0);
+
+  useEffect(() => {
+    if (!stickyScroll) return;
+    const el = bodyScrollRef.current;
+    if (!el) return;
+    const measure = () => setScrollWidth(el.scrollWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [stickyScroll, columns, sorted]);
+
+  function syncScroll(source: "top" | "body") {
+    const top = topScrollRef.current;
+    const body = bodyScrollRef.current;
+    if (!top || !body) return;
+    if (source === "top") body.scrollLeft = top.scrollLeft;
+    else top.scrollLeft = body.scrollLeft;
+  }
+
+  const tableMarkup = (
+    <table className="min-w-full divide-y divide-slate-200 text-sm">
+      <thead
+        className={`bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500${
+          stickyScroll ? " sticky top-0 z-10" : ""
+        }`}
+      >
+        <tr>
+          {columns.map((col) => {
+            const isSorted = sortKey === col.key;
+            const sortable = col.sortable !== false;
+            return (
+              <th
+                key={col.key}
+                onClick={() => toggleSort(col)}
+                className={`px-4 py-3 ${
+                  sortable ? "cursor-pointer select-none hover:text-slate-700" : ""
+                } ${col.className ?? ""}`}
+              >
+                <span className="inline-flex items-center">
+                  {col.header}
+                  {sortable && <SortIcon dir={isSorted ? sortDir : null} />}
+                </span>
+              </th>
+            );
+          })}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {sorted.map((row) => (
+          <tr
+            key={row.id}
+            onClick={() => onRowClick?.(row)}
+            className={`transition hover:bg-emerald-50 ${
+              onRowClick ? "cursor-pointer" : ""
+            }`}
+          >
+            {columns.map((col) => (
+              <td
+                key={col.key}
+                className={`px-4 py-2.5 text-slate-700 ${col.className ?? ""}`}
+              >
+                {col.render ? col.render(row) : cellText(col.value(row)) || "—"}
+              </td>
+            ))}
+          </tr>
+        ))}
+        {sorted.length === 0 && (
+          <tr>
+            <td
+              colSpan={columns.length}
+              className="px-4 py-10 text-center text-sm text-slate-400"
+            >
+              {emptyLabel}
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  );
+
   return (
     <>
       {/* Toolbar: prominent search + adaptive filter dropdowns */}
@@ -518,62 +613,29 @@ export function DataTable<T extends { id: string }>({
         </span>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full divide-y divide-slate-200 text-sm">
-          <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <tr>
-              {columns.map((col) => {
-                const isSorted = sortKey === col.key;
-                const sortable = col.sortable !== false;
-                return (
-                  <th
-                    key={col.key}
-                    onClick={() => toggleSort(col)}
-                    className={`px-4 py-3 ${
-                      sortable ? "cursor-pointer select-none hover:text-slate-700" : ""
-                    } ${col.className ?? ""}`}
-                  >
-                    <span className="inline-flex items-center">
-                      {col.header}
-                      {sortable && <SortIcon dir={isSorted ? sortDir : null} />}
-                    </span>
-                  </th>
-                );
-              })}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {sorted.map((row) => (
-              <tr
-                key={row.id}
-                onClick={() => onRowClick?.(row)}
-                className={`transition hover:bg-emerald-50 ${
-                  onRowClick ? "cursor-pointer" : ""
-                }`}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={`px-4 py-2.5 text-slate-700 ${col.className ?? ""}`}
-                  >
-                    {col.render ? col.render(row) : cellText(col.value(row)) || "—"}
-                  </td>
-                ))}
-              </tr>
-            ))}
-            {sorted.length === 0 && (
-              <tr>
-                <td
-                  colSpan={columns.length}
-                  className="px-4 py-10 text-center text-sm text-slate-400"
-                >
-                  {emptyLabel}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {stickyScroll ? (
+        <div className="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
+          {/* Pinned horizontal scrollbar — stays reachable while you scroll rows */}
+          <div
+            ref={topScrollRef}
+            onScroll={() => syncScroll("top")}
+            className="sticky top-0 z-20 overflow-x-auto overflow-y-hidden rounded-t-xl border-b border-slate-200 bg-slate-50"
+          >
+            <div style={{ width: scrollWidth || "100%", height: 1 }} />
+          </div>
+          <div
+            ref={bodyScrollRef}
+            onScroll={() => syncScroll("body")}
+            className="max-h-[70vh] overflow-auto rounded-b-xl"
+          >
+            {tableMarkup}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          {tableMarkup}
+        </div>
+      )}
     </>
   );
 }

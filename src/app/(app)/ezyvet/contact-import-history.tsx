@@ -45,7 +45,7 @@ export function ContactImportHistory({
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
-              <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wider text-slate-400">
+              <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400">
                 <th className="py-2 pr-3 font-semibold">File</th>
                 <th className="py-2 pr-3 text-right font-semibold">Rows</th>
                 <th className="py-2 pr-3 text-right font-semibold">New</th>

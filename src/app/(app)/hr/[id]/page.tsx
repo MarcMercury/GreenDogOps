@@ -52,7 +52,7 @@ export default async function EmployeeDetailPage({
   const { data, error } = await supabase
     .from("person")
     .select(
-      `id, status, first_name, last_name, preferred_name, grid_name, full_name,
+      `id, status, first_name, last_name, grid_name, full_name,
        email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
      opportunity_type, avatar_url, is_active, notes, source_contact_id, status_changed_at, created_at, updated_at,
        person_employment (

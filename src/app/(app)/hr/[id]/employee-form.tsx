@@ -384,11 +384,6 @@ export function EmployeeForm({
         <Section title="Personal">
           <Field label="First name" name="first_name" defaultValue={row.first_name} />
           <Field label="Last name" name="last_name" defaultValue={row.last_name} />
-          <Field
-            label="Preferred name"
-            name="preferred_name"
-            defaultValue={row.preferred_name}
-          />
           <Field label="Grid name" name="grid_name" defaultValue={row.grid_name} />
           <Field label="Email" name="email" type="email" defaultValue={row.email} />
           <Field
