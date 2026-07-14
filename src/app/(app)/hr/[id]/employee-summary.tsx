@@ -26,7 +26,7 @@ import {
   TIME_OFF_KIND_LABELS,
   TIME_OFF_STATUS_LABELS,
 } from "@/lib/hr/types";
-import { ATTENDANCE_LABELS, DAY_SHORT } from "@/lib/schedule/types";
+import { DAY_SHORT } from "@/lib/schedule/types";
 import { ONBOARDING_GROUPS } from "@/lib/hr/onboarding";
 import type {
   PersonAttendanceSummary,
@@ -309,34 +309,19 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
 
   // --- Attendance & Reliability -----------------------------------------
   const t = attendance.tally;
-  const attendanceBody = `${dl([
+  const attendanceBody = dl([
     [
       "Reliability score",
       attendance.score == null ? "—" : `${attendance.score}%`,
     ],
     ["Resolved shifts", String(t.total)],
-    ["Present", String(t.present)],
     ["Late", String(t.late)],
     ["Late (excused)", String(t.late_excused)],
     ["Absent", String(t.absent)],
     ["Absent (excused)", String(t.absent_excused)],
     ["No show", String(t.no_show)],
     ["PTO", String(t.pto)],
-  ])}${
-    attendance.records.length > 0
-      ? `<table><thead><tr><th>Date</th><th>Status</th><th>Location</th><th>Note</th></tr></thead><tbody>${attendance.records
-          .slice(0, 40)
-          .map(
-            (r) =>
-              `<tr><td>${fmtDate(r.work_date)}</td><td>${esc(
-                ATTENDANCE_LABELS[r.status] ?? r.status,
-              )}</td><td>${text(r.location_name)}</td><td>${text(
-                r.note,
-              )}</td></tr>`,
-          )
-          .join("")}</tbody></table>`
-      : emptyNote("No resolved attendance records.")
-  }`;
+  ]);
 
   // --- Time off ----------------------------------------------------------
   const timeOffBody =
@@ -528,8 +513,8 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     color: #1e293b;
-    font-size: 12px;
-    line-height: 1.45;
+    font-size: 9.5px;
+    line-height: 1.4;
     padding: 0.5in;
     max-width: 8.5in;
     margin: 0 auto;
@@ -538,33 +523,33 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
   }
   header.doc {
     border-bottom: 3px solid #059669;
-    padding-bottom: 12px;
-    margin-bottom: 20px;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
   }
-  header.doc h1 { margin: 0; font-size: 22px; color: #065f46; }
-  header.doc .meta { margin-top: 4px; color: #64748b; font-size: 11px; }
-  header.doc .sub { margin-top: 6px; font-size: 13px; color: #334155; font-weight: 600; }
-  section { margin-bottom: 18px; break-inside: avoid; }
+  header.doc h1 { margin: 0; font-size: 18px; color: #065f46; }
+  header.doc .meta { margin-top: 4px; color: #64748b; font-size: 9px; }
+  header.doc .sub { margin-top: 5px; font-size: 11px; color: #334155; font-weight: 600; }
+  section { margin-bottom: 14px; break-inside: avoid; }
   h2 {
-    font-size: 13px;
+    font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #047857;
     border-bottom: 1px solid #d1fae5;
-    padding-bottom: 4px;
-    margin: 0 0 8px;
+    padding-bottom: 3px;
+    margin: 0 0 6px;
   }
-  h3 { font-size: 12px; color: #334155; margin: 12px 0 6px; }
-  dl.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 24px; margin: 0; }
-  dl.grid .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; min-width: 0; }
+  h3 { font-size: 10px; color: #334155; margin: 10px 0 5px; }
+  dl.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1px 16px; margin: 0; }
+  dl.grid .row { display: flex; justify-content: space-between; gap: 10px; padding: 2px 0; border-bottom: 1px dotted #e2e8f0; min-width: 0; }
   dl.grid dt { color: #64748b; flex-shrink: 0; }
   dl.grid dd { margin: 0; text-align: right; font-weight: 500; color: #1e293b; min-width: 0; overflow-wrap: anywhere; }
   table { width: 100%; border-collapse: collapse; margin-top: 4px; table-layout: fixed; }
-  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
-  th { background: #f0fdf4; color: #047857; font-size: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
+  th, td { text-align: left; padding: 3px 5px; border-bottom: 1px solid #e2e8f0; vertical-align: top; overflow-wrap: anywhere; word-break: break-word; }
+  th { background: #f0fdf4; color: #047857; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.03em; }
   .empty { color: #94a3b8; font-style: italic; margin: 4px 0; }
   .notes { white-space: pre-wrap; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; overflow-wrap: anywhere; }
-  footer.doc { margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 8px; color: #94a3b8; font-size: 10px; }
+  footer.doc { margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 8px; color: #94a3b8; font-size: 8.5px; }
   @media print {
     body { padding: 0; max-width: none; }
     section { break-inside: avoid; }
