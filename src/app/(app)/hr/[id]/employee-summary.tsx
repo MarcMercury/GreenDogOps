@@ -120,6 +120,52 @@ function emptyNote(msg: string): string {
   return `<p class="empty">${esc(msg)}</p>`;
 }
 
+/** A run of consecutive PTO days collapsed into a single range. */
+interface PtoRange {
+  start: string;
+  end: string;
+  days: number;
+  hours: number | null;
+  notes: string[];
+}
+
+/**
+ * Collapse individual PTO day rows into ranges of consecutive calendar dates so
+ * the summary shows "start – end" instead of listing every day.
+ */
+function summarizePtoDays(days: PersonPtoDay[]): PtoRange[] {
+  const sorted = [...days]
+    .filter((d) => d.pto_date)
+    .sort((a, b) => a.pto_date.localeCompare(b.pto_date));
+  const ranges: PtoRange[] = [];
+  for (const d of sorted) {
+    const last = ranges[ranges.length - 1];
+    const cur = new Date(`${d.pto_date}T00:00:00`);
+    const noteList = d.note && d.note.trim() ? [d.note.trim()] : [];
+    if (last) {
+      const prev = new Date(`${last.end}T00:00:00`);
+      const nextDay = new Date(prev.getTime() + 86_400_000);
+      const isConsecutive =
+        nextDay.toISOString().slice(0, 10) === d.pto_date;
+      if (isConsecutive) {
+        last.end = d.pto_date;
+        last.days += 1;
+        if (d.hours != null) last.hours = (last.hours ?? 0) + d.hours;
+        for (const n of noteList) if (!last.notes.includes(n)) last.notes.push(n);
+        continue;
+      }
+    }
+    ranges.push({
+      start: d.pto_date,
+      end: d.pto_date,
+      days: 1,
+      hours: d.hours ?? null,
+      notes: noteList,
+    });
+  }
+  return ranges;
+}
+
 // ---------------------------------------------------------------------------
 // Summary HTML builder
 // ---------------------------------------------------------------------------
@@ -309,17 +355,21 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
           .join("")}</tbody></table>`
       : emptyNote("No time-off requests logged.");
 
-  const ptoDaysBody =
-    ptoDays.length > 0
-      ? `<table><thead><tr><th>Date</th><th>Hours</th><th>Note</th></tr></thead><tbody>${ptoDays
-          .map(
-            (d) =>
-              `<tr><td>${fmtDate(d.pto_date)}</td><td>${num(
-                d.hours,
-              )}</td><td>${text(d.note)}</td></tr>`,
-          )
-          .join("")}</tbody></table>`
-      : "";
+  const ptoDaysBody = (() => {
+    if (ptoDays.length === 0) return "";
+    const ranges = summarizePtoDays(ptoDays);
+    return `<table><thead><tr><th>Dates</th><th>Days</th><th>Hours</th><th>Note</th></tr></thead><tbody>${ranges
+      .map((r) => {
+        const label =
+          r.start === r.end
+            ? fmtDate(r.start)
+            : `${fmtDate(r.start)} – ${fmtDate(r.end)}`;
+        return `<tr><td>${label}</td><td>${r.days}</td><td>${num(
+          r.hours,
+        )}</td><td>${r.notes.length ? esc(r.notes.join("; ")) : "—"}</td></tr>`;
+      })
+      .join("")}</tbody></table>`;
+  })();
 
   // --- Reviews -----------------------------------------------------------
   const reviewsBody =
