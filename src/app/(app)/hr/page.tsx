@@ -62,5 +62,7 @@ export default async function HrRosterPage() {
       : redactCompensation(row);
   });
 
-  return <RosterGrid rows={rows} canEdit={canEdit} />;
+  return (
+    <RosterGrid rows={rows} canEdit={canEdit} canViewAllComp={viewAllComp} />
+  );
 }

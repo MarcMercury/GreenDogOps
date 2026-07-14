@@ -227,6 +227,167 @@ export async function updateEmployee(
 }
 
 // ---------------------------------------------------------------------------
+// Inline roster-grid editing
+// ---------------------------------------------------------------------------
+
+type FieldKind = "text" | "date" | "number" | "money" | "boolean";
+
+/** Editable columns living on the `person` table, keyed to their value kind. */
+const PERSON_EDIT_FIELDS: Record<string, FieldKind> = {
+  first_name: "text",
+  last_name: "text",
+  preferred_name: "text",
+  grid_name: "text",
+  email: "text",
+  phone_mobile: "text",
+  phone_home: "text",
+  phone_other: "text",
+  date_of_birth: "date",
+  postal_code: "text",
+  work_location_type: "text",
+  opportunity_type: "text",
+  status: "text",
+  notes: "text",
+};
+
+/** Editable non-compensation columns on the `person_employment` table. */
+const EMPLOYMENT_EDIT_FIELDS: Record<string, FieldKind> = {
+  adp_job_title: "text",
+  offer_title: "text",
+  flsa_status: "text",
+  work_schedule: "text",
+  schedule_type: "text",
+  hire_date: "date",
+  original_hire_date: "date",
+  pto_policy_allotment: "number",
+  pto_notes: "text",
+  separation_date: "date",
+  separation_type: "text",
+  separation_letter_signed: "boolean",
+  separation_notes: "text",
+};
+
+/** Compensation/benefits columns — writable only by comp-viewing roles. */
+const EMPLOYMENT_COMP_EDIT_FIELDS: Record<string, FieldKind> = {
+  pay_type: "text",
+  current_rate: "money",
+  biweekly_wage: "money",
+  annual_wages: "money",
+  benefits_enrolled: "boolean",
+  benefits_monthly: "money",
+  benefits_annual: "money",
+  ce_budget: "money",
+  ce_used: "money",
+};
+
+/** Coerce an inbound raw form value to the shape expected for a field kind. */
+function coerceFieldValue(
+  kind: FieldKind,
+  raw: FormDataEntryValue | null,
+): string | number | boolean | null {
+  switch (kind) {
+    case "boolean":
+      return bool(raw);
+    case "number":
+    case "money":
+      return num(raw);
+    default:
+      return str(raw);
+  }
+}
+
+/**
+ * Update a single employee field from the inline roster grid. Writes to the
+ * same `person` / `person_employment` tables the profile form uses, so both
+ * the grid and the individual profile stay in sync. Compensation/benefits
+ * fields are gated to comp-viewing (Admin / HR-Manager) roles.
+ */
+export async function updateEmployeeField(
+  personId: string,
+  field: string,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const isAdmin = canViewAllCompensation(gate.current.appUser.role);
+
+  const raw = formData.get("value");
+
+  if (field in PERSON_EDIT_FIELDS) {
+    const value = coerceFieldValue(PERSON_EDIT_FIELDS[field], raw);
+    const patch: Record<string, unknown> = {
+      [field]: field === "status" ? (value ?? "employee") : value,
+    };
+
+    const { error } = await supabase
+      .from("person")
+      .update(patch)
+      .eq("id", personId);
+    if (error) return { ok: false, error: error.message };
+
+    // Keep the derived full_name in step with first/last edits.
+    if (field === "first_name" || field === "last_name") {
+      const { data: person } = await supabase
+        .from("person")
+        .select("first_name, last_name")
+        .eq("id", personId)
+        .maybeSingle();
+      const fullName =
+        [person?.first_name, person?.last_name].filter(Boolean).join(" ") ||
+        null;
+      await supabase
+        .from("person")
+        .update({ full_name: fullName })
+        .eq("id", personId);
+    }
+  } else if (field in EMPLOYMENT_EDIT_FIELDS) {
+    const value = coerceFieldValue(EMPLOYMENT_EDIT_FIELDS[field], raw);
+    const { error } = await supabase
+      .from("person_employment")
+      .upsert({ person_id: personId, [field]: value }, { onConflict: "person_id" });
+    if (error) return { ok: false, error: error.message };
+  } else if (field in EMPLOYMENT_COMP_EDIT_FIELDS) {
+    if (!isAdmin) {
+      return {
+        ok: false,
+        error: "You do not have permission to edit compensation.",
+      };
+    }
+    const value = coerceFieldValue(EMPLOYMENT_COMP_EDIT_FIELDS[field], raw);
+    const patch: Record<string, unknown> = { [field]: value };
+
+    // Mirror the profile form: stamp the change date + prior rate on a raise.
+    if (field === "current_rate") {
+      const { data: existing } = await supabase
+        .from("person_employment")
+        .select("current_rate")
+        .eq("person_id", personId)
+        .maybeSingle();
+      const oldRate = existing?.current_rate ?? null;
+      if (existing != null && value !== oldRate) {
+        patch.previous_rate = oldRate;
+        patch.latest_wage_change_date = new Date().toISOString().slice(0, 10);
+      }
+    }
+
+    const { error } = await supabase
+      .from("person_employment")
+      .upsert({ person_id: personId, ...patch }, { onConflict: "person_id" });
+    if (error) return { ok: false, error: error.message };
+  } else {
+    return { ok: false, error: "This field is not editable." };
+  }
+
+  revalidatePath(`/hr/${personId}`);
+  revalidatePath("/hr");
+  revalidatePath("/schedule");
+  revalidatePath("/schedule/setup");
+  revalidatePath("/admin/users");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Reviews
 // ---------------------------------------------------------------------------
 
