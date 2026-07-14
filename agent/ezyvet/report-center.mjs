@@ -11,10 +11,11 @@ async function currentLocationLabel(page) {
 }
 
 /**
- * Switch the reporting clinic via the header location switcher (upper-left),
- * which opens a "Change department or inventory location" modal with a
- * searchable Select Department dropdown + Continue. Required before running
- * per-location reports (e.g. Referrer Revenue).
+ * Switch the reporting clinic — this is a PROGRAM-LEVEL setting, not per report.
+ * Click the header location block (upper-left) → "Change department or inventory
+ * location" modal → set Select Department to the target clinic → Continue (the
+ * Inventory Location auto-matches, so we leave it alone). Required before per-
+ * location reports (e.g. Referrer Revenue).
  */
 export async function switchLocation(page, locationKey, log = () => {}) {
   const target = LOCATION_LABELS[locationKey];
@@ -28,36 +29,55 @@ export async function switchLocation(page, locationKey, log = () => {}) {
   }
   log(`switching clinic → ${target}`);
 
-  // Open the switcher modal by clicking the header location block.
-  await page
-    .getByText(new RegExp(`${(current || "Sherman Oaks").replace("Green Dog - ", "")} - Inventory`, "i"))
-    .first()
-    .click()
-    .catch(async () => {
-      await page.getByText(/Green Dog - (Sherman Oaks|Van Nuys|Venice)/).first().click();
-    });
-  await page
-    .getByText("Change department or inventory location", { exact: false })
-    .waitFor({ state: "visible", timeout: 15000 });
+  // Open the switcher modal via the header location block (upper-left).
+  const openers = [/GDD & MPMV/i, /Sherman Oaks - Invent/i, /Van Nuys - Invent/i, /Venice - Invent/i, /Green Dog - (Sherman Oaks|Van Nuys|Venice)/i];
+  let opened = false;
+  for (const re of openers) {
+    const o = page.getByText(re).first();
+    if ((await o.count()) && (await o.isVisible().catch(() => false))) {
+      await o.click().catch(() => {});
+      try {
+        await page.getByText("Change department or inventory location", { exact: false })
+          .waitFor({ state: "visible", timeout: 5000 });
+        opened = true;
+        break;
+      } catch { /* try next opener */ }
+    }
+  }
+  if (!opened) throw new Error("could not open the department switcher modal");
 
-  // Fill the Select Department dropdown and pick the matching option.
-  const deptInput = page
-    .locator('xpath=//*[contains(normalize-space(.),"Select Department")]/following::input[1]')
-    .first();
-  await deptInput.click();
-  await deptInput.fill("");
-  await deptInput.pressSequentially(shortName, { delay: 40 });
-  await page.waitForTimeout(1500);
-  await page.getByText(base, { exact: false }).last().click({ force: true });
-  await page.waitForTimeout(800);
+  // Set Select Department: click the field, type the clinic name, then click the
+  // option anchor in the AJAX dropdown list (a.dropDown inside .dropDownList).
+  const dept = page.locator('xpath=//*[normalize-space(text())="Select Department"]/following::input[1]').first();
+  const option = page.locator(".dropDownList a.dropDown").filter({ hasText: base }).first();
+  let picked = false;
+  for (let attempt = 0; attempt < 3 && !picked; attempt++) {
+    await dept.click();
+    await dept.fill("");
+    await dept.pressSequentially(shortName, { delay: 70 });
+    // Poll for the AJAX-filtered option (hasJaxRequest can be slow).
+    for (let i = 0; i < 12; i++) {
+      await page.waitForTimeout(1000);
+      if ((await option.count()) && (await option.isVisible().catch(() => false))) {
+        await option.click();
+        picked = true;
+        break;
+      }
+    }
+  }
+  if (!picked) throw new Error(`Select Department option for "${base}" never appeared`);
+  await page.waitForTimeout(2000);
 
-  // Confirm.
-  await clickVisibleText(page, "Continue");
+  // Confirm if the modal is still open (Inventory Location auto-matches). Some
+  // flows apply on select and reload immediately, so Continue is best-effort.
+  try {
+    const cont = page.getByRole("button", { name: /Continue/i }).first();
+    if (await cont.count()) await cont.click();
+    else await clickVisibleText(page, "Continue");
+  } catch { /* modal already applied/closed */ }
   await page.waitForTimeout(8000); // app reloads into the new clinic context
   const after = await currentLocationLabel(page);
   log(`clinic now: ${after}`);
-  // Safety: never let a report run against the wrong clinic. If the header did
-  // not switch, throw so the per-location loop skips (rather than mis-attribute).
   if (!after.includes(shortName)) {
     throw new Error(`clinic switch to "${shortName}" did not take effect (header still "${after}")`);
   }

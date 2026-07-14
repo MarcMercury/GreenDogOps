@@ -83,6 +83,8 @@ export async function openEzyvet(opts = {}) {
       "--disable-blink-features=AutomationControlled",
       "--no-sandbox",
       "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--disable-software-rasterizer",
     ],
   });
 
