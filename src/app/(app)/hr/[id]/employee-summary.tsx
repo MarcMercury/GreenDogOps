@@ -505,7 +505,7 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
     margin: 0 0 8px;
   }
   h3 { font-size: 12px; color: #334155; margin: 12px 0 6px; }
-  dl.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; margin: 0; }
+  dl.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 2px 24px; margin: 0; }
   dl.grid .row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; border-bottom: 1px dotted #e2e8f0; min-width: 0; }
   dl.grid dt { color: #64748b; flex-shrink: 0; }
   dl.grid dd { margin: 0; text-align: right; font-weight: 500; color: #1e293b; min-width: 0; overflow-wrap: anywhere; }
