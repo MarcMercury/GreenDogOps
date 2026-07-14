@@ -84,6 +84,15 @@ export async function switchLocation(page, locationKey, log = () => {}) {
   const cont = page.getByRole("button", { name: /Continue/i }).first();
   if (await cont.count()) await cont.click();
   else await clickVisibleText(page, "Continue");
+  await page.waitForTimeout(1500);
+
+  // ezyVet then asks "Change the department and inventory location?" → click Yes.
+  try {
+    const yes = page.getByRole("button", { name: /^Yes$/i }).first();
+    if (await yes.count()) await yes.click();
+    else await clickVisibleText(page, "Yes");
+  } catch { /* no confirm dialog */ }
+
   await page.waitForTimeout(9000); // app reloads into the new clinic context
   const after = await currentLocationLabel(page);
   log(`clinic now: ${after}`);
