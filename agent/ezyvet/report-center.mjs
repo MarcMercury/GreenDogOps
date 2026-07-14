@@ -29,6 +29,10 @@ export async function switchLocation(page, locationKey, log = () => {}) {
   }
   log(`switching clinic → ${target}`);
 
+  // Dismiss any modal left open by a previous (failed) switch attempt.
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(500);
+
   // Open the switcher modal via the header location block (upper-left).
   const openers = [/GDD & MPMV/i, /Sherman Oaks - Invent/i, /Van Nuys - Invent/i, /Venice - Invent/i, /Green Dog - (Sherman Oaks|Van Nuys|Venice)/i];
   let opened = false;
@@ -47,13 +51,13 @@ export async function switchLocation(page, locationKey, log = () => {}) {
   if (!opened) throw new Error("could not open the department switcher modal");
 
   // Set Select Department: click the field to open the (small) department list,
-  // then click the option. The option row uniquely doubles the clinic name
-  // ("Green Dog - Van Nuys(Green Dog - Van Nuys)"), so match that pattern
-  // rather than a brittle class — it also excludes the calendar sidebar.
+  // type the clinic name, then click the option ANCHOR. The option row uniquely
+  // doubles the clinic name ("Green Dog - Van Nuys(Green Dog - Van Nuys)"), so
+  // match that on the <a> — clicking the inner text span doesn't fire its handler.
   const dept = page.locator('xpath=//*[normalize-space(text())="Select Department"]/following::input[1]').first();
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
   const optRe = new RegExp(`${esc(base)}[\\s\\S]*${esc(base)}`, "i");
-  const option = page.getByText(optRe).first();
+  const option = page.locator("a").filter({ hasText: optRe }).first();
   let picked = false;
   for (let attempt = 0; attempt < 3 && !picked; attempt++) {
     await dept.click();
@@ -70,27 +74,34 @@ export async function switchLocation(page, locationKey, log = () => {}) {
     }
   }
   if (!picked) {
-    const deptVal = await dept.inputValue().catch(() => "(no input)");
-    const modalOpen = await page.getByText("Change department or inventory location", { exact: false }).isVisible().catch(() => false);
     await page.screenshot({ path: `.secrets/ezyvet-probe/switch-fail-${shortName.replace(/\s+/g, "_")}.png`, fullPage: true }).catch(() => {});
-    throw new Error(`Select Department option for "${base}" never appeared (deptField="${deptVal}", modalOpen=${modalOpen})`);
+    await dismissModal(page);
+    throw new Error(`Select Department option for "${base}" never appeared`);
   }
-  await page.waitForTimeout(2000);
+  await page.waitForTimeout(1500);
 
-  // Confirm if the modal is still open (Inventory Location auto-matches). Some
-  // flows apply on select and reload immediately, so Continue is best-effort.
-  try {
-    const cont = page.getByRole("button", { name: /Continue/i }).first();
-    if (await cont.count()) await cont.click();
-    else await clickVisibleText(page, "Continue");
-  } catch { /* modal already applied/closed */ }
-  await page.waitForTimeout(8000); // app reloads into the new clinic context
+  // Confirm — Continue applies the change (Inventory Location auto-matches).
+  const cont = page.getByRole("button", { name: /Continue/i }).first();
+  if (await cont.count()) await cont.click();
+  else await clickVisibleText(page, "Continue");
+  await page.waitForTimeout(9000); // app reloads into the new clinic context
   const after = await currentLocationLabel(page);
   log(`clinic now: ${after}`);
   if (!after.includes(shortName)) {
+    await page.screenshot({ path: `.secrets/ezyvet-probe/switch-fail-${shortName.replace(/\s+/g, "_")}.png`, fullPage: true }).catch(() => {});
+    await dismissModal(page);
     throw new Error(`clinic switch to "${shortName}" did not take effect (header still "${after}")`);
   }
 }
+
+/** Best-effort close of the department switcher modal (Cancel or Escape). */
+async function dismissModal(page) {
+  const cancel = page.getByRole("button", { name: /^Cancel$/i }).first();
+  if (await cancel.count().catch(() => 0)) await cancel.click().catch(() => {});
+  await page.keyboard.press("Escape").catch(() => {});
+  await page.waitForTimeout(800);
+}
+
 
 /** Format a YYYY-MM-DD date as ezyVet's MM-DD-YYYY. */
 export function toEzyvetDate(iso) {
