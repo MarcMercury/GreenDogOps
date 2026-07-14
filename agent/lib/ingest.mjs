@@ -31,6 +31,20 @@ export function logRun(runId, message, level = "info") {
   return reportRun({ runId, logs: [{ level, message }] });
 }
 
+/** Create an agent_run (scheduled trigger) and return its id. */
+export async function ensureRun(agentKey, targetDate, trigger = "scheduled") {
+  const res = await fetch(`${APP_URL}/api/agents/start`, {
+    method: "POST",
+    headers: authHeaders({ "Content-Type": "application/json" }),
+    body: JSON.stringify({ agentKey, targetDate, trigger }),
+  });
+  const json = await res.json().catch(() => ({ ok: false }));
+  if (!res.ok || !json.ok) {
+    throw new Error(`Failed to create run: ${json.error ?? res.status}`);
+  }
+  return json.runId;
+}
+
 /**
  * Upload a scraped CSV file to an ezyVet data-sink endpoint.
  * @param endpoint  e.g. "ezyvet/invoice-lines" or "ezyvet/contacts"
