@@ -45,6 +45,9 @@ export async function updateSession(request: NextRequest) {
     // ATS intake endpoints self-authenticate: the Gmail cron via CRON_SECRET,
     // the Indeed Apply webhook via its X-Indeed-Signature HMAC.
     pathname.startsWith("/api/ats/") ||
+    // Agent endpoints self-authenticate via the CRON_SECRET bearer token
+    // (worker run status, ezyVet data sinks, run creation).
+    pathname.startsWith("/api/agents/") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico";
 
