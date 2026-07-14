@@ -85,6 +85,7 @@ import {
   COMPLIANCE_TYPES,
   LICENSES_TRACKER_LINK,
 } from "@/lib/hr/onboarding";
+import { DownloadSummaryButton } from "./employee-summary";
 
 type TabKey =
   | FieldTab
@@ -192,6 +193,25 @@ export function EmployeeProfile({
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <AccountChip account={account} isAdmin={canViewComp} />
+          <DownloadSummaryButton
+            data={{
+              row,
+              canViewComp,
+              reviews,
+              disciplinary,
+              assets,
+              documents,
+              attendance,
+              scheduleSettings,
+              eligibility,
+              ptoDays,
+              timeOff,
+              onboarding,
+              compliance,
+              licenses,
+              account,
+            }}
+          />
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
             {STATUS_LABELS[row.status] ?? row.status}
           </span>
