@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openEzyvet } from "./ezyvet/session.mjs";
 import { openReporting, runCsvReport, switchLocation } from "./ezyvet/report-center.mjs";
-import { reportRun, ensureRun, refreshReporting } from "./lib/ingest.mjs";
+import { reportRun, ensureRun } from "./lib/ingest.mjs";
 
 let RUN_ID = process.env.RUN_ID || null;
 const AGENT_KEY = process.env.AGENT_KEY || "ezyvet_daily_ingest";
@@ -132,21 +132,9 @@ async function main() {
     await session.close();
   }
 
-  // 3) Rebuild the reporting roll-ups once, after all uploads (isolated + retried).
-  if (detail["invoice_lines"]?.status === "success") {
-    const t0 = Date.now();
-    try {
-      await emit({ logs: [{ message: "Refreshing reporting roll-ups…" }] });
-      const r = await refreshReporting();
-      detail.reporting_refresh = { status: "success", ms: r?.ms ?? Date.now() - t0 };
-      await emit({ detail: { ...detail }, logs: [{ message: `Reporting refresh done (${r?.ms ?? "?"}ms)` }] });
-    } catch (err) {
-      anyFailure = true;
-      const msg = err?.message ?? String(err);
-      detail.reporting_refresh = { status: "error", error: msg, ms: Date.now() - t0 };
-      await emit({ detail: { ...detail }, logs: [{ level: "error", message: `Reporting refresh failed: ${msg}` }] });
-    }
-  }
+  // Reporting roll-ups are rebuilt SERVER-SIDE by pg_cron (migration 0092:
+  // ezyvet_reporting_refresh, daily 12:30 UTC), which has no HTTP gateway limit
+  // and no lock contention — so the worker does not refresh over HTTP here.
 
   const status = anyFailure && !anySuccess ? "error" : "success";
   await emit({
