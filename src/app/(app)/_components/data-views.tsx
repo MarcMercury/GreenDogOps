@@ -311,6 +311,11 @@ export interface Column<T> {
   render?: (row: T) => React.ReactNode;
   /** Defaults to true. Set false to disable header-click sorting. */
   sortable?: boolean;
+  /**
+   * When true, this column is frozen to the left edge and stays visible while
+   * the grid scrolls horizontally (e.g. the HR Roster Name column).
+   */
+  sticky?: boolean;
   className?: string;
 }
 
@@ -514,6 +519,10 @@ export function DataTable<T extends { id: string }>({
                 onClick={() => toggleSort(col)}
                 className={`px-4 py-3 ${
                   sortable ? "cursor-pointer select-none hover:text-slate-700" : ""
+                } ${
+                  col.sticky
+                    ? "sticky left-0 z-30 bg-slate-50 border-r border-slate-200"
+                    : ""
                 } ${col.className ?? ""}`}
               >
                 <span className="inline-flex items-center">
@@ -530,14 +539,18 @@ export function DataTable<T extends { id: string }>({
           <tr
             key={row.id}
             onClick={() => onRowClick?.(row)}
-            className={`transition hover:bg-emerald-50 ${
+            className={`group transition hover:bg-emerald-50 ${
               onRowClick ? "cursor-pointer" : ""
             }`}
           >
             {columns.map((col) => (
               <td
                 key={col.key}
-                className={`px-4 py-2.5 text-slate-700 ${col.className ?? ""}`}
+                className={`px-4 py-2.5 text-slate-700 ${
+                  col.sticky
+                    ? "sticky left-0 z-10 bg-white group-hover:bg-emerald-50 border-r border-slate-200"
+                    : ""
+                } ${col.className ?? ""}`}
               >
                 {col.render ? col.render(row) : cellText(col.value(row)) || "—"}
               </td>

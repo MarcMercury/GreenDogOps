@@ -123,6 +123,7 @@ export function RosterGrid({
     key: "name",
     header: "Name",
     value: displayName,
+    sticky: true,
     render: (r) => (
       <span className="font-medium text-slate-900">{displayName(r)}</span>
     ),
