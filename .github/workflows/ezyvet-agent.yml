@@ -5,9 +5,11 @@ name: ezyVet Daily Ingest Agent
 # GitHub API, passing run_id/agent_key/target_date).
 on:
   schedule:
-    # 12:00 UTC = 5:00 AM PDT (4:00 AM PST). Always after local midnight, so the
-    # previous day's data is complete. GitHub cron is UTC only.
-    - cron: "0 12 * * *"
+    # 6:00 AM Pacific, year-round. GitHub cron is UTC-only and has no DST
+    # awareness, so we fire at BOTH 13:00 UTC (6 AM PDT) and 14:00 UTC (6 AM
+    # PST); the `gate` job below runs the ingest only when the local Pacific
+    # hour is actually 06, so exactly one run happens per day.
+    - cron: "0 13,14 * * *"
   workflow_dispatch:
     inputs:
       run_id:
@@ -27,7 +29,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # DST-safe gate: for scheduled runs, proceed only when it is 6 AM in Los
+  # Angeles (so the 13:00/14:00 UTC pair collapses to one 6 AM Pacific run).
+  # Manual (workflow_dispatch) runs always proceed.
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "Manual run — proceeding."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HOUR=$(TZ=America/Los_Angeles date +%H)
+          echo "Los Angeles hour: $HOUR"
+          if [ "$HOUR" = "06" ]; then
+            echo "6 AM Pacific — proceeding."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not 6 AM Pacific — skipping this scheduled trigger."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   ingest:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
