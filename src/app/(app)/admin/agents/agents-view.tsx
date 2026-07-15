@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, Fragment } from "react";
 import { Panel, StatCard } from "../_components";
 import {
   AGENT_STATUS_BADGE,
@@ -25,6 +25,97 @@ function timeAgo(iso: string | null): string {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.floor(hrs / 24)}d ago`;
+}
+
+interface ReportResult {
+  slug: string;
+  status: string;
+  error?: string;
+  parsed?: number;
+  inserted?: number;
+  updated?: number;
+  ms?: number;
+}
+
+function parseRunDetail(detail: Record<string, unknown> | null | undefined): ReportResult[] {
+  if (!detail || typeof detail !== "object") return [];
+  return Object.entries(detail)
+    .filter(([, v]) => v && typeof v === "object")
+    .map(([slug, v]) => {
+      const d = v as Record<string, unknown>;
+      return {
+        slug,
+        status: typeof d.status === "string" ? d.status : "unknown",
+        error: typeof d.error === "string" ? d.error : undefined,
+        parsed: typeof d.parsed === "number" ? d.parsed : undefined,
+        inserted: typeof d.inserted === "number" ? d.inserted : undefined,
+        updated: typeof d.updated === "number" ? d.updated : undefined,
+        ms: typeof d.ms === "number" ? d.ms : undefined,
+      };
+    })
+    .sort((a, b) => {
+      // Failed reports first, then alphabetical.
+      if (a.status === "error" && b.status !== "error") return -1;
+      if (a.status !== "error" && b.status === "error") return 1;
+      return a.slug.localeCompare(b.slug);
+    });
+}
+
+function RunDetail({ results }: { results: ReportResult[] }) {
+  const failedCount = results.filter((r) => r.status === "error").length;
+  return (
+    <div>
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+        Report breakdown
+        {failedCount > 0 ? (
+          <span className="ml-2 text-rose-500">
+            · {failedCount} failed
+          </span>
+        ) : null}
+      </p>
+      <ul className="space-y-1.5">
+        {results.map((r) => {
+          const isError = r.status === "error";
+          return (
+            <li
+              key={r.slug}
+              className={`flex flex-wrap items-start gap-x-3 gap-y-1 rounded-lg px-2.5 py-1.5 text-xs ring-1 ${
+                isError
+                  ? "bg-rose-50 text-rose-700 ring-rose-200"
+                  : "bg-white text-slate-600 ring-slate-200"
+              }`}
+            >
+              <span
+                className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${
+                  isError
+                    ? "bg-rose-100 text-rose-700 ring-rose-300"
+                    : "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                }`}
+              >
+                {isError ? "Failed" : r.status}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="font-medium text-slate-800">{r.slug}</span>
+                {isError && r.error ? (
+                  <span className="mt-0.5 block break-words text-rose-600">{r.error}</span>
+                ) : null}
+                {!isError && (r.parsed != null || r.inserted != null || r.updated != null) ? (
+                  <span className="mt-0.5 block text-slate-400">
+                    {r.parsed != null ? `${r.parsed.toLocaleString()} parsed` : null}
+                    {r.inserted != null ? ` · ${r.inserted.toLocaleString()} new` : null}
+                    {r.updated != null ? ` · ${r.updated.toLocaleString()} updated` : null}
+                  </span>
+                ) : null}
+              </span>
+              {r.ms != null ? (
+                <span className="shrink-0 text-slate-400">{fmtDuration(r.ms)}</span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -66,6 +157,16 @@ function AgentCard({
 }) {
   const [pending, startTransition] = useTransition();
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
+
+  const toggleRun = (id: string) => {
+    setExpandedRuns((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const agentRuns = runs.filter((r) => r.agent_id === agent.id);
   const agentReports = reports
@@ -199,6 +300,7 @@ function AgentCard({
               <table className="min-w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-slate-400">
+                    <th className="w-8 px-2 py-2 font-medium" />
                     <th className="px-3 py-2 font-medium">Status</th>
                     <th className="px-3 py-2 font-medium">Trigger</th>
                     <th className="px-3 py-2 font-medium">Target date</th>
@@ -210,31 +312,61 @@ function AgentCard({
                   </tr>
                 </thead>
                 <tbody>
-                  {agentRuns.slice(0, 10).map((run) => (
-                    <tr key={run.id} className="border-b border-slate-50 last:border-0">
-                      <td className="px-3 py-2">
-                        <StatusBadge status={run.status} />
-                        {run.error ? (
-                          <p className="mt-1 max-w-xs truncate text-[11px] text-rose-500" title={run.error}>
-                            {run.error}
-                          </p>
+                  {agentRuns.slice(0, 10).map((run) => {
+                    const results = parseRunDetail(run.detail);
+                    const failed = results.filter((r) => r.status === "error");
+                    const expandable = results.length > 0;
+                    const expanded = expandedRuns.has(run.id);
+                    return (
+                      <Fragment key={run.id}>
+                        <tr
+                          className={`border-b border-slate-50 last:border-0 ${
+                            expandable ? "cursor-pointer hover:bg-slate-50" : ""
+                          }`}
+                          onClick={expandable ? () => toggleRun(run.id) : undefined}
+                        >
+                          <td className="px-2 py-2 text-center text-slate-400">
+                            {expandable ? (
+                              <span aria-hidden className="inline-block text-xs">
+                                {expanded ? "▾" : "▸"}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2">
+                            <StatusBadge status={run.status} />
+                            {run.error ? (
+                              <p className="mt-1 max-w-xs truncate text-[11px] text-rose-500" title={run.error}>
+                                {failed.length > 0
+                                  ? `${failed.length} report${failed.length === 1 ? "" : "s"} failed — click to view`
+                                  : run.error}
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-slate-600">{run.trigger}</td>
+                          <td className="px-3 py-2 text-slate-600">{run.target_date ?? "—"}</td>
+                          <td className="px-3 py-2 text-slate-500">{timeAgo(run.started_at ?? run.created_at)}</td>
+                          <td className="px-3 py-2 text-slate-600">{fmtDuration(run.duration_ms)}</td>
+                          <td className="px-3 py-2 text-right text-slate-600">
+                            {(run.records_processed ?? 0).toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-600">
+                            {fmtTokens((run.tokens_input ?? 0) + (run.tokens_output ?? 0))}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-600">
+                            {fmtCost(Number(run.cost_usd ?? 0))}
+                          </td>
+                        </tr>
+                        {expandable && expanded ? (
+                          <tr className="border-b border-slate-50 bg-slate-50/60 last:border-0">
+                            <td />
+                            <td colSpan={8} className="px-3 py-3">
+                              <RunDetail results={results} />
+                            </td>
+                          </tr>
                         ) : null}
-                      </td>
-                      <td className="px-3 py-2 text-slate-600">{run.trigger}</td>
-                      <td className="px-3 py-2 text-slate-600">{run.target_date ?? "—"}</td>
-                      <td className="px-3 py-2 text-slate-500">{timeAgo(run.started_at ?? run.created_at)}</td>
-                      <td className="px-3 py-2 text-slate-600">{fmtDuration(run.duration_ms)}</td>
-                      <td className="px-3 py-2 text-right text-slate-600">
-                        {(run.records_processed ?? 0).toLocaleString()}
-                      </td>
-                      <td className="px-3 py-2 text-right text-slate-600">
-                        {fmtTokens((run.tokens_input ?? 0) + (run.tokens_output ?? 0))}
-                      </td>
-                      <td className="px-3 py-2 text-right text-slate-600">
-                        {fmtCost(Number(run.cost_usd ?? 0))}
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

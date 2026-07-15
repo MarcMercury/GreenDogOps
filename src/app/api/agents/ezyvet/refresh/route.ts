@@ -3,8 +3,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// The full materialized-view rebuild is heavy; give it a generous budget.
-export const maxDuration = 800;
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -13,11 +11,14 @@ function authorized(req: NextRequest): boolean {
 }
 
 /**
- * Rebuild every ezyVet reporting materialized view (invoice roll-ups,
- * appointment matview, provider/case-owner reports, etc.) via
- * refresh_ezyvet_reporting(). Run by the agent as a dedicated step after the
- * daily uploads so the aggregated Reporting page always catches up. The DB
- * function has statement_timeout=0 (migration 0091) so it never gets cut off.
+ * Queue an ezyVet reporting refresh. Returns immediately — it only flags a
+ * refresh as requested (request_reporting_refresh, migration 0094). A
+ * server-side pg_cron worker (ezyvet_reporting_refresh_worker, runs every
+ * minute) performs the heavy materialized-view rebuild with no HTTP gateway in
+ * the path, so it can never hit the ~150s gateway timeout that a synchronous
+ * refresh_ezyvet_reporting() over HTTP does (see migrations 0092/0094). Called
+ * by the agent right after the daily uploads so the aggregated Reporting page
+ * reflects the new data within ~1 minute of the agent finishing.
  * CRON_SECRET-gated.
  */
 export async function POST(req: NextRequest) {
@@ -25,10 +26,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   const admin = createAdminClient();
-  const startedAt = Date.now();
-  const { error } = await admin.rpc("refresh_ezyvet_reporting");
+  const { error } = await admin.rpc("request_reporting_refresh");
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, ms: Date.now() - startedAt });
+  return NextResponse.json({ ok: true, queued: true });
 }

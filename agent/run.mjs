@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openEzyvet } from "./ezyvet/session.mjs";
 import { openReporting, runCsvReport, switchLocation } from "./ezyvet/report-center.mjs";
-import { reportRun, ensureRun } from "./lib/ingest.mjs";
+import { reportRun, ensureRun, refreshReporting } from "./lib/ingest.mjs";
 
 let RUN_ID = process.env.RUN_ID || null;
 const AGENT_KEY = process.env.AGENT_KEY || "ezyvet_daily_ingest";
@@ -132,9 +132,22 @@ async function main() {
     await session.close();
   }
 
-  // Reporting roll-ups are rebuilt SERVER-SIDE by pg_cron (migration 0092:
-  // ezyvet_reporting_refresh, daily 12:30 UTC), which has no HTTP gateway limit
-  // and no lock contention — so the worker does not refresh over HTTP here.
+  // Queue a reporting roll-up rebuild now that today's data has landed. This is
+  // event-driven so the Reporting page catches up right after the agent runs
+  // (whatever time that is) instead of waiting for the fixed daily pg_cron slot.
+  // The endpoint only *requests* a refresh (returns instantly, no HTTP gateway
+  // timeout); the server-side worker (ezyvet_reporting_refresh_worker, every
+  // minute) does the heavy matview rebuild. See migrations 0092/0094.
+  if (anySuccess) {
+    try {
+      await refreshReporting();
+      await emit({ logs: [{ message: "Requested reporting refresh (roll-ups rebuild within ~1 min)" }] });
+    } catch (err) {
+      await emit({
+        logs: [{ level: "warn", message: `Reporting refresh request failed: ${err?.message ?? err}` }],
+      });
+    }
+  }
 
   const status = anyFailure && !anySuccess ? "error" : "success";
   await emit({
