@@ -231,42 +231,92 @@ export async function setDateRange(page, fromIso, toIso) {
   }
 }
 
+/** Build the regex that matches a completed CSV row for `reportName`. */
+function csvRowRegex(reportName) {
+  return new RegExp(`${reportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*\\.csv`, "i");
+}
+
+/** Switch to a sub-tab ("Details" | "Report Queue") of the open report. */
+async function openReportSubTab(page, label) {
+  const tab = page.getByText(label, { exact: false }).first();
+  if (await tab.count()) {
+    await tab.click();
+    await page.waitForTimeout(1500);
+  }
+}
+
 /**
- * Run the currently-open report (click Print) and download the resulting CSV
- * from the Report Queue. Returns the saved file path.
+ * Read the signature of every completed-CSV row in the Report Queue that
+ * matches `nameRe`. Each signature is the enclosing row's text (report name +
+ * its generation timestamp), so a fresh run always yields a DISTINCT signature
+ * from prior runs of the same report.
  */
-export async function runAndDownloadCsv(page, { downloadPath, reportName, log = () => {} }) {
+async function queueRowSignatures(page, nameRe) {
+  return page.evaluate((reSrc) => {
+    const re = new RegExp(reSrc, "i");
+    const sigs = [];
+    document.querySelectorAll("a").forEach((a) => {
+      const t = (a.textContent || "").trim();
+      if (re.test(t)) {
+        const row = a.closest("tr") || a.parentElement;
+        sigs.push((row?.innerText || t).replace(/\s+/g, " ").trim());
+      }
+    });
+    return sigs;
+  }, nameRe.source);
+}
+
+/**
+ * Snapshot the Report Queue rows for `reportName` that already exist, then
+ * return to the Details form. Called BEFORE running so the download step can
+ * tell this run's CSV apart from stale entries. The Report Queue retains prior
+ * runs under the SAME report name — other locations and earlier days — so
+ * downloading the newest name match without this snapshot can grab the wrong
+ * file (this is what mis-assigned the per-location Referrer Revenue results:
+ * a Van Nuys run picking up Venice's file, or an empty leftover).
+ */
+async function snapshotQueue(page, reportName) {
+  await openReportSubTab(page, "Report Queue");
+  const before = new Set(await queueRowSignatures(page, csvRowRegex(reportName)));
+  await openReportSubTab(page, "Details");
+  return before;
+}
+
+/**
+ * Run the currently-open report (click Print) and download ONLY the CSV that
+ * this run generates — i.e. a Report Queue row that was not present in `before`.
+ * Returns the saved file path.
+ */
+export async function runAndDownloadCsv(page, { downloadPath, reportName, before = new Set(), log = () => {} }) {
+  const nameRe = csvRowRegex(reportName);
+
   log("running report (Print)");
   const startedAt = Date.now();
   await clickVisibleText(page, "Print");
   await page.waitForTimeout(3000);
+  await openReportSubTab(page, "Report Queue");
 
-  // Open the Report Queue tab.
-  const queueTab = page.getByText("Report Queue", { exact: false }).first();
-  if (await queueTab.count()) {
-    await queueTab.click();
-    await page.waitForTimeout(2000);
-  }
-
-  // Poll for a freshly generated CSV for this report, refreshing the queue.
+  // Poll for a NEW completed CSV — a row whose signature was not in the queue
+  // before we clicked Print — refreshing the queue between checks.
   const deadline = startedAt + 180_000; // up to 3 min for generation
-  let link = null;
+  let newIndex = -1;
   while (Date.now() < deadline) {
-    // A completed CSV appears as a link/row ending in .csv, newest at top.
-    const csv = page
-      .locator(`text=/${reportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*\\.csv/i`)
-      .first();
-    if (await csv.count()) {
-      link = csv;
-      break;
-    }
+    const sigs = await queueRowSignatures(page, nameRe);
+    newIndex = sigs.findIndex((sig) => !before.has(sig));
+    if (newIndex >= 0) break;
     const refresh = page.getByText("Refresh", { exact: false }).first();
     if (await refresh.count()) await refresh.click();
     await page.waitForTimeout(4000);
   }
-  if (!link) throw new Error(`Report CSV never appeared in queue for "${reportName}".`);
+  if (newIndex < 0) {
+    await page
+      .screenshot({ path: `.secrets/ezyvet-probe/queue-no-new-${reportName.replace(/\s+/g, "_")}.png`, fullPage: true })
+      .catch(() => {});
+    throw new Error(`No freshly generated CSV appeared in the Report Queue for "${reportName}" within 3 min.`);
+  }
 
-  log("downloading generated CSV");
+  log("downloading freshly generated CSV");
+  const link = page.locator("a").filter({ hasText: nameRe }).nth(newIndex);
   const [download] = await Promise.all([
     page.waitForEvent("download", { timeout: 60_000 }),
     link.click(),
@@ -283,8 +333,11 @@ export async function runAndDownloadCsv(page, { downloadPath, reportName, log = 
 export async function runCsvReport(page, opts) {
   const { name, fromIso, toIso, downloadPath, configure, log = () => {} } = opts;
   await openReport(page, name, log);
+  // Snapshot the queue before filling the form so switching to the queue tab
+  // and back never disturbs the format/date inputs.
+  const before = await snapshotQueue(page, name);
   await selectFormat(page, "CSV");
   if (fromIso && toIso) await setDateRange(page, fromIso, toIso);
   if (configure) await configure(page);
-  return runAndDownloadCsv(page, { downloadPath, reportName: name, log });
+  return runAndDownloadCsv(page, { downloadPath, reportName: name, before, log });
 }
