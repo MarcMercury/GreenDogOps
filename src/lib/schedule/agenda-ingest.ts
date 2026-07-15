@@ -15,7 +15,28 @@ export interface AgendaIngestResult {
   /** Covered date window, inclusive. */
   dateStart?: string;
   dateEnd?: string;
+  /** Canonical location the ingest was scoped to (per-location pulls only). */
+  location?: string;
 }
+
+export interface AgendaIngestOptions {
+  /**
+   * Worker location key of the clinic the ezyVet header was switched to before
+   * running the Agenda report (e.g. "van_nuys"). When set, the ingest attributes
+   * every row to this one clinic and rebuilds ONLY this clinic's rows for the
+   * covered window, so per-location pulls uploaded in sequence don't wipe each
+   * other. When omitted, the legacy all-clinic behaviour is used (split by the
+   * "Division(s)" column, full-window rebuild).
+   */
+  locationKey?: string;
+}
+
+/** Worker clinic key → canonical `location.name` (lower-cased for matching). */
+const LOCATION_KEY_TO_NAME: Record<string, string> = {
+  sherman_oaks: "sherman oaks",
+  van_nuys: "van nuys",
+  venice: "venice",
+};
 
 /**
  * Parse the department token out of an ezyVet Agenda "All Resources / Vets"
@@ -66,7 +87,10 @@ function todayIsoLA(): string {
  * ezyvet_agenda_count for the covered date window (the Agenda report is a
  * forward snapshot, so a full rebuild keeps moved/cancelled bookings accurate).
  */
-export async function ingestAgendaCsvText(text: string): Promise<AgendaIngestResult> {
+export async function ingestAgendaCsvText(
+  text: string,
+  opts: AgendaIngestOptions = {},
+): Promise<AgendaIngestResult> {
   const table = parseCsv(text);
   if (table.length < 2) {
     return { ok: false, error: "Agenda CSV had no data rows.", parsed: 0, counted: 0, inserted: 0 };
@@ -103,6 +127,25 @@ export async function ingestAgendaCsvText(text: string): Promise<AgendaIngestRes
     if (!locByName.has(key) || l.is_active) locByName.set(key, l.id as string);
   }
 
+  // Per-location pull: resolve the clinic the ezyVet header was switched to. We
+  // still attribute each row by its "Division(s)" value (always correct) but
+  // only KEEP rows for this clinic and only rebuild this clinic's window — so
+  // three per-location uploads in sequence don't delete each other's counts.
+  let targetLocationId: string | null = null;
+  if (opts.locationKey) {
+    const canonical = LOCATION_KEY_TO_NAME[opts.locationKey] ?? opts.locationKey.replace(/_/g, " ");
+    targetLocationId = locByName.get(canonical) ?? null;
+    if (!targetLocationId) {
+      return {
+        ok: false,
+        error: `Unknown location "${opts.locationKey}" (no matching clinic).`,
+        parsed: table.length - 1,
+        counted: 0,
+        inserted: 0,
+      };
+    }
+  }
+
   // ezyVet resource label → department (with the '*' catch-all default).
   const { data: maps, error: mapErr } = await admin
     .from("ezyvet_agenda_dept_map")
@@ -136,6 +179,8 @@ export async function ingestAgendaCsvText(text: string): Promise<AgendaIngestRes
     const locName = extractLocationName(row[iDivision] ?? "").toLowerCase();
     const locationId = locByName.get(locName);
     if (!locationId) continue; // e.g. MPMV / unknown division
+    // Per-location pull: keep only rows for the clinic we switched to.
+    if (targetLocationId && locationId !== targetLocationId) continue;
 
     const label = extractDeptLabel(row[iResource] ?? "");
     const mapped = deptMap.get(label) ?? fallback;
@@ -151,16 +196,19 @@ export async function ingestAgendaCsvText(text: string): Promise<AgendaIngestRes
   }
 
   if (counts.size === 0) {
-    return { ok: true, parsed: table.length - 1, counted: 0, inserted: 0 };
+    return { ok: true, parsed: table.length - 1, counted: 0, inserted: 0, location: opts.locationKey };
   }
 
   // Rebuild the covered window: clear stale rows for the dates present, then
-  // insert the fresh aggregates.
-  const { error: delErr } = await admin
+  // insert the fresh aggregates. For a per-location pull, restrict the delete
+  // to this clinic so the other locations' counts for the window survive.
+  let del = admin
     .from("ezyvet_agenda_count")
     .delete()
     .gte("appt_date", minDate)
     .lte("appt_date", maxDate);
+  if (targetLocationId) del = del.eq("location_id", targetLocationId);
+  const { error: delErr } = await del;
   if (delErr) {
     return { ok: false, error: delErr.message, parsed: table.length - 1, counted, inserted: 0 };
   }
@@ -197,5 +245,6 @@ export async function ingestAgendaCsvText(text: string): Promise<AgendaIngestRes
     inserted: rows.length,
     dateStart: minDate,
     dateEnd: maxDate,
+    location: opts.locationKey,
   };
 }

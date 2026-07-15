@@ -26,6 +26,9 @@ export async function POST(req: NextRequest) {
   if (!text || text.length < 10) {
     return NextResponse.json({ ok: false, error: "empty CSV body" }, { status: 400 });
   }
-  const result = await ingestAgendaCsvText(text);
+  // `location` = the worker clinic key the ezyVet header was switched to before
+  // the pull (per-location runs). Omitted for a legacy all-clinic pull.
+  const locationKey = req.nextUrl.searchParams.get("location") ?? undefined;
+  const result = await ingestAgendaCsvText(text, { locationKey });
   return NextResponse.json(result, { status: result.ok ? 200 : 400 });
 }
