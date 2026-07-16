@@ -34,6 +34,42 @@ function docLabel(d: CandidateDocument): string {
   return d.title || d.file_name || "Attachment";
 }
 
+// Matches bare http(s) URLs so we can turn them into a compact "Resume" link.
+const URL_RE = /https?:\/\/[^\s<>"')\]]+/gi;
+
+/**
+ * Render free-text application notes, replacing any bare URL (typically the
+ * candidate's resume link on non-Indeed submissions) with a compact hyperlink
+ * labelled "Resume" instead of showing the full, unwieldy URL.
+ */
+function renderNotesWithLinks(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  URL_RE.lastIndex = 0;
+  while ((match = URL_RE.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+    nodes.push(
+      <a
+        key={match.index}
+        href={match[0]}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-medium text-emerald-700 hover:underline"
+      >
+        Resume
+      </a>,
+    );
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+  return nodes;
+}
+
 /**
  * Intake review queue: auto-ingested applicants (Gmail / Indeed) awaiting a
  * recruiter's accept or reject decision. Accepting promotes them to an active
@@ -286,7 +322,7 @@ function ReviewCard({
                 Application details
               </h4>
               <p className="mt-1.5 max-w-3xl whitespace-pre-wrap text-sm text-slate-700">
-                {rec.notes}
+                {renderNotesWithLinks(rec.notes)}
               </p>
             </div>
           )}
