@@ -219,7 +219,7 @@ function OptionsSelect({
 type TabKey = "tree" | "initiatives" | "events" | "promotions" | "activity" | "budget" | "resources";
 const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean }[] = [
   { key: "tree", label: "Marketing Tree", icon: "🌳" },
-  { key: "initiatives", label: "Initiatives", icon: "🗂️" },
+  { key: "initiatives", label: "Goals & Initiatives", icon: "🗂️" },
   { key: "events", label: "Events", icon: "🎪" },
   { key: "promotions", label: "Promotions", icon: "🏷️" },
   { key: "activity", label: "Activity", icon: "📈" },
@@ -302,8 +302,6 @@ export function MarketingDashboard({
         description="The single source of truth for marketing activity — goals, initiatives, events, budget and the tools & partners we coordinate with."
       />
 
-      <GoalStrip canEdit={canEdit} goals={visibleGoals} run={run} />
-
       {/* Tabs */}
       <div className="flex flex-wrap gap-1.5 border-b border-slate-200">
         {tabs.map((t) => (
@@ -327,7 +325,7 @@ export function MarketingDashboard({
 
       {tab === "tree" && <MarketingTree canEdit={canEdit} nodes={treeNodes} people={people} />}
       {tab === "initiatives" && (
-        <InitiativesTab canEdit={canEdit} initiatives={initiatives} people={people} run={run} />
+        <InitiativesTab canEdit={canEdit} initiatives={initiatives} goals={visibleGoals} people={people} run={run} />
       )}
       {tab === "events" && (
         <EventsTab
@@ -371,92 +369,6 @@ export function MarketingDashboard({
 }
 
 type Run = (action: () => Promise<ActionResult>, after?: () => void) => void;
-
-// ---------------------------------------------------------------------------
-// Goals / KPI strip
-// ---------------------------------------------------------------------------
-function GoalStrip({
-  canEdit,
-  goals,
-  run,
-}: {
-  canEdit: boolean;
-  goals: MarketingGoal[];
-  run: Run;
-}) {
-  const [editing, setEditing] = useState<MarketingGoal | "new" | null>(null);
-  const active = goals.filter((g) => g.is_active);
-
-  return (
-    <section>
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          Core goals & KPIs
-        </h2>
-        {canEdit && (
-          <button type="button" className={btnGhost} onClick={() => setEditing("new")}>
-            + Goal
-          </button>
-        )}
-      </div>
-      {active.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center text-sm text-slate-400">
-          No goals yet.
-        </p>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {active.map((g) => {
-            const pct =
-              g.target_value && g.target_value > 0
-                ? Math.min(100, Math.round(((g.current_value ?? 0) / g.target_value) * 100))
-                : null;
-            const isMoney = (g.metric_unit ?? "").trim() === "$";
-            const fmt = isMoney ? fmtMoney : fmtNum;
-            return (
-              <button
-                key={g.id}
-                type="button"
-                disabled={!canEdit}
-                onClick={() => canEdit && setEditing(g)}
-                className="rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition enabled:hover:border-emerald-300 enabled:hover:shadow"
-              >
-                <p className="text-xs font-medium text-slate-500">{g.title}</p>
-                <p className="mt-1 text-lg font-bold text-slate-900">
-                  {fmt(g.current_value ?? 0)}
-                  {g.target_value != null && (
-                    <span className="text-sm font-medium text-slate-400">
-                      {" "}
-                      / {fmt(g.target_value)}
-                    </span>
-                  )}
-                </p>
-                {pct != null && (
-                  <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-emerald-500"
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                )}
-                <p className="mt-1.5 text-[11px] text-slate-400">
-                  {[g.period, g.category].filter(Boolean).join(" · ") || "\u00A0"}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {editing && (
-        <GoalDialog
-          goal={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
-          run={run}
-        />
-      )}
-    </section>
-  );
-}
 
 function GoalDialog({
   goal,
@@ -558,19 +470,24 @@ function DialogFooter({
 function InitiativesTab({
   canEdit,
   initiatives,
+  goals,
   people,
   run,
 }: {
   canEdit: boolean;
   initiatives: MarketingInitiative[];
+  goals: MarketingGoal[];
   people: PersonOption[];
   run: Run;
 }) {
   const [editing, setEditing] = useState<MarketingInitiative | "new" | null>(null);
+  const [editingGoal, setEditingGoal] = useState<MarketingGoal | "new" | null>(null);
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
   const [owner, setOwner] = useState("");
   const [priority, setPriority] = useState("");
+
+  const activeGoals = useMemo(() => goals.filter((g) => g.is_active), [goals]);
 
   const owners = useMemo(
     () =>
@@ -607,6 +524,65 @@ function InitiativesTab({
 
   return (
     <section className="space-y-4">
+      {/* Goals — list form */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+            Goals & KPIs
+          </h2>
+          {canEdit && (
+            <button type="button" className={btnGhost} onClick={() => setEditingGoal("new")}>
+              + Goal
+            </button>
+          )}
+        </div>
+        {activeGoals.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-slate-400">No goals yet.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {activeGoals.map((g) => {
+              const pct =
+                g.target_value && g.target_value > 0
+                  ? Math.min(100, Math.round(((g.current_value ?? 0) / g.target_value) * 100))
+                  : null;
+              const isMoney = (g.metric_unit ?? "").trim() === "$";
+              const fmt = isMoney ? fmtMoney : fmtNum;
+              return (
+                <li key={g.id}>
+                  <button
+                    type="button"
+                    disabled={!canEdit}
+                    onClick={() => canEdit && setEditingGoal(g)}
+                    className="flex w-full items-center gap-4 px-4 py-3 text-left transition enabled:hover:bg-slate-50"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-900">{g.title}</p>
+                      <p className="mt-0.5 text-[11px] text-slate-400">
+                        {[g.period, g.category].filter(Boolean).join(" · ") || "\u00A0"}
+                      </p>
+                    </div>
+                    {pct != null && (
+                      <div className="hidden w-40 shrink-0 sm:block">
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="mt-1 text-right text-[10px] text-slate-400">{pct}%</p>
+                      </div>
+                    )}
+                    <div className="w-28 shrink-0 text-right text-sm font-semibold text-slate-900">
+                      {fmt(g.current_value ?? 0)}
+                      {g.target_value != null && (
+                        <span className="text-xs font-medium text-slate-400"> / {fmt(g.target_value)}</span>
+                      )}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <select value={category} onChange={(e) => setCategory(e.target.value)} className={filterSelect}>
           <option value="">All categories</option>
@@ -714,6 +690,14 @@ function InitiativesTab({
           initiative={editing === "new" ? null : editing}
           people={people}
           onClose={() => setEditing(null)}
+          run={run}
+        />
+      )}
+
+      {editingGoal && (
+        <GoalDialog
+          goal={editingGoal === "new" ? null : editingGoal}
+          onClose={() => setEditingGoal(null)}
           run={run}
         />
       )}
