@@ -30,6 +30,7 @@ import {
   type CrmRecordHit,
   type ActionResult,
 } from "./actions";
+import { OwnerSelect } from "./owner-select";
 
 // ---------------------------------------------------------------------------
 // Canvas geometry — vertical bands are fixed; the canvas WIDTH grows with the
@@ -1484,11 +1485,12 @@ function NodeDialog({
                       placeholder="Date / cadence"
                       className={fieldInput}
                     />
-                    <input
+                    <OwnerSelect
                       name="item_owner"
+                      people={people}
                       value={it.owner ?? ""}
-                      onChange={(e) => updateItem(idx, { owner: e.target.value })}
-                      placeholder="Owner"
+                      onChange={(v) => updateItem(idx, { owner: v })}
+                      placeholder="— owner —"
                       className={fieldInput}
                     />
                     <input

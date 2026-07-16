@@ -52,6 +52,7 @@ import {
   type ActionResult,
 } from "./actions";
 import { useTableSort, SortHeader } from "../_components/data-views";
+import { OwnerSelect } from "./owner-select";
 
 // ---------------------------------------------------------------------------
 // Shared styles + helpers
@@ -326,7 +327,7 @@ export function MarketingDashboard({
 
       {tab === "tree" && <MarketingTree canEdit={canEdit} nodes={treeNodes} people={people} />}
       {tab === "initiatives" && (
-        <InitiativesTab canEdit={canEdit} initiatives={initiatives} run={run} />
+        <InitiativesTab canEdit={canEdit} initiatives={initiatives} people={people} run={run} />
       )}
       {tab === "events" && (
         <EventsTab
@@ -335,6 +336,7 @@ export function MarketingDashboard({
           sources={eventSources}
           attendees={eventAttendees}
           crmOrgs={crmOrgs}
+          people={people}
         />
       )}
       {tab === "activity" && (
@@ -356,7 +358,7 @@ export function MarketingDashboard({
         />
       )}
       {tab === "resources" && (
-        <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} run={run} />
+        <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} people={people} run={run} />
       )}
 
       {toast && (
@@ -556,10 +558,12 @@ function DialogFooter({
 function InitiativesTab({
   canEdit,
   initiatives,
+  people,
   run,
 }: {
   canEdit: boolean;
   initiatives: MarketingInitiative[];
+  people: PersonOption[];
   run: Run;
 }) {
   const [editing, setEditing] = useState<MarketingInitiative | "new" | null>(null);
@@ -708,6 +712,7 @@ function InitiativesTab({
       {editing && (
         <InitiativeDialog
           initiative={editing === "new" ? null : editing}
+          people={people}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -718,10 +723,12 @@ function InitiativesTab({
 
 function InitiativeDialog({
   initiative,
+  people,
   onClose,
   run,
 }: {
   initiative: MarketingInitiative | null;
+  people: PersonOption[];
   onClose: () => void;
   run: Run;
 }) {
@@ -754,7 +761,7 @@ function InitiativeDialog({
           </div>
           <div>
             <label className={fieldLabel}>Owner</label>
-            <input name="owner_name" defaultValue={initiative?.owner_name ?? ""} className={fieldInput} />
+            <OwnerSelect name="owner_name" people={people} defaultValue={initiative?.owner_name ?? ""} className={fieldInput} />
           </div>
           <div>
             <label className={fieldLabel}>3rd-party partner</label>
@@ -1144,11 +1151,13 @@ function ResourcesTab({
   canEdit,
   canViewCredentials,
   resources,
+  people,
   run,
 }: {
   canEdit: boolean;
   canViewCredentials: boolean;
   resources: MarketingResource[];
+  people: PersonOption[];
   run: Run;
 }) {
   const [editing, setEditing] = useState<MarketingResource | "new" | null>(null);
@@ -1270,6 +1279,7 @@ function ResourcesTab({
       {editing && (
         <ResourceDialog
           resource={editing === "new" ? null : editing}
+          people={people}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -1280,10 +1290,12 @@ function ResourcesTab({
 
 function ResourceDialog({
   resource,
+  people,
   onClose,
   run,
 }: {
   resource: MarketingResource | null;
+  people: PersonOption[];
   onClose: () => void;
   run: Run;
 }) {
@@ -1317,7 +1329,7 @@ function ResourceDialog({
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <label className={fieldLabel}>Owner</label>
-            <input name="owner_name" defaultValue={resource?.owner_name ?? ""} className={fieldInput} />
+            <OwnerSelect name="owner_name" people={people} defaultValue={resource?.owner_name ?? ""} className={fieldInput} />
           </div>
           <div>
             <label className={fieldLabel}>Credential note</label>

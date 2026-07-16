@@ -10,6 +10,7 @@ import {
   type ChecklistItem,
   type PackingListGroup,
   type CrmOrgRef,
+  type PersonOption,
   EVENT_TYPES,
   EVENT_STATUSES,
   PLANNING_PHASES,
@@ -38,6 +39,7 @@ import {
   type ActionResult,
 } from "./actions";
 import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
+import { OwnerSelect } from "./owner-select";
 
 const fieldInput =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -91,12 +93,14 @@ export function EventsTab({
   sources,
   attendees,
   crmOrgs,
+  people,
 }: {
   canEdit: boolean;
   events: MarketingEvent[];
   sources: MarketingEventSource[];
   attendees: MarketingEventAttendee[];
   crmOrgs: CrmOrgRef[];
+  people: PersonOption[];
 }) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
@@ -358,6 +362,7 @@ export function EventsTab({
           sources={sources}
           attendees={editing === "new" ? [] : attendeesByEvent.get(editing.id) ?? []}
           canEdit={canEdit}
+          people={people}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -395,11 +400,12 @@ function OptionsSelect({ name, defaultValue, options, placeholder }: { name: str
 // ---------------------------------------------------------------------------
 // Event dialog with Details / Planning / Recap / Attendees
 // ---------------------------------------------------------------------------
-function EventDialog({ event, sources, attendees, canEdit, onClose, run }: {
+function EventDialog({ event, sources, attendees, canEdit, people, onClose, run }: {
   event: MarketingEvent | null;
   sources: MarketingEventSource[];
   attendees: MarketingEventAttendee[];
   canEdit: boolean;
+  people: PersonOption[];
   onClose: () => void;
   run: Run;
 }) {
@@ -446,7 +452,7 @@ function EventDialog({ event, sources, attendees, canEdit, onClose, run }: {
             <div><label className={fieldLabel}>Planning phase</label><OptionsSelect name="planning_phase" defaultValue={event?.planning_phase ?? ""} options={PLANNING_PHASES} placeholder="—" /></div>
             <div><label className={fieldLabel}>Start date</label><input type="date" name="starts_on" defaultValue={event?.starts_on ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>End date</label><input type="date" name="ends_on" defaultValue={event?.ends_on ?? ""} className={fieldInput} /></div>
-            <div><label className={fieldLabel}>Owner</label><input name="owner_name" defaultValue={event?.owner_name ?? ""} className={fieldInput} /></div>
+            <div><label className={fieldLabel}>Owner</label><OwnerSelect name="owner_name" people={people} defaultValue={event?.owner_name ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>Location</label><input name="location" defaultValue={event?.location ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>Clinic served</label><input name="clinic_served" defaultValue={event?.clinic_served ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>Cost</label><input name="cost" defaultValue={event?.cost ?? ""} className={fieldInput} /></div>
