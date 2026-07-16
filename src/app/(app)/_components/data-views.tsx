@@ -330,6 +330,10 @@ export interface FilterDef<T> {
    * selected token (membership) rather than an exact string equality.
    */
   multi?: boolean;
+  /** Sort direction for the generated options list. Defaults to "asc". */
+  optionSort?: SortDir;
+  /** Formats an option's raw value for display in the dropdown. */
+  formatOption?: (value: string) => string;
 }
 
 /** Split a comma-separated filter value into trimmed, non-empty tokens. */
@@ -538,9 +542,14 @@ export function DataTable<T extends { id: string }>({
             seen.set(t, (seen.get(t) ?? 0) + 1);
           }
         }
+        const dir = f.optionSort === "desc" ? -1 : 1;
         const options = [...seen.entries()]
-          .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
-          .map(([value, count]) => ({ value, count }));
+          .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }) * dir)
+          .map(([value, count]) => ({
+            value,
+            count,
+            label: f.formatOption ? f.formatOption(value) : value,
+          }));
         return { def: f, options };
       })
       .filter((f) => f.options.length > 1);
@@ -721,7 +730,7 @@ export function DataTable<T extends { id: string }>({
               <option value="all">All ({rows.length})</option>
               {options.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.value} ({o.count})
+                  {o.label} ({o.count})
                 </option>
               ))}
             </select>

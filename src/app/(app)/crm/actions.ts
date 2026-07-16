@@ -424,6 +424,27 @@ export async function updateContact(
   return { ok: true };
 }
 
+/**
+ * Inline single-field status update used by the CRM grid views so a status can
+ * be changed directly from the list without opening the full contact record.
+ */
+export async function updateContactStatus(
+  id: string,
+  status: string,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_contact")
+    .update({ status: str(status) })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/contact/${id}`);
+  revalidatePath("/crm", "layout");
+  return { ok: true };
+}
+
 export async function createContact(
   contactType: ContactType,
   _prev: SaveResult | null,

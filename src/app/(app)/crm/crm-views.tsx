@@ -11,9 +11,15 @@ import {
   subtypeLabel,
   categoryLabel,
   RECOMMENDATION_LEVEL_OPTIONS,
+  CONTACT_STATUS_OPTIONS,
   programNameColor,
 } from "@/lib/crm/types";
-import { logOrgQuickNote, importContacts, type ImportContactRow } from "./actions";
+import {
+  logOrgQuickNote,
+  importContacts,
+  updateContactStatus,
+  type ImportContactRow,
+} from "./actions";
 import {
   type Stat,
   type Column,
@@ -44,6 +50,64 @@ function recommendationLabel(value: string | null | undefined): string | null {
   );
 }
 
+function statusLabel(value: string | null | undefined): string {
+  if (!value) return "—";
+  return CONTACT_STATUS_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+/**
+ * Inline Status editor used in the grid. Renders a dropdown that writes the
+ * chosen status straight back to the contact record; falls back to a read-only
+ * label when the viewer can't edit. Clicks are kept from bubbling so changing
+ * the status never triggers the row's navigate-to-detail handler.
+ */
+function StatusCell({
+  contact,
+  canEdit,
+}: {
+  contact: CrmContact;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState(contact.status ?? "");
+  const [pending, startTransition] = useTransition();
+
+  if (!canEdit) {
+    return <span>{statusLabel(contact.status)}</span>;
+  }
+
+  function onChange(next: string) {
+    const prev = value;
+    setValue(next);
+    startTransition(async () => {
+      const result = await updateContactStatus(contact.id, next);
+      if (!result.ok) {
+        setValue(prev);
+        window.alert(`Could not update status: ${result.error}`);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <select
+      value={value}
+      disabled={pending}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      className="max-w-[10rem] rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50"
+    >
+      <option value="">—</option>
+      {CONTACT_STATUS_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** The label shown in the grid's color-coded Program column. */
 function programLabel(c: CrmContact): string | null {
   return c.program_name ?? c.program_type ?? null;
@@ -59,12 +123,6 @@ function formatStartDate(value: string | null | undefined): string | null {
     day: "numeric",
     year: "numeric",
   });
-}
-
-/** Group key for the Start Month filter — "YYYY-MM" sorts chronologically. */
-function startMonthKey(value: string | null | undefined): string | null {
-  if (!value || value.length < 7) return null;
-  return value.slice(0, 7);
 }
 
 function contactName(c: CrmContact): string {
@@ -377,6 +435,7 @@ export function ContactListView({
   icon,
   variant,
   addHref,
+  canEdit = false,
 }: {
   contacts: CrmContact[];
   title: string;
@@ -384,6 +443,7 @@ export function ContactListView({
   icon: string;
   variant: "student" | "ce";
   addHref?: string;
+  canEdit?: boolean;
 }) {
   const router = useRouter();
   const [importing, setImporting] = useState(false);
@@ -429,7 +489,12 @@ export function ContactListView({
     variant === "student"
       ? [
           { key: "name", header: "Name", value: contactName },
-          { key: "email", header: "Email", value: (c) => c.email },
+          {
+            key: "email",
+            header: "Email",
+            value: (c) => c.email,
+            className: "max-w-[12rem] truncate",
+          },
           {
             key: "school",
             header: "School / Org",
@@ -478,7 +543,9 @@ export function ContactListView({
                 <span className="text-slate-400">—</span>
               ),
           },
-          { key: "status", header: "Status", value: (c) => c.status },
+          { key: "status", header: "Status", value: (c) => c.status,
+            render: (c) => <StatusCell contact={c} canEdit={canEdit} />,
+          },
         ]
       : [
           { key: "name", header: "Name", value: contactName },
@@ -508,9 +575,11 @@ export function ContactListView({
           { key: "status", label: "Status", value: (c) => c.status },
           { key: "program", label: "Program", value: (c) => programLabel(c) },
           {
-            key: "start_month",
-            label: "Start Month",
-            value: (c) => startMonthKey(c.start_date),
+            key: "start_date",
+            label: "Start Date",
+            value: (c) => c.start_date,
+            optionSort: "desc",
+            formatOption: (v) => formatStartDate(v) ?? v,
           },
           { key: "school", label: "School", value: (c) => c.school },
           { key: "cohort", label: "Cohort", value: (c) => c.cohort },

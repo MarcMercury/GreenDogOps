@@ -1,12 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { CrmContact } from "@/lib/crm/types";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import { ContactListView } from "../crm-views";
 
 export const dynamic = "force-dynamic";
 
 export default async function StudentCrmPage() {
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
   const { data, error } = await fetchAllRows<CrmContact>((from, to) =>
     supabase
       .from("crm_contact")
@@ -35,6 +39,7 @@ export default async function StudentCrmPage() {
       icon="🎓"
       variant="student"
       addHref="/crm/contact/new?type=student"
+      canEdit={canEdit}
     />
   );
 }

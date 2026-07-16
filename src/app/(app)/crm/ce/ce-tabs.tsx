@@ -1793,6 +1793,7 @@ export function CeCrmTabs({
           icon="📋"
           variant="ce"
           addHref="/crm/contact/new?type=ce_attendee"
+          canEdit={canEdit}
         />
       ) : tab === "attendees" ? (
         <CeAttendeesView
