@@ -14,6 +14,7 @@ import type {
   MarketingPromotion,
   PersonOption,
   MarketingActivity,
+  CrmOrgRef,
 } from "@/lib/marketing/types";
 import { MarketingDashboard } from "./marketing-dashboard";
 
@@ -88,6 +89,18 @@ export default async function MarketingManagementPage() {
       .limit(100),
   ]);
 
+  // Vendor & Partner CRM records available for linking Events Scout sources.
+  const crmOrgsRes = await supabase
+    .from("crm_organization")
+    .select("id, name, org_type, subtype")
+    .in("org_type", [
+      "marketing_partner",
+      "facility_resource",
+      "med_ops",
+      "office_marketing",
+    ])
+    .order("name", { ascending: true });
+
   // Budget is admin-only. Non-admins never receive the rows.
   const [periodRes, entriesRes] = isAdmin
     ? await Promise.all([
@@ -115,7 +128,8 @@ export default async function MarketingManagementPage() {
     treeRes.error ||
     sourcesRes.error ||
     attendeesRes.error ||
-    promotionsRes.error;
+    promotionsRes.error ||
+    crmOrgsRes.error;
 
   if (firstError) {
     return (
@@ -146,6 +160,7 @@ export default async function MarketingManagementPage() {
       promotions={(promotionsRes.data ?? []) as MarketingPromotion[]}
       people={(peopleRes.data ?? []) as PersonOption[]}
       activity={(activityRes.data ?? []) as MarketingActivity[]}
+      crmOrgs={(crmOrgsRes.data ?? []) as CrmOrgRef[]}
     />
   );
 }

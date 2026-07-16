@@ -2,15 +2,18 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   type MarketingEvent,
   type MarketingEventSource,
   type MarketingEventAttendee,
   type ChecklistItem,
+  type CrmOrgRef,
   EVENT_TYPES,
   EVENT_STATUSES,
   PLANNING_PHASES,
   ATTENDEE_TYPES,
+  VENUE_TYPES,
   eventTypeLabel,
   eventStatusLabel,
   planningPhaseLabel,
@@ -25,6 +28,9 @@ import {
   createEventFromSource,
   saveAttendee,
   deleteAttendee,
+  syncSourceToCrm,
+  syncAllSourcesToCrm,
+  linkSourceToCrm,
   type ActionResult,
 } from "./actions";
 
@@ -79,11 +85,13 @@ export function EventsTab({
   events,
   sources,
   attendees,
+  crmOrgs,
 }: {
   canEdit: boolean;
   events: MarketingEvent[];
   sources: MarketingEventSource[];
   attendees: MarketingEventAttendee[];
+  crmOrgs: CrmOrgRef[];
 }) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
@@ -130,6 +138,13 @@ export function EventsTab({
     return m;
   }, [attendees]);
 
+  const orgById = useMemo(() => {
+    const m = new Map<string, CrmOrgRef>();
+    for (const o of crmOrgs) m.set(o.id, o);
+    return m;
+  }, [crmOrgs]);
+  const unlinkedCount = sources.filter((s) => !s.crm_organization_id).length;
+
   return (
     <section className="space-y-5">
       {/* Event sources */}
@@ -140,7 +155,19 @@ export function EventsTab({
             🔎 Event sources to scout ({sources.length})
           </button>
           {canEdit && (
-            <button type="button" className={btnGhost} onClick={() => setEditingSource("new")}>+ Source</button>
+            <div className="flex items-center gap-1.5">
+              {unlinkedCount > 0 && (
+                <button
+                  type="button"
+                  className={btnGhost}
+                  onClick={() => run(() => syncAllSourcesToCrm())}
+                  title="Create or link a Vendor & Partner CRM record for every source"
+                >
+                  🤝 Sync {unlinkedCount} to CRM
+                </button>
+              )}
+              <button type="button" className={btnGhost} onClick={() => setEditingSource("new")}>+ Source</button>
+            </div>
           )}
         </div>
         {showSources && (
@@ -154,6 +181,7 @@ export function EventsTab({
                     <th className="px-4 py-2 font-semibold">Source</th>
                     <th className="px-4 py-2 font-semibold">Region</th>
                     <th className="px-4 py-2 font-semibold">Cost</th>
+                    <th className="px-4 py-2 font-semibold">CRM</th>
                     <th className="px-4 py-2 font-semibold">Last checked</th>
                     <th className="px-4 py-2 font-semibold">Notes</th>
                     <th className="px-4 py-2" />
@@ -174,6 +202,28 @@ export function EventsTab({
                         </td>
                         <td className="px-4 py-2.5 text-slate-600">{s.region ?? "—"}</td>
                         <td className="px-4 py-2.5 text-slate-600">{s.membership_cost ?? "—"}</td>
+                        <td className="px-4 py-2.5">
+                          {s.crm_organization_id ? (
+                            <Link
+                              href={`/crm/org/${s.crm_organization_id}`}
+                              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+                              title={orgById.get(s.crm_organization_id)?.name ?? "Open CRM record"}
+                            >
+                              🤝 CRM ↗
+                            </Link>
+                          ) : canEdit ? (
+                            <button
+                              type="button"
+                              onClick={() => run(() => syncSourceToCrm(s.id))}
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+                              title="Create or link a Vendor & Partner CRM record"
+                            >
+                              + Link CRM
+                            </button>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
                         <td className="px-4 py-2.5">
                           <span className={stale ? "text-amber-600" : "text-slate-500"}>
                             {s.last_checked_on ? `${fmtDate(s.last_checked_on)}${d != null ? ` (${d}d)` : ""}` : "never"}
@@ -279,7 +329,13 @@ export function EventsTab({
         />
       )}
       {editingSource && (
-        <SourceDialog source={editingSource === "new" ? null : editingSource} onClose={() => setEditingSource(null)} run={run} />
+        <SourceDialog
+          source={editingSource === "new" ? null : editingSource}
+          crmOrgs={crmOrgs}
+          canEdit={canEdit}
+          onClose={() => setEditingSource(null)}
+          run={run}
+        />
       )}
 
       {toast && (
@@ -357,6 +413,27 @@ function EventDialog({ event, sources, attendees, canEdit, onClose, run }: {
             <div><label className={fieldLabel}>Cost</label><input name="cost" defaultValue={event?.cost ?? ""} className={fieldInput} /></div>
           </div>
           <div><label className={fieldLabel}>Description</label><textarea name="description" defaultValue={event?.description ?? ""} rows={2} className={fieldInput} /></div>
+
+          {/* 3rd-party event intake details */}
+          <fieldset className="rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">3rd-party event details</legend>
+            <p className="mb-3 text-[11px] text-slate-400">Intake captured when a partner invites us — everything ops needs to staff &amp; set up correctly.</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div><label className={fieldLabel}>Host company</label><input name="host_company" defaultValue={event?.host_company ?? ""} className={fieldInput} placeholder="Who is hosting?" /></div>
+              <div><label className={fieldLabel}>Host website</label><input name="host_website" defaultValue={event?.host_website ?? ""} className={fieldInput} placeholder="https://…" /></div>
+              <div><label className={fieldLabel}>Event website / flyer</label><input name="event_url" defaultValue={event?.event_url ?? ""} className={fieldInput} placeholder="Link or flyer info" /></div>
+              <div><label className={fieldLabel}>Venue type</label><OptionsSelect name="venue_type" defaultValue={event?.venue_type ?? ""} options={VENUE_TYPES} placeholder="Indoor / outdoor" /></div>
+              <div><label className={fieldLabel}>Required arrival time</label><input name="arrival_time" defaultValue={event?.arrival_time ?? ""} className={fieldInput} placeholder="e.g. 8:00 AM (for staffing)" /></div>
+              <div><label className={fieldLabel}>Required departure time</label><input name="departure_time" defaultValue={event?.departure_time ?? ""} className={fieldInput} placeholder="e.g. 5:00 PM" /></div>
+              <div><label className={fieldLabel}>Audience / foot traffic</label><input name="expected_foot_traffic" defaultValue={event?.expected_foot_traffic ?? ""} className={fieldInput} placeholder="Anticipated attendance" /></div>
+              <div><label className={fieldLabel}>Food on-site for staff?</label><input name="food_onsite" defaultValue={event?.food_onsite ?? ""} className={fieldInput} placeholder="e.g. Yes — food trucks" /></div>
+            </div>
+            <div className="mt-4 grid gap-4">
+              <div><label className={fieldLabel}>Expectations / our involvement</label><textarea name="involvement" defaultValue={event?.involvement ?? ""} rows={2} className={fieldInput} placeholder="Physical presence, sponsor, vet services, judges, gift certificates, etc." /></div>
+              <div><label className={fieldLabel}>Physical set up</label><textarea name="setup_needs" defaultValue={event?.setup_needs ?? ""} rows={2} className={fieldInput} placeholder="What do we bring vs. what the host provides (tables, chairs, tents)?" /></div>
+              <div><label className={fieldLabel}>Parking / loading &amp; unloading</label><textarea name="parking_info" defaultValue={event?.parking_info ?? ""} rows={2} className={fieldInput} placeholder="Where staff parks, load-in/load-out instructions" /></div>
+            </div>
+          </fieldset>
 
           {/* Planning & promotion */}
           <fieldset className="rounded-lg border border-slate-200 p-3">
@@ -474,7 +551,12 @@ function AttendeesManager({ eventId, attendees, canEdit, run }: { eventId: strin
 }
 
 // ---------------------------------------------------------------------------
-function SourceDialog({ source, onClose, run }: { source: MarketingEventSource | null; onClose: () => void; run: Run }) {
+function SourceDialog({ source, crmOrgs, canEdit, onClose, run }: { source: MarketingEventSource | null; crmOrgs: CrmOrgRef[]; canEdit: boolean; onClose: () => void; run: Run }) {
+  const [linkTarget, setLinkTarget] = useState("");
+  const linkedOrg = source?.crm_organization_id
+    ? crmOrgs.find((o) => o.id === source.crm_organization_id)
+    : undefined;
+
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -496,6 +578,43 @@ function SourceDialog({ source, onClose, run }: { source: MarketingEventSource |
             <div><label className={fieldLabel}>Membership / cost</label><input name="membership_cost" defaultValue={source?.membership_cost ?? ""} className={fieldInput} /></div>
           </div>
           <div><label className={fieldLabel}>Notes</label><textarea name="notes" defaultValue={source?.notes ?? ""} rows={2} className={fieldInput} /></div>
+
+          {/* Vendor & Partner CRM link */}
+          {source && (
+            <fieldset className="rounded-lg border border-slate-200 p-3">
+              <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Vendor &amp; Partner CRM</legend>
+              {source.crm_organization_id ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm text-slate-600">
+                    Linked to{" "}
+                    <Link href={`/crm/org/${source.crm_organization_id}`} className="font-medium text-emerald-700 hover:underline">
+                      {linkedOrg?.name ?? "CRM record"} ↗
+                    </Link>
+                    <p className="text-xs text-slate-400">Edit all fields on the CRM record.</p>
+                  </div>
+                  {canEdit && (
+                    <button type="button" onClick={() => run(() => linkSourceToCrm(source.id, ""), onClose)} className="text-xs font-medium text-red-600 hover:text-red-700">Unlink</button>
+                  )}
+                </div>
+              ) : canEdit ? (
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500">This source isn&apos;t in the Vendor &amp; Partner CRM yet.</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select value={linkTarget} onChange={(e) => setLinkTarget(e.target.value)} className={fieldInput + " max-w-[16rem]"}>
+                      <option value="">Link to an existing record…</option>
+                      {crmOrgs.map((o) => (<option key={o.id} value={o.id}>{o.name}</option>))}
+                    </select>
+                    <button type="button" disabled={!linkTarget} onClick={() => run(() => linkSourceToCrm(source.id, linkTarget), onClose)} className={btnGhost}>Link</button>
+                    <span className="text-xs text-slate-400">or</span>
+                    <button type="button" onClick={() => run(() => syncSourceToCrm(source.id), onClose)} className={btnPrimary}>Create CRM record</button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Not linked to the CRM.</p>
+              )}
+            </fieldset>
+          )}
+
           <div className="flex items-center justify-between border-t border-slate-100 pt-4">
             <div>
               {source && <button type="button" onClick={() => { if (confirm(`Delete "${source.name}"?`)) run(() => deleteEventSource(source.id), onClose); }} className="text-sm font-medium text-red-600 hover:text-red-700">Delete</button>}

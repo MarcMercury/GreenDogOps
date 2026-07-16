@@ -17,6 +17,7 @@ import {
   type MarketingPromotion,
   type PersonOption,
   type MarketingActivity,
+  type CrmOrgRef,
   type InitiativeLink,
   INITIATIVE_CATEGORIES,
   INITIATIVE_STATUSES,
@@ -199,6 +200,7 @@ export function MarketingDashboard({
   promotions,
   people,
   activity,
+  crmOrgs,
 }: {
   canEdit: boolean;
   isAdmin: boolean;
@@ -214,6 +216,7 @@ export function MarketingDashboard({
   promotions: MarketingPromotion[];
   people: PersonOption[];
   activity: MarketingActivity[];
+  crmOrgs: CrmOrgRef[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("tree");
@@ -288,6 +291,7 @@ export function MarketingDashboard({
           events={events}
           sources={eventSources}
           attendees={eventAttendees}
+          crmOrgs={crmOrgs}
         />
       )}
       {tab === "activity" && (
@@ -519,15 +523,31 @@ function InitiativesTab({
   const [editing, setEditing] = useState<MarketingInitiative | "new" | null>(null);
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
+  const [owner, setOwner] = useState("");
+  const [priority, setPriority] = useState("");
+
+  const owners = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          initiatives
+            .map((i) => i.owner_name?.trim())
+            .filter((o): o is string => !!o),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [initiatives],
+  );
 
   const filtered = useMemo(
     () =>
       initiatives.filter(
         (i) =>
           (!category || i.category === category) &&
-          (!status || i.status === status),
+          (!status || i.status === status) &&
+          (!owner || i.owner_name === owner) &&
+          (!priority || i.priority === priority),
       ),
-    [initiatives, category, status],
+    [initiatives, category, status, owner, priority],
   );
 
   return (
@@ -542,6 +562,18 @@ function InitiativesTab({
         <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${fieldInput} w-auto`}>
           <option value="">All statuses</option>
           {INITIATIVE_STATUSES.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <select value={owner} onChange={(e) => setOwner(e.target.value)} className={`${fieldInput} w-auto`}>
+          <option value="">All owners</option>
+          {owners.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+        <select value={priority} onChange={(e) => setPriority(e.target.value)} className={`${fieldInput} w-auto`}>
+          <option value="">All priorities</option>
+          {PRIORITIES.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>

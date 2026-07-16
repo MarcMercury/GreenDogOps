@@ -61,6 +61,18 @@ export interface MarketingEvent {
   coupons_redeemed: number | null;
   client_spend: number | null;
   feedback: string | null;
+  // 3rd-party event intake details (Event Details template)
+  arrival_time: string | null;
+  departure_time: string | null;
+  venue_type: string | null;
+  event_url: string | null;
+  host_company: string | null;
+  host_website: string | null;
+  expected_foot_traffic: string | null;
+  involvement: string | null;
+  setup_needs: string | null;
+  parking_info: string | null;
+  food_onsite: string | null;
   // Planning / promotion (events-management workflow)
   planning_phase: string | null;
   staff: string | null;
@@ -91,8 +103,18 @@ export interface MarketingEventSource {
   active: boolean;
   notes: string | null;
   sort_order: number;
+  /** Linked Vendor & Partner CRM record (crm_organization.id). */
+  crm_organization_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Minimal CRM organization reference for linking Events Scout sources. */
+export interface CrmOrgRef {
+  id: string;
+  name: string;
+  org_type: string;
+  subtype: string | null;
 }
 
 export interface MarketingEventAttendee {
@@ -281,6 +303,12 @@ export const PLANNING_PHASES: Option[] = [
   { value: "wrapped", label: "Wrapped" },
 ];
 
+export const VENUE_TYPES: Option[] = [
+  { value: "indoor", label: "Indoor" },
+  { value: "outdoor", label: "Outdoor" },
+  { value: "mixed", label: "Indoor + Outdoor" },
+];
+
 export const ATTENDEE_TYPES: Option[] = [
   { value: "new_client", label: "New client" },
   { value: "returning", label: "Returning client" },
@@ -430,6 +458,7 @@ export const planningPhaseLabel = (v: string | null) =>
   labelFor(PLANNING_PHASES, v);
 export const attendeeTypeLabel = (v: string | null) =>
   labelFor(ATTENDEE_TYPES, v);
+export const venueTypeLabel = (v: string | null) => labelFor(VENUE_TYPES, v);
 export const resourceCategoryLabel = (v: string | null) =>
   labelFor(RESOURCE_CATEGORIES, v);
 export const nodeStatusLabel = (v: string | null) => labelFor(NODE_STATUSES, v);

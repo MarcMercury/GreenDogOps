@@ -167,6 +167,18 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
     cost: num(formData.get("cost")),
     staff_needed: str(formData.get("staff_needed")),
     description: str(formData.get("description")),
+    // 3rd-party event intake details (Event Details template)
+    arrival_time: str(formData.get("arrival_time")),
+    departure_time: str(formData.get("departure_time")),
+    venue_type: str(formData.get("venue_type")),
+    event_url: str(formData.get("event_url")),
+    host_company: str(formData.get("host_company")),
+    host_website: str(formData.get("host_website")),
+    expected_foot_traffic: str(formData.get("expected_foot_traffic")),
+    involvement: str(formData.get("involvement")),
+    setup_needs: str(formData.get("setup_needs")),
+    parking_info: str(formData.get("parking_info")),
+    food_onsite: str(formData.get("food_onsite")),
     attendees: int(formData.get("attendees")),
     signups: int(formData.get("signups")),
     appointments: int(formData.get("appointments")),
@@ -276,6 +288,198 @@ export async function createEventFromSource(
   });
   if (error) return { ok: false, error: error.message };
   return done("Event created from source.");
+}
+
+// ---------------------------------------------------------------------------
+// Events Scout ↔ Vendor & Partner CRM linking
+// ---------------------------------------------------------------------------
+// Every Events Scout source (chamber / association / listing / venue) is a
+// business partner that belongs in the Vendor & Partner CRM (crm_organization).
+// These actions keep the two in sync: link a source to an existing CRM record
+// when the names match, otherwise create a marketing_partner record carrying
+// over all applicable info. The full record is then editable on the CRM page.
+type SourceRow = {
+  id: string;
+  name: string;
+  url: string | null;
+  region: string | null;
+  membership_cost: string | null;
+  notes: string | null;
+  crm_organization_id: string | null;
+};
+
+/** Map an Events Scout source to a crm_organization insert/patch. */
+function sourceToOrgPatch(source: SourceRow) {
+  const notes = [
+    source.notes,
+    source.membership_cost ? `Membership / cost: ${source.membership_cost}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return {
+    name: source.name,
+    website: source.url,
+    area: source.region,
+    notes: notes || null,
+  };
+}
+
+/** Case-insensitive, trimmed name key for matching sources to CRM records. */
+function nameKey(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase();
+}
+
+/**
+ * Ensure a single source is represented in the Vendor & Partner CRM: reuse a
+ * name-matched organization if one exists, otherwise create a marketing_partner
+ * record. Returns the linked organization id.
+ */
+export async function syncSourceToCrm(sourceId: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+
+  const { data: sourceData, error: readErr } = await supabase
+    .from("marketing_event_source")
+    .select("id, name, url, region, membership_cost, notes, crm_organization_id")
+    .eq("id", sourceId)
+    .maybeSingle();
+  if (readErr) return { ok: false, error: readErr.message };
+  if (!sourceData) return { ok: false, error: "Source not found." };
+  const source = sourceData as SourceRow;
+  if (source.crm_organization_id) return done("Already linked to the CRM.");
+
+  // Try to reuse an existing non-rescue vendor/partner record by name.
+  const { data: orgs, error: orgErr } = await supabase
+    .from("crm_organization")
+    .select("id, name, org_type, subtype")
+    .in("org_type", [
+      "marketing_partner",
+      "facility_resource",
+      "med_ops",
+      "office_marketing",
+    ]);
+  if (orgErr) return { ok: false, error: orgErr.message };
+
+  const key = nameKey(source.name);
+  const match = (orgs ?? []).find(
+    (o) =>
+      nameKey((o as { name: string }).name) === key &&
+      nameKey((o as { subtype: string | null }).subtype) !== "rescue",
+  ) as { id: string } | undefined;
+
+  let orgId: string;
+  let created = false;
+  if (match) {
+    orgId = match.id;
+  } else {
+    const { data: inserted, error: insErr } = await supabase
+      .from("crm_organization")
+      .insert({
+        ...sourceToOrgPatch(source),
+        org_type: "marketing_partner",
+        status: "active",
+        is_active: true,
+        source: "events_scout",
+      })
+      .select("id")
+      .single();
+    if (insErr) return { ok: false, error: insErr.message };
+    orgId = (inserted as { id: string }).id;
+    created = true;
+  }
+
+  const { error: linkErr } = await supabase
+    .from("marketing_event_source")
+    .update({ crm_organization_id: orgId })
+    .eq("id", sourceId);
+  if (linkErr) return { ok: false, error: linkErr.message };
+
+  revalidatePath("/crm", "layout");
+  return done(
+    created ? "Created & linked CRM record." : "Linked to existing CRM record.",
+  );
+}
+
+/** Sync every unlinked source into the Vendor & Partner CRM in one pass. */
+export async function syncAllSourcesToCrm(): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+
+  const { data: sourceData, error: readErr } = await supabase
+    .from("marketing_event_source")
+    .select("id, name, url, region, membership_cost, notes, crm_organization_id");
+  if (readErr) return { ok: false, error: readErr.message };
+  const sources = (sourceData ?? []) as SourceRow[];
+  const unlinked = sources.filter((s) => !s.crm_organization_id);
+  if (unlinked.length === 0) return done("All sources are already linked.");
+
+  const { data: orgData, error: orgErr } = await supabase
+    .from("crm_organization")
+    .select("id, name, org_type, subtype")
+    .in("org_type", [
+      "marketing_partner",
+      "facility_resource",
+      "med_ops",
+      "office_marketing",
+    ]);
+  if (orgErr) return { ok: false, error: orgErr.message };
+  const orgByName = new Map<string, string>();
+  for (const o of orgData ?? []) {
+    const org = o as { id: string; name: string; subtype: string | null };
+    if (nameKey(org.subtype) === "rescue") continue;
+    orgByName.set(nameKey(org.name), org.id);
+  }
+
+  let linked = 0;
+  let createdCount = 0;
+  for (const source of unlinked) {
+    let orgId = orgByName.get(nameKey(source.name));
+    if (!orgId) {
+      const { data: inserted, error: insErr } = await supabase
+        .from("crm_organization")
+        .insert({
+          ...sourceToOrgPatch(source),
+          org_type: "marketing_partner",
+          status: "active",
+          is_active: true,
+          source: "events_scout",
+        })
+        .select("id")
+        .single();
+      if (insErr) return { ok: false, error: insErr.message };
+      orgId = (inserted as { id: string }).id;
+      orgByName.set(nameKey(source.name), orgId);
+      createdCount += 1;
+    } else {
+      linked += 1;
+    }
+    const { error: linkErr } = await supabase
+      .from("marketing_event_source")
+      .update({ crm_organization_id: orgId })
+      .eq("id", source.id);
+    if (linkErr) return { ok: false, error: linkErr.message };
+  }
+
+  revalidatePath("/crm", "layout");
+  return done(
+    `Synced ${unlinked.length} source(s): ${createdCount} created, ${linked} linked.`,
+  );
+}
+
+/** Manually link a source to a specific existing CRM organization. */
+export async function linkSourceToCrm(
+  sourceId: string,
+  orgId: string,
+): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_event_source")
+    .update({ crm_organization_id: orgId || null })
+    .eq("id", sourceId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm", "layout");
+  return done(orgId ? "Linked to CRM record." : "Unlinked from CRM.");
 }
 
 export async function saveAttendee(formData: FormData): Promise<ActionResult> {
