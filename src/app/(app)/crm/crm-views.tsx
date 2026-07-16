@@ -492,24 +492,19 @@ export function ContactListView({
             className: "max-w-[9rem] truncate",
           },
           {
-            key: "email",
-            header: "Email",
-            value: (c) => c.email,
-            className: "max-w-[10rem] truncate",
-          },
-          {
             key: "school",
             header: "School / Org",
             value: (c) => c.school ?? c.organization,
-            className: "max-w-[9rem] truncate",
+            className: "max-w-[8rem] truncate",
           },
           { key: "program", header: "Program", value: (c) => programLabel(c),
-            className: "whitespace-nowrap",
+            className: "max-w-[9rem]",
             render: (c) => {
               const label = programLabel(c);
               return label ? (
                 <span
-                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${programNameColor(
+                  title={label}
+                  className={`inline-flex max-w-full items-center truncate rounded-full px-2 py-0.5 text-xs font-medium ${programNameColor(
                     c.program_name ?? label,
                   )}`}
                 >
@@ -524,7 +519,7 @@ export function ContactListView({
             key: "program_subcategory",
             header: "Sub Category",
             value: (c) => c.program_subcategory,
-            className: "max-w-[8rem] truncate",
+            className: "max-w-[7rem] truncate",
           },
           {
             key: "start_date",
@@ -537,7 +532,7 @@ export function ContactListView({
             className: "whitespace-nowrap",
           },
           { key: "dvm", header: "DVM", value: (c) => c.supervising_dvm,
-            className: "max-w-[8rem] truncate",
+            className: "max-w-[6rem] truncate",
           },
           {
             key: "recommendation",
@@ -671,6 +666,7 @@ export function ContactListView({
         rows={contacts}
         columns={columns}
         filters={filters}
+        dense={variant === "student"}
         searchPlaceholder="Search by name, email, phone…"
         searchExtra={(c) => [
           c.phone,

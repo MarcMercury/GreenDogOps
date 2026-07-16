@@ -505,6 +505,7 @@ export function DataTable<T extends { id: string }>({
   emptyLabel = "No records match your search.",
   initialActive,
   stickyScroll = false,
+  dense = false,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -523,6 +524,8 @@ export function DataTable<T extends { id: string }>({
    * Intended for very wide grids (e.g. the HR Roster detailed view).
    */
   stickyScroll?: boolean;
+  /** Tighter horizontal cell padding so more columns fit without scrolling. */
+  dense?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -645,7 +648,7 @@ export function DataTable<T extends { id: string }>({
               <th
                 key={col.key}
                 onClick={() => toggleSort(col)}
-                className={`px-4 py-3 ${
+                className={`${dense ? "px-2.5 py-3" : "px-4 py-3"} ${
                   sortable ? "cursor-pointer select-none hover:text-slate-700" : ""
                 } ${
                   col.sticky
@@ -674,7 +677,7 @@ export function DataTable<T extends { id: string }>({
             {columns.map((col) => (
               <td
                 key={col.key}
-                className={`px-4 py-2.5 text-slate-700 ${
+                className={`${dense ? "px-2.5 py-2.5" : "px-4 py-2.5"} text-slate-700 ${
                   col.sticky
                     ? "sticky left-0 z-10 bg-white group-hover:bg-emerald-50 border-r border-slate-200"
                     : ""
