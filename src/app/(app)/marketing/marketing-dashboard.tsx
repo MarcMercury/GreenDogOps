@@ -558,9 +558,9 @@ function InitiativesTab({
       {filtered.length === 0 ? (
         <EmptyRow label="No initiatives match." />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-2.5 font-semibold">Initiative</th>
                 <th className="px-4 py-2.5 font-semibold">Owner</th>
@@ -812,9 +812,9 @@ function BudgetTab({
       {yearEntries.length === 0 ? (
         <EmptyRow label="No spend entries yet." />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-2.5 font-semibold">Date</th>
                 <th className="px-4 py-2.5 font-semibold">Business</th>
@@ -1099,9 +1099,9 @@ function ResourcesTab({
       {filtered.length === 0 ? (
         <EmptyRow label="No resources match." />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("name")}>Name{sortArrow("name")}</th>
                 <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("category")}>Category{sortArrow("category")}</th>
@@ -1135,7 +1135,27 @@ function ResourcesTab({
                       </a>
                     ) : "—"}
                   </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-400">{r.credential_note ? `🔐 ${r.credential_note}` : "—"}</td>
+                  <td className="px-4 py-2.5 text-slate-600">
+                    {r.username || r.password || r.credential_note ? (
+                      <div className="space-y-0.5 text-xs">
+                        {r.username && (
+                          <div>
+                            <span className="text-slate-400">User: </span>
+                            <span className="font-mono text-slate-700">{r.username}</span>
+                          </div>
+                        )}
+                        {r.password && (
+                          <div>
+                            <span className="text-slate-400">Pass: </span>
+                            <span className="font-mono text-slate-700">{r.password}</span>
+                          </div>
+                        )}
+                        {r.credential_note && <div className="text-slate-400">{r.credential_note}</div>}
+                      </div>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1195,8 +1215,18 @@ function ResourceDialog({
             <input name="owner_name" defaultValue={resource?.owner_name ?? ""} className={fieldInput} />
           </div>
           <div>
-            <label className={fieldLabel}>Credential note (no passwords)</label>
-            <input name="credential_note" defaultValue={resource?.credential_note ?? ""} placeholder="e.g. Login in Credentials Vault" className={fieldInput} />
+            <label className={fieldLabel}>Credential note</label>
+            <input name="credential_note" defaultValue={resource?.credential_note ?? ""} placeholder="e.g. shared team login" className={fieldInput} />
+          </div>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className={fieldLabel}>Username</label>
+            <input name="username" defaultValue={resource?.username ?? ""} autoComplete="off" className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Password</label>
+            <input name="password" defaultValue={resource?.password ?? ""} autoComplete="off" className={fieldInput} />
           </div>
         </div>
         <DialogFooter
@@ -1276,9 +1306,9 @@ function PromotionsTab({
       {filtered.length === 0 ? (
         <EmptyRow label="No promotions match." />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-2.5 font-semibold">Promotion</th>
                 <th className="px-4 py-2.5 font-semibold">Placement</th>

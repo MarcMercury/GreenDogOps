@@ -378,6 +378,8 @@ export async function saveResource(formData: FormData): Promise<ActionResult> {
     url: str(formData.get("url")),
     description: str(formData.get("description")),
     owner_name: str(formData.get("owner_name")),
+    username: str(formData.get("username")),
+    password: str(formData.get("password")),
     credential_note: str(formData.get("credential_note")),
   };
   const { error } = id

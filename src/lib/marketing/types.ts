@@ -162,6 +162,8 @@ export interface MarketingResource {
   url: string | null;
   description: string | null;
   owner_name: string | null;
+  username: string | null;
+  password: string | null;
   credential_note: string | null;
   sort_order: number;
   created_at: string;
