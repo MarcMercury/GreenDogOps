@@ -23,6 +23,8 @@ import {
   setTreeNodeStatus,
   deleteTreeNode,
   markNodeHandled,
+  searchCrmRecords,
+  type CrmRecordHit,
   type ActionResult,
 } from "./actions";
 
@@ -1076,6 +1078,26 @@ function NodeDialog({
     setLinks([...links, { label: d.label, url: d.url }]);
   };
 
+  // CRM record search (link a node straight to a specific vendor/rescue/etc.).
+  const [recordQuery, setRecordQuery] = useState("");
+  const [recordHits, setRecordHits] = useState<CrmRecordHit[]>([]);
+  const [recordSearching, setRecordSearching] = useState(false);
+  async function runRecordSearch() {
+    if (recordQuery.trim().length < 2) return;
+    setRecordSearching(true);
+    try {
+      setRecordHits(await searchCrmRecords(recordQuery));
+    } finally {
+      setRecordSearching(false);
+    }
+  }
+  const addRecord = (hit: CrmRecordHit) => {
+    if (linkedUrls.includes(hit.url)) return;
+    setLinks([...links, { label: hit.label, url: hit.url }]);
+    setRecordHits([]);
+    setRecordQuery("");
+  };
+
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -1212,6 +1234,52 @@ function NodeDialog({
                 </option>
               ))}
             </select>
+
+            {/* Link a specific CRM record */}
+            <div className="mt-3">
+              <p className="mb-1 text-[11px] text-emerald-700/80">Or link a specific CRM record (vendor, rescue, partner, influencer):</p>
+              <div className="flex gap-2">
+                <input
+                  value={recordQuery}
+                  onChange={(e) => setRecordQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      void runRecordSearch();
+                    }
+                  }}
+                  placeholder="Search e.g. Sherman Oaks Chamber…"
+                  className={fieldInput}
+                />
+                <button
+                  type="button"
+                  onClick={() => void runRecordSearch()}
+                  disabled={recordSearching || recordQuery.trim().length < 2}
+                  className={`${btnGhost} shrink-0`}
+                >
+                  {recordSearching ? "…" : "Search"}
+                </button>
+              </div>
+              {recordHits.length > 0 && (
+                <ul className="mt-2 max-h-44 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                  {recordHits.map((h) => (
+                    <li key={h.url}>
+                      <button
+                        type="button"
+                        onClick={() => addRecord(h)}
+                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-emerald-50"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium text-slate-800">{h.label}</span>
+                          {h.sub && <span className="block truncate text-xs capitalize text-slate-400">{h.sub}</span>}
+                        </span>
+                        <span className="shrink-0 text-emerald-600">+ Add</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
 
           <div>

@@ -540,3 +540,51 @@ export async function deleteTreeNode(id: string): Promise<ActionResult> {
   if (error) return { ok: false, error: error.message };
   return done("Node deleted.");
 }
+
+// ---------------------------------------------------------------------------
+// CRM record search — powers the node "link a specific record" picker.
+// ---------------------------------------------------------------------------
+export interface CrmRecordHit {
+  label: string;
+  sub: string | null;
+  url: string;
+}
+
+export async function searchCrmRecords(query: string): Promise<CrmRecordHit[]> {
+  await requireMarketingEditor();
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const supabase = await createClient();
+  const like = `%${q}%`;
+  const hits: CrmRecordHit[] = [];
+
+  const [orgs, influencers] = await Promise.all([
+    supabase
+      .from("crm_organization")
+      .select("id, name, org_type, subtype")
+      .ilike("name", like)
+      .order("name", { ascending: true })
+      .limit(12),
+    supabase
+      .from("crm_influencer")
+      .select("id, contact_name, pet_name, instagram_handle")
+      .or(`contact_name.ilike.${like},pet_name.ilike.${like},instagram_handle.ilike.${like}`)
+      .limit(8),
+  ]);
+
+  for (const o of (orgs.data ?? []) as Array<{ id: string; name: string; org_type: string | null; subtype: string | null }>) {
+    hits.push({
+      label: o.name,
+      sub: (o.subtype || o.org_type || "Organization").replace(/_/g, " "),
+      url: `/crm/org/${o.id}`,
+    });
+  }
+  for (const i of (influencers.data ?? []) as Array<{ id: string; contact_name: string | null; pet_name: string | null; instagram_handle: string | null }>) {
+    hits.push({
+      label: i.contact_name || i.pet_name || i.instagram_handle || "Influencer",
+      sub: [i.pet_name, i.instagram_handle].filter(Boolean).join(" · ") || "Influencer",
+      url: `/crm/influencer/${i.id}`,
+    });
+  }
+  return hits;
+}
