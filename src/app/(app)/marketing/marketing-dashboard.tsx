@@ -29,7 +29,6 @@ import {
   initiativeCategoryLabel,
   initiativeStatusLabel,
   priorityLabel,
-  eventStatusLabel,
   resourceCategoryLabel,
   promoStatusLabel,
   promoTypeLabel,
@@ -1030,51 +1029,117 @@ function ResourcesTab({
   run: Run;
 }) {
   const [editing, setEditing] = useState<MarketingResource | "new" | null>(null);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [sortKey, setSortKey] = useState<"name" | "category" | "owner">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: "name" | "category" | "owner") {
+    if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir("asc");
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const val = (r: MarketingResource): string => {
+      if (sortKey === "category") return resourceCategoryLabel(r.category).toLowerCase();
+      if (sortKey === "owner") return (r.owner_name ?? "").toLowerCase();
+      return r.name.toLowerCase();
+    };
+    return resources
+      .filter((r) => {
+        if (category && r.category !== category) return false;
+        if (!q) return true;
+        return `${r.name} ${r.description ?? ""} ${r.owner_name ?? ""} ${r.url ?? ""}`
+          .toLowerCase()
+          .includes(q);
+      })
+      .sort((a, b) => {
+        const cmp = val(a).localeCompare(val(b));
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+  }, [resources, query, category, sortKey, sortDir]);
+
+  const cats = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of resources) m.set(r.category, (m.get(r.category) ?? 0) + 1);
+    return m;
+  }, [resources]);
+
+  const sortArrow = (k: string) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+
   return (
     <section className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">
-          Shared tools, portals & partner links. Passwords live in the credentials
-          vault — never here.
-        </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search resources…"
+          className={`${fieldInput} w-64`}
+        />
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${fieldInput} w-auto`}>
+          <option value="">All categories</option>
+          {RESOURCE_CATEGORIES.filter((c) => cats.has(c.value)).map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label} ({cats.get(c.value)})
+            </option>
+          ))}
+        </select>
+        <span className="text-sm text-slate-400">{filtered.length} shown</span>
         {canEdit && (
-          <button type="button" className={btnPrimary} onClick={() => setEditing("new")}>
+          <button type="button" className={`${btnPrimary} ml-auto`} onClick={() => setEditing("new")}>
             + Resource
           </button>
         )}
       </div>
-      {resources.length === 0 ? (
-        <EmptyRow label="No resources yet." />
+
+      {filtered.length === 0 ? (
+        <EmptyRow label="No resources match." />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {resources.map((r) => (
-            <div
-              key={r.id}
-              className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition ${canEdit ? "cursor-pointer hover:border-emerald-300 hover:shadow" : ""}`}
-              onClick={() => canEdit && setEditing(r)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-semibold text-slate-900">{r.name}</p>
-                <Badge>{resourceCategoryLabel(r.category)}</Badge>
-              </div>
-              {r.description && <p className="mt-1 text-xs text-slate-500">{r.description}</p>}
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                {r.url && (
-                  <a
-                    href={r.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="font-medium text-emerald-700 hover:text-emerald-800"
-                  >
-                    Open ↗
-                  </a>
-                )}
-                {r.credential_note && <span className="text-slate-400">🔐 {r.credential_note}</span>}
-                {r.owner_name && <span className="text-slate-400">👤 {r.owner_name}</span>}
-              </div>
-            </div>
-          ))}
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("name")}>Name{sortArrow("name")}</th>
+                <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("category")}>Category{sortArrow("category")}</th>
+                <th className="px-4 py-2.5 font-semibold">Description</th>
+                <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("owner")}>Owner{sortArrow("owner")}</th>
+                <th className="px-4 py-2.5 font-semibold">Link</th>
+                <th className="px-4 py-2.5 font-semibold">Login</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map((r) => (
+                <tr
+                  key={r.id}
+                  className="cursor-pointer align-top transition hover:bg-slate-50"
+                  onClick={() => canEdit && setEditing(r)}
+                >
+                  <td className="px-4 py-2.5 font-medium text-slate-900">{r.name}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5"><Badge>{resourceCategoryLabel(r.category)}</Badge></td>
+                  <td className="px-4 py-2.5 text-slate-500">{r.description ?? "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{r.owner_name ?? "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    {r.url ? (
+                      <a
+                        href={r.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-medium text-emerald-700 hover:text-emerald-800"
+                      >
+                        Open ↗
+                      </a>
+                    ) : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-400">{r.credential_note ? `🔐 ${r.credential_note}` : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
       {editing && (

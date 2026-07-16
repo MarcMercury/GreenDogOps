@@ -91,6 +91,7 @@ export function EventsTab({
   const [editing, setEditing] = useState<MarketingEvent | "new" | null>(null);
   const [editingSource, setEditingSource] = useState<MarketingEventSource | "new" | null>(null);
   const [showSources, setShowSources] = useState(true);
+  const [view, setView] = useState<"all" | "upcoming" | "past">("all");
 
   function notify(msg: string) {
     setToast(msg);
@@ -198,32 +199,74 @@ export function EventsTab({
         )}
       </div>
 
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">Scout a source → create an event → plan, promote & staff it → recap the results.</p>
-        {canEdit && <button type="button" className={btnPrimary} onClick={() => setEditing("new")}>+ Event</button>}
-      </div>
-
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">Upcoming & planning</h3>
-        {upcoming.length === 0 ? <Empty label="No upcoming events." /> : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {upcoming.map((e) => (
-              <EventCard key={e.id} event={e} attendeeCount={(attendeesByEvent.get(e.id) ?? []).length} canEdit={canEdit} onEdit={() => setEditing(e)} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">Scout a source → create an event → plan, promote &amp; staff it → recap the results.</p>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+            {(["all", "upcoming", "past"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setView(v)}
+                className={`px-3 py-1.5 text-xs font-medium capitalize transition ${view === v ? "bg-emerald-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+              >
+                {v}
+              </button>
             ))}
           </div>
-        )}
+          {canEdit && <button type="button" className={btnPrimary} onClick={() => setEditing("new")}>+ Event</button>}
+        </div>
       </div>
 
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">Past events & recaps</h3>
-        {past.length === 0 ? <Empty label="No past events yet." /> : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {past.map((e) => (
-              <EventCard key={e.id} event={e} attendeeCount={(attendeesByEvent.get(e.id) ?? []).length} canEdit={canEdit} onEdit={() => setEditing(e)} recap />
-            ))}
+      {(() => {
+        const rows = view === "upcoming" ? upcoming : view === "past" ? past : [...upcoming, ...past];
+        if (rows.length === 0) return <Empty label="No events." />;
+        return (
+          <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
+            <table className="w-full border-collapse text-sm">
+              <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="sticky left-0 z-30 bg-slate-50 px-4 py-2.5 font-semibold">Event</th>
+                  <th className="px-4 py-2.5 font-semibold">Date</th>
+                  <th className="px-4 py-2.5 font-semibold">Type</th>
+                  <th className="px-4 py-2.5 font-semibold">Status</th>
+                  <th className="px-4 py-2.5 font-semibold">Planning</th>
+                  <th className="px-4 py-2.5 font-semibold">Owner</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Cost</th>
+                  <th className="px-4 py-2.5 text-right font-semibold">Attendees</th>
+                  <th className="px-4 py-2.5 font-semibold">Checklist</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rows.map((e) => {
+                  const att = (attendeesByEvent.get(e.id) ?? []).length;
+                  const cd = e.checklist?.filter((c) => c.done).length ?? 0;
+                  const ct = e.checklist?.length ?? 0;
+                  return (
+                    <tr
+                      key={e.id}
+                      className="group cursor-pointer transition hover:bg-emerald-50/40"
+                      onClick={() => canEdit && setEditing(e)}
+                    >
+                      <td className="sticky left-0 z-10 bg-white px-4 py-2.5 font-medium text-slate-900 group-hover:bg-emerald-50/40">
+                        {e.name}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{fmtDate(e.starts_on)}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5"><Badge>{eventTypeLabel(e.event_type)}</Badge></td>
+                      <td className="whitespace-nowrap px-4 py-2.5"><Badge className={STATUS_COLORS[e.status]}>{eventStatusLabel(e.status)}</Badge></td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{e.planning_phase ? planningPhaseLabel(e.planning_phase) : "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{e.owner_name ?? "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">{e.cost != null ? fmtMoney(e.cost) : "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">{fmtNum(e.attendees ?? (att || null))}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-500">{ct > 0 ? `${cd}/${ct}` : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {editing && (
         <EventDialog
@@ -248,54 +291,6 @@ export function EventsTab({
 
 function Empty({ label }: { label: string }) {
   return <p className="rounded-xl border border-dashed border-slate-200 bg-white/60 px-4 py-8 text-center text-sm text-slate-400">{label}</p>;
-}
-
-function EventCard({ event, attendeeCount, canEdit, onEdit, recap }: { event: MarketingEvent; attendeeCount: number; canEdit: boolean; onEdit: () => void; recap?: boolean }) {
-  const checklistDone = event.checklist?.filter((c) => c.done).length ?? 0;
-  const checklistTotal = event.checklist?.length ?? 0;
-  return (
-    <div className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition ${canEdit ? "cursor-pointer hover:border-emerald-300 hover:shadow" : ""}`} onClick={() => canEdit && onEdit()}>
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="font-semibold text-slate-900">{event.name}</p>
-          <p className="mt-0.5 text-xs text-slate-500">{[fmtDate(event.starts_on), event.location, event.clinic_served].filter(Boolean).join(" · ")}</p>
-        </div>
-        <Badge className={STATUS_COLORS[event.status]}>{eventStatusLabel(event.status)}</Badge>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <Badge>{eventTypeLabel(event.event_type)}</Badge>
-        {event.planning_phase && <Badge className="bg-violet-50 text-violet-700">{planningPhaseLabel(event.planning_phase)}</Badge>}
-        {event.owner_name && <span className="text-xs text-slate-500">👤 {event.owner_name}</span>}
-        {event.cost != null && <span className="text-xs text-slate-500">💲 {fmtMoney(event.cost)}</span>}
-      </div>
-      {!recap && checklistTotal > 0 && (
-        <div className="mt-2">
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.round((checklistDone / checklistTotal) * 100)}%` }} />
-          </div>
-          <p className="mt-1 text-[11px] text-slate-400">Checklist {checklistDone}/{checklistTotal} · {attendeeCount} attendee(s)</p>
-        </div>
-      )}
-      {recap && (event.attendees != null || event.signups != null || event.appointments != null || event.client_spend != null || attendeeCount > 0) && (
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2.5 text-center sm:grid-cols-4">
-          <Metric label="Attendees" value={fmtNum(event.attendees)} />
-          <Metric label="Sign-ups" value={event.signups != null ? fmtNum(event.signups) : fmtNum(attendeeCount || null)} />
-          <Metric label="Appts" value={fmtNum(event.appointments)} />
-          <Metric label="Client $" value={fmtMoney(event.client_spend)} />
-        </div>
-      )}
-      {event.feedback && <p className="mt-2 line-clamp-2 text-xs text-slate-500">{event.feedback}</p>}
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-sm font-bold text-slate-900">{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
-    </div>
-  );
 }
 
 function OptionsSelect({ name, defaultValue, options, placeholder }: { name: string; defaultValue?: string; options: { value: string; label: string }[]; placeholder?: string }) {

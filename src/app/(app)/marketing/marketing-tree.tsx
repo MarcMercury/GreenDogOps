@@ -82,6 +82,14 @@ function truncate(s: string, max: number): string {
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
 
+/** Staleness of a node from its last-handled timestamp (module-level: pure use of Date.now). */
+function staleInfo(iso: string | null): { stale: boolean; veryStale: boolean } {
+  const d = iso
+    ? Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+    : null;
+  return { stale: d == null || d > 30, veryStale: d == null || d > 60 };
+}
+
 interface Positioned {
   node: MarketingTreeNode;
   x: number;
@@ -683,11 +691,7 @@ function TreeNodeShape({
   const attn = node.status === "needs_attention";
   // Staleness: how long since the node was last "handled". Drives a subtle tint
   // so nodes that haven't been touched in a while stand out as needing a check.
-  const handledDays = node.last_handled_at
-    ? Math.floor((Date.now() - new Date(node.last_handled_at).getTime()) / 86_400_000)
-    : null;
-  const stale = handledDays == null || handledDays > 30;
-  const veryStale = handledDays == null || handledDays > 60;
+  const { stale, veryStale } = staleInfo(node.last_handled_at);
   return (
     <g
       transform={`translate(${x - w / 2}, ${y - style.h / 2})`}
