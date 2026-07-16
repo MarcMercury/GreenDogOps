@@ -51,6 +51,7 @@ import {
   deletePromotion,
   type ActionResult,
 } from "./actions";
+import { useTableSort, SortHeader } from "../_components/data-views";
 
 // ---------------------------------------------------------------------------
 // Shared styles + helpers
@@ -550,6 +551,15 @@ function InitiativesTab({
     [initiatives, category, status, owner, priority],
   );
 
+  const iSort = useTableSort(filtered, {
+    initiative: (i) => i.title,
+    owner: (i) => i.owner_name,
+    partner: (i) => i.partner_name,
+    nextAction: (i) => i.next_action,
+    due: (i) => i.due_date,
+    status: (i) => i.status,
+  });
+
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -594,16 +604,16 @@ function InitiativesTab({
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-2.5 font-semibold">Initiative</th>
-                <th className="px-4 py-2.5 font-semibold">Owner</th>
-                <th className="px-4 py-2.5 font-semibold">3rd party</th>
-                <th className="px-4 py-2.5 font-semibold">Next action</th>
-                <th className="px-4 py-2.5 font-semibold">Due</th>
-                <th className="px-4 py-2.5 font-semibold">Status</th>
+                <SortHeader label="Initiative" sortKey="initiative" sort={iSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Owner" sortKey="owner" sort={iSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="3rd party" sortKey="partner" sort={iSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Next action" sortKey="nextAction" sort={iSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Due" sortKey="due" sort={iSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Status" sortKey="status" sort={iSort} className="px-4 py-2.5 font-semibold" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map((i) => (
+              {iSort.sorted.map((i) => (
                 <tr
                   key={i.id}
                   className="cursor-pointer transition hover:bg-slate-50"
@@ -790,6 +800,15 @@ function BudgetTab({
   const pct = budget > 0 ? Math.min(100, Math.round((spent / budget) * 100)) : null;
   const awaitingReceipt = yearEntries.filter((e) => !e.receipt_submitted).length;
 
+  const bSort = useTableSort(yearEntries, {
+    date: (e) => e.entry_date,
+    business: (e) => e.business,
+    description: (e) => e.description,
+    category: (e) => e.category,
+    amount: (e) => e.amount,
+    receipt: (e) => (e.receipt_submitted ? 1 : 0),
+  });
+
   return (
     <section className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-3">
@@ -848,16 +867,16 @@ function BudgetTab({
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-2.5 font-semibold">Date</th>
-                <th className="px-4 py-2.5 font-semibold">Business</th>
-                <th className="px-4 py-2.5 font-semibold">Description</th>
-                <th className="px-4 py-2.5 font-semibold">Category</th>
-                <th className="px-4 py-2.5 text-right font-semibold">Amount</th>
-                <th className="px-4 py-2.5 font-semibold">Receipt</th>
+                <SortHeader label="Date" sortKey="date" sort={bSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Business" sortKey="business" sort={bSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Description" sortKey="description" sort={bSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Category" sortKey="category" sort={bSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Amount" sortKey="amount" sort={bSort} align="right" className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Receipt" sortKey="receipt" sort={bSort} className="px-4 py-2.5 font-semibold" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {yearEntries.map((e) => (
+              {bSort.sorted.map((e) => (
                 <tr
                   key={e.id}
                   className="cursor-pointer transition hover:bg-slate-50"
@@ -1307,6 +1326,15 @@ function PromotionsTab({
     [promotions, status, type],
   );
 
+  const pSort = useTableSort(filtered, {
+    promotion: (p) => p.name,
+    placement: (p) => p.placement,
+    discount: (p) => p.discount_text,
+    code: (p) => p.product_code,
+    duration: (p) => p.duration_text,
+    status: (p) => p.status,
+  });
+
   const counts = useMemo(() => {
     const m = { active: 0, upcoming: 0, expired: 0 } as Record<string, number>;
     for (const p of promotions) m[p.status] = (m[p.status] ?? 0) + 1;
@@ -1347,16 +1375,16 @@ function PromotionsTab({
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-2.5 font-semibold">Promotion</th>
-                <th className="px-4 py-2.5 font-semibold">Placement</th>
-                <th className="px-4 py-2.5 font-semibold">Discount</th>
-                <th className="px-4 py-2.5 font-semibold">Code</th>
-                <th className="px-4 py-2.5 font-semibold">Duration</th>
-                <th className="px-4 py-2.5 font-semibold">Status</th>
+                <SortHeader label="Promotion" sortKey="promotion" sort={pSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Placement" sortKey="placement" sort={pSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Discount" sortKey="discount" sort={pSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Code" sortKey="code" sort={pSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Duration" sortKey="duration" sort={pSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Status" sortKey="status" sort={pSort} className="px-4 py-2.5 font-semibold" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filtered.map((p) => (
+              {pSort.sorted.map((p) => (
                 <tr
                   key={p.id}
                   className="cursor-pointer align-top transition hover:bg-slate-50"

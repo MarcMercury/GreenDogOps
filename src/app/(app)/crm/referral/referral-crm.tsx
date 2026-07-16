@@ -506,8 +506,9 @@ function PartnerTable({
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
       {/* Desktop */}
-      <table className="hidden w-full text-sm sm:table">
-        <thead>
+      <div className="hidden max-h-[70vh] overflow-auto sm:block">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_rgb(226_232_240)]">
           <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             {renderTh("Partner", { sortKeyName: "partner", wide: true })}
             {renderTh("Priority", { sortKeyName: "priority" })}
@@ -576,6 +577,7 @@ function PartnerTable({
           ))}
         </tbody>
       </table>
+      </div>
 
       {/* Mobile cards */}
       <div className="divide-y divide-slate-100 sm:hidden">

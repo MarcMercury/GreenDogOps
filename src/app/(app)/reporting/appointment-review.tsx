@@ -4,6 +4,7 @@ import { Fragment, useState, useTransition } from "react";
 import type { AppointmentReviewRow } from "@/lib/reporting/types";
 import { getAppointmentReview } from "./actions";
 import { StatCard, SectionCard, fmtNumber, fmtDate } from "./charts";
+import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 
 /** Local date (browser tz) N days ago as ISO YYYY-MM-DD. */
 function isoDaysAgo(n: number): string {
@@ -227,30 +228,31 @@ export function AppointmentReview() {
 function LocationTable({ loc }: { loc: LocationAgg }) {
   const [open, setOpen] = useState<string | null>(null);
 
+  const sort = useTableSort(loc.depts, {
+    department: (d) => d.department_name,
+    booked: (d) => d.booked,
+    rendered: (d) => d.rendered,
+    dropped: (d) => d.dropped,
+    dropPct: (d) => {
+      const resolved = d.rendered + d.dropped;
+      return resolved > 0 ? d.dropped / resolved : 0;
+    },
+  });
+
   return (
-    <div className="overflow-x-auto">
+    <div className="max-h-[70vh] overflow-auto">
       <table className="w-full min-w-[520px] border-collapse text-sm">
-        <thead>
+        <thead className={stickyHeadClass}>
           <tr className="border-b border-slate-200 text-left">
-            <th className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Department
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Booked
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Rendered
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Cancelled/Moved
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Drop %
-            </th>
+            <SortHeader label="Department" sortKey="department" sort={sort} className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400" />
+            <SortHeader label="Booked" sortKey="booked" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+            <SortHeader label="Rendered" sortKey="rendered" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+            <SortHeader label="Cancelled/Moved" sortKey="dropped" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+            <SortHeader label="Drop %" sortKey="dropPct" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
           </tr>
         </thead>
         <tbody>
-          {loc.depts.map((d) => {
+          {sort.sorted.map((d) => {
             const isOpen = open === d.department_id;
             const resolved = d.rendered + d.dropped;
             return (

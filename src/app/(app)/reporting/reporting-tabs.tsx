@@ -37,6 +37,7 @@ import {
 } from "./charts";
 import { ImportHistory } from "./import-history";
 import { AppointmentReview } from "./appointment-review";
+import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 
 type TabKey =
   | "revenue"
@@ -795,52 +796,8 @@ export function ReportingTabs(props: ReportingTabsProps) {
             title="Top individual products & services"
             description="Highest-revenue line items across every clinic."
           >
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left">
-                    <th className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                      Product
-                    </th>
-                    <th className="px-2 py-2 text-left text-xs font-semibold text-slate-500">
-                      Group
-                    </th>
-                    <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-                      Qty
-                    </th>
-                    <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-                      Lines
-                    </th>
-                    <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-                      Revenue
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topProducts.slice(0, 20).map((p, i) => (
-                    <tr
-                      key={`${p.product_name}-${i}`}
-                      className="border-b border-slate-100 last:border-0"
-                    >
-                      <td className="py-2 pr-3 font-medium text-slate-700">
-                        {p.product_name}
-                      </td>
-                      <td className="px-2 py-2 text-slate-500">
-                        {p.product_group}
-                      </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-slate-600">
-                        {fmtNumber(p.qty)}
-                      </td>
-                      <td className="px-2 py-2 text-right tabular-nums text-slate-600">
-                        {fmtNumber(p.line_count)}
-                      </td>
-                      <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">
-                        {fmtCurrency(p.revenue)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="max-h-[70vh] overflow-auto">
+              <TopProductsTable rows={topProducts} />
             </div>
           </SectionCard>
         </div>
@@ -1419,16 +1376,46 @@ function StaffDetail({
  * (one per department they worked in published schedules) are grouped; the
  * header shows their totals and expands to a per-department breakdown.
  */
+function TopProductsTable({ rows }: { rows: TopProductRow[] }) {
+  const top = rows.slice(0, 20);
+  const sort = useTableSort(top, {
+    product: (p) => p.product_name,
+    group: (p) => p.product_group,
+    qty: (p) => p.qty,
+    lines: (p) => p.line_count,
+    revenue: (p) => p.revenue,
+  });
+  return (
+    <table className="w-full min-w-[520px] border-collapse text-sm">
+      <thead className={stickyHeadClass}>
+        <tr className="border-b border-slate-200 text-left">
+          <SortHeader label="Product" sortKey="product" sort={sort} className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400" />
+          <SortHeader label="Group" sortKey="group" sort={sort} className="px-2 py-2 text-xs font-semibold text-slate-500" />
+          <SortHeader label="Qty" sortKey="qty" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+          <SortHeader label="Lines" sortKey="lines" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+          <SortHeader label="Revenue" sortKey="revenue" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+        </tr>
+      </thead>
+      <tbody>
+        {sort.sorted.map((p, i) => (
+          <tr
+            key={`${p.product_name}-${i}`}
+            className="border-b border-slate-100 last:border-0"
+          >
+            <td className="py-2 pr-3 font-medium text-slate-700">{p.product_name}</td>
+            <td className="px-2 py-2 text-slate-500">{p.product_group}</td>
+            <td className="px-2 py-2 text-right tabular-nums text-slate-600">{fmtNumber(p.qty)}</td>
+            <td className="px-2 py-2 text-right tabular-nums text-slate-600">{fmtNumber(p.line_count)}</td>
+            <td className="px-2 py-2 text-right font-semibold tabular-nums text-slate-800">{fmtCurrency(p.revenue)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 function DvmByDeptTable({ rows }: { rows: DvmDeptRow[] }) {
   const [openDoctor, setOpenDoctor] = useState<string | null>(null);
-
-  if (rows.length === 0)
-    return (
-      <p className="text-xs text-slate-400">
-        No data yet. This tab needs both published schedules and imported
-        invoices whose dates overlap.
-      </p>
-    );
 
   // Group department rows by doctor and derive each doctor's totals.
   const byDoctor = new Map<string, DvmDeptRow[]>();
@@ -1448,29 +1435,36 @@ function DvmByDeptTable({ rows }: { rows: DvmDeptRow[] }) {
     })
     .sort((a, b) => b.revenue - a.revenue);
 
+  const sort = useTableSort(doctors, {
+    doctor: (d) => d.doctor,
+    days: (d) => d.days,
+    appts: (d) => d.appointments,
+    revenue: (d) => d.revenue,
+  });
+
   const maxRevenue = Math.max(1, ...doctors.map((d) => d.revenue));
 
+  if (rows.length === 0)
+    return (
+      <p className="text-xs text-slate-400">
+        No data yet. This tab needs both published schedules and imported
+        invoices whose dates overlap.
+      </p>
+    );
+
   return (
-    <div className="overflow-x-auto">
+    <div className="max-h-[70vh] overflow-auto">
       <table className="w-full min-w-[520px] border-collapse text-sm">
-        <thead>
+        <thead className={stickyHeadClass}>
           <tr className="border-b border-slate-200 text-left">
-            <th className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              Doctor
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Days
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Appts
-            </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
-              Revenue
-            </th>
+            <SortHeader label="Doctor" sortKey="doctor" sort={sort} className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400" />
+            <SortHeader label="Days" sortKey="days" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+            <SortHeader label="Appts" sortKey="appts" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+            <SortHeader label="Revenue" sortKey="revenue" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
           </tr>
         </thead>
         <tbody>
-          {doctors.map((d) => {
+          {sort.sorted.map((d) => {
             const isOpen = openDoctor === d.doctor;
             return (
               <Fragment key={d.doctor}>

@@ -81,6 +81,8 @@ export interface MarketingEvent {
   landing_url: string | null;
   rsvp_url: string | null;
   checklist: ChecklistItem[];
+  /** Editable Packing / Material list (defaults to the GD master template). */
+  packing_list: PackingListGroup[];
   source_id: string | null;
   sort_order: number;
   created_at: string;
@@ -90,6 +92,29 @@ export interface MarketingEvent {
 export interface ChecklistItem {
   label: string;
   done: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Packing / Material list (per-event, defaults to the GD master template)
+// ---------------------------------------------------------------------------
+/**
+ * A single line on an event Packing / Material list. `status` tracks the item
+ * through the procurement → pack pipeline (see PACKING_STATUSES): every item
+ * starts at "need" and advances as it is decided on, ordered, received and
+ * finally packed for the event.
+ */
+export interface PackingListItem {
+  label: string;
+  /** Free-form quantity ("x1", "5", "all we have", …) mirroring the master PDF. */
+  qty: string | null;
+  status: string;
+  note: string | null;
+}
+
+/** A named section of a Packing / Material list (e.g. "Tents & Structure"). */
+export interface PackingListGroup {
+  group: string;
+  items: PackingListItem[];
 }
 
 export interface MarketingEventSource {
@@ -362,6 +387,171 @@ export const RESOURCE_CATEGORIES: Option[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Packing / Material list status pipeline + master template
+// ---------------------------------------------------------------------------
+export const PACKING_STATUSES: Option[] = [
+  { value: "need", label: "Need" },
+  { value: "decided", label: "Decided" },
+  { value: "ordered", label: "Ordered" },
+  { value: "received", label: "Received" },
+  { value: "packed", label: "Packed" },
+];
+
+/** Tailwind classes per packing status (pill / dot styling). */
+export const PACKING_STATUS_STYLES: Record<string, string> = {
+  need: "bg-slate-100 text-slate-600 border-slate-200",
+  decided: "bg-amber-50 text-amber-700 border-amber-200",
+  ordered: "bg-sky-50 text-sky-700 border-sky-200",
+  received: "bg-violet-50 text-violet-700 border-violet-200",
+  packed: "bg-emerald-50 text-emerald-700 border-emerald-200",
+};
+
+/**
+ * GD Event Master Packing List — the default, editable template every event
+ * starts from. Derived and consolidated from `public/GD Event Master Packing
+ * List.pdf`: the recurring per-event sections were deduped and organized into
+ * a logical master any event can be trimmed down from. Every item defaults to
+ * status "need"; `defaultPackingList()` returns a fresh deep copy.
+ */
+export const MASTER_PACKING_LIST: PackingListGroup[] = [
+  {
+    group: "Pre-Event Prep",
+    items: [
+      { label: "Update code on ezyVet", qty: null, status: "need", note: "Ongoing" },
+      { label: "Update promotions list (home)", qty: null, status: "need", note: null },
+      { label: "Update spin wheel offers / triangles", qty: null, status: "need", note: null },
+      { label: "Print materials: Membership, UC, First Aid", qty: null, status: "need", note: null },
+      { label: "Prep folders", qty: null, status: "need", note: null },
+      { label: "Create & print coupons", qty: "20 → 5 pages", status: "need", note: "Cut before event" },
+      { label: "Create landing page + Google questionnaire", qty: null, status: "need", note: "Connect spreadsheet" },
+      { label: "Send logistics", qty: null, status: "need", note: null },
+      { label: "Pharmacy code", qty: null, status: "need", note: null },
+    ],
+  },
+  {
+    group: "Tents & Structure",
+    items: [
+      { label: "Tents", qty: "x1", status: "need", note: "Check 2nd tent cover" },
+      { label: "Sand / water bags", qty: "all we have", status: "need", note: null },
+      { label: "10x10 GD promo sign", qty: "x1", status: "need", note: null },
+      { label: "Half-size green tent side promo sign", qty: "x1", status: "need", note: null },
+      { label: "Big Green PPPS structure (+ parts)", qty: "x1", status: "need", note: null },
+      { label: "Black fabric 10x10 side cover", qty: "x1", status: "need", note: null },
+      { label: "Curtains for first aid tent", qty: "x2", status: "need", note: null },
+      { label: '"Ask me about my dog" photo backdrop canvas', qty: "x1", status: "need", note: null },
+      { label: "A-frames (main GD services)", qty: null, status: "need", note: "Get in morning" },
+      { label: "Membership banner", qty: "x1", status: "need", note: null },
+      { label: "Chalkboard — First Aid / PPPS", qty: "x1", status: "need", note: null },
+    ],
+  },
+  {
+    group: "Tables & Seating",
+    items: [
+      { label: "Six-foot folding tables", qty: "x1", status: "need", note: null },
+      { label: "Table covers — dark green", qty: "x1", status: "need", note: "Lime green backup" },
+      { label: "First aid table (non-folding, for safety)", qty: "x1", status: "need", note: null },
+      { label: "Stanchions & chains", qty: "x4 sets", status: "need", note: null },
+      { label: "Folding chairs", qty: "x2", status: "need", note: null },
+      { label: "Outdoor furniture — love seat + chairs", qty: null, status: "need", note: null },
+      { label: "Clothing rack + hangers", qty: "10–15", status: "need", note: null },
+    ],
+  },
+  {
+    group: "Print Material",
+    items: [
+      { label: "Dental report cards", qty: null, status: "need", note: null },
+      { label: "Internal medicine flyers", qty: null, status: "need", note: null },
+      { label: "SO / VEN flyers", qty: null, status: "need", note: null },
+      { label: "First aid pamphlets", qty: null, status: "need", note: null },
+      { label: "Coupons for spin wheel — Free Exam", qty: null, status: "need", note: null },
+      { label: "Coupons for spin wheel — $20 off services", qty: null, status: "need", note: null },
+      { label: "Coupons for PPPS purchase", qty: null, status: "need", note: null },
+      { label: "Sign-up QR codes", qty: null, status: "need", note: null },
+      { label: "Referral program sign-ups", qty: "x1", status: "need", note: null },
+      { label: "Acrylic displays 8x11", qty: null, status: "need", note: null },
+      { label: "Acrylic displays 5x7", qty: null, status: "need", note: null },
+      { label: "Prices for products / proud pet parents", qty: null, status: "need", note: null },
+    ],
+  },
+  {
+    group: "Promotional Items",
+    items: [
+      { label: "Spin wheel", qty: "x1", status: "need", note: "Check triangles for offers" },
+      { label: "Spin to Win", qty: "x1", status: "need", note: null },
+      { label: "Tote bags", qty: "1 box (~100)", status: "need", note: null },
+      { label: "First aid kits", qty: "1 box", status: "need", note: null },
+      { label: "Branded water bottles (stickered)", qty: "as many as ready", status: "need", note: null },
+      { label: "Cooler with ice", qty: "x1", status: "need", note: "Buy ice" },
+    ],
+  },
+  {
+    group: "Merchandise / Products for Sale",
+    items: [
+      { label: "Dental Dust", qty: "x5", status: "need", note: null },
+      { label: "Cat Smile", qty: "x5", status: "need", note: null },
+      { label: "Smile Spray", qty: "x5", status: "need", note: null },
+      { label: "Smile Wipes + bags", qty: null, status: "need", note: null },
+      { label: "Quiet Time cards", qty: "x5", status: "need", note: null },
+      { label: "PPPS merch — hats, bandanas", qty: null, status: "need", note: null },
+      { label: "PPPS clothing — hoodies, t-shirts, hats, bandanas", qty: null, status: "need", note: null },
+      { label: "GD product bags / PPPS bags", qty: null, status: "need", note: null },
+      { label: "Square line items for all sale items", qty: null, status: "need", note: "Hoodies, shirts, hats, bandanas" },
+    ],
+  },
+  {
+    group: "Electronics",
+    items: [
+      { label: "Laptops", qty: "x1", status: "need", note: null },
+      { label: "iPad", qty: "x1", status: "need", note: null },
+      { label: "Charger blocks", qty: "x3", status: "need", note: "Charge the night before" },
+      { label: "SquarePay", qty: "x1", status: "need", note: null },
+    ],
+  },
+  {
+    group: "First Aid Items",
+    items: [
+      { label: "Crash cart / box", qty: "x1", status: "need", note: null },
+      { label: "Cooler with ice packs", qty: "x1", status: "need", note: null },
+      { label: "Stethoscope", qty: "x1", status: "need", note: null },
+      { label: "Thermometers", qty: null, status: "need", note: null },
+      { label: "Towels", qty: null, status: "need", note: null },
+      { label: "Fan", qty: "x1", status: "need", note: null },
+      { label: "Spray bottles w/ water", qty: "x2 min", status: "need", note: null },
+      { label: "IV fluids", qty: null, status: "need", note: null },
+    ],
+  },
+  {
+    group: "Misc",
+    items: [
+      { label: "Zip ties", qty: "x10", status: "need", note: null },
+      { label: "Garbage bags", qty: "x4", status: "need", note: null },
+      { label: "Garbage bins (small)", qty: "x2", status: "need", note: null },
+      { label: "Scissors", qty: "x1", status: "need", note: null },
+      { label: "Tape", qty: "x1", status: "need", note: null },
+      { label: "Pens", qty: "a lot", status: "need", note: null },
+      { label: "Paper towel roll", qty: "x1", status: "need", note: null },
+      { label: "Pins", qty: null, status: "need", note: null },
+      { label: "Dog treats + treat jar", qty: null, status: "need", note: null },
+    ],
+  },
+  {
+    group: "Still to Order",
+    items: [
+      { label: "Table cloths — dark green", qty: "x2", status: "need", note: null },
+      { label: "Materials for inside first aid kits", qty: null, status: "need", note: null },
+    ],
+  },
+];
+
+/** Fresh deep copy of the master template (safe to mutate in component state). */
+export function defaultPackingList(): PackingListGroup[] {
+  return MASTER_PACKING_LIST.map((g) => ({
+    group: g.group,
+    items: g.items.map((i) => ({ ...i })),
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Marketing Tree
 // ---------------------------------------------------------------------------
 export type TreeZone =
@@ -490,6 +680,8 @@ export const nodeStatusLabel = (v: string | null) => labelFor(NODE_STATUSES, v);
 export const itemStatusLabel = (v: string | null) => labelFor(ITEM_STATUSES, v);
 export const promoStatusLabel = (v: string | null) => labelFor(PROMO_STATUSES, v);
 export const promoTypeLabel = (v: string | null) => labelFor(PROMO_TYPES, v);
+export const packingStatusLabel = (v: string | null) =>
+  labelFor(PACKING_STATUSES, v);
 export const treeZoneLabel = (v: string | null) => {
   if (!v) return "—";
   return TREE_ZONES.find((z) => z.value === v)?.label ?? v;

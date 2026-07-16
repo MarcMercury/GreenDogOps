@@ -33,6 +33,7 @@ import {
   linkSourceToCrm,
   type ActionResult,
 } from "./actions";
+import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 
 const fieldInput =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -145,6 +146,28 @@ export function EventsTab({
   }, [crmOrgs]);
   const unlinkedCount = sources.filter((s) => !s.crm_organization_id).length;
 
+  const sourceSort = useTableSort(sources, {
+    vendor: (s) => s.name,
+    calendar: (s) => s.url,
+    region: (s) => s.region,
+    cost: (s) => s.membership_cost,
+    lastChecked: (s) => s.last_checked_on,
+    notes: (s) => s.notes,
+  });
+
+  const eventRows = view === "upcoming" ? upcoming : view === "past" ? past : [...upcoming, ...past];
+  const eventSort = useTableSort(eventRows, {
+    event: (e) => e.name,
+    date: (e) => e.starts_on,
+    type: (e) => eventTypeLabel(e.event_type),
+    status: (e) => eventStatusLabel(e.status),
+    planning: (e) => (e.planning_phase ? planningPhaseLabel(e.planning_phase) : null),
+    owner: (e) => e.owner_name,
+    cost: (e) => e.cost,
+    attendees: (e) => e.attendees ?? (attendeesByEvent.get(e.id)?.length ?? 0),
+    checklist: (e) => e.checklist?.length ?? 0,
+  });
+
   return (
     <section className="space-y-5">
       {/* Event sources */}
@@ -171,24 +194,24 @@ export function EventsTab({
           )}
         </div>
         {showSources && (
-          <div className="overflow-x-auto border-t border-slate-100">
+          <div className="max-h-[70vh] overflow-auto border-t border-slate-100">
             {sources.length === 0 ? (
               <p className="px-4 py-6 text-center text-sm text-slate-400">No sources yet.</p>
             ) : (
               <table className="w-full text-sm">
-                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <thead className={`${stickyHeadClass} text-left text-xs uppercase tracking-wide text-slate-500`}>
                   <tr>
-                    <th className="px-4 py-2 font-semibold">Vendor / Partner</th>
-                    <th className="px-4 py-2 font-semibold">Calendar</th>
-                    <th className="px-4 py-2 font-semibold">Region</th>
-                    <th className="px-4 py-2 font-semibold">Cost</th>
-                    <th className="px-4 py-2 font-semibold">Last checked</th>
-                    <th className="px-4 py-2 font-semibold">Notes</th>
+                    <SortHeader label="Vendor / Partner" sortKey="vendor" sort={sourceSort} className="px-4 py-2 font-semibold" />
+                    <SortHeader label="Calendar" sortKey="calendar" sort={sourceSort} className="px-4 py-2 font-semibold" />
+                    <SortHeader label="Region" sortKey="region" sort={sourceSort} className="px-4 py-2 font-semibold" />
+                    <SortHeader label="Cost" sortKey="cost" sort={sourceSort} className="px-4 py-2 font-semibold" />
+                    <SortHeader label="Last checked" sortKey="lastChecked" sort={sourceSort} className="px-4 py-2 font-semibold" />
+                    <SortHeader label="Notes" sortKey="notes" sort={sourceSort} className="px-4 py-2 font-semibold" />
                     <th className="px-4 py-2" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {sources.map((s) => {
+                  {sourceSort.sorted.map((s) => {
                     const d = daysAgo(s.last_checked_on);
                     const stale = d == null || d > 31;
                     return (
@@ -276,22 +299,22 @@ export function EventsTab({
       </div>
 
       {(() => {
-        const rows = view === "upcoming" ? upcoming : view === "past" ? past : [...upcoming, ...past];
+        const rows = eventSort.sorted;
         if (rows.length === 0) return <Empty label="No events." />;
         return (
           <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
             <table className="w-full border-collapse text-sm">
               <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="sticky left-0 z-30 bg-slate-50 px-4 py-2.5 font-semibold">Event</th>
-                  <th className="px-4 py-2.5 font-semibold">Date</th>
-                  <th className="px-4 py-2.5 font-semibold">Type</th>
-                  <th className="px-4 py-2.5 font-semibold">Status</th>
-                  <th className="px-4 py-2.5 font-semibold">Planning</th>
-                  <th className="px-4 py-2.5 font-semibold">Owner</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Cost</th>
-                  <th className="px-4 py-2.5 text-right font-semibold">Attendees</th>
-                  <th className="px-4 py-2.5 font-semibold">Checklist</th>
+                  <SortHeader label="Event" sortKey="event" sort={eventSort} className="sticky left-0 z-30 bg-slate-50 px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Date" sortKey="date" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Type" sortKey="type" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Status" sortKey="status" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Planning" sortKey="planning" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Owner" sortKey="owner" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Cost" sortKey="cost" sort={eventSort} align="right" className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Attendees" sortKey="attendees" sort={eventSort} align="right" className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Checklist" sortKey="checklist" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">

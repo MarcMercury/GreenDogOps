@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { InvoiceImportRow } from "@/lib/reporting/types";
 import { fmtCurrency, fmtDate, fmtNumber } from "./charts";
+import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 import { deleteInvoiceImport, resetInvoiceData } from "./actions";
 
 export function ImportHistory({
@@ -17,6 +18,15 @@ export function ImportHistory({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  const sort = useTableSort(imports, {
+    upload: (r) => r.label || r.filename || "Upload",
+    period: (r) => r.date_range_start,
+    newRows: (r) => r.new_rows,
+    appts: (r) => r.appointment_count,
+    revenue: (r) => r.revenue_total,
+    when: (r) => r.created_at,
+  });
 
   async function remove(id: string) {
     if (!confirm("Remove this import and all of its invoice lines?")) return;
@@ -59,21 +69,21 @@ export function ImportHistory({
           {error}
         </p>
       ) : null}
-      <div className="overflow-x-auto">
+      <div className="max-h-[60vh] overflow-auto">
         <table className="w-full text-left text-xs">
-          <thead>
+          <thead className={stickyHeadClass}>
             <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400">
-              <th className="py-2 pr-3 font-semibold">Upload</th>
-              <th className="py-2 pr-3 font-semibold">Period</th>
-              <th className="py-2 pr-3 text-right font-semibold">New lines</th>
-              <th className="py-2 pr-3 text-right font-semibold">Appts</th>
-              <th className="py-2 pr-3 text-right font-semibold">Revenue</th>
-              <th className="py-2 pr-3 font-semibold">When</th>
+              <SortHeader label="Upload" sortKey="upload" sort={sort} className="py-2 pr-3 font-semibold" />
+              <SortHeader label="Period" sortKey="period" sort={sort} className="py-2 pr-3 font-semibold" />
+              <SortHeader label="New lines" sortKey="newRows" sort={sort} align="right" className="py-2 pr-3 font-semibold" />
+              <SortHeader label="Appts" sortKey="appts" sort={sort} align="right" className="py-2 pr-3 font-semibold" />
+              <SortHeader label="Revenue" sortKey="revenue" sort={sort} align="right" className="py-2 pr-3 font-semibold" />
+              <SortHeader label="When" sortKey="when" sort={sort} className="py-2 pr-3 font-semibold" />
               {isAdmin ? <th className="py-2" /> : null}
             </tr>
           </thead>
           <tbody>
-            {imports.map((imp) => (
+            {sort.sorted.map((imp) => (
               <tr key={imp.id} className="border-b border-slate-50">
                 <td className="py-2 pr-3 font-medium text-slate-700">
                   {imp.label || imp.filename || "Upload"}

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { ContactImportRow } from "@/lib/reporting/types";
 import { fmtDate, fmtNumber } from "../reporting/charts";
+import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 import { resetContactData } from "./actions";
 
 export function ContactImportHistory({
@@ -17,6 +18,15 @@ export function ContactImportHistory({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  const sort = useTableSort(imports, {
+    file: (r) => r.filename || "Upload",
+    rows: (r) => r.total_rows,
+    new: (r) => r.new_contacts,
+    updated: (r) => r.updated_contacts,
+    unchanged: (r) => r.unchanged_contacts,
+    when: (r) => r.created_at,
+  });
 
   async function reset() {
     if (!confirm("This permanently deletes ALL ezyVet contact data. Continue?"))
@@ -42,20 +52,20 @@ export function ContactImportHistory({
       {imports.length === 0 ? (
         <p className="text-xs text-slate-400">No uploads yet.</p>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="max-h-[60vh] overflow-auto">
           <table className="w-full text-left text-xs">
-            <thead>
+            <thead className={stickyHeadClass}>
               <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400">
-                <th className="py-2 pr-3 font-semibold">File</th>
-                <th className="py-2 pr-3 text-right font-semibold">Rows</th>
-                <th className="py-2 pr-3 text-right font-semibold">New</th>
-                <th className="py-2 pr-3 text-right font-semibold">Updated</th>
-                <th className="py-2 pr-3 text-right font-semibold">Unchanged</th>
-                <th className="py-2 font-semibold">When</th>
+                <SortHeader label="File" sortKey="file" sort={sort} className="py-2 pr-3 font-semibold" />
+                <SortHeader label="Rows" sortKey="rows" sort={sort} align="right" className="py-2 pr-3 font-semibold" />
+                <SortHeader label="New" sortKey="new" sort={sort} align="right" className="py-2 pr-3 font-semibold" />
+                <SortHeader label="Updated" sortKey="updated" sort={sort} align="right" className="py-2 pr-3 font-semibold" />
+                <SortHeader label="Unchanged" sortKey="unchanged" sort={sort} align="right" className="py-2 pr-3 font-semibold" />
+                <SortHeader label="When" sortKey="when" sort={sort} className="py-2 font-semibold" />
               </tr>
             </thead>
             <tbody>
-              {imports.map((imp) => (
+              {sort.sorted.map((imp) => (
                 <tr key={imp.id} className="border-b border-slate-50">
                   <td className="py-2 pr-3 font-medium text-slate-700">
                     {imp.filename || "Upload"}

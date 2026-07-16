@@ -370,6 +370,127 @@ export function compareValues(a: CellValue, b: CellValue): number {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Lightweight sticky + sortable helpers for hand-rolled <table> lists.
+//
+// The full-featured DataTable above covers the big module lists (search +
+// filters + CSV). Many other pages render bespoke <table> markup (badges,
+// action buttons, links, admin-only columns) that don't fit DataTable. These
+// helpers give those tables the SAME click-to-sort + sticky-header behavior
+// with minimal churn:
+//   const sort = useTableSort(rows, { name: r => r.name, rev: r => r.revenue });
+//   <StickyTable> … <SortHeader label="Name" sortKey="name" sort={sort}/> …
+//   {sort.sorted.map(…)}
+// ---------------------------------------------------------------------------
+
+export interface TableSort<T> {
+  sorted: T[];
+  sortKey: string | null;
+  sortDir: SortDir;
+  toggleSort: (key: string) => void;
+}
+
+/** Client-side click-to-sort over an accessor map. Empties always sort last. */
+export function useTableSort<T>(
+  rows: T[],
+  accessors: Record<string, (row: T) => CellValue>,
+  initial?: { key: string; dir?: SortDir },
+): TableSort<T> {
+  const [sortKey, setSortKey] = useState<string | null>(initial?.key ?? null);
+  const [sortDir, setSortDir] = useState<SortDir>(initial?.dir ?? "asc");
+
+  const sorted = useMemo(() => {
+    if (!sortKey) return rows;
+    const acc = accessors[sortKey];
+    if (!acc) return rows;
+    const dir = sortDir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => compareValues(acc(a), acc(b)) * dir);
+    // accessors is expected to be a stable/inline map keyed by column id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, sortKey, sortDir]);
+
+  function toggleSort(key: string) {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else {
+      setSortKey(null);
+      setSortDir("asc");
+    }
+  }
+
+  return { sorted, sortKey, sortDir, toggleSort };
+}
+
+/**
+ * A sortable <th>. Drop-in replacement for a plain header cell — pass the
+ * shared `sort` object from useTableSort plus this column's `sortKey`.
+ */
+export function SortHeader<T>({
+  label,
+  sortKey,
+  sort,
+  align = "left",
+  className = "",
+}: {
+  label: React.ReactNode;
+  sortKey: string;
+  sort: TableSort<T>;
+  align?: "left" | "center" | "right";
+  className?: string;
+}) {
+  const active = sort.sortKey === sortKey;
+  const justify =
+    align === "center" ? "justify-center" : align === "right" ? "justify-end" : "justify-start";
+  return (
+    <th
+      onClick={() => sort.toggleSort(sortKey)}
+      aria-sort={active ? (sort.sortDir === "asc" ? "ascending" : "descending") : "none"}
+      className={`cursor-pointer select-none hover:text-slate-700 ${className}`}
+    >
+      <span className={`flex w-full items-center ${justify}`}>
+        {label}
+        <SortIcon dir={active ? sort.sortDir : null} />
+      </span>
+    </th>
+  );
+}
+
+/**
+ * Scroll container that keeps the header row pinned while the body scrolls.
+ * Wrap any bespoke list <table> in this to get a sticky <thead>. The thead's
+ * <tr> (or th cells) must carry a solid background so rows don't bleed through
+ * — use `className="… [&_thead_th]:sticky [&_thead_th]:top-0"` markup, or the
+ * `stickyHeadClass` helper below on the header row.
+ */
+export function StickyTableScroll({
+  children,
+  maxHeight = "70vh",
+  className = "",
+}: {
+  children: React.ReactNode;
+  maxHeight?: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`overflow-auto ${className}`}
+      style={{ maxHeight }}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Tailwind classes to make a <thead> row sticky with a solid background and a
+ * bottom hairline that travels with it. Apply to the header <tr> (or thead).
+ */
+export const stickyHeadClass =
+  "sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_rgb(226_232_240)]";
+
 export function DataTable<T extends { id: string }>({
   rows,
   columns,

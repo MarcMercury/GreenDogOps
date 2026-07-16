@@ -440,9 +440,9 @@ function CeAttendeesView({
           {showShare && active.event && (
             <EventSignupShare event={active.event} />
           )}
-          <div className="overflow-x-auto">
+          <div className="max-h-[70vh] overflow-auto">
             <table className="w-full text-left text-sm">
-              <thead>
+              <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_rgb(226_232_240)]">
                 <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                   <th className="px-5 py-2.5 font-semibold">
                     <button
