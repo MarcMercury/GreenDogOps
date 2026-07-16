@@ -326,6 +326,8 @@ function ListTab({
   );
 }
 
+type RescueSortKey = "name" | "area" | "status" | "adoptions" | "agreement" | "last_visit";
+
 function RescueTable({
   rescues, canEdit, onQuickVisit, onDelete,
 }: {
@@ -335,6 +337,40 @@ function RescueTable({
   onDelete: (r: CrmOrganization) => void;
 }) {
   const router = useRouter();
+  const [sortKey, setSortKey] = useState<RescueSortKey>("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: RescueSortKey) {
+    if (k === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(k);
+      // Numeric / date columns are most useful highest-first.
+      setSortDir(k === "adoptions" || k === "last_visit" ? "desc" : "asc");
+    }
+  }
+
+  const sorted = useMemo(() => {
+    const value = (r: CrmOrganization): string | number => {
+      switch (sortKey) {
+        case "name": return (r.name ?? "").toLowerCase();
+        case "area": return getZoneDisplay(r.area).toLowerCase();
+        case "status": return (r.status || (r.is_active ? "active" : "")).toLowerCase();
+        case "adoptions": return r.verified_adoptions ?? 0;
+        case "agreement": return (agreementStatusLabel(r.agreement_status) || "").toLowerCase();
+        case "last_visit": return r.last_visit_date ? new Date(r.last_visit_date).getTime() : 0;
+      }
+    };
+    const arr = [...rescues].sort((a, b) => {
+      const av = value(a);
+      const bv = value(b);
+      if (av < bv) return -1;
+      if (av > bv) return 1;
+      return (a.name ?? "").localeCompare(b.name ?? "");
+    });
+    return sortDir === "desc" ? arr.reverse() : arr;
+  }, [rescues, sortKey, sortDir]);
+
   if (rescues.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-500">
@@ -342,22 +378,37 @@ function RescueTable({
       </div>
     );
   }
+
+  const arrow = (k: RescueSortKey) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+  const sortableTh = (k: RescueSortKey, label: string, extra = "") => (
+    <th className={`px-3 py-3 ${extra}`}>
+      <button
+        type="button"
+        onClick={() => toggleSort(k)}
+        className={`inline-flex items-center gap-0.5 uppercase tracking-wide transition hover:text-slate-700 ${sortKey === k ? "text-slate-700" : ""}`}
+      >
+        {label}
+        <span className="text-[10px]">{arrow(k)}</span>
+      </button>
+    </th>
+  );
+
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
       <table className="hidden w-full text-sm sm:table">
         <thead>
           <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <th className="px-4 py-3">Rescue</th>
-            <th className="px-3 py-3">Area</th>
-            <th className="px-3 py-3">Status</th>
-            <th className="px-3 py-3 text-right">Verified Adoptions</th>
-            <th className="px-3 py-3">Agreement</th>
-            <th className="px-3 py-3">Last Visit</th>
+            {sortableTh("name", "Rescue", "px-4")}
+            {sortableTh("area", "Area")}
+            {sortableTh("status", "Status")}
+            {sortableTh("adoptions", "Verified Adoptions", "text-right [&>button]:justify-end [&>button]:w-full")}
+            {sortableTh("agreement", "Agreement")}
+            {sortableTh("last_visit", "Last Visit")}
             <th className="px-3 py-3 text-right">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
-          {rescues.map((r) => (
+          {sorted.map((r) => (
             <tr key={r.id} className="group cursor-pointer transition hover:bg-emerald-50/40" onClick={() => router.push(`/crm/org/${r.id}`)}>
               <td className="px-4 py-3">
                 <div className="min-w-0">
@@ -391,7 +442,7 @@ function RescueTable({
 
       {/* Mobile cards */}
       <div className="divide-y divide-slate-100 sm:hidden">
-        {rescues.map((r) => (
+        {sorted.map((r) => (
           <div key={r.id} className="p-4" onClick={() => router.push(`/crm/org/${r.id}`)}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
