@@ -32,15 +32,26 @@ const GROUND_Y = 820;
 const TRUNK_HALF = 46;
 const TRUNK_TOP_Y = 500;
 // Horizontal step between adjacent leaf columns. Nodes alternate between two
-// rows per band, so two nodes in the SAME row are 2×COL apart — wide enough for
-// a full-width pill with clear spacing.
-const COL = 168;
-const MARGIN = 130;
+// rows per band, so two nodes in the SAME row are 2×COL apart. Pills wrap their
+// label onto up to two lines, so they stay narrow and columns pack tightly.
+const COL = 88;
+const MARGIN = 52;
 // Two staggered y-rows per band (nodes alternate by column parity).
 const CANOPY_ROWS = [150, 262];
 const BRANCH_ROWS = [372, 452];
 const PRIMARY_ROWS = [936, 1016];
 const FINE_ROWS = [1150, 1262];
+
+// Node label typography / pill sizing (labels wrap onto up to two lines so the
+// tree stays horizontally compact).
+const NODE_FONT = 11.5;
+const CHAR_W = 6.3; // approx advance width per character at NODE_FONT
+const PILL_PAD_X = 20;
+const PILL_PAD_Y = 7;
+const LINE_H = 13;
+const MAX_LINE_CHARS = 16;
+const MIN_PILL_W = 78;
+const MAX_PILL_W = MAX_LINE_CHARS * CHAR_W + PILL_PAD_X + 8;
 
 const SKY = "#EAF2F0";
 const SOIL = "#3E3128";
@@ -94,13 +105,42 @@ interface Positioned {
   node: MarketingTreeNode;
   x: number;
   y: number;
-  w: number; // dynamic pill width sized to the label
+  w: number; // dynamic pill width sized to the wrapped label
+  h: number; // dynamic pill height (grows with the number of wrapped lines)
+  lines: string[]; // label wrapped onto one or two lines
   pathD: string | null; // connector from parent/anchor to this node
 }
 
-/** Pill width sized to fit the full label (capped so same-row nodes never touch). */
-function pillWidth(label: string): number {
-  return clamp(label.length * 7.3 + 42, 96, COL * 2 - 24);
+/**
+ * Wrap a label onto at most two lines and size the pill to fit. Keeping labels
+ * narrow (wrapping instead of growing sideways) is what lets the columns pack
+ * closely together.
+ */
+function layoutLabel(label: string): { lines: string[]; w: number; h: number } {
+  const words = label.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let cur = "";
+  for (const word of words) {
+    const candidate = cur ? `${cur} ${word}` : word;
+    if (cur && candidate.length > MAX_LINE_CHARS) {
+      lines.push(cur);
+      cur = word;
+    } else {
+      cur = candidate;
+    }
+  }
+  if (cur) lines.push(cur);
+  if (lines.length === 0) lines.push(label);
+  // Collapse to a maximum of two lines; overflow is truncated on the last line.
+  if (lines.length > 2) {
+    const rest = lines.slice(1).join(" ");
+    lines.length = 1;
+    lines.push(truncate(rest, MAX_LINE_CHARS + 2));
+  }
+  const longest = Math.max(...lines.map((l) => l.length), 1);
+  const w = clamp(longest * CHAR_W + PILL_PAD_X, MIN_PILL_W, MAX_PILL_W);
+  const h = lines.length * LINE_H + PILL_PAD_Y * 2;
+  return { lines, w, h };
 }
 
 type Run = (action: () => Promise<ActionResult>, after?: () => void) => void;
@@ -206,7 +246,8 @@ function computeLayout(nodes: MarketingTreeNode[]): {
     const y = BRANCH_ROWS[bi % 2];
     const midY = (TRUNK_TOP_Y + y) / 2;
     const pathD = `M ${centerX} ${TRUNK_TOP_Y} C ${centerX} ${midY}, ${x} ${midY}, ${x} ${y}`;
-    push({ node: b, x, y, w: pillWidth(b.label), pathD });
+    const { lines, w, h } = layoutLabel(b.label);
+    push({ node: b, x, y, w, h, lines, pathD });
   });
 
   // --- Canopy leaves ---
@@ -218,7 +259,8 @@ function computeLayout(nodes: MarketingTreeNode[]): {
     const anchorX = parent?.x ?? centerX;
     const anchorY = parent?.y ?? TRUNK_TOP_Y;
     const pathD = `M ${anchorX} ${anchorY} Q ${(anchorX + x) / 2} ${(anchorY + y) / 2}, ${x} ${y}`;
-    push({ node: k, x, y, w: pillWidth(k.label), pathD });
+    const { lines, w, h } = layoutLabel(k.label);
+    push({ node: k, x, y, w, h, lines, pathD });
   }
 
   // --- Trunk plaques ---
@@ -227,7 +269,8 @@ function computeLayout(nodes: MarketingTreeNode[]): {
   trunks.forEach((n, k) => {
     const step = (botY - topY) / Math.max(trunks.length, 1);
     const y = topY + k * step + step / 2;
-    push({ node: n, x: centerX, y, w: pillWidth(n.label), pathD: null });
+    const { lines, w, h } = layoutLabel(n.label);
+    push({ node: n, x: centerX, y, w, h, lines, pathD: null });
   });
 
   // --- Primary roots ---
@@ -236,7 +279,8 @@ function computeLayout(nodes: MarketingTreeNode[]): {
     const y = PRIMARY_ROWS[pi % 2];
     const midY = (GROUND_Y + y) / 2;
     const pathD = `M ${centerX} ${GROUND_Y} C ${centerX} ${midY}, ${x} ${midY}, ${x} ${y}`;
-    push({ node: p, x, y, w: pillWidth(p.label), pathD });
+    const { lines, w, h } = layoutLabel(p.label);
+    push({ node: p, x, y, w, h, lines, pathD });
   });
 
   // --- Fine roots ---
@@ -248,7 +292,8 @@ function computeLayout(nodes: MarketingTreeNode[]): {
     const anchorX = parent?.x ?? centerX;
     const anchorY = parent?.y ?? GROUND_Y;
     const pathD = `M ${anchorX} ${anchorY} Q ${(anchorX + x) / 2} ${(anchorY + y) / 2}, ${x} ${y}`;
-    push({ node: k, x, y, w: pillWidth(k.label), pathD });
+    const { lines, w, h } = layoutLabel(k.label);
+    push({ node: k, x, y, w, h, lines, pathD });
   }
 
   return { positioned, byId, width, height: H, centerX };
@@ -685,16 +730,16 @@ function TreeNodeShape({
   onHover: (id: string | null) => void;
   onSelect: (n: MarketingTreeNode) => void;
 }) {
-  const { node, x, y, w } = p;
+  const { node, x, y, w, h, lines } = p;
   const style = ZONE_STYLE[node.zone] ?? ZONE_STYLE.canopy;
-  const maxChars = Math.floor((w - 22) / 7.1);
   const attn = node.status === "needs_attention";
   // Staleness: how long since the node was last "handled". Drives a subtle tint
   // so nodes that haven't been touched in a while stand out as needing a check.
   const { stale, veryStale } = staleInfo(node.last_handled_at);
+  const firstLineY = h / 2 - ((lines.length - 1) * LINE_H) / 2 + 4;
   return (
     <g
-      transform={`translate(${x - w / 2}, ${y - style.h / 2})`}
+      transform={`translate(${x - w / 2}, ${y - h / 2})`}
       opacity={opacity}
       tabIndex={0}
       role="button"
@@ -721,7 +766,7 @@ function TreeNodeShape({
           x={-4}
           y={-4}
           width={w + 8}
-          height={style.h + 8}
+          height={h + 8}
           rx={style.rx + 4}
           fill="none"
           stroke="#f59e0b"
@@ -730,7 +775,7 @@ function TreeNodeShape({
       )}
       <rect
         width={w}
-        height={style.h}
+        height={h}
         rx={style.rx}
         fill={style.fill}
         fillOpacity={stale ? (veryStale ? 0.7 : 0.85) : 1}
@@ -738,16 +783,19 @@ function TreeNodeShape({
         strokeWidth={hovered ? 2.5 : stale ? 1.5 : 1}
         strokeDasharray={stale && !hovered ? "5 3" : undefined}
       />
-      <circle cx={12} cy={style.h / 2} r={4} fill={STATUS_FILL[node.status] ?? "#94a3b8"} />
+      <circle cx={9} cy={9} r={3.5} fill={STATUS_FILL[node.status] ?? "#94a3b8"} />
       <text
-        x={w / 2 + 6}
-        y={style.h / 2 + 4}
+        x={w / 2}
         textAnchor="middle"
-        fontSize={12}
+        fontSize={NODE_FONT}
         fontWeight={600}
         fill={style.text}
       >
-        {truncate(node.label, maxChars)}
+        {lines.map((line, i) => (
+          <tspan key={i} x={w / 2} y={firstLineY + i * LINE_H}>
+            {line}
+          </tspan>
+        ))}
       </text>
     </g>
   );
