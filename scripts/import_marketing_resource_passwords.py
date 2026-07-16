@@ -55,7 +55,7 @@ ws = wb["RESOURCES & PW"]
 rows = list(ws.iter_rows(values_only=True))
 
 updates = {}      # resource id -> (username, password, source_name)
-matched, unmatched = [], []
+matched, unmatched_rows = [], []
 
 for r in rows[1:]:
     r = list(r) + [None] * (8 - len(r))
@@ -82,7 +82,8 @@ for r in rows[1:]:
         h = host(url)
         cand = by_host.get(h) if h else None
     if not cand:
-        unmatched.append((name, user, bool(pw)))
+        clean_url = str(url).replace("\xa0", "").strip() if url else None
+        unmatched_rows.append((name, clean_url, user, pw))
         continue
 
     for res in cand:
@@ -102,10 +103,21 @@ for rid, (user, pw, src, kind) in updates.items():
         f"username = {q(user)}, password = {q(pw)} where id = '{rid}';"
     )
 
+# Unmatched sheet rows have no resource record yet — create them so their
+# logins also surface on the Resources tab.
+for name, url, user, pw in unmatched_rows:
+    print(
+        "insert into greendogops.marketing_resource "
+        "(name, category, url, username, password) "
+        f"select {q(name)}, 'tool', {q(url)}, {q(user)}, {q(pw)} "
+        "where not exists (select 1 from greendogops.marketing_resource m "
+        f"where lower(trim(m.name)) = lower(trim({q(name)})));"
+    )
+
 # --- report -----------------------------------------------------------------
 sys.stderr.write(f"\nMATCHED {len(updates)} resources:\n")
 for src, dst, kind in sorted(matched, key=lambda x: x[1]):
     sys.stderr.write(f"  [{kind}] {dst}  <=  {src}\n")
-sys.stderr.write(f"\nUNMATCHED sheet rows ({len(unmatched)}):\n")
-for name, user, has_pw in unmatched:
-    sys.stderr.write(f"  {name}  (user={user}, pw={has_pw})\n")
+sys.stderr.write(f"\nINSERTED (new) resources ({len(unmatched_rows)}):\n")
+for name, url, user, has_pw in [(n, u, us, p) for n, u, us, p in unmatched_rows]:
+    sys.stderr.write(f"  {name}  (user={user}, pw={bool(has_pw)})\n")
