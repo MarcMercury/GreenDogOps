@@ -8,12 +8,16 @@ import {
   type MarketingEventSource,
   type MarketingEventAttendee,
   type ChecklistItem,
+  type PackingListGroup,
   type CrmOrgRef,
   EVENT_TYPES,
   EVENT_STATUSES,
   PLANNING_PHASES,
   ATTENDEE_TYPES,
   VENUE_TYPES,
+  PACKING_STATUSES,
+  PACKING_STATUS_STYLES,
+  defaultPackingList,
   eventTypeLabel,
   eventStatusLabel,
   planningPhaseLabel,
@@ -401,6 +405,9 @@ function EventDialog({ event, sources, attendees, canEdit, onClose, run }: {
 }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(event?.checklist ?? []);
   const [newCheck, setNewCheck] = useState("");
+  const [packing, setPacking] = useState<PackingListGroup[]>(
+    () => (event?.packing_list?.length ? event.packing_list : defaultPackingList()),
+  );
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -425,6 +432,8 @@ function EventDialog({ event, sources, attendees, canEdit, onClose, run }: {
               <input type="hidden" name="check_done" value={String(c.done)} />
             </span>
           ))}
+          {/* serialized packing / material list */}
+          <input type="hidden" name="packing_list_json" value={JSON.stringify(packing)} />
 
           {/* Details */}
           <div>
@@ -495,6 +504,15 @@ function EventDialog({ event, sources, attendees, canEdit, onClose, run }: {
             </div>
           </fieldset>
 
+          {/* Packing / Material list */}
+          <PackingListEditor
+            eventName={event?.name ?? "New event"}
+            eventDate={event?.starts_on ?? null}
+            eventLocation={event?.location ?? null}
+            groups={packing}
+            setGroups={setPacking}
+          />
+
           {/* Recap */}
           <fieldset className="rounded-lg border border-slate-200 p-3">
             <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Recap / results (ROI)</legend>
@@ -529,6 +547,253 @@ function EventDialog({ event, sources, attendees, canEdit, onClose, run }: {
         )}
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Packing / Material list — editable, per-event, defaults to the GD master
+// template. Each line tracks a status (Need → Decided → Ordered → Received →
+// Packed) and the whole list is copy / print / email friendly.
+// ---------------------------------------------------------------------------
+function fmtPackingDate(d: string | null): string {
+  if (!d) return "Date TBD";
+  const dt = new Date(`${d}T00:00:00`);
+  return isNaN(dt.getTime())
+    ? d
+    : dt.toLocaleDateString("en-US", { weekday: "short", month: "long", day: "numeric", year: "numeric" });
+}
+
+function packingListToText(
+  eventName: string,
+  date: string | null,
+  location: string | null,
+  groups: PackingListGroup[],
+): string {
+  const lines: string[] = [];
+  lines.push(`GD EVENT — PACKING / MATERIAL LIST`);
+  lines.push(eventName);
+  const meta = [fmtPackingDate(date), location].filter(Boolean).join(" · ");
+  if (meta) lines.push(meta);
+  lines.push(`Status key: [ ] Need  [D] Decided  [O] Ordered  [R] Received  [x] Packed`);
+  lines.push("");
+  const mark: Record<string, string> = {
+    need: "[ ]",
+    decided: "[D]",
+    ordered: "[O]",
+    received: "[R]",
+    packed: "[x]",
+  };
+  for (const g of groups) {
+    if (!g.items.length) continue;
+    lines.push(`## ${g.group.toUpperCase()}`);
+    for (const it of g.items) {
+      const qty = it.qty ? `  (${it.qty})` : "";
+      const note = it.note ? `  — ${it.note}` : "";
+      lines.push(`${mark[it.status] ?? "[ ]"} ${it.label}${qty}${note}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd();
+}
+
+function packingListToHtml(
+  eventName: string,
+  date: string | null,
+  location: string | null,
+  groups: PackingListGroup[],
+): string {
+  const esc = (s: string) =>
+    s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+  const meta = [fmtPackingDate(date), location].filter(Boolean).map((s) => esc(s as string)).join(" &middot; ");
+  const rows = groups
+    .filter((g) => g.items.length)
+    .map((g) => {
+      const items = g.items
+        .map(
+          (it) => `
+          <tr>
+            <td class="chk"><span class="box ${it.status}"></span></td>
+            <td class="lbl">${esc(it.label)}${it.note ? `<span class="note"> — ${esc(it.note)}</span>` : ""}</td>
+            <td class="qty">${it.qty ? esc(it.qty) : ""}</td>
+            <td class="st">${esc(it.status)}</td>
+          </tr>`,
+        )
+        .join("");
+      return `
+        <tbody class="group">
+          <tr class="grp"><td colspan="4">${esc(g.group)}</td></tr>
+          ${items}
+        </tbody>`;
+    })
+    .join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(eventName)} — Packing List</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font: 13px/1.4 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #0f172a; margin: 24px; }
+      h1 { font-size: 18px; margin: 0 0 2px; }
+      .meta { color: #475569; font-size: 12px; margin-bottom: 4px; }
+      .key { color: #475569; font-size: 11px; margin-bottom: 14px; }
+      table { width: 100%; border-collapse: collapse; }
+      td { padding: 4px 6px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+      tr.grp td { background: #f1f5f9; font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; color: #334155; border-bottom: 1px solid #cbd5e1; padding-top: 10px; }
+      .chk { width: 22px; }
+      .box { display: inline-block; width: 13px; height: 13px; border: 1.5px solid #94a3b8; border-radius: 3px; }
+      .box.decided { border-color: #d97706; background: #fef3c7; }
+      .box.ordered { border-color: #0284c7; background: #e0f2fe; }
+      .box.received { border-color: #7c3aed; background: #ede9fe; }
+      .box.packed { border-color: #059669; background: #059669; }
+      .qty { width: 90px; color: #475569; white-space: nowrap; }
+      .st { width: 70px; text-transform: capitalize; color: #64748b; font-size: 11px; }
+      .note { color: #64748b; }
+      @media print { body { margin: 0; } .st { display: none; } }
+    </style></head><body>
+    <h1>${esc(eventName)} — Packing / Material List</h1>
+    ${meta ? `<div class="meta">${meta}</div>` : ""}
+    <div class="key">Need &bull; Decided &bull; Ordered &bull; Received &bull; Packed</div>
+    <table>${rows}</table>
+    </body></html>`;
+}
+
+function PackingListEditor({
+  eventName,
+  eventDate,
+  eventLocation,
+  groups,
+  setGroups,
+}: {
+  eventName: string;
+  eventDate: string | null;
+  eventLocation: string | null;
+  groups: PackingListGroup[];
+  setGroups: React.Dispatch<React.SetStateAction<PackingListGroup[]>>;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const totals = useMemo(() => {
+    let total = 0;
+    let packed = 0;
+    for (const g of groups) for (const it of g.items) { total++; if (it.status === "packed") packed++; }
+    return { total, packed };
+  }, [groups]);
+
+  const mutateItem = (gi: number, ii: number, patch: Partial<PackingListGroup["items"][number]>) =>
+    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, items: g.items.map((it, j) => (j !== ii ? it : { ...it, ...patch })) })));
+  const removeItem = (gi: number, ii: number) =>
+    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, items: g.items.filter((_, j) => j !== ii) })));
+  const addItem = (gi: number) =>
+    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, items: [...g.items, { label: "", qty: null, status: "need", note: null }] })));
+  const renameGroup = (gi: number, name: string) =>
+    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, group: name })));
+  const removeGroup = (gi: number) => setGroups((prev) => prev.filter((_, i) => i !== gi));
+  const addGroup = () => setGroups((prev) => [...prev, { group: "New section", items: [{ label: "", qty: null, status: "need", note: null }] }]);
+
+  async function copyList() {
+    const text = packingListToText(eventName, eventDate, eventLocation, groups);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("Copy the packing list:", text);
+    }
+  }
+
+  function printList() {
+    const html = packingListToHtml(eventName, eventDate, eventLocation, groups);
+    const w = window.open("", "_blank", "width=760,height=900");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => w.print(), 250);
+  }
+
+  function emailList() {
+    const subject = `Packing / Material list — ${eventName}`;
+    const body = packingListToText(eventName, eventDate, eventLocation, groups);
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  }
+
+  return (
+    <fieldset className="rounded-lg border border-slate-200 p-3">
+      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Packing / Material list</legend>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] text-slate-400">
+          Editable checklist — starts from the GD master template. {totals.packed}/{totals.total} packed.
+        </p>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button type="button" onClick={copyList} className={btnGhost}>{copied ? "✓ Copied" : "📋 Copy"}</button>
+          <button type="button" onClick={printList} className={btnGhost}>🖨️ Print</button>
+          <button type="button" onClick={emailList} className={btnGhost}>✉️ Email</button>
+          <button
+            type="button"
+            onClick={() => { if (confirm("Reset the packing list to the GD master template? This replaces the current list.")) setGroups(defaultPackingList()); }}
+            className={btnGhost}
+          >
+            ↺ Reset to master
+          </button>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {groups.map((g, gi) => (
+          <div key={gi} className="rounded-lg border border-slate-100 bg-slate-50/40">
+            <div className="flex items-center gap-2 border-b border-slate-100 px-2 py-1.5">
+              <input
+                value={g.group}
+                onChange={(e) => renameGroup(gi, e.target.value)}
+                className="flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:border-slate-200 focus:border-emerald-400 focus:bg-white focus:outline-none"
+              />
+              <span className="text-[11px] text-slate-400">{g.items.length}</span>
+              <button type="button" onClick={() => addItem(gi)} title="Add item" className="rounded-md px-1.5 text-slate-400 hover:bg-white hover:text-emerald-600">＋</button>
+              <button type="button" onClick={() => removeGroup(gi)} title="Remove section" className="rounded-md px-1.5 text-slate-400 hover:bg-white hover:text-red-600">🗑</button>
+            </div>
+            <ul className="divide-y divide-slate-100">
+              {g.items.map((it, ii) => (
+                <li key={ii} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
+                  <div className="flex overflow-hidden rounded-md border border-slate-200">
+                    {PACKING_STATUSES.map((s) => (
+                      <button
+                        key={s.value}
+                        type="button"
+                        onClick={() => mutateItem(gi, ii, { status: s.value })}
+                        title={s.label}
+                        className={`px-1.5 py-1 text-[10px] font-semibold transition ${it.status === s.value ? PACKING_STATUS_STYLES[s.value] : "bg-white text-slate-400 hover:bg-slate-50"}`}
+                      >
+                        {s.label[0]}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    value={it.label}
+                    onChange={(e) => mutateItem(gi, ii, { label: e.target.value })}
+                    placeholder="Item…"
+                    className="min-w-[8rem] flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none"
+                  />
+                  <input
+                    value={it.qty ?? ""}
+                    onChange={(e) => mutateItem(gi, ii, { qty: e.target.value || null })}
+                    placeholder="Qty"
+                    className="w-20 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:border-emerald-400 focus:outline-none"
+                  />
+                  <input
+                    value={it.note ?? ""}
+                    onChange={(e) => mutateItem(gi, ii, { note: e.target.value || null })}
+                    placeholder="Note"
+                    className="w-32 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 focus:border-emerald-400 focus:outline-none"
+                  />
+                  <button type="button" onClick={() => removeItem(gi, ii)} className="px-1 text-slate-300 hover:text-red-600">✕</button>
+                </li>
+              ))}
+              {g.items.length === 0 && (
+                <li className="px-2 py-2 text-center text-[11px] text-slate-400">No items — add one or remove this section.</li>
+              )}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addGroup} className={`${btnGhost} mt-3`}>＋ Add section</button>
+    </fieldset>
   );
 }
 

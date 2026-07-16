@@ -195,6 +195,7 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
     rsvp_url: str(formData.get("rsvp_url")),
     source_id: str(formData.get("source_id")),
     checklist: parseChecklist(formData),
+    packing_list: parsePackingList(formData),
   };
   const { error } = id
     ? await supabase.from("marketing_event").update(patch).eq("id", id)
@@ -220,6 +221,69 @@ function parseChecklist(formData: FormData): { label: string; done: boolean }[] 
   return labels
     .map((label, i) => ({ label, done: done[i] === "true" }))
     .filter((c) => c.label);
+}
+
+const PACKING_STATUS_VALUES = new Set([
+  "need",
+  "decided",
+  "ordered",
+  "received",
+  "packed",
+]);
+
+/**
+ * Parse the grouped Packing / Material list from the serialized `packing_list_json`
+ * form field. Sanitizes every field (drops blank-label rows and empty groups,
+ * clamps status to the known pipeline) so nothing untrusted lands in jsonb.
+ */
+function parsePackingList(formData: FormData): {
+  group: string;
+  items: { label: string; qty: string | null; status: string; note: string | null }[];
+}[] {
+  const raw = str(formData.get("packing_list_json"));
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+  const clean = (v: unknown): string | null => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s ? s : null;
+  };
+  return parsed
+    .map((g) => {
+      const group = clean((g as { group?: unknown })?.group) ?? "Untitled group";
+      const rawItems = (g as { items?: unknown })?.items;
+      const items = Array.isArray(rawItems)
+        ? rawItems
+            .map((it) => {
+              const item = it as {
+                label?: unknown;
+                qty?: unknown;
+                status?: unknown;
+                note?: unknown;
+              };
+              const label = typeof item?.label === "string" ? item.label.trim() : "";
+              const status =
+                typeof item?.status === "string" &&
+                PACKING_STATUS_VALUES.has(item.status)
+                  ? item.status
+                  : "need";
+              return {
+                label,
+                qty: clean(item?.qty),
+                status,
+                note: clean(item?.note),
+              };
+            })
+            .filter((it) => it.label)
+        : [];
+      return { group, items };
+    })
+    .filter((g) => g.items.length > 0);
 }
 
 export async function saveEventSource(formData: FormData): Promise<ActionResult> {
