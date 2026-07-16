@@ -6,14 +6,17 @@ import { useRouter } from "next/navigation";
 import {
   type MarketingTreeNode,
   type InitiativeLink,
+  type TreeItem,
   type PersonOption,
   TREE_ZONES,
   NODE_STATUSES,
+  ITEM_STATUSES,
   PRIORITIES,
   APP_DESTINATIONS,
   destinationForUrl,
   suggestDestinations,
   nodeStatusLabel,
+  itemStatusLabel,
   treeZoneLabel,
   priorityLabel,
   personLabel,
@@ -596,11 +599,11 @@ export function MarketingTree({
           </g>
 
           {/* Zone labels */}
-          <ZoneLabel x={30} y={70} label="Canopy" sub="one-off draws" color="#2f5d34" onClick={() => setFocusZone(focusZone === "canopy" ? null : "canopy")} />
-          <ZoneLabel x={30} y={356} label="Branches" sub="core channels" color="#2f5d34" onClick={() => setFocusZone(focusZone === "branch" ? null : "branch")} />
-          <ZoneLabel x={centerX + TRUNK_HALF + 14} y={TRUNK_TOP_Y + 16} label="Trunk" sub="daily essentials" color="#5b4632" onClick={() => setFocusZone(focusZone === "trunk" ? null : "trunk")} />
-          <ZoneLabel x={30} y={GROUND_Y + 70} label="Primary roots" sub="retention programs" color="#d8cdb2" onClick={() => setFocusZone(focusZone === "root_primary" ? null : "root_primary")} />
-          <ZoneLabel x={30} y={H - 60} label="Fine roots" sub="individual tactics" color="#d8cdb2" onClick={() => setFocusZone(focusZone === "root_fine" ? null : "root_fine")} />
+          <ZoneLabel x={30} y={70} label="Categories" sub="lists of the real things" color="#2f5d34" onClick={() => setFocusZone(focusZone === "canopy" ? null : "canopy")} />
+          <ZoneLabel x={30} y={356} label="Attract pillars" sub="Events · Campaigns · Social · Partnerships" color="#2f5d34" onClick={() => setFocusZone(focusZone === "branch" ? null : "branch")} />
+          <ZoneLabel x={centerX + TRUNK_HALF + 14} y={TRUNK_TOP_Y + 16} label="Trunk" sub="brand core" color="#5b4632" onClick={() => setFocusZone(focusZone === "trunk" ? null : "trunk")} />
+          <ZoneLabel x={30} y={GROUND_Y + 70} label="Retain pillars" sub="Programs · Materials · Team & Ops" color="#d8cdb2" onClick={() => setFocusZone(focusZone === "root_primary" ? null : "root_primary")} />
+          <ZoneLabel x={30} y={H - 60} label="Categories" sub="lists of the real things" color="#d8cdb2" onClick={() => setFocusZone(focusZone === "root_fine" ? null : "root_fine")} />
 
           {/* Nodes */}
           {positioned.map((p) => (
@@ -754,6 +757,7 @@ function TreeNodeShape({
   const { node, x, y, w, h, lines } = p;
   const style = ZONE_STYLE[node.zone] ?? ZONE_STYLE.canopy;
   const attn = node.status === "needs_attention";
+  const itemCount = node.items?.length ?? 0;
   // Staleness: how long since the node was last "handled". Drives a subtle tint
   // so nodes that haven't been touched in a while stand out as needing a check.
   const { stale, veryStale } = staleInfo(node.last_handled_at);
@@ -818,6 +822,14 @@ function TreeNodeShape({
           </tspan>
         ))}
       </text>
+      {itemCount > 0 && (
+        <g transform={`translate(${w - 13}, 4)`} aria-hidden>
+          <circle cx={0} cy={0} r={9} fill="#0f766e" />
+          <text x={0} y={3.5} textAnchor="middle" fontSize={10} fontWeight={700} fill="#ffffff">
+            {itemCount}
+          </text>
+        </g>
+      )}
     </g>
   );
 }
@@ -829,6 +841,16 @@ const PRIORITY_TONE: Record<string, string> = {
   high: "bg-red-50 text-red-700",
   medium: "bg-amber-50 text-amber-700",
   low: "bg-slate-100 text-slate-500",
+};
+
+// Dot color for an in-node list item, by its status.
+const ITEM_STATUS_FILL: Record<string, string> = {
+  idea: "#a855f7",
+  planned: "#3b82f6",
+  confirmed: "#0ea5e9",
+  active: "#16a34a",
+  done: "#94a3b8",
+  hold: "#f59e0b",
 };
 
 function fmtMoney(n: number | null | undefined): string {
@@ -954,6 +976,67 @@ function DetailPanel({
 
           {node.summary && <p className="text-sm leading-relaxed text-slate-600">{node.summary}</p>}
 
+          {node.items && node.items.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                In this node ({node.items.length})
+              </p>
+              <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
+                {node.items.map((it, i) => {
+                  const dot = ITEM_STATUS_FILL[it.status ?? ""] ?? "#94a3b8";
+                  const internal = !!it.url && it.url.startsWith("/");
+                  const dest = it.url ? destinationForUrl(it.url) : undefined;
+                  const body = (
+                    <>
+                      <span
+                        className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                        style={{ background: dot }}
+                        title={itemStatusLabel(it.status)}
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-medium leading-snug text-slate-700">
+                          {it.label}
+                        </span>
+                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-400">
+                          <span className="font-medium text-slate-500">{itemStatusLabel(it.status)}</span>
+                          {it.date && <span>· 📅 {it.date}</span>}
+                          {it.owner && <span>· 👤 {it.owner}</span>}
+                        </span>
+                      </span>
+                      {it.url && (
+                        <span className="mt-0.5 shrink-0 text-emerald-500">
+                          {dest?.icon ? <span aria-hidden>{dest.icon}</span> : internal ? "→" : "↗"}
+                        </span>
+                      )}
+                    </>
+                  );
+                  const cls =
+                    "flex items-start gap-2.5 px-3 py-2 text-left transition hover:bg-emerald-50/60";
+                  if (!it.url) {
+                    return (
+                      <li key={i} className={cls.replace(" hover:bg-emerald-50/60", "")}>
+                        {body}
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={i}>
+                      {internal ? (
+                        <Link href={it.url} className={cls}>
+                          {body}
+                        </Link>
+                      ) : (
+                        <a href={it.url} target="_blank" rel="noopener noreferrer" className={cls}>
+                          {body}
+                        </a>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
           {childNodes.length > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -1069,6 +1152,10 @@ function NodeDialog({
 }) {
   const [zone, setZone] = useState(node?.zone ?? presetZone ?? "canopy");
   const [links, setLinks] = useState<InitiativeLink[]>(node?.links ?? []);
+  const [items, setItems] = useState<TreeItem[]>(node?.items ?? []);
+
+  const updateItem = (idx: number, patch: Partial<TreeItem>) =>
+    setItems(items.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
 
   const parentOptions =
     zone === "canopy"
@@ -1195,6 +1282,82 @@ function NodeDialog({
             <label className={fieldLabel}>Summary</label>
             <textarea name="summary" defaultValue={node?.summary ?? ""} rows={2} className={fieldInput} />
           </div>
+
+          {/* In-node list — the granular items that live inside this node */}
+          <fieldset className="rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              List items (what lives in this node)
+            </legend>
+            <p className="mb-2 text-[11px] text-slate-400">
+              The specifics — e.g. individual events, promos or tasks. Each can link to a
+              Calendar / CRM / Reporting page or an external URL.
+            </p>
+            <div className="space-y-2">
+              {items.map((it, idx) => (
+                <div key={idx} className="rounded-lg border border-slate-200 bg-slate-50/60 p-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      name="item_label"
+                      value={it.label}
+                      onChange={(e) => updateItem(idx, { label: e.target.value })}
+                      placeholder="Item name (e.g. Adoptapalooza)"
+                      className={`${fieldInput} flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setItems(items.filter((_, i) => i !== idx))}
+                      className="shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-2 text-slate-400 hover:text-red-600"
+                      aria-label="Remove item"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    <select
+                      name="item_status"
+                      value={it.status ?? "planned"}
+                      onChange={(e) => updateItem(idx, { status: e.target.value })}
+                      className={fieldInput}
+                    >
+                      {ITEM_STATUSES.map((s) => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      name="item_date"
+                      value={it.date ?? ""}
+                      onChange={(e) => updateItem(idx, { date: e.target.value })}
+                      placeholder="Date / cadence"
+                      className={fieldInput}
+                    />
+                    <input
+                      name="item_owner"
+                      value={it.owner ?? ""}
+                      onChange={(e) => updateItem(idx, { owner: e.target.value })}
+                      placeholder="Owner"
+                      className={fieldInput}
+                    />
+                    <input
+                      name="item_url"
+                      value={it.url ?? ""}
+                      onChange={(e) => updateItem(idx, { url: e.target.value })}
+                      placeholder="/calendar or https://…"
+                      className={fieldInput}
+                    />
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() =>
+                  setItems([...items, { label: "", date: "", status: "planned", owner: "", url: "" }])
+                }
+                className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
+              >
+                + Add item
+              </button>
+            </div>
+          </fieldset>
 
           <fieldset className="rounded-lg border border-slate-200 p-3">
             <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Budget (visible to all)</legend>

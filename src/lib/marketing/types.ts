@@ -192,6 +192,20 @@ export interface MarketingResource {
   updated_at: string;
 }
 
+/**
+ * A single row inside a node's in-node list. This is where the granular reality
+ * lives (e.g. "Adoptapalooza — Jun 13") so the tree itself stays a high-level
+ * map of categories. Each item optionally links to a Calendar/CRM/Reporting
+ * page or an external URL so contributors have everything a click away.
+ */
+export interface TreeItem {
+  label: string;
+  date: string | null;
+  status: string | null;
+  owner: string | null;
+  url: string | null;
+}
+
 export interface MarketingTreeNode {
   id: string;
   label: string;
@@ -207,6 +221,7 @@ export interface MarketingTreeNode {
   last_handled_at: string | null;
   due_date: string | null;
   links: InitiativeLink[];
+  items: TreeItem[];
   summary: string | null;
   metrics: Record<string, number | string>;
   sort_order: number;
@@ -409,11 +424,11 @@ export const TREE_ZONES: {
   group: "acquisition" | "retention";
   hint: string;
 }[] = [
-  { value: "canopy", label: "Canopy", group: "acquisition", hint: "One-off / seasonal draws" },
-  { value: "branch", label: "Branches", group: "acquisition", hint: "Core acquisition channels" },
-  { value: "trunk", label: "Trunk", group: "acquisition", hint: "Daily essentials" },
-  { value: "root_primary", label: "Primary roots", group: "retention", hint: "Core retention programs" },
-  { value: "root_fine", label: "Fine roots", group: "retention", hint: "Individual retention tactics" },
+  { value: "canopy", label: "Categories", group: "acquisition", hint: "Attract categories — hold the item lists" },
+  { value: "branch", label: "Attract pillars", group: "acquisition", hint: "Events · Campaigns · Social · Partnerships" },
+  { value: "trunk", label: "Trunk", group: "acquisition", hint: "Brand core / daily essentials" },
+  { value: "root_primary", label: "Retain pillars", group: "retention", hint: "Programs · Materials · Team & Ops" },
+  { value: "root_fine", label: "Retain categories", group: "retention", hint: "Retention categories — hold the item lists" },
 ];
 
 export const NODE_STATUSES: Option[] = [
@@ -422,6 +437,16 @@ export const NODE_STATUSES: Option[] = [
   { value: "planning", label: "Planning" },
   { value: "dormant", label: "Dormant" },
   { value: "archived", label: "Archived" },
+];
+
+/** Status of an individual in-node list item (see TreeItem). */
+export const ITEM_STATUSES: Option[] = [
+  { value: "idea", label: "Idea" },
+  { value: "planned", label: "Planned" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "active", label: "Active" },
+  { value: "done", label: "Done" },
+  { value: "hold", label: "On hold" },
 ];
 
 /** Marketing-related CRM channels, linking to the existing modules. */
@@ -462,6 +487,7 @@ export const venueTypeLabel = (v: string | null) => labelFor(VENUE_TYPES, v);
 export const resourceCategoryLabel = (v: string | null) =>
   labelFor(RESOURCE_CATEGORIES, v);
 export const nodeStatusLabel = (v: string | null) => labelFor(NODE_STATUSES, v);
+export const itemStatusLabel = (v: string | null) => labelFor(ITEM_STATUSES, v);
 export const promoStatusLabel = (v: string | null) => labelFor(PROMO_STATUSES, v);
 export const promoTypeLabel = (v: string | null) => labelFor(PROMO_TYPES, v);
 export const treeZoneLabel = (v: string | null) => {

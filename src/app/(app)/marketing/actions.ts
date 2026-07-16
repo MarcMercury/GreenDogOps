@@ -5,8 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/auth/session";
 import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
-import type { InitiativeLink } from "@/lib/marketing/types";
-
+import type { InitiativeLink, TreeItem } from "@/lib/marketing/types";
 export type ActionResult =
   | { ok: true; message?: string }
   | { ok: false; error: string };
@@ -667,6 +666,29 @@ async function logActivity(
   }
 }
 
+/** Parse the in-node list rows from the node dialog into a TreeItem[]. Blank
+ *  rows (no label) are dropped. */
+function parseItems(formData: FormData): TreeItem[] {
+  const labels = formData.getAll("item_label").map((v) => String(v).trim());
+  const dates = formData.getAll("item_date").map((v) => String(v).trim());
+  const statuses = formData.getAll("item_status").map((v) => String(v).trim());
+  const owners = formData.getAll("item_owner").map((v) => String(v).trim());
+  const urls = formData.getAll("item_url").map((v) => String(v).trim());
+  const out: TreeItem[] = [];
+  for (let i = 0; i < labels.length; i++) {
+    const label = labels[i];
+    if (!label) continue;
+    out.push({
+      label,
+      date: dates[i] || null,
+      status: statuses[i] || "planned",
+      owner: owners[i] || null,
+      url: urls[i] || null,
+    });
+  }
+  return out;
+}
+
 export async function saveTreeNode(formData: FormData): Promise<ActionResult> {
   const current = await requireMarketingEditor();
   const supabase = await createClient();
@@ -685,6 +707,7 @@ export async function saveTreeNode(formData: FormData): Promise<ActionResult> {
     budget_spent: num(formData.get("budget_spent")),
     budget_notes: str(formData.get("budget_notes")),
     links: parseLinks(formData),
+    items: parseItems(formData),
   };
   const { error } = id
     ? await supabase.from("marketing_tree_node").update(patch).eq("id", id)
