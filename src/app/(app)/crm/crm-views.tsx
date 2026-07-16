@@ -488,19 +488,23 @@ export function ContactListView({
   const columns: Column<CrmContact>[] =
     variant === "student"
       ? [
-          { key: "name", header: "Name", value: contactName },
+          { key: "name", header: "Name", value: contactName,
+            className: "max-w-[9rem] truncate",
+          },
           {
             key: "email",
             header: "Email",
             value: (c) => c.email,
-            className: "max-w-[12rem] truncate",
+            className: "max-w-[10rem] truncate",
           },
           {
             key: "school",
             header: "School / Org",
             value: (c) => c.school ?? c.organization,
+            className: "max-w-[9rem] truncate",
           },
           { key: "program", header: "Program", value: (c) => programLabel(c),
+            className: "whitespace-nowrap",
             render: (c) => {
               const label = programLabel(c);
               return label ? (
@@ -520,19 +524,26 @@ export function ContactListView({
             key: "program_subcategory",
             header: "Sub Category",
             value: (c) => c.program_subcategory,
+            className: "max-w-[8rem] truncate",
           },
           {
             key: "start_date",
             header: "Start Date",
             value: (c) => c.start_date,
+            className: "whitespace-nowrap",
             render: (c) => formatStartDate(c.start_date) ?? "—",
           },
-          { key: "grad_year", header: "Grad Year", value: (c) => c.grad_year },
-          { key: "dvm", header: "DVM", value: (c) => c.supervising_dvm },
+          { key: "grad_year", header: "Grad Year", value: (c) => c.grad_year,
+            className: "whitespace-nowrap",
+          },
+          { key: "dvm", header: "DVM", value: (c) => c.supervising_dvm,
+            className: "max-w-[8rem] truncate",
+          },
           {
             key: "recommendation",
-            header: "Recommendation Level",
+            header: "Rec Level",
             value: (c) => recommendationLabel(c.doc_recommendation),
+            className: "whitespace-nowrap",
             render: (c) =>
               c.doc_recommendation ? (
                 <Pill
@@ -544,6 +555,7 @@ export function ContactListView({
               ),
           },
           { key: "status", header: "Status", value: (c) => c.status,
+            className: "whitespace-nowrap",
             render: (c) => <StatusCell contact={c} canEdit={canEdit} />,
           },
         ]
@@ -641,7 +653,7 @@ export function ContactListView({
   }, [contacts, variant]);
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className={`mx-auto ${variant === "student" ? "max-w-none" : "max-w-7xl"}`}>
       <ModuleHeader
         icon={icon}
         eyebrow="CRM"
