@@ -59,6 +59,8 @@ import {
 // ---------------------------------------------------------------------------
 const fieldInput =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+const filterSelect =
+  "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 const fieldLabel = "mb-1 block text-xs font-medium text-slate-500";
 const btnPrimary =
   "inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50";
@@ -553,25 +555,25 @@ function InitiativesTab({
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${fieldInput} w-auto`}>
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className={filterSelect}>
           <option value="">All categories</option>
           {INITIATIVE_CATEGORIES.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${fieldInput} w-auto`}>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className={filterSelect}>
           <option value="">All statuses</option>
           {INITIATIVE_STATUSES.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
-        <select value={owner} onChange={(e) => setOwner(e.target.value)} className={`${fieldInput} w-auto`}>
+        <select value={owner} onChange={(e) => setOwner(e.target.value)} className={filterSelect}>
           <option value="">All owners</option>
           {owners.map((o) => (
             <option key={o} value={o}>{o}</option>
           ))}
         </select>
-        <select value={priority} onChange={(e) => setPriority(e.target.value)} className={`${fieldInput} w-auto`}>
+        <select value={priority} onChange={(e) => setPriority(e.target.value)} className={filterSelect}>
           <option value="">All priorities</option>
           {PRIORITIES.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
