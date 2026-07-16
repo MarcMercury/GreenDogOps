@@ -44,6 +44,11 @@ const GROUPS: Group[] = [
         dot: "bg-rose-500",
         module: "resources",
       },
+    ],
+  },
+  {
+    title: "HR / Recruit / GDU",
+    cards: [
       {
         href: "/hr",
         title: "HR / Roster",
@@ -60,27 +65,6 @@ const GROUPS: Group[] = [
         dot: "bg-blue-500",
         module: "ats",
       },
-    ],
-  },
-  {
-    title: "CRM",
-    cards: [
-      {
-        href: "/crm/referral",
-        title: "Referral CRM",
-        desc: "Referring clinics & hospitals with clinic-area mapping.",
-        icon: "🏥",
-        dot: "bg-violet-500",
-        module: "crm_referral",
-      },
-      {
-        href: "/crm/vendor",
-        title: "Vendor & Partner CRM",
-        desc: "Vendors, suppliers & business partners.",
-        icon: "🤝",
-        dot: "bg-violet-500",
-        module: "crm_vendor",
-      },
       {
         href: "/crm/student",
         title: "Student CRM",
@@ -89,6 +73,11 @@ const GROUPS: Group[] = [
         dot: "bg-violet-500",
         module: "crm_student",
       },
+    ],
+  },
+  {
+    title: "Marketing",
+    cards: [
       {
         href: "/crm/ce",
         title: "CE Leads/Events",
@@ -106,12 +95,20 @@ const GROUPS: Group[] = [
         module: "crm_influencer",
       },
       {
-        href: "/ezyvet",
-        title: "ezyVet CRM",
-        desc: "Client contacts, customer groups & revenue trends.",
-        icon: "🐾",
-        dot: "bg-teal-500",
-        module: "ezyvet",
+        href: "/crm/referral",
+        title: "Referral CRM",
+        desc: "Referring clinics & hospitals with clinic-area mapping.",
+        icon: "🏥",
+        dot: "bg-violet-500",
+        module: "crm_referral",
+      },
+      {
+        href: "/crm/vendor",
+        title: "Vendor & Partner CRM",
+        desc: "Vendors, suppliers & business partners.",
+        icon: "🤝",
+        dot: "bg-violet-500",
+        module: "crm_vendor",
       },
     ],
   },
@@ -147,6 +144,14 @@ const GROUPS: Group[] = [
   {
     title: "Biz Dev",
     cards: [
+      {
+        href: "/ezyvet",
+        title: "ezyVet CRM",
+        desc: "Client contacts, customer groups & revenue trends.",
+        icon: "🐾",
+        dot: "bg-teal-500",
+        module: "ezyvet",
+      },
       {
         href: "/reporting",
         title: "Reporting",

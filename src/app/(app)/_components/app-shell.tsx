@@ -32,26 +32,38 @@ function setSidebarCollapsed(value: boolean): void {
   window.dispatchEvent(new Event(SIDEBAR_EVENT));
 }
 
-/** Top-level modules of Green Dog Ops, before the CRM group. */
+const crmSection = (slug: string): NavItem => {
+  const s = CRM_SECTIONS.find((sec) => sec.slug === slug);
+  return {
+    key: `crm_${slug}` as ModuleKey,
+    href: `/crm/${slug}`,
+    label: s?.label ?? slug,
+    icon: s?.icon ?? "🏢",
+  };
+};
+
+/** Top-level modules of Green Dog Ops. */
 const MODULES_TOP: NavItem[] = [
   { key: "dashboard", href: "/", label: "Dashboard", icon: "▣" },
   { key: "resources", href: "/resources", label: "Resources", icon: "📚" },
+];
+
+/** HR, recruiting & Green Dog University. */
+const HR_RECRUIT: NavItem[] = [
   { key: "hr", href: "/hr", label: "HR / Roster", icon: "👥" },
   { key: "ats", href: "/ats", label: "Recruiting (ATS)", icon: "🎯" },
+  crmSection("student"),
 ];
 
-/** CRM sub-modules, one focused CRM per relationship type. */
-const CRM_NAV: NavItem[] = [
-  ...CRM_SECTIONS.map((s) => ({
-    key: `crm_${s.slug}` as ModuleKey,
-    href: `/crm/${s.slug}`,
-    label: s.label,
-    icon: s.icon,
-  })),
-  { key: "ezyvet", href: "/ezyvet", label: "ezyVet CRM", icon: "🐾" },
+/** Marketing CRMs. */
+const MARKETING: NavItem[] = [
+  crmSection("ce"),
+  crmSection("influencer"),
+  crmSection("referral"),
+  crmSection("vendor"),
 ];
 
-/** Operations modules, after the CRM group. */
+/** Operations modules. */
 const MODULES_BOTTOM: NavItem[] = [
   { key: "calendar", href: "/calendar", label: "Calendar", icon: "📅" },
   { key: "schedule", href: "/schedule", label: "Scheduling", icon: "🗓️" },
@@ -61,6 +73,7 @@ const MODULES_BOTTOM: NavItem[] = [
 
 /** Business development modules, after Operations. */
 const BIZ_DEV: NavItem[] = [
+  { key: "ezyvet", href: "/ezyvet", label: "ezyVet CRM", icon: "🐾" },
   { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
   { key: "emp_reporting", href: "/emp-reporting", label: "Emp Reporting", icon: "💰" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
@@ -68,8 +81,9 @@ const BIZ_DEV: NavItem[] = [
 
 const ALL_NAV: Array<{ href: string; label: string; icon: string }> = [
   ...MODULES_TOP,
+  ...HR_RECRUIT,
   { href: "/crm", label: "CRM", icon: "🏢" },
-  ...CRM_NAV,
+  ...MARKETING,
   ...MODULES_BOTTOM,
   ...BIZ_DEV,
 ];
@@ -199,8 +213,14 @@ function NavLinks({
         first
       />
       <NavSection
-        title="CRM"
-        items={CRM_NAV.filter((m) => allowed.has(m.key))}
+        title="HR / Recruit / GDU"
+        items={HR_RECRUIT.filter((m) => allowed.has(m.key))}
+        onNavigate={onNavigate}
+        collapsed={collapsed}
+      />
+      <NavSection
+        title="Marketing"
+        items={MARKETING.filter((m) => allowed.has(m.key))}
         onNavigate={onNavigate}
         collapsed={collapsed}
       />
