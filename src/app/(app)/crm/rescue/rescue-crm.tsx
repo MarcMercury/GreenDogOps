@@ -20,6 +20,7 @@ import {
 } from "@/lib/crm/referral-types";
 import { logRescueVisit, deleteRescue } from "./actions";
 import { RescueMap } from "./rescue-map";
+import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
 type TabKey = "list" | "map" | "targeting" | "activity" | "reports";
 
@@ -395,8 +396,9 @@ function RescueTable({
 
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
-      <table className="hidden w-full text-sm sm:table">
-        <thead>
+      <div className="hidden max-h-[70vh] overflow-auto sm:block">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_rgb(226_232_240)]">
           <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
             {sortableTh("name", "Rescue", "px-4")}
             {sortableTh("area", "Area")}
@@ -439,6 +441,7 @@ function RescueTable({
           ))}
         </tbody>
       </table>
+      </div>
 
       {/* Mobile cards */}
       <div className="divide-y divide-slate-100 sm:hidden">
@@ -477,7 +480,6 @@ function TargetingTab({
   rescues: CrmOrganization[];
   onFilterArea: (z: string) => void;
 }) {
-  const router = useRouter();
   const groups = useMemo(() => {
     const zoneOrder: string[] = ZONE_DEFINITIONS.map((z) => z.value);
     const buckets = new Map<string, CrmOrganization[]>();
@@ -531,41 +533,54 @@ function TargetingTab({
                     Filter Rescues by this area →
                   </button>
                 )}
-                <table className="mt-1 w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
-                      <th className="px-4 py-2">Rescue</th>
-                      <th className="px-3 py-2">Last Visit</th>
-                      <th className="px-3 py-2 text-right">Days Since</th>
-                      <th className="px-3 py-2 text-right">Adoptions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {g.list.map((r) => {
-                      const d = daysSince(r.last_visit_date);
-                      return (
-                        <tr key={r.id} className="cursor-pointer hover:bg-slate-50" onClick={() => router.push(`/crm/org/${r.id}`)}>
-                          <td className="px-4 py-2 text-slate-700">{r.name}</td>
-                          <td className="px-3 py-2 text-xs text-slate-500">{formatDate(r.last_visit_date)}</td>
-                          <td className="px-3 py-2 text-right text-xs">
-                            {r.last_visit_date ? (
-                              <span className={d != null && d > 180 ? "font-medium text-red-600" : "text-slate-500"}>{d}d</span>
-                            ) : (
-                              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">never</span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2 text-right tabular-nums text-slate-600">{(r.verified_adoptions ?? 0).toLocaleString()}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <AreaRescueTable list={g.list} />
               </div>
             )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+function AreaRescueTable({ list }: { list: CrmOrganization[] }) {
+  const router = useRouter();
+  const sort = useTableSort(list, {
+    rescue: (r) => r.name,
+    lastVisit: (r) => r.last_visit_date,
+    daysSince: (r) => daysSince(r.last_visit_date) ?? Number.MAX_SAFE_INTEGER,
+    adoptions: (r) => r.verified_adoptions ?? 0,
+  });
+  return (
+    <table className="mt-1 w-full text-sm">
+      <thead className={stickyHeadClass}>
+        <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <SortHeader label="Rescue" sortKey="rescue" sort={sort} className="px-4 py-2" />
+          <SortHeader label="Last Visit" sortKey="lastVisit" sort={sort} className="px-3 py-2" />
+          <SortHeader label="Days Since" sortKey="daysSince" sort={sort} align="right" className="px-3 py-2" />
+          <SortHeader label="Adoptions" sortKey="adoptions" sort={sort} align="right" className="px-3 py-2" />
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {sort.sorted.map((r) => {
+          const d = daysSince(r.last_visit_date);
+          return (
+            <tr key={r.id} className="cursor-pointer hover:bg-slate-50" onClick={() => router.push(`/crm/org/${r.id}`)}>
+              <td className="px-4 py-2 text-slate-700">{r.name}</td>
+              <td className="px-3 py-2 text-xs text-slate-500">{formatDate(r.last_visit_date)}</td>
+              <td className="px-3 py-2 text-right text-xs">
+                {r.last_visit_date ? (
+                  <span className={d != null && d > 180 ? "font-medium text-red-600" : "text-slate-500"}>{d}d</span>
+                ) : (
+                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">never</span>
+                )}
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums text-slate-600">{(r.verified_adoptions ?? 0).toLocaleString()}</td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

@@ -72,6 +72,7 @@ import {
   type SaveResult,
 } from "../actions";
 import { setPersonRoles, setStudentRoleFlags } from "../../schedule/actions";
+import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 import {
   EmployeeForm,
   Field,
@@ -807,6 +808,12 @@ function SchedAttendancePanel({
   const visibleRecords = activeGroup
     ? records.filter((r) => activeGroup.statuses.includes(r.status))
     : records;
+  const attendanceSort = useTableSort(visibleRecords, {
+    date: (r) => r.work_date,
+    status: (r) => ATTENDANCE_LABELS[r.status],
+    location: (r) => r.location_name,
+    note: (r) => r.note,
+  });
 
   return (
     <div className="space-y-5">
@@ -903,18 +910,18 @@ function SchedAttendancePanel({
                   : "No attendance recorded yet. Marks made on a published schedule will appear here."}
               </EmptyState>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+              <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
                 <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-400">
-                      <th className="px-3 py-2 font-medium">Date</th>
-                      <th className="px-3 py-2 font-medium">Status</th>
-                      <th className="px-3 py-2 font-medium">Location</th>
-                      <th className="px-3 py-2 font-medium">Note</th>
+                  <thead className={`${stickyHeadClass} text-left text-xs uppercase text-slate-400`}>
+                    <tr className="border-b border-slate-200">
+                      <SortHeader label="Date" sortKey="date" sort={attendanceSort} className="px-3 py-2 font-medium" />
+                      <SortHeader label="Status" sortKey="status" sort={attendanceSort} className="px-3 py-2 font-medium" />
+                      <SortHeader label="Location" sortKey="location" sort={attendanceSort} className="px-3 py-2 font-medium" />
+                      <SortHeader label="Note" sortKey="note" sort={attendanceSort} className="px-3 py-2 font-medium" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
-                    {visibleRecords.map((r) => (
+                    {attendanceSort.sorted.map((r) => (
                       <tr key={r.assignmentId} className="hover:bg-slate-50/50">
                         <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-800">
                           {fmtDate(r.work_date)}

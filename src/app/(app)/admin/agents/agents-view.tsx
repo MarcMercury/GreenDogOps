@@ -15,6 +15,7 @@ import {
   type AgentRun,
 } from "@/lib/admin/agents";
 import { runAgentNow, setAgentEnabled } from "./actions";
+import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
 function timeAgo(iso: string | null): string {
   if (!iso) return "—";
@@ -182,6 +183,17 @@ function AgentCard({
   );
   const hasActive = agentRuns.some((r) => isActiveStatus(r.status));
 
+  const runsSort = useTableSort(agentRuns.slice(0, 10), {
+    status: (r) => r.status,
+    trigger: (r) => r.trigger,
+    target: (r) => r.target_date,
+    started: (r) => r.started_at ?? r.created_at,
+    duration: (r) => r.duration_ms ?? 0,
+    records: (r) => r.records_processed ?? 0,
+    tokens: (r) => (r.tokens_input ?? 0) + (r.tokens_output ?? 0),
+    cost: (r) => Number(r.cost_usd ?? 0),
+  });
+
   const doRun = () => {
     setMsg(null);
     startTransition(async () => {
@@ -296,23 +308,23 @@ function AgentCard({
           {agentRuns.length === 0 ? (
             <p className="text-sm text-slate-400">No runs yet.</p>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <div className="max-h-[70vh] overflow-auto rounded-xl border border-slate-200">
               <table className="min-w-full text-sm">
-                <thead>
+                <thead className={stickyHeadClass}>
                   <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wider text-slate-400">
                     <th className="w-8 px-2 py-2 font-medium" />
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">Trigger</th>
-                    <th className="px-3 py-2 font-medium">Target date</th>
-                    <th className="px-3 py-2 font-medium">Started</th>
-                    <th className="px-3 py-2 font-medium">Duration</th>
-                    <th className="px-3 py-2 text-right font-medium">Records</th>
-                    <th className="px-3 py-2 text-right font-medium">Tokens</th>
-                    <th className="px-3 py-2 text-right font-medium">Cost</th>
+                    <SortHeader label="Status" sortKey="status" sort={runsSort} className="px-3 py-2 font-medium" />
+                    <SortHeader label="Trigger" sortKey="trigger" sort={runsSort} className="px-3 py-2 font-medium" />
+                    <SortHeader label="Target date" sortKey="target" sort={runsSort} className="px-3 py-2 font-medium" />
+                    <SortHeader label="Started" sortKey="started" sort={runsSort} className="px-3 py-2 font-medium" />
+                    <SortHeader label="Duration" sortKey="duration" sort={runsSort} className="px-3 py-2 font-medium" />
+                    <SortHeader label="Records" sortKey="records" sort={runsSort} align="right" className="px-3 py-2 font-medium" />
+                    <SortHeader label="Tokens" sortKey="tokens" sort={runsSort} align="right" className="px-3 py-2 font-medium" />
+                    <SortHeader label="Cost" sortKey="cost" sort={runsSort} align="right" className="px-3 py-2 font-medium" />
                   </tr>
                 </thead>
                 <tbody>
-                  {agentRuns.slice(0, 10).map((run) => {
+                  {runsSort.sorted.map((run) => {
                     const results = parseRunDetail(run.detail);
                     const failed = results.filter((r) => r.status === "error");
                     const expandable = results.length > 0;

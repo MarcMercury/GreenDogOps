@@ -4,33 +4,15 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
 import type { ClientSummary, ContactImportRow } from "@/lib/reporting/types";
 import { PageHeader } from "../_components/ui";
-import { StatCard, SectionCard, fmtCurrency, fmtNumber, fmtDate } from "../reporting/charts";
+import { StatCard, SectionCard, fmtCurrency, fmtNumber } from "../reporting/charts";
 import { ContactUploader } from "./contact-uploader";
 import { ContactSearch } from "./contact-search";
 import { ContactImportHistory } from "./contact-import-history";
+import { ContactsTable, type ContactRow } from "./contacts-table";
 
 export const dynamic = "force-dynamic";
 
 const PAGE_SIZE = 50;
-
-interface ContactRow {
-  id: string;
-  ezyvet_contact_id: string;
-  contact_code: string | null;
-  full_name: string | null;
-  business_name: string | null;
-  email: string | null;
-  mobile: string | null;
-  phone: string | null;
-  physical_city: string | null;
-  physical_state: string | null;
-  customer_group: string | null;
-  division: string | null;
-  is_customer: boolean | null;
-  is_active: boolean | null;
-  revenue_spend_ytd: number | null;
-  last_invoiced: string | null;
-}
 
 export default async function EzyvetCrmPage({
   searchParams,
@@ -161,67 +143,7 @@ export default async function EzyvetCrmPage({
           <div className="mb-4">
             <ContactSearch />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wider text-slate-400">
-                  <th className="py-2 pr-3 font-semibold">Name</th>
-                  <th className="py-2 pr-3 font-semibold">Contact</th>
-                  <th className="py-2 pr-3 font-semibold">Location</th>
-                  <th className="py-2 pr-3 font-semibold">Group</th>
-                  <th className="py-2 pr-3 text-right font-semibold">Rev YTD</th>
-                  <th className="py-2 pr-3 font-semibold">Last Invoiced</th>
-                </tr>
-              </thead>
-              <tbody>
-                {contacts.map((c) => (
-                  <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                    <td className="py-2.5 pr-3">
-                      <div className="font-medium text-slate-800">
-                        {c.full_name || c.business_name || "Unnamed"}
-                      </div>
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                        {c.contact_code ? <span>#{c.contact_code}</span> : null}
-                        {c.is_customer ? (
-                          <span className="rounded bg-emerald-50 px-1 text-emerald-600">
-                            Customer
-                          </span>
-                        ) : null}
-                        {c.is_active === false ? (
-                          <span className="rounded bg-slate-100 px-1 text-slate-500">
-                            Inactive
-                          </span>
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="py-2.5 pr-3 text-xs text-slate-500">
-                      <div className="truncate max-w-[200px]">{c.email || "—"}</div>
-                      <div className="text-slate-400">{c.mobile || c.phone || ""}</div>
-                    </td>
-                    <td className="py-2.5 pr-3 text-xs text-slate-500">
-                      {[c.physical_city, c.physical_state].filter(Boolean).join(", ") || "—"}
-                    </td>
-                    <td className="py-2.5 pr-3 text-xs text-slate-500">
-                      {c.customer_group || c.division || "—"}
-                    </td>
-                    <td className="py-2.5 pr-3 text-right tabular-nums text-slate-700">
-                      {c.revenue_spend_ytd ? fmtCurrency(c.revenue_spend_ytd) : "—"}
-                    </td>
-                    <td className="py-2.5 pr-3 text-xs text-slate-500">
-                      {fmtDate(c.last_invoiced)}
-                    </td>
-                  </tr>
-                ))}
-                {contacts.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-6 text-center text-sm text-slate-400">
-                      No contacts match your search.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+          <ContactsTable contacts={contacts} />
 
           {totalPages > 1 ? (
             <div className="mt-4 flex items-center justify-between text-xs text-slate-500">

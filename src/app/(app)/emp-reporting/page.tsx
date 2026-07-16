@@ -4,11 +4,11 @@ import { canAccessModule } from "@/lib/auth/permissions";
 import {
   buildEmpReport,
   type EmpInput,
-  type RoleStats,
 } from "@/lib/hr/emp-reporting";
 import { PageHeader } from "../_components/ui";
 import { SectionCard, fmtCurrency } from "../reporting/charts";
 import { RoleSalaryChart } from "./role-salary-chart";
+import { OutliersTable, RoleTable } from "./tables";
 
 export const dynamic = "force-dynamic";
 
@@ -179,60 +179,11 @@ export default async function EmpReportingPage() {
             No outliers detected in roles large enough to evaluate.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-                  <th className="py-2 pr-3">Employee</th>
-                  <th className="py-2 pr-3">Role</th>
-                  <th className="py-2 pr-3 text-right">Salary</th>
-                  <th className="py-2 pr-3 text-right">Role median</th>
-                  <th className="py-2 pr-3 text-right">vs. median</th>
-                  <th className="py-2">Flag</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allOutliers
-                  .sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct))
-                  .map((m) => (
-                    <tr
-                      key={`${m.role}-${m.name}`}
-                      className="border-b border-slate-100"
-                    >
-                      <td className="py-2 pr-3 font-medium text-slate-800">
-                        {m.name}
-                      </td>
-                      <td className="py-2 pr-3 text-slate-500">{m.role}</td>
-                      <td className="py-2 pr-3 text-right tabular-nums text-slate-700">
-                        {fmtCurrency(m.salary)}
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums text-slate-500">
-                        {fmtCurrency(m.roleMedian)}
-                      </td>
-                      <td
-                        className={`py-2 pr-3 text-right tabular-nums font-medium ${
-                          m.deltaPct >= 0 ? "text-emerald-600" : "text-rose-600"
-                        }`}
-                      >
-                        {m.deltaPct >= 0 ? "+" : ""}
-                        {m.deltaPct.toFixed(0)}%
-                      </td>
-                      <td className="py-2">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            m.outlier === "high"
-                              ? "bg-amber-50 text-amber-700"
-                              : "bg-sky-50 text-sky-700"
-                          }`}
-                        >
-                          {m.outlier === "high" ? "Above range" : "Below range"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+          <OutliersTable
+            outliers={[...allOutliers].sort(
+              (a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct),
+            )}
+          />
         )}
       </SectionCard>
     </div>
@@ -258,71 +209,6 @@ function Stat({
         {value}
       </div>
       <div className="mt-0.5 text-xs font-medium text-slate-500">{label}</div>
-    </div>
-  );
-}
-
-function RoleTable({ roles }: { roles: RoleStats[] }) {
-  if (roles.length === 0)
-    return <p className="text-sm text-slate-400">No roster data to report.</p>;
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            <th className="py-2 pr-3">Role</th>
-            <th className="py-2 pr-3 text-right">People</th>
-            <th className="py-2 pr-3 text-right">Average</th>
-            <th className="py-2 pr-3 text-right">Median</th>
-            <th className="py-2 pr-3 text-right">Min</th>
-            <th className="py-2 pr-3 text-right">Max</th>
-            <th className="py-2 pr-3 text-right">Spread</th>
-            <th className="py-2 text-right">Outliers</th>
-          </tr>
-        </thead>
-        <tbody>
-          {roles.map((r) => (
-            <tr key={r.role} className="border-b border-slate-100">
-              <td className="py-2 pr-3 font-medium text-slate-800">
-                {r.role}
-                {r.kind === "doctor" ? (
-                  <span className="ml-2 inline-flex rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
-                    excl. from co. avg
-                  </span>
-                ) : null}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
-                {r.count}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums font-semibold text-slate-900">
-                {fmtCurrency(r.avg)}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums text-slate-600">
-                {fmtCurrency(r.median)}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums text-slate-500">
-                {fmtCurrency(r.min)}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums text-slate-500">
-                {fmtCurrency(r.max)}
-              </td>
-              <td className="py-2 pr-3 text-right tabular-nums text-slate-500">
-                {fmtCurrency(r.spread)}
-              </td>
-              <td className="py-2 text-right tabular-nums">
-                {r.outliers.length > 0 ? (
-                  <span className="font-semibold text-amber-600">
-                    {r.outliers.length}
-                  </span>
-                ) : (
-                  <span className="text-slate-300">—</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }

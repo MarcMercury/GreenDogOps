@@ -50,6 +50,9 @@ import {
   type SortDir,
   SortIcon,
   compareValues,
+  useTableSort,
+  SortHeader,
+  stickyHeadClass,
 } from "../../_components/data-views";
 
 type TabKey = "list" | "map" | "targeting" | "activity" | "upload-log" | "reports";
@@ -928,6 +931,22 @@ function UploadLogTab({
 }) {
   const [adding, setAdding] = useState<string | null>(null);
   const [dismissing, setDismissing] = useState<string | null>(null);
+  const unmatchedSort = useTableSort(unmatched, {
+    clinic: (u) => u.clinicName,
+    visits: (u) => u.visits,
+    revenue: (u) => u.revenue,
+    uploadDate: (u) => u.uploadDate,
+    dateRange: (u) => u.dateRange,
+  });
+  const historySort = useTableSort(history, {
+    uploaded: (h) => h.upload_date,
+    file: (h) => h.filename,
+    type: (h) => h.report_type,
+    dateRange: (h) => h.date_range_start,
+    parsed: (h) => h.total_rows_parsed ?? 0,
+    matched: (h) => h.total_rows_matched ?? 0,
+    revenue: (h) => h.total_revenue_added,
+  });
   return (
     <div className="space-y-5">
       {isAdmin && (
@@ -949,20 +968,20 @@ function UploadLogTab({
         {unmatched.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">No unmatched entries.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-h-[70vh] overflow-auto">
             <table className="w-full text-sm">
-              <thead>
+              <thead className={stickyHeadClass}>
                 <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-2">Clinic Name</th>
-                  <th className="px-3 py-2 text-right">Visits</th>
-                  <th className="px-3 py-2 text-right">Revenue</th>
-                  <th className="px-3 py-2">Upload Date</th>
-                  <th className="px-3 py-2">Date Range</th>
+                  <SortHeader label="Clinic Name" sortKey="clinic" sort={unmatchedSort} className="px-4 py-2" />
+                  <SortHeader label="Visits" sortKey="visits" sort={unmatchedSort} align="right" className="px-3 py-2" />
+                  <SortHeader label="Revenue" sortKey="revenue" sort={unmatchedSort} align="right" className="px-3 py-2" />
+                  <SortHeader label="Upload Date" sortKey="uploadDate" sort={unmatchedSort} className="px-3 py-2" />
+                  <SortHeader label="Date Range" sortKey="dateRange" sort={unmatchedSort} className="px-3 py-2" />
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {unmatched.map((u) => (
+                {unmatchedSort.sorted.map((u) => (
                   <tr key={u.clinicName}>
                     <td className="px-4 py-2 text-slate-800">{u.clinicName}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{u.visits}</td>
@@ -1002,22 +1021,22 @@ function UploadLogTab({
         {history.length === 0 ? (
           <p className="px-4 py-6 text-center text-sm text-slate-400">No uploads yet.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="max-h-[70vh] overflow-auto">
             <table className="w-full text-sm">
-              <thead>
+              <thead className={stickyHeadClass}>
                 <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <th className="px-4 py-2">Uploaded</th>
-                  <th className="px-3 py-2">File</th>
-                  <th className="px-3 py-2">Type</th>
-                  <th className="px-3 py-2">Date Range</th>
-                  <th className="px-3 py-2 text-right">Parsed</th>
-                  <th className="px-3 py-2 text-right">Matched</th>
-                  <th className="px-3 py-2 text-right">Revenue</th>
+                  <SortHeader label="Uploaded" sortKey="uploaded" sort={historySort} className="px-4 py-2" />
+                  <SortHeader label="File" sortKey="file" sort={historySort} className="px-3 py-2" />
+                  <SortHeader label="Type" sortKey="type" sort={historySort} className="px-3 py-2" />
+                  <SortHeader label="Date Range" sortKey="dateRange" sort={historySort} className="px-3 py-2" />
+                  <SortHeader label="Parsed" sortKey="parsed" sort={historySort} align="right" className="px-3 py-2" />
+                  <SortHeader label="Matched" sortKey="matched" sort={historySort} align="right" className="px-3 py-2" />
+                  <SortHeader label="Revenue" sortKey="revenue" sort={historySort} align="right" className="px-3 py-2" />
                   {isAdmin && <th className="px-3 py-2 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
-                {history.map((h) => {
+                {historySort.sorted.map((h) => {
                   const undone = !!(h.sync_details && (h.sync_details as Record<string, unknown>).undone_at);
                   return (
                     <tr key={h.id} className={undone ? "opacity-50" : ""}>

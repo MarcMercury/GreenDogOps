@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   APP_ROLES,
@@ -6,21 +5,11 @@ import {
   type AppRole,
   type AppUser,
 } from "@/lib/auth/permissions";
-import { Panel, RoleBadge } from "../_components";
+import { Panel } from "../_components";
 import { grantAccess, autoMatchUsersToRoster } from "../actions";
+import { UsersTable, type UserRow } from "./users-table";
 
 export const dynamic = "force-dynamic";
-
-function lastSeen(iso: string | null): string {
-  if (!iso) return "never";
-  const d = new Date(iso);
-  return d.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
 
 export default async function UsersPage({
   searchParams,
@@ -88,6 +77,21 @@ export default async function UsersPage({
 
   const unlinkedCount = appUsers.filter((u) => !u.person_id).length;
 
+  const userRows: UserRow[] = appUsers.map((u) => {
+    const roster = u.person_id ? rosterById.get(u.person_id) : null;
+    return {
+      id: u.id,
+      full_name: u.full_name,
+      email: u.email,
+      person_id: u.person_id,
+      rosterName: roster?.name ?? null,
+      rosterTitle: roster?.title ?? null,
+      role: u.role,
+      is_active: u.is_active,
+      last_seen_at: u.last_seen_at,
+    };
+  });
+
   // Auth users (shared with the sibling app) who don't yet have GDO access.
   const pending = (authList?.users ?? [])
     .filter((u) => u.email && !grantedIds.has(u.id))
@@ -118,82 +122,7 @@ export default async function UsersPage({
           ) : null
         }
       >
-        <div className="-mx-5 -mb-5 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
-                <th className="px-5 py-2.5">User</th>
-                <th className="px-3 py-2.5">Roster profile</th>
-                <th className="px-3 py-2.5">Role</th>
-                <th className="px-3 py-2.5">Status</th>
-                <th className="px-3 py-2.5">Last seen</th>
-                <th className="px-5 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {appUsers.map((u) => {
-                const roster = u.person_id
-                  ? rosterById.get(u.person_id)
-                  : null;
-                return (
-                  <tr
-                    key={u.id}
-                    className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60"
-                  >
-                    <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">
-                        {u.full_name ?? u.email}
-                      </p>
-                      {u.full_name ? (
-                        <p className="text-xs text-slate-400">{u.email}</p>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-3">
-                      {roster ? (
-                        <Link
-                          href={`/hr/${u.person_id}`}
-                          className="font-medium text-emerald-600 hover:text-emerald-700"
-                        >
-                          {roster.name}
-                          {roster.title ? (
-                            <span className="block text-xs font-normal text-slate-400">
-                              {roster.title}
-                            </span>
-                          ) : null}
-                        </Link>
-                      ) : (
-                        <span className="text-xs font-medium text-amber-600">
-                          ⚠ No roster profile
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3">
-                      <RoleBadge role={u.role} />
-                    </td>
-                    <td className="px-3 py-3">
-                      {u.is_active ? (
-                        <span className="text-emerald-600">● Active</span>
-                      ) : (
-                        <span className="text-slate-400">○ Inactive</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-slate-500">
-                      {lastSeen(u.last_seen_at)}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <Link
-                        href={`/admin/users/${u.id}`}
-                        className="text-xs font-medium text-emerald-600 hover:text-emerald-700"
-                      >
-                        Manage →
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <UsersTable users={userRows} />
       </Panel>
 
       <Panel

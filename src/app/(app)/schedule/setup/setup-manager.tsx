@@ -25,6 +25,7 @@ import {
   savePreferredLocation,
   setStudentRoleFlags,
 } from "../actions";
+import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
 type SubTab = "departments" | "roles" | "shifts" | "employees" | "locations";
 
@@ -912,6 +913,19 @@ function Employees({ data }: { data: SetupData }) {
       .sort((a, b) => gridName(a).localeCompare(gridName(b)));
   }, [data.people, q]);
 
+  const locName = (id: string | null | undefined) => {
+    if (!id) return null;
+    const l = data.locations.find((x) => x.id === id);
+    return l ? l.short_code || l.name : null;
+  };
+  const peopleSort = useTableSort(people, {
+    employee: (p) => gridName(p),
+    scheduleType: (p) => p.schedule_type,
+    weeklyTarget: (p) => settingByPerson.get(p.id)?.weekly_shift_target ?? 5,
+    preferred: (p) => locName(p.preferred_location_id),
+    schedulable: (p) => ((settingByPerson.get(p.id)?.is_schedulable ?? true) ? 1 : 0),
+  });
+
   function update(
     personId: string,
     patch: {
@@ -963,21 +977,21 @@ function Employees({ data }: { data: SetupData }) {
           className={inputCls}
         />
       </div>
-      <div className="overflow-x-auto">
+      <div className="max-h-[70vh] overflow-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
-              <th className="py-2 pr-4 font-medium">Employee</th>
-              <th className="py-2 pr-4 font-medium">Schedule type</th>
-              <th className="py-2 pr-4 font-medium">Weekly target</th>
-              <th className="py-2 pr-4 font-medium">Preferred location</th>
+          <thead className={`${stickyHeadClass} text-left text-xs uppercase text-slate-400`}>
+            <tr className="border-b border-slate-200">
+              <SortHeader label="Employee" sortKey="employee" sort={peopleSort} className="py-2 pr-4 font-medium" />
+              <SortHeader label="Schedule type" sortKey="scheduleType" sort={peopleSort} className="py-2 pr-4 font-medium" />
+              <SortHeader label="Weekly target" sortKey="weeklyTarget" sort={peopleSort} className="py-2 pr-4 font-medium" />
+              <SortHeader label="Preferred location" sortKey="preferred" sort={peopleSort} className="py-2 pr-4 font-medium" />
               <th className="py-2 pr-4 font-medium">Eligible locations</th>
               <th className="py-2 pr-4 font-medium">Available days</th>
-              <th className="py-2 pr-4 font-medium">Schedulable</th>
+              <SortHeader label="Schedulable" sortKey="schedulable" sort={peopleSort} className="py-2 pr-4 font-medium" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
-            {people.map((p) => {
+            {peopleSort.sorted.map((p) => {
               const s = settingByPerson.get(p.id);
               return (
                 <tr key={p.id} className={pending ? "opacity-70" : ""}>
