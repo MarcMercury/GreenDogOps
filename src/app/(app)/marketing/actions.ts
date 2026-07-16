@@ -189,7 +189,6 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
     client_spend: num(formData.get("client_spend")),
     feedback: str(formData.get("feedback")),
     // Planning / promotion
-    planning_phase: str(formData.get("planning_phase")),
     staff: str(formData.get("staff")),
     supplies: str(formData.get("supplies")),
     promo_channels: str(formData.get("promo_channels")),
@@ -347,7 +346,6 @@ export async function createEventFromSource(
     name: name || `Event from ${source?.name ?? "source"}`,
     event_type: "third_party",
     status: "researching",
-    planning_phase: "researching",
     location: source?.region ?? null,
     source_id: sourceId,
   });

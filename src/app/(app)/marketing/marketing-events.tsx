@@ -13,7 +13,6 @@ import {
   type PersonOption,
   EVENT_TYPES,
   EVENT_STATUSES,
-  PLANNING_PHASES,
   ATTENDEE_TYPES,
   VENUE_TYPES,
   PACKING_STATUSES,
@@ -21,7 +20,6 @@ import {
   defaultPackingList,
   eventTypeLabel,
   eventStatusLabel,
-  planningPhaseLabel,
   attendeeTypeLabel,
 } from "@/lib/marketing/types";
 import {
@@ -50,8 +48,11 @@ const btnGhost =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50";
 
 const STATUS_COLORS: Record<string, string> = {
+  idea: "bg-slate-100 text-slate-600",
   researching: "bg-slate-100 text-slate-600",
   tentative: "bg-sky-50 text-sky-700",
+  planning: "bg-amber-50 text-amber-700",
+  prepping: "bg-violet-50 text-violet-700",
   confirmed: "bg-emerald-50 text-emerald-700",
   completed: "bg-indigo-50 text-indigo-700",
   cancelled: "bg-red-50 text-red-700",
@@ -169,7 +170,6 @@ export function EventsTab({
     date: (e) => e.starts_on,
     type: (e) => eventTypeLabel(e.event_type),
     status: (e) => eventStatusLabel(e.status),
-    planning: (e) => (e.planning_phase ? planningPhaseLabel(e.planning_phase) : null),
     owner: (e) => e.owner_name,
     cost: (e) => e.cost,
     attendees: (e) => e.attendees ?? (attendeesByEvent.get(e.id)?.length ?? 0),
@@ -319,7 +319,6 @@ export function EventsTab({
                   <SortHeader label="Date" sortKey="date" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Type" sortKey="type" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Status" sortKey="status" sort={eventSort} className="px-4 py-2.5 font-semibold" />
-                  <SortHeader label="Planning" sortKey="planning" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Owner" sortKey="owner" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Cost" sortKey="cost" sort={eventSort} align="right" className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Attendees" sortKey="attendees" sort={eventSort} align="right" className="px-4 py-2.5 font-semibold" />
@@ -343,7 +342,6 @@ export function EventsTab({
                       <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{fmtDate(e.starts_on)}</td>
                       <td className="whitespace-nowrap px-4 py-2.5"><Badge>{eventTypeLabel(e.event_type)}</Badge></td>
                       <td className="whitespace-nowrap px-4 py-2.5"><Badge className={STATUS_COLORS[e.status]}>{eventStatusLabel(e.status)}</Badge></td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{e.planning_phase ? planningPhaseLabel(e.planning_phase) : "—"}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{e.owner_name ?? "—"}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">{e.cost != null ? fmtMoney(e.cost) : "—"}</td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">{fmtNum(e.attendees ?? (att || null))}</td>
@@ -430,10 +428,13 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
           <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">✕</button>
         </div>
 
-        <form onSubmit={onSubmit} className="max-h-[72vh] space-y-5 overflow-y-auto px-5 py-4">
-          {event && <input type="hidden" name="id" value={event.id} />}
-          {/* hidden checklist mirrors */}
-          {checklist.map((c, i) => (
+        <fodiv className="flex items-center gap-2">
+            <button type="submit" form="event-form" className={btnPrimary}>Save</button>
+            <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">✕</button>
+          </div>
+        </div>
+
+        <form id="event-form"ecklist.map((c, i) => (
             <span key={`h-${i}`}>
               <input type="hidden" name="check_label" value={c.label} />
               <input type="hidden" name="check_done" value={String(c.done)} />
@@ -450,7 +451,6 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
           <div className="grid gap-4 sm:grid-cols-3">
             <div><label className={fieldLabel}>Type</label><OptionsSelect name="event_type" defaultValue={event?.event_type ?? "third_party"} options={EVENT_TYPES} /></div>
             <div><label className={fieldLabel}>Status</label><OptionsSelect name="status" defaultValue={event?.status ?? "researching"} options={EVENT_STATUSES} /></div>
-            <div><label className={fieldLabel}>Planning phase</label><OptionsSelect name="planning_phase" defaultValue={event?.planning_phase ?? ""} options={PLANNING_PHASES} placeholder="—" /></div>
             <div><label className={fieldLabel}>Start date</label><input type="date" name="starts_on" defaultValue={event?.starts_on ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>End date</label><input type="date" name="ends_on" defaultValue={event?.ends_on ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>Owner</label><OwnerSelect name="owner_name" people={people} defaultValue={event?.owner_name ?? ""} className={fieldInput} /></div>

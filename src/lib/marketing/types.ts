@@ -78,7 +78,6 @@ export interface MarketingEvent {
   parking_info: string | null;
   food_onsite: string | null;
   // Planning / promotion (events-management workflow)
-  planning_phase: string | null;
   staff: string | null;
   supplies: string | null;
   promo_channels: string | null;
@@ -334,20 +333,14 @@ export const EVENT_TYPES: Option[] = [
 ];
 
 export const EVENT_STATUSES: Option[] = [
+  { value: "idea", label: "Idea" },
   { value: "researching", label: "Researching" },
   { value: "tentative", label: "Tentative" },
+  { value: "planning", label: "Planning" },
+  { value: "prepping", label: "Prepping" },
   { value: "confirmed", label: "Confirmed" },
   { value: "completed", label: "Completed" },
   { value: "cancelled", label: "Cancelled" },
-];
-
-export const PLANNING_PHASES: Option[] = [
-  { value: "idea", label: "Idea" },
-  { value: "researching", label: "Researching" },
-  { value: "planning", label: "Planning" },
-  { value: "prepping", label: "Prepping" },
-  { value: "ready", label: "Ready" },
-  { value: "wrapped", label: "Wrapped" },
 ];
 
 export const VENUE_TYPES: Option[] = [
@@ -676,8 +669,6 @@ export const eventTypeLabel = (v: string | null) => labelFor(EVENT_TYPES, v);
 export const eventStatusLabel = (v: string | null) => labelFor(EVENT_STATUSES, v);
 export const budgetStatusLabel = (v: string | null) =>
   labelFor(BUDGET_ENTRY_STATUSES, v);
-export const planningPhaseLabel = (v: string | null) =>
-  labelFor(PLANNING_PHASES, v);
 export const attendeeTypeLabel = (v: string | null) =>
   labelFor(ATTENDEE_TYPES, v);
 export const venueTypeLabel = (v: string | null) => labelFor(VENUE_TYPES, v);
