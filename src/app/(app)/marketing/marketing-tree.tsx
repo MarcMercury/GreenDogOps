@@ -431,7 +431,7 @@ export function MarketingTree({
     if (!el) return;
     const availW = el.clientWidth - 24;
     if (availW <= 0) return;
-    const z = clampZoom(Math.min(1, Math.max(0.85, availW / width)));
+    const z = clampZoom(0.65);
     setZoom(z);
     requestAnimationFrame(() => {
       const node = scrollRef.current;
