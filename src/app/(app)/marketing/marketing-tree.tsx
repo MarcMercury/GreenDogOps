@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -32,20 +32,23 @@ import {
 // Canvas geometry — vertical bands are fixed; the canvas WIDTH grows with the
 // number of leaves so nothing overlaps (the SVG scrolls horizontally).
 // ---------------------------------------------------------------------------
-const H = 1360;
+const H = 1300;
 const GROUND_Y = 820;
-const TRUNK_HALF = 46;
-const TRUNK_TOP_Y = 500;
-// Horizontal step between adjacent leaf columns. Nodes alternate between two
-// rows per band, so two nodes in the SAME row are 2×COL apart. Pills wrap their
-// label onto up to two lines, so they stay narrow and columns pack tightly.
-const COL = 88;
-const MARGIN = 52;
-// Two staggered y-rows per band (nodes alternate by column parity).
-const CANOPY_ROWS = [150, 262];
-const BRANCH_ROWS = [372, 452];
-const PRIMARY_ROWS = [936, 1016];
-const FINE_ROWS = [1150, 1262];
+const TRUNK_HALF = 44;
+const TRUNK_TOP_Y = 520;
+// Horizontal step between adjacent leaf columns. Nodes cycle through THREE
+// staggered rows per band, so nodes in the SAME row are 3×COL apart while
+// adjacent columns sit on different vertical planes — this lets the columns
+// pack very tightly yet stay fully readable without overlap.
+const COL = 76;
+const MARGIN = 60;
+// Three staggered y-rows per band (nodes cycle by column index % 3). Outer
+// nodes land on different vertical planes so they never collide.
+const CANOPY_ROWS = [118, 180, 242];
+const BRANCH_ROWS = [366, 424, 482];
+const PRIMARY_ROWS = [900, 962, 1024];
+const FINE_ROWS = [1092, 1154, 1216];
+const PLANES = 3;
 
 // Node label typography / pill sizing (labels wrap onto up to two lines so the
 // tree stays horizontally compact).
@@ -196,7 +199,6 @@ function computeLayout(nodes: MarketingTreeNode[]): {
       }
       branchCenterCol.set(b.id, (start + col - 1) / 2);
     }
-    col += 1; // gap between branch groups
   }
   // Orphan canopy (no branch parent) get their own trailing columns.
   const orphanCanopy = nodes.filter(
@@ -225,7 +227,6 @@ function computeLayout(nodes: MarketingTreeNode[]): {
       }
       rootCenterCol.set(p.id, (start + rcol - 1) / 2);
     }
-    rcol += 1;
   }
   const orphanFine = nodes.filter(
     (n) => n.zone === "root_fine" && !fineCol.has(n.id),
@@ -248,7 +249,7 @@ function computeLayout(nodes: MarketingTreeNode[]): {
   // --- Branches ---
   branches.forEach((b, bi) => {
     const x = cX(branchCenterCol.get(b.id) ?? 0);
-    const y = BRANCH_ROWS[bi % 2];
+    const y = BRANCH_ROWS[bi % PLANES];
     const midY = (TRUNK_TOP_Y + y) / 2;
     const pathD = `M ${centerX} ${TRUNK_TOP_Y} C ${centerX} ${midY}, ${x} ${midY}, ${x} ${y}`;
     const { lines, w, h } = layoutLabel(b.label);
@@ -259,7 +260,7 @@ function computeLayout(nodes: MarketingTreeNode[]): {
   for (const k of nodes.filter((n) => n.zone === "canopy" && canopyCol.has(n.id))) {
     const c = canopyCol.get(k.id)!;
     const x = cX(c);
-    const y = CANOPY_ROWS[c % 2];
+    const y = CANOPY_ROWS[c % PLANES];
     const parent = k.parent_id ? byId.get(k.parent_id) : undefined;
     const anchorX = parent?.x ?? centerX;
     const anchorY = parent?.y ?? TRUNK_TOP_Y;
@@ -281,7 +282,7 @@ function computeLayout(nodes: MarketingTreeNode[]): {
   // --- Primary roots ---
   proots.forEach((p, pi) => {
     const x = rX(rootCenterCol.get(p.id) ?? 0);
-    const y = PRIMARY_ROWS[pi % 2];
+    const y = PRIMARY_ROWS[pi % PLANES];
     const midY = (GROUND_Y + y) / 2;
     const pathD = `M ${centerX} ${GROUND_Y} C ${centerX} ${midY}, ${x} ${midY}, ${x} ${y}`;
     const { lines, w, h } = layoutLabel(p.label);
@@ -292,7 +293,7 @@ function computeLayout(nodes: MarketingTreeNode[]): {
   for (const k of nodes.filter((n) => n.zone === "root_fine" && fineCol.has(n.id))) {
     const c = fineCol.get(k.id)!;
     const x = rX(c);
-    const y = FINE_ROWS[c % 2];
+    const y = FINE_ROWS[c % PLANES];
     const parent = k.parent_id ? byId.get(k.parent_id) : undefined;
     const anchorX = parent?.x ?? centerX;
     const anchorY = parent?.y ?? GROUND_Y;
@@ -370,17 +371,30 @@ export function MarketingTree({
     setZoom(clampZoom(Math.min(availW / width, availH / height)));
   }, [width, height]);
 
-  // Fit the whole tree into view on first render and whenever the canvas size
-  // changes (e.g. nodes added/removed).
-  useLayoutEffect(() => {
-    fitZoom();
-  }, [fitZoom]);
+  // Default view: condensed but READABLE. Fit to width, but never shrink below
+  // a legible floor — then centre horizontally on the trunk (scroll to explore).
+  const initView = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const availW = el.clientWidth - 24;
+    if (availW <= 0) return;
+    const z = clampZoom(Math.min(1, Math.max(0.85, availW / width)));
+    setZoom(z);
+    requestAnimationFrame(() => {
+      const node = scrollRef.current;
+      if (!node) return;
+      node.scrollLeft = Math.max(0, centerX * z - node.clientWidth / 2);
+      node.scrollTop = 0;
+    });
+  }, [width, centerX]);
 
-  useEffect(() => {
-    const onResize = () => fitZoom();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [fitZoom]);
+  // Set the readable default once on mount (users can Fit / zoom from there).
+  const didInit = useRef(false);
+  useLayoutEffect(() => {
+    if (didInit.current) return;
+    didInit.current = true;
+    initView();
+  }, [initView]);
 
   const q = query.trim().toLowerCase();
   const matches = (n: MarketingTreeNode) =>
