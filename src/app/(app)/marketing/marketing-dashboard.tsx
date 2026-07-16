@@ -330,6 +330,7 @@ export function MarketingDashboard({
           people={people}
           goals={goals}
           initiatives={initiatives}
+          events={events}
         />
       )}
       {tab === "initiatives" && (

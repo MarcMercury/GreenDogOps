@@ -889,6 +889,7 @@ function Employees({ data }: { data: SetupData }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
+  const [hideNonSchedulable, setHideNonSchedulable] = useState(false);
 
   const settingByPerson = useMemo(() => {
     const m = new Map(data.settings.map((s) => [s.person_id, s]));
@@ -910,8 +911,13 @@ function Employees({ data }: { data: SetupData }) {
     const term = q.trim().toLowerCase();
     return data.people
       .filter((p) => !term || gridName(p).toLowerCase().includes(term))
+      .filter(
+        (p) =>
+          !hideNonSchedulable ||
+          (settingByPerson.get(p.id)?.is_schedulable ?? true),
+      )
       .sort((a, b) => gridName(a).localeCompare(gridName(b)));
-  }, [data.people, q]);
+  }, [data.people, q, hideNonSchedulable, settingByPerson]);
 
   const locName = (id: string | null | undefined) => {
     if (!id) return null;
@@ -970,12 +976,23 @@ function Employees({ data }: { data: SetupData }) {
         <h2 className="text-sm font-semibold text-slate-700">
           Employee scheduling settings
         </h2>
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search…"
-          className={inputCls}
-        />
+        <div className="flex items-center gap-3">
+          <label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-slate-600">
+            <input
+              type="checkbox"
+              checked={hideNonSchedulable}
+              onChange={(e) => setHideNonSchedulable(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Hide non-schedulable
+          </label>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search…"
+            className={inputCls}
+          />
+        </div>
       </div>
       <div className="max-h-[70vh] overflow-auto">
         <table className="w-full text-sm">

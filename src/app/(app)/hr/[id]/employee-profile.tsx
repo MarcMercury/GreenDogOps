@@ -71,7 +71,7 @@ import {
   deleteEmployee,
   type SaveResult,
 } from "../actions";
-import { setPersonRoles, setStudentRoleFlags } from "../../schedule/actions";
+import { setPersonRoles, setStudentRoleFlags, saveScheduleSettingFields } from "../../schedule/actions";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 import {
   EmployeeForm,
@@ -297,7 +297,11 @@ export function EmployeeProfile({
             eligibility={eligibility}
             canEdit={canEditSchedule}
           />
-          <SchedSettingsPanel settings={scheduleSettings} />
+          <SchedSettingsPanel
+            settings={scheduleSettings}
+            personId={row.id}
+            canEdit={canEditSchedule}
+          />
         </>
       )}
       {activeTab === "reviews" && (
@@ -682,19 +686,63 @@ function SchedFact({
 
 function SchedSettingsPanel({
   settings,
+  personId,
+  canEdit,
 }: {
   settings: PersonScheduleSettings;
+  personId: string;
+  canEdit: boolean;
 }) {
   const {
     hasSetting,
-    isSchedulable,
-    weeklyTarget,
     defaultLocationName,
     eligibleLocationNames,
-    availableDays,
     roleNames,
     notes,
   } = settings;
+
+  const [schedulable, setSchedulable] = useState(settings.isSchedulable);
+  const [weeklyTarget, setWeeklyTarget] = useState<number | null>(
+    settings.weeklyTarget,
+  );
+  const [days, setDays] = useState<number[]>(settings.availableDays);
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  function persist(fields: {
+    isSchedulable?: boolean;
+    weeklyTarget?: number;
+    availableDays?: number[];
+  }) {
+    setError(null);
+    setSaved(false);
+    start(async () => {
+      const res = await saveScheduleSettingFields(personId, fields);
+      if (res.ok) setSaved(true);
+      else setError(res.error);
+    });
+  }
+
+  function toggleSchedulable(value: boolean) {
+    setSchedulable(value);
+    persist({ isSchedulable: value });
+  }
+
+  function commitTarget(raw: string) {
+    const n = raw.trim() === "" ? null : Number(raw);
+    if (n != null && !Number.isFinite(n)) return;
+    setWeeklyTarget(n);
+    if (n != null) persist({ weeklyTarget: n });
+  }
+
+  function toggleDay(day: number) {
+    const next = days.includes(day)
+      ? days.filter((d) => d !== day)
+      : [...days, day];
+    setDays(next);
+    persist({ availableDays: next });
+  }
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -706,64 +754,134 @@ function SchedSettingsPanel({
           href="/schedule/setup"
           className="text-xs font-medium text-emerald-700 hover:underline"
         >
-          Manage in Schedule → Setup → Employees
+          Also editable in Schedule → Setup → Employees
         </Link>
       </div>
 
-      {!hasSetting ? (
+      {!canEdit && !hasSetting ? (
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
           No scheduling settings saved yet. Defaults apply (schedulable, any
           location, any day).
         </p>
       ) : (
-        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-2 text-sm">
-          <SchedFact label="Schedulable">
-            <span
-              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
-                isSchedulable
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-slate-100 text-slate-500"
+        <>
+          {canEdit && (
+            <p className="mb-3 text-xs text-slate-400">
+              Changes here write to the same settings used in Schedule → Setup →
+              Employees, and edits made there show up here.
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
+            <SchedFact label="Schedulable">
+              {canEdit ? (
+                <label className="inline-flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={schedulable}
+                    disabled={pending}
+                    onChange={(e) => toggleSchedulable(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-60"
+                  />
+                  <span
+                    className={`text-xs font-semibold ${
+                      schedulable ? "text-emerald-700" : "text-slate-500"
+                    }`}
+                  >
+                    {schedulable ? "Yes" : "No"}
+                  </span>
+                </label>
+              ) : (
+                <span
+                  className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    schedulable
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {schedulable ? "Yes" : "No"}
+                </span>
+              )}
+            </SchedFact>
+            <SchedFact label="Weekly target">
+              {canEdit ? (
+                <input
+                  type="number"
+                  min={0}
+                  max={7}
+                  defaultValue={weeklyTarget ?? ""}
+                  disabled={pending}
+                  onBlur={(e) => commitTarget(e.target.value)}
+                  className="w-16 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60"
+                />
+              ) : (
+                <span className="text-slate-800">
+                  {weeklyTarget == null ? "—" : weeklyTarget}
+                </span>
+              )}
+            </SchedFact>
+            <SchedFact label="Default location">
+              <span className="text-slate-800">
+                {defaultLocationName ?? "—"}
+              </span>
+            </SchedFact>
+            <SchedFact label="Roles">
+              <span className="text-slate-800">
+                {roleNames.length === 0 ? "None" : roleNames.join(", ")}
+              </span>
+            </SchedFact>
+            <SchedFact label="Locations">
+              <span className="text-slate-800">
+                {eligibleLocationNames.length === 0
+                  ? "Any"
+                  : eligibleLocationNames.join(", ")}
+              </span>
+            </SchedFact>
+            {notes && (
+              <SchedFact label="Notes">
+                <span className="whitespace-pre-wrap text-slate-800">
+                  {notes}
+                </span>
+              </SchedFact>
+            )}
+          </div>
+
+          <div className="mt-4">
+            <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+              Available days
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {DAY_SHORT.map((label, day) => {
+                const on = days.includes(day);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    disabled={!canEdit || pending}
+                    onClick={() => toggleDay(day)}
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition disabled:cursor-default disabled:opacity-70 ${
+                      on
+                        ? "bg-emerald-600 text-white"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-1 text-[10px] text-slate-400">None = any day</p>
+          </div>
+
+          {(error || saved) && (
+            <p
+              className={`mt-3 text-xs ${
+                error ? "text-red-600" : "text-emerald-600"
               }`}
             >
-              {isSchedulable ? "Yes" : "No"}
-            </span>
-          </SchedFact>
-          <SchedFact label="Weekly target">
-            <span className="text-slate-800">
-              {weeklyTarget == null ? "—" : weeklyTarget}
-            </span>
-          </SchedFact>
-          <SchedFact label="Default location">
-            <span className="text-slate-800">{defaultLocationName ?? "—"}</span>
-          </SchedFact>
-          <SchedFact label="Roles">
-            <span className="text-slate-800">
-              {roleNames.length === 0 ? "None" : roleNames.join(", ")}
-            </span>
-          </SchedFact>
-          <SchedFact label="Locations">
-            <span className="text-slate-800">
-              {eligibleLocationNames.length === 0
-                ? "Any"
-                : eligibleLocationNames.join(", ")}
-            </span>
-          </SchedFact>
-          <SchedFact label="Days">
-            <span className="text-slate-800">
-              {availableDays.length === 0
-                ? "Any"
-                : [...availableDays]
-                    .sort((a, b) => a - b)
-                    .map((d) => DAY_SHORT[d])
-                    .join(", ")}
-            </span>
-          </SchedFact>
-          {notes && (
-            <SchedFact label="Notes">
-              <span className="whitespace-pre-wrap text-slate-800">{notes}</span>
-            </SchedFact>
+              {error ?? "Saved."}
+            </p>
           )}
-        </div>
+        </>
       )}
     </div>
   );

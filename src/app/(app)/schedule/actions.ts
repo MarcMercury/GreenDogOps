@@ -301,6 +301,38 @@ export async function saveEmployeeSetting(
   );
   if (error) return { ok: false, error: error.message };
   revalidateAll();
+  revalidatePath("/hr");
+  return { ok: true };
+}
+
+/**
+ * Partial update of a person's scheduling settings, used by the HR profile
+ * (Eligibility tab → Scheduling settings panel) so edits made there write back
+ * to the SAME `sched_employee_setting` row that Schedule → Setup → Employees
+ * reads and writes. Only the provided fields are changed; the rest of the row
+ * (default/eligible locations, notes) is preserved.
+ */
+export async function saveScheduleSettingFields(
+  personId: string,
+  fields: {
+    isSchedulable?: boolean;
+    weeklyTarget?: number;
+    availableDays?: number[];
+  },
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const patch: Record<string, unknown> = { person_id: personId };
+  if (fields.isSchedulable !== undefined) patch.is_schedulable = fields.isSchedulable;
+  if (fields.weeklyTarget !== undefined) patch.weekly_shift_target = fields.weeklyTarget;
+  if (fields.availableDays !== undefined) patch.available_days = fields.availableDays;
+  const { error } = await supabase
+    .from("sched_employee_setting")
+    .upsert(patch, { onConflict: "person_id" });
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  revalidatePath("/hr");
   return { ok: true };
 }
 

@@ -769,6 +769,7 @@ export async function saveTreeNode(formData: FormData): Promise<ActionResult> {
     owner_person_id: str(formData.get("owner_person_id")),
     due_date: str(formData.get("due_date")),
     summary: str(formData.get("summary")),
+    event_type: str(formData.get("event_type")),
     budget_amount: num(formData.get("budget_amount")),
     budget_spent: num(formData.get("budget_spent")),
     budget_notes: str(formData.get("budget_notes")),

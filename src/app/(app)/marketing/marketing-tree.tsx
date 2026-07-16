@@ -10,10 +10,12 @@ import {
   type PersonOption,
   type MarketingGoal,
   type MarketingInitiative,
+  type MarketingEvent,
   TREE_ZONES,
   NODE_STATUSES,
   ITEM_STATUSES,
   PRIORITIES,
+  EVENT_TYPES,
   APP_DESTINATIONS,
   destinationForUrl,
   suggestDestinations,
@@ -23,6 +25,7 @@ import {
   priorityLabel,
   personLabel,
   initiativeStatusLabel,
+  eventTypeLabel,
 } from "@/lib/marketing/types";
 import {
   saveTreeNode,
@@ -370,12 +373,14 @@ export function MarketingTree({
   people,
   goals,
   initiatives,
+  events,
 }: {
   canEdit: boolean;
   nodes: MarketingTreeNode[];
   people: PersonOption[];
   goals: MarketingGoal[];
   initiatives: MarketingInitiative[];
+  events: MarketingEvent[];
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<MarketingTreeNode | null>(null);
@@ -828,6 +833,7 @@ export function MarketingTree({
           people={people}
           linkedGoals={goals.filter((g) => g.node_id === selected.id)}
           linkedInitiatives={initiatives.filter((i) => i.node_id === selected.id)}
+          upcomingEvents={upcomingEventsForNode(selected, events)}
           canEdit={canEdit}
           onOpenNode={(n) => setSelected(n)}
           onClose={() => setSelected(null)}
@@ -1028,6 +1034,25 @@ function handledLabel(iso: string | null): string {
   return d === 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
 }
 
+/** Events that belong on a node's list: their event_type matches the node's
+ *  tagged event_type and they're still upcoming (no date, or starts today or
+ *  later). Sorted soonest-first — past events drop off automatically once the
+ *  event date passes. */
+function upcomingEventsForNode(
+  node: MarketingTreeNode,
+  events: MarketingEvent[],
+): MarketingEvent[] {
+  if (!node.event_type) return [];
+  const today = new Date().toISOString().slice(0, 10);
+  return events
+    .filter(
+      (e) =>
+        e.event_type === node.event_type &&
+        (e.starts_on == null || e.starts_on >= today),
+    )
+    .sort((a, b) => (a.starts_on ?? "9999").localeCompare(b.starts_on ?? "9999"));
+}
+
 function DetailPanel({
   node,
   parent,
@@ -1035,6 +1060,7 @@ function DetailPanel({
   people,
   linkedGoals,
   linkedInitiatives,
+  upcomingEvents,
   canEdit,
   onOpenNode,
   onClose,
@@ -1048,6 +1074,7 @@ function DetailPanel({
   people: PersonOption[];
   linkedGoals: MarketingGoal[];
   linkedInitiatives: MarketingInitiative[];
+  upcomingEvents: MarketingEvent[];
   canEdit: boolean;
   onOpenNode: (n: MarketingTreeNode) => void;
   onClose: () => void;
@@ -1201,6 +1228,29 @@ function DetailPanel({
                     </li>
                   );
                 })}
+              </ul>
+            </div>
+          )}
+
+          {upcomingEvents.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Upcoming events ({upcomingEvents.length})
+              </p>
+              <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
+                {upcomingEvents.map((e) => (
+                  <li key={`ev-${e.id}`} className="flex items-start gap-2.5 px-3 py-2">
+                    <span className="mt-0.5 shrink-0 text-sky-400" aria-hidden>📅</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-medium leading-snug text-slate-700">{e.name}</span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-400">
+                        <span className="font-medium text-slate-500">{eventTypeLabel(e.event_type)}</span>
+                        {e.starts_on && <span>· 📅 {e.starts_on}</span>}
+                        {e.location && <span>· 📍 {e.location}</span>}
+                      </span>
+                    </span>
+                  </li>
+                ))}
               </ul>
             </div>
           )}
@@ -1486,6 +1536,20 @@ function NodeDialog({
           <div>
             <label className={fieldLabel}>Due date</label>
             <input type="date" name="due_date" defaultValue={node?.due_date ?? ""} className={fieldInput} />
+          </div>
+
+          <div>
+            <label className={fieldLabel}>Event type (auto-list upcoming events)</label>
+            <select name="event_type" defaultValue={node?.event_type ?? ""} className={fieldInput}>
+              <option value="">— none —</option>
+              {EVENT_TYPES.map((t) => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-slate-400">
+              When set, upcoming events of this type (from the Events tab) appear on this
+              node automatically, and drop off after the event date passes.
+            </p>
           </div>
 
           <div>

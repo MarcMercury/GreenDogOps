@@ -249,6 +249,9 @@ export interface MarketingTreeNode {
   budget_notes: string | null;
   last_handled_at: string | null;
   due_date: string | null;
+  /** Optional event type this node represents (matches marketing_event.event_type).
+   *  When set, upcoming events of this type appear on the node's list. */
+  event_type: string | null;
   links: InitiativeLink[];
   items: TreeItem[];
   summary: string | null;
