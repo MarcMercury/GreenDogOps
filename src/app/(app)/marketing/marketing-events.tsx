@@ -425,16 +425,16 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
       <div className="my-8 w-full max-w-2xl rounded-2xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
           <h2 className="text-base font-semibold text-slate-900">{event ? "Edit event" : "New event"}</h2>
-          <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">✕</button>
-        </div>
-
-        <fodiv className="flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <button type="submit" form="event-form" className={btnPrimary}>Save</button>
             <button type="button" onClick={onClose} aria-label="Close" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100">✕</button>
           </div>
         </div>
 
-        <form id="event-form"ecklist.map((c, i) => (
+        <form id="event-form" onSubmit={onSubmit} className="max-h-[72vh] space-y-5 overflow-y-auto px-5 py-4">
+          {event && <input type="hidden" name="id" value={event.id} />}
+          {/* hidden checklist mirrors */}
+          {checklist.map((c, i) => (
             <span key={`h-${i}`}>
               <input type="hidden" name="check_label" value={c.label} />
               <input type="hidden" name="check_done" value={String(c.done)} />
