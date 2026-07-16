@@ -335,6 +335,7 @@ function contactPatch(formData: FormData) {
     organization: str(formData.get("organization")),
     program_type: str(formData.get("program_type")),
     program_name: str(formData.get("program_name")),
+    program_subcategory: str(formData.get("program_subcategory")),
     cohort: str(formData.get("cohort")),
     school: str(formData.get("school")),
     location: str(formData.get("location")),
@@ -366,6 +367,42 @@ function contactPatch(formData: FormData) {
     lead_source: str(formData.get("lead_source")),
     notes: str(formData.get("notes")),
   };
+}
+
+export type AddProgramNameResult =
+  | { ok: true; programNames: string[]; added: string }
+  | { ok: false; error: string };
+
+/**
+ * Add a new Program Name to the shared `crm_program_name` reference list that
+ * backs the Student CRM "Program name" dropdown. Idempotent on the (unique)
+ * name; returns the refreshed, sorted list so the caller can update the select.
+ */
+export async function addProgramName(name: string): Promise<AddProgramNameResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const trimmed = name.trim();
+  if (!trimmed) return { ok: false, error: "Enter a program name." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_program_name")
+    .upsert({ name: trimmed }, { onConflict: "name", ignoreDuplicates: true });
+  if (error) return { ok: false, error: error.message };
+
+  const { data, error: listErr } = await supabase
+    .from("crm_program_name")
+    .select("name")
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+  if (listErr) return { ok: false, error: listErr.message };
+
+  const programNames = ((data ?? []) as { name: string | null }[])
+    .map((p) => p.name?.trim())
+    .filter((n): n is string => Boolean(n));
+
+  return { ok: true, programNames, added: trimmed };
 }
 
 export async function updateContact(

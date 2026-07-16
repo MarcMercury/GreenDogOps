@@ -93,10 +93,14 @@ export default async function UserDetailPage({
     }
   }
 
-  // All roster profiles, for the link/match picker.
+  // All roster profiles, for the link/match picker. Scope to roster statuses
+  // (employee / contractor / former) — applicants are ATS candidates, not roster
+  // records. This also keeps the result well under PostgREST's 1000-row cap, which
+  // was silently truncating the list (dropping late-alphabet names like "Tesoro").
   const { data: peopleData } = await admin
     .from("person")
     .select("id, full_name, first_name, last_name, email, status")
+    .in("status", ["employee", "contractor", "former"])
     .order("last_name", { ascending: true });
   const people = (peopleData ?? []) as Array<{
     id: string;
@@ -106,6 +110,16 @@ export default async function UserDetailPage({
     email: string | null;
     status: string;
   }>;
+  // If this login is already linked to a person outside the scoped statuses
+  // (e.g. an applicant), keep that option present so the picker reflects reality.
+  if (user.person_id && !people.some((p) => p.id === user.person_id)) {
+    const { data: linkedRow } = await admin
+      .from("person")
+      .select("id, full_name, first_name, last_name, email, status")
+      .eq("id", user.person_id)
+      .maybeSingle();
+    if (linkedRow) people.push(linkedRow as (typeof people)[number]);
+  }
   const personName = (p: (typeof people)[number]): string =>
     p.full_name ||
     [p.first_name, p.last_name].filter(Boolean).join(" ") ||

@@ -232,6 +232,7 @@ export interface CrmContact {
   organization: string | null;
   program_type: string | null;
   program_name: string | null;
+  program_subcategory: string | null;
   cohort: string | null;
   school: string | null;
   location: string | null;
@@ -522,14 +523,53 @@ export const RECOMMENDATION_LEVEL_STYLES: Record<
   red: { swatch: "bg-red-500", select: "bg-red-50 text-red-800 border-red-300" },
 };
 
-export const PROGRAM_TYPE_SUGGESTIONS: string[] = [
-  "externship",
-  "internship",
-  "paid_cohort",
-  "intensive",
-  "shadowing",
-  "rotation",
+// High-level classification of a student's program. Legacy lowercase values
+// (externship / internship / paid_cohort) are kept so existing records map to
+// the dropdown; any other stored value is preserved via the Select's
+// "(current)" fallback.
+export const PROGRAM_TYPE_OPTIONS: CrmOption[] = [
+  { value: "externship", label: "Externship" },
+  { value: "rotation", label: "Rotation" },
+  { value: "internship", label: "Internship" },
+  { value: "professor_course", label: "Professor Course" },
+  { value: "independent_study", label: "Independent Study" },
+  { value: "shadowing", label: "Shadowing" },
+  { value: "paid_cohort", label: "Paid Cohort" },
+  { value: "intensive", label: "Intensive" },
+  { value: "makeup", label: "Make-up" },
 ];
+
+// Subtle, distinct pill colors for the grid's Program Name column. A program
+// name is hashed to a stable palette entry so the same name always gets the
+// same color — including names coordinators add later — with no per-name
+// configuration. Colors are light (bg-*-100 / text-*-700) so they read as a
+// quiet reference cue rather than a loud status.
+const PROGRAM_NAME_PALETTE: readonly string[] = [
+  "bg-emerald-100 text-emerald-700",
+  "bg-sky-100 text-sky-700",
+  "bg-violet-100 text-violet-700",
+  "bg-amber-100 text-amber-700",
+  "bg-rose-100 text-rose-700",
+  "bg-teal-100 text-teal-700",
+  "bg-indigo-100 text-indigo-700",
+  "bg-lime-100 text-lime-700",
+  "bg-fuchsia-100 text-fuchsia-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-orange-100 text-orange-700",
+  "bg-slate-100 text-slate-700",
+];
+
+/** Stable subtle Tailwind pill classes for a program name (grid color coding). */
+export function programNameColor(name: string | null | undefined): string {
+  const key = (name ?? "").trim().toLowerCase();
+  if (!key) return "bg-slate-100 text-slate-500";
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) {
+    hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  }
+  const idx = Math.abs(hash) % PROGRAM_NAME_PALETTE.length;
+  return PROGRAM_NAME_PALETTE[idx];
+}
 
 export const INFLUENCER_STATUS_OPTIONS: CrmOption[] = [
   { value: "active", label: "Active" },

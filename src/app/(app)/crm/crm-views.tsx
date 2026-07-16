@@ -11,6 +11,7 @@ import {
   subtypeLabel,
   categoryLabel,
   RECOMMENDATION_LEVEL_OPTIONS,
+  programNameColor,
 } from "@/lib/crm/types";
 import { logOrgQuickNote, importContacts, type ImportContactRow } from "./actions";
 import {
@@ -41,6 +42,29 @@ function recommendationLabel(value: string | null | undefined): string | null {
   return (
     RECOMMENDATION_LEVEL_OPTIONS.find((o) => o.value === value)?.label ?? value
   );
+}
+
+/** The label shown in the grid's color-coded Program column. */
+function programLabel(c: CrmContact): string | null {
+  return c.program_name ?? c.program_type ?? null;
+}
+
+/** Format an ISO date (YYYY-MM-DD) as e.g. "Jul 14, 2026" for grid display. */
+function formatStartDate(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const d = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Group key for the Start Month filter — "YYYY-MM" sorts chronologically. */
+function startMonthKey(value: string | null | undefined): string | null {
+  if (!value || value.length < 7) return null;
+  return value.slice(0, 7);
 }
 
 function contactName(c: CrmContact): string {
@@ -411,7 +435,33 @@ export function ContactListView({
             header: "School / Org",
             value: (c) => c.school ?? c.organization,
           },
-          { key: "program", header: "Program", value: (c) => c.program_name ?? c.program_type },
+          { key: "program", header: "Program", value: (c) => programLabel(c),
+            render: (c) => {
+              const label = programLabel(c);
+              return label ? (
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${programNameColor(
+                    c.program_name ?? label,
+                  )}`}
+                >
+                  {label}
+                </span>
+              ) : (
+                <span className="text-slate-400">—</span>
+              );
+            },
+          },
+          {
+            key: "program_subcategory",
+            header: "Sub Category",
+            value: (c) => c.program_subcategory,
+          },
+          {
+            key: "start_date",
+            header: "Start Date",
+            value: (c) => c.start_date,
+            render: (c) => formatStartDate(c.start_date) ?? "—",
+          },
           { key: "grad_year", header: "Grad Year", value: (c) => c.grad_year },
           { key: "dvm", header: "DVM", value: (c) => c.supervising_dvm },
           {
@@ -456,7 +506,12 @@ export function ContactListView({
     variant === "student"
       ? [
           { key: "status", label: "Status", value: (c) => c.status },
-          { key: "program", label: "Program", value: (c) => c.program_name ?? c.program_type },
+          { key: "program", label: "Program", value: (c) => programLabel(c) },
+          {
+            key: "start_month",
+            label: "Start Month",
+            value: (c) => startMonthKey(c.start_date),
+          },
           { key: "school", label: "School", value: (c) => c.school },
           { key: "cohort", label: "Cohort", value: (c) => c.cohort },
           { key: "grad_year", label: "Grad Year", value: (c) => c.grad_year },
@@ -541,6 +596,7 @@ export function ContactListView({
           c.organization,
           c.program_name,
           c.program_type,
+          c.program_subcategory,
           c.school,
           c.grad_year,
           c.supervising_dvm,

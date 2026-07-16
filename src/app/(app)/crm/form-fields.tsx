@@ -2,6 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 import { useState, useTransition } from "react";
+import { addProgramName } from "./actions";
 
 export function Field({
   label,
@@ -273,6 +274,106 @@ export function RecommendationLevelField({
         ))}
         {!known && <option value={initial}>{initial} (current)</option>}
       </select>
+    </label>
+  );
+}
+
+/**
+ * Program Name dropdown backed by the shared `crm_program_name` reference list,
+ * with an inline "+ New" affordance so coordinators can add a program name on
+ * the fly (persisted via the addProgramName server action) without leaving the
+ * profile. Any legacy free-text value not in the list is preserved as a
+ * "(current)" option so it stays selected and saveable.
+ */
+export function ProgramNameField({
+  label,
+  name,
+  defaultValue,
+  options,
+}: {
+  label: string;
+  name: string;
+  defaultValue?: string | null;
+  options: ReadonlyArray<SelectOption>;
+}) {
+  const [opts, setOpts] = useState<SelectOption[]>([...options]);
+  const [value, setValue] = useState<string>(defaultValue ?? "");
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  const known = value === "" || opts.some((o) => o.value === value);
+
+  function handleAdd() {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    setError(null);
+    startTransition(async () => {
+      const res = await addProgramName(trimmed);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setOpts(res.programNames.map((n) => ({ value: n, label: n })));
+      setValue(res.added);
+      setNewName("");
+      setAdding(false);
+    });
+  }
+
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <div className="flex items-center gap-2">
+        <select
+          name={name}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        >
+          <option value="">—</option>
+          {opts.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+          {!known && <option value={value}>{value} (current)</option>}
+        </select>
+        <button
+          type="button"
+          onClick={() => setAdding((v) => !v)}
+          className="shrink-0 rounded-lg border border-slate-300 px-2.5 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+          title="Add a new program name"
+        >
+          + New
+        </button>
+      </div>
+      {adding && (
+        <div className="mt-1 flex items-center gap-2">
+          <input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAdd();
+              }
+            }}
+            placeholder="New program name"
+            className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          />
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={pending || !newName.trim()}
+            className="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          >
+            {pending ? "Adding…" : "Add"}
+          </button>
+        </div>
+      )}
+      {error && <span className="text-xs text-red-600">{error}</span>}
     </label>
   );
 }

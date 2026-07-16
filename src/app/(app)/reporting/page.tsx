@@ -31,6 +31,8 @@ import { SectionCard, fmtNumber, fmtDate } from "./charts";
 import { InvoiceUploader } from "./invoice-uploader";
 import { ReportingTabs } from "./reporting-tabs";
 import { YearToggle } from "./year-toggle";
+import { ReportingAutoRefresh } from "./auto-refresh";
+import { getReportingRefreshedAt } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -174,14 +176,18 @@ export default async function ReportingPage({
 
   const hasInvoiceData = (overview?.total_lines ?? 0) > 0;
   const hasClientData = (clientSummary?.total_contacts ?? 0) > 0;
+  const refreshedAt = await getReportingRefreshedAt();
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <PageHeader
-        eyebrow="Business Intelligence"
-        title="Reporting"
-        description="Appointments, revenue, and client trends derived from your ezyVet invoice and contact exports."
-      />
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PageHeader
+          eyebrow="Business Intelligence"
+          title="Reporting"
+          description="Appointments, revenue, and client trends derived from your ezyVet invoice and contact exports."
+        />
+        <ReportingAutoRefresh initialRefreshedAt={refreshedAt} />
+      </div>
 
       {canEdit ? <InvoiceUploader /> : null}
 

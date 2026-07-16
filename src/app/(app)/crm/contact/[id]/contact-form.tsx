@@ -11,7 +11,7 @@ import {
   DEGREE_TYPE_OPTIONS,
   RECOMMENDATION_LEVEL_OPTIONS,
   RECOMMENDATION_LEVEL_STYLES,
-  PROGRAM_TYPE_SUGGESTIONS,
+  PROGRAM_TYPE_OPTIONS,
 } from "@/lib/crm/types";
 import type { StudentFormOptions } from "@/lib/crm/student-form-data";
 import {
@@ -26,8 +26,8 @@ import {
   TextArea,
   Checkbox,
   Select,
-  ComboField,
   DaysSelect,
+  ProgramNameField,
   RecommendationLevelField,
   Section,
   SaveButton,
@@ -98,9 +98,15 @@ export function ContactForm({
       </Section>
 
       <Section title="Program">
-        <ComboField label="Program type" name="program_type" defaultValue={contact?.program_type} options={PROGRAM_TYPE_SUGGESTIONS} />
+        <Select label="Program type" name="program_type" defaultValue={contact?.program_type} options={PROGRAM_TYPE_OPTIONS} />
         <OpportunityTypeField defaultValue={contact?.opportunity_type} />
-        <Field label="Program name" name="program_name" defaultValue={contact?.program_name} />
+        <ProgramNameField
+          label="Program name"
+          name="program_name"
+          defaultValue={contact?.program_name}
+          options={options?.programNames ?? []}
+        />
+        <Field label="Program sub category" name="program_subcategory" defaultValue={contact?.program_subcategory} />
         <Field label="Cohort" name="cohort" defaultValue={contact?.cohort} />
         <Field label="School" name="school" defaultValue={contact?.school} />
         <Select

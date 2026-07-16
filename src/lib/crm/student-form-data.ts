@@ -9,6 +9,7 @@ export interface StudentFormOptions {
   locations: CrmOption[];
   mentors: CrmOption[];
   coordinators: CrmOption[];
+  programNames: CrmOption[];
 }
 
 interface EligibleRow {
@@ -37,7 +38,7 @@ function personName(p: EligibleRow["person"]): string | null {
  */
 export async function getStudentFormOptions(): Promise<StudentFormOptions> {
   const supabase = await createClient();
-  const [locRes, eligRes] = await Promise.all([
+  const [locRes, eligRes, progRes] = await Promise.all([
     supabase
       .from("location")
       .select("name, display_name")
@@ -50,6 +51,11 @@ export async function getStudentFormOptions(): Promise<StudentFormOptions> {
         "is_student_mentor, is_student_coordinator, person:person_id(full_name, first_name, last_name)",
       )
       .or("is_student_mentor.eq.true,is_student_coordinator.eq.true"),
+    supabase
+      .from("crm_program_name")
+      .select("name")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
   ]);
 
   const locations: CrmOption[] = (
@@ -76,5 +82,12 @@ export async function getStudentFormOptions(): Promise<StudentFormOptions> {
   mentors.sort((a, b) => a.label.localeCompare(b.label));
   coordinators.sort((a, b) => a.label.localeCompare(b.label));
 
-  return { locations, mentors, coordinators };
+  const programNames: CrmOption[] = (
+    (progRes.data ?? []) as { name: string | null }[]
+  )
+    .map((p) => p.name?.trim())
+    .filter((n): n is string => Boolean(n))
+    .map((n) => ({ value: n, label: n }));
+
+  return { locations, mentors, coordinators, programNames };
 }

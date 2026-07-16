@@ -266,6 +266,25 @@ export async function deleteInvoiceImport(importId: string): Promise<ActionResul
   return { ok: true, message: "Import removed. Reports refresh within a minute." };
 }
 
+/**
+ * Timestamp of the last completed server-side reporting refresh (migration
+ * 0094 `reporting_refresh_state.completed_at`). The Reporting page polls this
+ * so it can auto-refresh the UI once the pg_cron worker finishes rebuilding the
+ * `report_*` matviews after an agent ingest — otherwise an open page shows
+ * stale numbers until a manual reload. Returns null if no refresh has run yet.
+ */
+export async function getReportingRefreshedAt(): Promise<string | null> {
+  await requireReportingAccess();
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("reporting_refresh_state")
+    .select("completed_at")
+    .eq("id", true)
+    .maybeSingle();
+  if (error) return null;
+  return (data?.completed_at as string | null) ?? null;
+}
+
 /** Wipe ALL invoice-line reporting data (admin only, destructive). */
 export async function resetInvoiceData(): Promise<ActionResult> {
   await requireAdmin();

@@ -71,6 +71,7 @@ const MODULES_BOTTOM: NavItem[] = [
   { key: "schedule", href: "/schedule", label: "Scheduling", icon: "🗓️" },
   { key: "schedule", href: "/capacity", label: "Daily Capacity", icon: "📊" },
   { key: "planning", href: "/planning", label: "Planning Guides", icon: "🧭" },
+  { key: "schedule", href: "/schedule-search", label: "Schedule Search", icon: "🔍" },
 ];
 
 /** Business development modules, after Operations. */
