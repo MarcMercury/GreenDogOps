@@ -323,9 +323,17 @@ export function MarketingDashboard({
         ))}
       </div>
 
-      {tab === "tree" && <MarketingTree canEdit={canEdit} nodes={treeNodes} people={people} />}
+      {tab === "tree" && (
+        <MarketingTree
+          canEdit={canEdit}
+          nodes={treeNodes}
+          people={people}
+          goals={goals}
+          initiatives={initiatives}
+        />
+      )}
       {tab === "initiatives" && (
-        <InitiativesTab canEdit={canEdit} initiatives={initiatives} goals={visibleGoals} people={people} run={run} />
+        <InitiativesTab canEdit={canEdit} initiatives={initiatives} goals={visibleGoals} people={people} treeNodes={treeNodes} run={run} />
       )}
       {tab === "events" && (
         <EventsTab
@@ -370,12 +378,59 @@ export function MarketingDashboard({
 
 type Run = (action: () => Promise<ActionResult>, after?: () => void) => void;
 
+/**
+ * Dropdown for connecting a goal / initiative to a single marketing tree node.
+ * Archived nodes are hidden (unless it is the currently linked one) and the
+ * live nodes are grouped by zone so the list stays scannable.
+ */
+function NodeSelect({
+  name,
+  defaultValue,
+  treeNodes,
+}: {
+  name: string;
+  defaultValue: string | null;
+  treeNodes: MarketingTreeNode[];
+}) {
+  const options = useMemo(() => {
+    const live = treeNodes.filter(
+      (n) => n.status !== "archived" || n.id === defaultValue,
+    );
+    const byZone = new Map<string, MarketingTreeNode[]>();
+    for (const n of live) {
+      const arr = byZone.get(n.zone) ?? [];
+      arr.push(n);
+      byZone.set(n.zone, arr);
+    }
+    for (const arr of byZone.values()) {
+      arr.sort((a, b) => a.label.localeCompare(b.label));
+    }
+    return byZone;
+  }, [treeNodes, defaultValue]);
+  return (
+    <select name={name} defaultValue={defaultValue ?? ""} className={fieldInput}>
+      <option value="">— Not connected —</option>
+      {Array.from(options.entries()).map(([zone, nodes]) => (
+        <optgroup key={zone} label={treeZoneLabel(zone)}>
+          {nodes.map((n) => (
+            <option key={n.id} value={n.id}>
+              {n.label}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
+
 function GoalDialog({
   goal,
+  treeNodes,
   onClose,
   run,
 }: {
   goal: MarketingGoal | null;
+  treeNodes: MarketingTreeNode[];
   onClose: () => void;
   run: Run;
 }) {
@@ -413,6 +468,10 @@ function GoalDialog({
             <label className={fieldLabel}>Category</label>
             <input name="category" defaultValue={goal?.category ?? ""} className={fieldInput} />
           </div>
+        </div>
+        <div>
+          <label className={fieldLabel}>Connected tree node</label>
+          <NodeSelect name="node_id" defaultValue={goal?.node_id ?? null} treeNodes={treeNodes} />
         </div>
         <div>
           <label className={fieldLabel}>Notes</label>
@@ -472,12 +531,14 @@ function InitiativesTab({
   initiatives,
   goals,
   people,
+  treeNodes,
   run,
 }: {
   canEdit: boolean;
   initiatives: MarketingInitiative[];
   goals: MarketingGoal[];
   people: PersonOption[];
+  treeNodes: MarketingTreeNode[];
   run: Run;
 }) {
   const [editing, setEditing] = useState<MarketingInitiative | "new" | null>(null);
@@ -689,6 +750,7 @@ function InitiativesTab({
         <InitiativeDialog
           initiative={editing === "new" ? null : editing}
           people={people}
+          treeNodes={treeNodes}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -697,6 +759,7 @@ function InitiativesTab({
       {editingGoal && (
         <GoalDialog
           goal={editingGoal === "new" ? null : editingGoal}
+          treeNodes={treeNodes}
           onClose={() => setEditingGoal(null)}
           run={run}
         />
@@ -708,11 +771,13 @@ function InitiativesTab({
 function InitiativeDialog({
   initiative,
   people,
+  treeNodes,
   onClose,
   run,
 }: {
   initiative: MarketingInitiative | null;
   people: PersonOption[];
+  treeNodes: MarketingTreeNode[];
   onClose: () => void;
   run: Run;
 }) {
@@ -759,6 +824,10 @@ function InitiativeDialog({
         <div>
           <label className={fieldLabel}>Next action</label>
           <input name="next_action" defaultValue={initiative?.next_action ?? ""} className={fieldInput} />
+        </div>
+        <div>
+          <label className={fieldLabel}>Connected tree node</label>
+          <NodeSelect name="node_id" defaultValue={initiative?.node_id ?? null} treeNodes={treeNodes} />
         </div>
         <div>
           <label className={fieldLabel}>Notes</label>

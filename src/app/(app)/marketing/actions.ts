@@ -67,6 +67,7 @@ export async function saveGoal(formData: FormData): Promise<ActionResult> {
     current_value: num(formData.get("current_value")),
     period: str(formData.get("period")),
     notes: str(formData.get("notes")),
+    node_id: str(formData.get("node_id")),
     is_active: formData.get("is_active") == null ? true : bool(formData.get("is_active")),
   };
   const { error } = id
@@ -113,6 +114,7 @@ export async function saveInitiative(formData: FormData): Promise<ActionResult> 
     next_action: str(formData.get("next_action")),
     due_date: str(formData.get("due_date")),
     notes: str(formData.get("notes")),
+    node_id: str(formData.get("node_id")),
     links: parseLinks(formData),
   };
   const { error } = id

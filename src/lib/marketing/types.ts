@@ -12,6 +12,8 @@ export interface MarketingGoal {
   period: string | null;
   notes: string | null;
   is_active: boolean;
+  /** Optional marketing tree node this goal is connected to. */
+  node_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -34,6 +36,8 @@ export interface MarketingInitiative {
   due_date: string | null;
   notes: string | null;
   links: InitiativeLink[];
+  /** Optional marketing tree node this initiative is connected to. */
+  node_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
