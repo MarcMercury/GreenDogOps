@@ -89,6 +89,63 @@ const ZONE_STYLE: Record<
   root_fine: { fill: "#D8CDB2", text: "#4a3a28", w: 132, h: 28, rx: 8 },
 };
 
+// ---------------------------------------------------------------------------
+// Seasonal freshness palette — a node's colour reflects how long since it was
+// last handled, so neglected areas stand out at a glance. Leaves run spring →
+// winter (green → pale green → orange → red); roots run healthy → decaying
+// (reddish-brown → light brown → dark brown → grey).
+// ---------------------------------------------------------------------------
+// Day cut-offs for freshness buckets 0,1,2 (anything older, or never handled,
+// falls into bucket 3).
+const SEASON_CUTOFFS = [14, 45, 90] as const;
+const SEASON_LABELS = ["Fresh", "Aging", "Stale", "Overdue"] as const;
+
+const SEASON_LEAF: { fill: string; text: string }[] = [
+  { fill: "#3E9E4A", text: "#ffffff" }, // green — spring
+  { fill: "#B7DE8A", text: "#2f5d34" }, // pale green — summer
+  { fill: "#E8912A", text: "#3d2400" }, // orange — autumn
+  { fill: "#D64545", text: "#ffffff" }, // red — winter
+];
+
+const SEASON_ROOT: { fill: string; text: string }[] = [
+  { fill: "#A65233", text: "#ffffff" }, // reddish brown — healthy
+  { fill: "#C9A26B", text: "#3b2a18" }, // light brown
+  { fill: "#5C3A22", text: "#f5ece0" }, // dark brown
+  { fill: "#9A968C", text: "#242019" }, // greyish — dormant
+];
+
+const LEAF_ZONES = new Set(["canopy"]);
+const ROOT_ZONES = new Set(["root_primary", "root_fine"]);
+
+/** Bucket a node's last-handled timestamp into a 0–3 freshness tier. */
+function seasonBucket(iso: string | null): 0 | 1 | 2 | 3 {
+  if (!iso) return 3;
+  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (days <= SEASON_CUTOFFS[0]) return 0;
+  if (days <= SEASON_CUTOFFS[1]) return 1;
+  if (days <= SEASON_CUTOFFS[2]) return 2;
+  return 3;
+}
+
+/** Seasonal fill/text for a leaf or root node; null for structural zones. */
+function seasonStyle(
+  zone: string,
+  iso: string | null,
+): { fill: string; text: string; bucket: number } | null {
+  const b = seasonBucket(iso);
+  if (LEAF_ZONES.has(zone)) return { ...SEASON_LEAF[b], bucket: b };
+  if (ROOT_ZONES.has(zone)) return { ...SEASON_ROOT[b], bucket: b };
+  return null;
+}
+
+/** Headline word for an aggregate freshness score (0–100). */
+function healthLabel(score: number): string {
+  if (score >= 80) return "Thriving";
+  if (score >= 60) return "Healthy";
+  if (score >= 40) return "Needs care";
+  return "Overgrown";
+}
+
 const fieldInput =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 const fieldLabel = "mb-1 block text-xs font-medium text-slate-500";
@@ -103,14 +160,6 @@ function truncate(s: string, max: number): string {
 
 const clamp = (v: number, lo: number, hi: number) =>
   Math.max(lo, Math.min(hi, v));
-
-/** Staleness of a node from its last-handled timestamp (module-level: pure use of Date.now). */
-function staleInfo(iso: string | null): { stale: boolean; veryStale: boolean } {
-  const d = iso
-    ? Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
-    : null;
-  return { stale: d == null || d > 30, veryStale: d == null || d > 60 };
-}
 
 interface Positioned {
   node: MarketingTreeNode;
@@ -427,6 +476,20 @@ export function MarketingTree({
     (n) => n.status === "needs_attention",
   ).length;
 
+  // Whole-department freshness: bucket every node by how long since it was last
+  // handled, then roll up into a 0–100 health score for an at-a-glance read.
+  const health = useMemo(() => {
+    const buckets = [0, 0, 0, 0];
+    for (const n of visibleNodes) buckets[seasonBucket(n.last_handled_at)]++;
+    const total = visibleNodes.length;
+    const score = total
+      ? Math.round(
+          (buckets[0] * 100 + buckets[1] * 66 + buckets[2] * 33) / total,
+        )
+      : 0;
+    return { buckets, total, score };
+  }, [visibleNodes]);
+
   return (
     <section className="space-y-3">
       <style>{`
@@ -434,6 +497,69 @@ export function MarketingTree({
         .gdo-attn-ring { animation: gdo-pulse 2s ease-in-out infinite; }
         @media (prefers-reduced-motion: reduce) { .gdo-attn-ring { animation: none; opacity: .8 } }
       `}</style>
+
+      {/* Department health — seasonal freshness roll-up + colour legend */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="min-w-40">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Department health
+            </p>
+            <p className="text-lg font-bold text-slate-800">
+              {health.score}%{" "}
+              <span className="text-sm font-medium text-slate-500">
+                {healthLabel(health.score)}
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-col gap-1.5 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="w-12 font-semibold text-slate-400">Leaves</span>
+              {SEASON_LEAF.map((s, i) => (
+                <span key={i} className="inline-flex items-center gap-1">
+                  <span
+                    className="h-2.5 w-2.5 rounded-sm"
+                    style={{ background: s.fill }}
+                  />
+                  {SEASON_LABELS[i]}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="w-12 font-semibold text-slate-400">Roots</span>
+              {SEASON_ROOT.map((s, i) => (
+                <span key={i} className="inline-flex items-center gap-1">
+                  <span
+                    className="h-2.5 w-2.5 rounded-sm"
+                    style={{ background: s.fill }}
+                  />
+                  {SEASON_LABELS[i]}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="mt-2.5 flex h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+          {health.buckets.map((count, b) =>
+            count > 0 ? (
+              <div
+                key={b}
+                style={{
+                  width: `${(count / Math.max(health.total, 1)) * 100}%`,
+                  background: SEASON_LEAF[b].fill,
+                }}
+                title={`${SEASON_LABELS[b]}: ${count}`}
+              />
+            ) : null,
+          )}
+        </div>
+        <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+          <span>Fresh {health.buckets[0]}</span>
+          <span>Aging {health.buckets[1]}</span>
+          <span>Stale {health.buckets[2]}</span>
+          <span>Overdue {health.buckets[3]}</span>
+        </div>
+      </div>
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-2">
@@ -758,9 +884,13 @@ function TreeNodeShape({
   const style = ZONE_STYLE[node.zone] ?? ZONE_STYLE.canopy;
   const attn = node.status === "needs_attention";
   const itemCount = node.items?.length ?? 0;
-  // Staleness: how long since the node was last "handled". Drives a subtle tint
-  // so nodes that haven't been touched in a while stand out as needing a check.
-  const { stale, veryStale } = staleInfo(node.last_handled_at);
+  // Seasonal freshness: leaves and roots are tinted by how long since the node
+  // was last handled so neglected areas stand out. Structural zones (trunk /
+  // branch) keep their fixed bark styling.
+  const season = seasonStyle(node.zone, node.last_handled_at);
+  const fill = season?.fill ?? style.fill;
+  const textColor = season?.text ?? style.text;
+  const overdue = season?.bucket === 3;
   const firstLineY = h / 2 - ((lines.length - 1) * LINE_H) / 2 + 4;
   return (
     <g
@@ -802,11 +932,10 @@ function TreeNodeShape({
         width={w}
         height={h}
         rx={style.rx}
-        fill={style.fill}
-        fillOpacity={stale ? (veryStale ? 0.7 : 0.85) : 1}
-        stroke={hovered ? "#0f766e" : stale ? "#b98900" : "rgba(0,0,0,0.12)"}
-        strokeWidth={hovered ? 2.5 : stale ? 1.5 : 1}
-        strokeDasharray={stale && !hovered ? "5 3" : undefined}
+        fill={fill}
+        stroke={hovered ? "#0f766e" : overdue ? "#7f1d1d" : "rgba(0,0,0,0.15)"}
+        strokeWidth={hovered ? 2.5 : overdue ? 1.5 : 1}
+        strokeDasharray={overdue && !hovered ? "5 3" : undefined}
       />
       <circle cx={9} cy={9} r={3.5} fill={STATUS_FILL[node.status] ?? "#94a3b8"} />
       <text
@@ -814,7 +943,7 @@ function TreeNodeShape({
         textAnchor="middle"
         fontSize={NODE_FONT}
         fontWeight={600}
-        fill={style.text}
+        fill={textColor}
       >
         {lines.map((line, i) => (
           <tspan key={i} x={w / 2} y={firstLineY + i * LINE_H}>
