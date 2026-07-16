@@ -490,6 +490,24 @@ export function MarketingTree({
     return { buckets, total, score };
   }, [visibleNodes]);
 
+  // A branch reflects its sub-categories: it takes the WORST (highest) freshness
+  // bucket among its child leaves, so a branch only turns green once every leaf
+  // beneath it is green. Branches with no children fall back to their own age.
+  const branchBucket = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of visibleNodes) {
+      if (b.zone !== "branch") continue;
+      const kids = visibleNodes.filter((n) => n.parent_id === b.id);
+      m.set(
+        b.id,
+        kids.length
+          ? Math.max(...kids.map((k) => seasonBucket(k.last_handled_at)))
+          : seasonBucket(b.last_handled_at),
+      );
+    }
+    return m;
+  }, [visibleNodes]);
+
   return (
     <section className="space-y-3">
       <style>{`
@@ -738,6 +756,7 @@ export function MarketingTree({
               p={p}
               opacity={nodeOpacity(p.node)}
               hovered={hoverId === p.node.id}
+              bucketOverride={branchBucket.get(p.node.id)}
               onHover={setHoverId}
               onSelect={setSelected}
             />
@@ -871,12 +890,14 @@ function TreeNodeShape({
   p,
   opacity,
   hovered,
+  bucketOverride,
   onHover,
   onSelect,
 }: {
   p: Positioned;
   opacity: number;
   hovered: boolean;
+  bucketOverride?: number;
   onHover: (id: string | null) => void;
   onSelect: (n: MarketingTreeNode) => void;
 }) {
@@ -885,12 +906,16 @@ function TreeNodeShape({
   const attn = node.status === "needs_attention";
   const itemCount = node.items?.length ?? 0;
   // Seasonal freshness: leaves and roots are tinted by how long since the node
-  // was last handled so neglected areas stand out. Structural zones (trunk /
-  // branch) keep their fixed bark styling.
+  // was last handled so neglected areas stand out. Branches inherit the worst
+  // freshness of their child leaves (via bucketOverride) so they only green up
+  // once everything beneath them is fresh. Other structural zones (trunk) keep
+  // their fixed bark styling.
   const season = seasonStyle(node.zone, node.last_handled_at);
-  const fill = season?.fill ?? style.fill;
-  const textColor = season?.text ?? style.text;
-  const overdue = season?.bucket === 3;
+  const overrideStyle =
+    !season && bucketOverride != null ? SEASON_LEAF[bucketOverride] : null;
+  const fill = season?.fill ?? overrideStyle?.fill ?? style.fill;
+  const textColor = season?.text ?? overrideStyle?.text ?? style.text;
+  const overdue = (season?.bucket ?? bucketOverride) === 3;
   const firstLineY = h / 2 - ((lines.length - 1) * LINE_H) / 2 + 4;
   return (
     <g
