@@ -33,6 +33,8 @@ import {
   resourceCategoryLabel,
   promoStatusLabel,
   promoTypeLabel,
+  treeZoneLabel,
+  personLabel,
 } from "@/lib/marketing/types";
 import { MarketingTree } from "./marketing-tree";
 import { EventsTab } from "./marketing-events";
@@ -1353,110 +1355,109 @@ function PromotionDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Activity tab — a rollup + recent-activity feed across marketing work.
+// Activity tab — the marketing activity log + node priorities / staleness.
 // ---------------------------------------------------------------------------
+const DAY_MS = 86_400_000;
+function daysSince(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  return Math.floor((Date.now() - t) / DAY_MS);
+}
+const ACTIVITY_ICON: Record<string, string> = {
+  node_handled: "✅",
+  node_created: "🌱",
+  node_saved: "✏️",
+};
+
 function ActivityTab({
-  initiatives,
-  events,
+  activity,
   treeNodes,
+  people,
 }: {
-  initiatives: MarketingInitiative[];
-  events: MarketingEvent[];
+  activity: MarketingActivity[];
   treeNodes: MarketingTreeNode[];
+  people: PersonOption[];
 }) {
-  const feed = useMemo(() => {
-    type Item = {
-      id: string;
-      when: string;
-      kind: string;
-      title: string;
-      detail: string;
-      icon: string;
-    };
-    const items: Item[] = [];
-    for (const i of initiatives) {
-      items.push({
-        id: `i-${i.id}`,
-        when: i.updated_at,
-        kind: "Initiative",
-        title: i.title,
-        detail: `${initiativeStatusLabel(i.status)}${i.owner_name ? ` · ${i.owner_name}` : ""}`,
-        icon: "🗂️",
-      });
-    }
-    for (const e of events) {
-      items.push({
-        id: `e-${e.id}`,
-        when: e.updated_at,
-        kind: "Event",
-        title: e.name,
-        detail: `${eventStatusLabel(e.status)}${e.starts_on ? ` · ${fmtDate(e.starts_on)}` : ""}`,
-        icon: "🎪",
-      });
-    }
-    for (const n of treeNodes) {
-      items.push({
-        id: `n-${n.id}`,
-        when: n.updated_at,
-        kind: "Tree node",
-        title: n.label,
-        detail: n.status.replace("_", " "),
-        icon: "🌳",
-      });
-    }
-    return items
-      .filter((x) => x.when)
-      .sort((a, b) => b.when.localeCompare(a.when))
-      .slice(0, 40);
-  }, [initiatives, events, treeNodes]);
+  const personName = useMemo(() => {
+    const m = new Map(people.map((p) => [p.id, personLabel(p)]));
+    return (id: string | null) => (id ? m.get(id) ?? null : null);
+  }, [people]);
 
-  const initByStatus = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const i of initiatives) m.set(i.status, (m.get(i.status) ?? 0) + 1);
-    return m;
-  }, [initiatives]);
-
-  const attentionNodes = treeNodes.filter((n) => n.status === "needs_attention");
-  const upcomingEvents = events.filter(
-    (e) => e.status !== "completed" && e.status !== "cancelled",
-  ).length;
+  const live = treeNodes.filter((n) => n.status !== "archived");
+  const attentionNodes = live.filter((n) => n.status === "needs_attention");
+  const staleNodes = live.filter((n) => {
+    const d = daysSince(n.last_handled_at);
+    return d == null || d > 30;
+  });
+  const priorityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  const focus = [...live]
+    .sort(
+      (a, b) =>
+        (priorityRank[a.priority] ?? 1) - (priorityRank[b.priority] ?? 1) ||
+        (daysSince(b.last_handled_at) ?? 9999) - (daysSince(a.last_handled_at) ?? 9999),
+    )
+    .slice(0, 12);
 
   return (
     <section className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-4">
-        <StatBox label="Active initiatives" value={String(initByStatus.get("in_progress") ?? 0)} />
-        <StatBox label="Upcoming events" value={String(upcomingEvents)} />
-        <StatBox label="Tree nodes" value={String(treeNodes.filter((n) => n.status !== "archived").length)} />
+        <StatBox label="Active nodes" value={String(live.length)} />
+        <StatBox label="High priority" value={String(live.filter((n) => n.priority === "high").length)} />
         <StatBox label="Need attention" value={String(attentionNodes.length)} tone={attentionNodes.length ? "amber" : "slate"} />
+        <StatBox label="Stale (30d+)" value={String(staleNodes.length)} tone={staleNodes.length ? "amber" : "slate"} />
       </div>
 
-      {attentionNodes.length > 0 && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-800">Flagged — needs attention</p>
-          <ul className="mt-1.5 space-y-1 text-sm text-amber-700">
-            {attentionNodes.map((n) => (
-              <li key={n.id}>• {n.label}{n.owner_name ? ` — ${n.owner_name}` : ""}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
+      {/* Priority focus — driven by node priority + staleness */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">Recent activity</h3>
-        {feed.length === 0 ? (
-          <EmptyRow label="No activity yet." />
+        <h3 className="mb-2 text-sm font-semibold text-slate-700">Focus — by priority</h3>
+        {focus.length === 0 ? (
+          <EmptyRow label="No nodes yet." />
         ) : (
           <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
             <ul className="divide-y divide-slate-100">
-              {feed.map((x) => (
-                <li key={x.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="text-base" aria-hidden>{x.icon}</span>
+              {focus.map((n) => {
+                const d = daysSince(n.last_handled_at);
+                return (
+                  <li key={n.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <Badge className={PRIORITY_COLORS[n.priority]}>{priorityLabel(n.priority)}</Badge>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-slate-800">{n.label}</p>
+                      <p className="text-xs text-slate-400">
+                        {[treeZoneLabel(n.zone), personName(n.owner_person_id) ?? n.owner_name].filter(Boolean).join(" · ")}
+                      </p>
+                    </div>
+                    {n.status === "needs_attention" && <Badge className="bg-amber-50 text-amber-700">Attention</Badge>}
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {d == null ? "never handled" : d === 0 ? "today" : `${d}d ago`}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      {/* Activity log */}
+      <div>
+        <h3 className="mb-2 text-sm font-semibold text-slate-700">Recent activity</h3>
+        {activity.length === 0 ? (
+          <EmptyRow label="No activity logged yet. Actions on nodes will appear here." />
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+            <ul className="divide-y divide-slate-100">
+              {activity.map((a) => (
+                <li key={a.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="text-base" aria-hidden>{ACTIVITY_ICON[a.kind] ?? "•"}</span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-800">{x.title}</p>
-                    <p className="text-xs text-slate-400">{x.kind} · {x.detail}</p>
+                    <p className="truncate text-sm font-medium text-slate-800">{a.title}</p>
+                    <p className="text-xs text-slate-400">
+                      {[a.detail, a.actor].filter(Boolean).join(" · ")}
+                    </p>
                   </div>
                   <span className="shrink-0 text-xs text-slate-400">
-                    {new Date(x.when).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                    {new Date(a.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                   </span>
                 </li>
               ))}

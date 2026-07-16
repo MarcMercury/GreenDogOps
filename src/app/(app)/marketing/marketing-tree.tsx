@@ -6,15 +6,20 @@ import { useRouter } from "next/navigation";
 import {
   type MarketingTreeNode,
   type InitiativeLink,
+  type PersonOption,
   TREE_ZONES,
   NODE_STATUSES,
+  PRIORITIES,
   nodeStatusLabel,
   treeZoneLabel,
+  priorityLabel,
+  personLabel,
 } from "@/lib/marketing/types";
 import {
   saveTreeNode,
   setTreeNodeStatus,
   deleteTreeNode,
+  markNodeHandled,
   type ActionResult,
 } from "./actions";
 
@@ -247,9 +252,11 @@ function computeLayout(nodes: MarketingTreeNode[]): {
 export function MarketingTree({
   canEdit,
   nodes,
+  people,
 }: {
   canEdit: boolean;
   nodes: MarketingTreeNode[];
+  people: PersonOption[];
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<MarketingTreeNode | null>(null);
@@ -589,12 +596,14 @@ export function MarketingTree({
         <DetailPanel
           node={selected}
           parent={selected.parent_id ? nodes.find((n) => n.id === selected.parent_id) ?? null : null}
+          people={people}
           canEdit={canEdit}
           onClose={() => setSelected(null)}
           onEdit={() => {
             setEditing(selected);
             setSelected(null);
           }}
+          onHandled={() => run(() => markNodeHandled(selected.id, selected.label))}
           onArchive={() =>
             run(() => setTreeNodeStatus(selected.id, "archived"), () => setSelected(null))
           }
@@ -607,6 +616,7 @@ export function MarketingTree({
           node={"id" in editing ? editing : null}
           presetZone={"zone" in editing && !("id" in editing) ? editing.zone : undefined}
           allNodes={nodes}
+          people={people}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -671,6 +681,13 @@ function TreeNodeShape({
   const style = ZONE_STYLE[node.zone] ?? ZONE_STYLE.canopy;
   const maxChars = Math.floor((w - 22) / 7.1);
   const attn = node.status === "needs_attention";
+  // Staleness: how long since the node was last "handled". Drives a subtle tint
+  // so nodes that haven't been touched in a while stand out as needing a check.
+  const handledDays = node.last_handled_at
+    ? Math.floor((Date.now() - new Date(node.last_handled_at).getTime()) / 86_400_000)
+    : null;
+  const stale = handledDays == null || handledDays > 30;
+  const veryStale = handledDays == null || handledDays > 60;
   return (
     <g
       transform={`translate(${x - w / 2}, ${y - style.h / 2})`}
@@ -712,8 +729,10 @@ function TreeNodeShape({
         height={style.h}
         rx={style.rx}
         fill={style.fill}
-        stroke={hovered ? "#0f766e" : "rgba(0,0,0,0.12)"}
-        strokeWidth={hovered ? 2.5 : 1}
+        fillOpacity={stale ? (veryStale ? 0.7 : 0.85) : 1}
+        stroke={hovered ? "#0f766e" : stale ? "#b98900" : "rgba(0,0,0,0.12)"}
+        strokeWidth={hovered ? 2.5 : stale ? 1.5 : 1}
+        strokeDasharray={stale && !hovered ? "5 3" : undefined}
       />
       <circle cx={12} cy={style.h / 2} r={4} fill={STATUS_FILL[node.status] ?? "#94a3b8"} />
       <text
@@ -733,26 +752,52 @@ function TreeNodeShape({
 // ---------------------------------------------------------------------------
 // Detail slide-in panel
 // ---------------------------------------------------------------------------
+const PRIORITY_TONE: Record<string, string> = {
+  high: "bg-red-50 text-red-700",
+  medium: "bg-amber-50 text-amber-700",
+  low: "bg-slate-100 text-slate-500",
+};
+
+function fmtMoney(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: n % 1 === 0 ? 0 : 2 });
+}
+function handledLabel(iso: string | null): string {
+  if (!iso) return "never";
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
+  if (isNaN(d)) return "never";
+  return d === 0 ? "today" : d === 1 ? "yesterday" : `${d} days ago`;
+}
+
 function DetailPanel({
   node,
   parent,
+  people,
   canEdit,
   onClose,
   onEdit,
+  onHandled,
   onArchive,
 }: {
   node: MarketingTreeNode;
   parent: MarketingTreeNode | null;
+  people: PersonOption[];
   canEdit: boolean;
   onClose: () => void;
   onEdit: () => void;
+  onHandled: () => void;
   onArchive: () => void;
 }) {
-  const metricEntries = Object.entries(node.metrics ?? {});
+  const owner = node.owner_person_id
+    ? people.find((p) => p.id === node.owner_person_id)
+    : null;
+  const ownerName = owner ? personLabel(owner) : node.owner_name;
+  const hasBudget =
+    node.budget_amount != null || node.budget_spent != null || !!node.budget_notes;
   return (
     <div className="fixed inset-0 z-[60] flex justify-end" onKeyDown={(e) => e.key === "Escape" && onClose()}>
       <button type="button" aria-label="Close" onClick={onClose} className="flex-1 bg-slate-900/30 backdrop-blur-sm" />
-      <aside className="flex w-full max-w-[380px] flex-col overflow-y-auto bg-white shadow-2xl">
+      <aside className="flex w-full max-w-[400px] flex-col overflow-y-auto bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-2 border-b border-slate-200 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wider text-emerald-600">
@@ -770,6 +815,23 @@ function DetailPanel({
           </button>
         </div>
 
+        {/* Last handled + Updated button */}
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-3">
+          <div className="text-xs text-slate-500">
+            Last handled{" "}
+            <span className="font-semibold text-slate-700">{handledLabel(node.last_handled_at)}</span>
+          </div>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={onHandled}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              ✓ Updated
+            </button>
+          )}
+        </div>
+
         <div className="space-y-4 px-5 py-4">
           <div className="flex flex-wrap gap-2">
             <span
@@ -782,9 +844,12 @@ function DetailPanel({
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_FILL[node.status] ?? "#94a3b8" }} />
               {nodeStatusLabel(node.status)}
             </span>
-            {node.owner_name && (
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${PRIORITY_TONE[node.priority] ?? ""}`}>
+              {priorityLabel(node.priority)} priority
+            </span>
+            {ownerName && (
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
-                👤 {node.owner_name}
+                👤 {ownerName}
               </span>
             )}
             {node.due_date && (
@@ -802,14 +867,26 @@ function DetailPanel({
 
           {node.summary && <p className="text-sm leading-relaxed text-slate-600">{node.summary}</p>}
 
-          {metricEntries.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {metricEntries.map(([k, v]) => (
-                <div key={k} className="rounded-lg bg-slate-50 p-2.5">
-                  <p className="text-sm font-bold text-slate-900">{String(v)}</p>
-                  <p className="text-[10px] uppercase tracking-wide text-slate-400">{k}</p>
+          {hasBudget && (
+            <div className="rounded-lg border border-slate-200 p-3">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Budget</p>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{fmtMoney(node.budget_amount)}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Allocated</p>
                 </div>
-              ))}
+                <div>
+                  <p className="text-sm font-bold text-slate-900">{fmtMoney(node.budget_spent)}</p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Spent</p>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">
+                    {node.budget_amount != null ? fmtMoney((node.budget_amount ?? 0) - (node.budget_spent ?? 0)) : "—"}
+                  </p>
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400">Remaining</p>
+                </div>
+              </div>
+              {node.budget_notes && <p className="mt-2 text-xs text-slate-500">{node.budget_notes}</p>}
             </div>
           )}
 
@@ -860,6 +937,7 @@ function DetailPanel({
   );
 }
 
+
 // ---------------------------------------------------------------------------
 // Add / edit node dialog
 // ---------------------------------------------------------------------------
@@ -867,12 +945,14 @@ function NodeDialog({
   node,
   presetZone,
   allNodes,
+  people,
   onClose,
   run,
 }: {
   node: MarketingTreeNode | null;
   presetZone?: string;
   allNodes: MarketingTreeNode[];
+  people: PersonOption[];
   onClose: () => void;
   run: Run;
 }) {
@@ -886,11 +966,9 @@ function NodeDialog({
         ? allNodes.filter((n) => n.zone === "root_primary")
         : [];
 
-  const metricsText = node
-    ? Object.entries(node.metrics ?? {})
-        .map(([k, v]) => `${k}: ${v}`)
-        .join("\n")
-    : "";
+  const sortedPeople = [...people].sort((a, b) =>
+    personLabel(a).localeCompare(personLabel(b)),
+  );
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -933,9 +1011,23 @@ function NodeDialog({
               </select>
             </div>
             <div>
-              <label className={fieldLabel}>Owner</label>
-              <input name="owner_name" defaultValue={node?.owner_name ?? ""} className={fieldInput} />
+              <label className={fieldLabel}>Priority</label>
+              <select name="priority" defaultValue={node?.priority ?? "medium"} className={fieldInput}>
+                {PRIORITIES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
             </div>
+          </div>
+
+          <div>
+            <label className={fieldLabel}>Owner (from HR roster)</label>
+            <select name="owner_person_id" defaultValue={node?.owner_person_id ?? ""} className={fieldInput}>
+              <option value="">— unassigned —</option>
+              {sortedPeople.map((p) => (
+                <option key={p.id} value={p.id}>{personLabel(p)}</option>
+              ))}
+            </select>
           </div>
 
           {parentOptions.length > 0 && (
@@ -962,10 +1054,23 @@ function NodeDialog({
             <textarea name="summary" defaultValue={node?.summary ?? ""} rows={2} className={fieldInput} />
           </div>
 
-          <div>
-            <label className={fieldLabel}>Metrics (one per line, e.g. newClients: 14)</label>
-            <textarea name="metrics" defaultValue={metricsText} rows={2} className={fieldInput} placeholder="newClients: 14&#10;spend: 850" />
-          </div>
+          <fieldset className="rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Budget (visible to all)</legend>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className={fieldLabel}>Allocated ($)</label>
+                <input name="budget_amount" defaultValue={node?.budget_amount ?? ""} className={fieldInput} />
+              </div>
+              <div>
+                <label className={fieldLabel}>Spent ($)</label>
+                <input name="budget_spent" defaultValue={node?.budget_spent ?? ""} className={fieldInput} />
+              </div>
+            </div>
+            <div className="mt-3">
+              <label className={fieldLabel}>Budget notes</label>
+              <input name="budget_notes" defaultValue={node?.budget_notes ?? ""} className={fieldInput} />
+            </div>
+          </fieldset>
 
           <div>
             <label className={fieldLabel}>Links</label>
