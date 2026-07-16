@@ -10,8 +10,21 @@
 // report compares the booked snapshot (taken before the day) with this
 // post-day snapshot.
 //
+// FREEZE CONTRACT: a past day's numbers must be frozen so the drop is
+// reportable. That is enforced by the snapshot HISTORY (each pull is keyed by
+// its own snapshot_date) + the appointment_review RPC, which reads:
+//   * booked (expected) = the LAST snapshot taken ON/BEFORE the day  (frozen by
+//     the look-ahead; never overwritten because later pulls have a later date),
+//   * rendered          = the FIRST snapshot taken AFTER the day     (the very
+//     next day's look-back — the "day after" reading).
+// Because the RPC always uses the FIRST post-day snapshot, re-scanning a day
+// again later never changes its rendered value. We therefore only need to look
+// back a few days: normally just yesterday ("the day after"), with a small
+// buffer so a single missed daily run still gets its day-after snapshot filled.
+// (Override REVIEW_LOOKBACK_DAYS for a one-off historical backfill.)
+//
 // Env: EZYVET_USERNAME, EZYVET_PASSWORD, CRON_SECRET, APP_BASE_URL,
-//      REVIEW_LOOKBACK_DAYS (default 14), RUN_ID (optional agent_run to update).
+//      REVIEW_LOOKBACK_DAYS (default 3), RUN_ID (optional agent_run to update).
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,7 +33,7 @@ import { openReporting, runCsvReport, switchLocation } from "./ezyvet/report-cen
 import { reportRun, ensureRun, uploadCsv } from "./lib/ingest.mjs";
 
 const AGENT_KEY = "ezyvet_agenda_lookahead";
-const LOOKBACK = Math.max(1, parseInt(process.env.REVIEW_LOOKBACK_DAYS ?? "14", 10) || 14);
+const LOOKBACK = Math.max(1, parseInt(process.env.REVIEW_LOOKBACK_DAYS ?? "3", 10) || 3);
 let RUN_ID = process.env.RUN_ID || null;
 
 // Clinics for the per-location review pull (switch the ezyVet header first).
