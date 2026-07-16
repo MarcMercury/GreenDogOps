@@ -636,7 +636,11 @@ export function DataTable<T extends { id: string }>({
   }
 
   const tableMarkup = (
-    <table className="min-w-full divide-y divide-slate-200 text-sm">
+    <table
+      className={`min-w-full divide-y divide-slate-200 ${
+        dense ? "text-[13px]" : "text-sm"
+      }`}
+    >
       <thead
         className="sticky top-0 z-10 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 shadow-[inset_0_-1px_0_rgb(226_232_240)]"
       >
