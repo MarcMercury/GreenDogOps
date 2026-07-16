@@ -89,6 +89,47 @@ function fmtDate(d: string | null | undefined): string {
   });
 }
 
+function linkLabel(url: string): string {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    if (host.includes("canva")) return "Canva";
+    if (host.includes("docs.google")) return "Google Doc";
+    if (host.includes("drive.google")) return "Drive";
+    if (host.includes("figma")) return "Figma";
+    const base = host.split(".")[0];
+    return base.charAt(0).toUpperCase() + base.slice(1);
+  } catch {
+    return "Link";
+  }
+}
+
+function NextActionCell({ value }: { value: string | null | undefined }) {
+  if (!value) return <span className="text-slate-400">—</span>;
+  const urlMatch = value.match(/https?:\/\/[^\s]+/i);
+  if (urlMatch) {
+    const url = urlMatch[0];
+    const idx = urlMatch.index ?? 0;
+    const text = [value.slice(0, idx).trim(), value.slice(idx + url.length).trim()]
+      .filter(Boolean)
+      .join(" ");
+    return (
+      <div className="space-y-0.5 text-xs leading-snug">
+        {text && <span className="block break-words text-slate-600">{text}</span>}
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex items-center gap-0.5 font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+        >
+          🔗 {linkLabel(url)}
+        </a>
+      </div>
+    );
+  }
+  return <span className="block break-words text-xs leading-snug text-slate-600">{value}</span>;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   idea: "bg-slate-100 text-slate-600",
   planned: "bg-sky-50 text-sky-700",
@@ -601,15 +642,23 @@ function InitiativesTab({
         <EmptyRow label="No initiatives match." />
       ) : (
         <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
-          <table className="w-full text-sm">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[28%]" />
+              <col className="w-[13%]" />
+              <col className="w-[14%]" />
+              <col className="w-[22%]" />
+              <col className="w-[11%]" />
+              <col className="w-[12%]" />
+            </colgroup>
             <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <SortHeader label="Initiative" sortKey="initiative" sort={iSort} className="px-4 py-2.5 font-semibold" />
-                <SortHeader label="Owner" sortKey="owner" sort={iSort} className="px-4 py-2.5 font-semibold" />
-                <SortHeader label="3rd party" sortKey="partner" sort={iSort} className="px-4 py-2.5 font-semibold" />
-                <SortHeader label="Next action" sortKey="nextAction" sort={iSort} className="px-4 py-2.5 font-semibold" />
-                <SortHeader label="Due" sortKey="due" sort={iSort} className="px-4 py-2.5 font-semibold" />
-                <SortHeader label="Status" sortKey="status" sort={iSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Initiative" sortKey="initiative" sort={iSort} className="px-3 py-2.5 font-semibold" />
+                <SortHeader label="Owner" sortKey="owner" sort={iSort} className="px-3 py-2.5 font-semibold" />
+                <SortHeader label="3rd party" sortKey="partner" sort={iSort} className="px-3 py-2.5 font-semibold" />
+                <SortHeader label="Next action" sortKey="nextAction" sort={iSort} className="px-3 py-2.5 font-semibold" />
+                <SortHeader label="Due" sortKey="due" sort={iSort} className="px-3 py-2.5 font-semibold" />
+                <SortHeader label="Status" sortKey="status" sort={iSort} className="px-3 py-2.5 font-semibold" />
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -619,20 +668,20 @@ function InitiativesTab({
                   className="cursor-pointer transition hover:bg-slate-50"
                   onClick={() => canEdit && setEditing(i)}
                 >
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900">{i.title}</div>
-                    <div className="mt-0.5 flex items-center gap-1.5">
+                  <td className="px-3 py-3 align-top">
+                    <div className="break-words font-medium text-slate-900">{i.title}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                       <Badge>{initiativeCategoryLabel(i.category)}</Badge>
                       <Badge className={PRIORITY_COLORS[i.priority]}>
                         {priorityLabel(i.priority)}
                       </Badge>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{i.owner_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-slate-600">{i.partner_name ?? "—"}</td>
-                  <td className="px-4 py-3 text-slate-600">{i.next_action ?? "—"}</td>
-                  <td className="px-4 py-3 text-slate-600">{fmtDate(i.due_date)}</td>
-                  <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-3 py-3 align-top break-words text-slate-600">{i.owner_name ?? "—"}</td>
+                  <td className="px-3 py-3 align-top break-words text-slate-600">{i.partner_name ?? "—"}</td>
+                  <td className="px-3 py-3 align-top"><NextActionCell value={i.next_action} /></td>
+                  <td className="px-3 py-3 align-top text-slate-600">{fmtDate(i.due_date)}</td>
+                  <td className="px-3 py-3 align-top" onClick={(e) => e.stopPropagation()}>
                     {canEdit ? (
                       <select
                         value={i.status}
