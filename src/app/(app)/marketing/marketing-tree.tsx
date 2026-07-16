@@ -1053,6 +1053,15 @@ function upcomingEventsForNode(
     .sort((a, b) => (a.starts_on ?? "9999").localeCompare(b.starts_on ?? "9999"));
 }
 
+/** A node list item counts as "upcoming" unless it carries an ISO date (YYYY-
+ *  MM-DD) that has already passed. Blank dates and free-text cadences (e.g.
+ *  "Weekly") are always kept — only clearly past-dated items are hidden. */
+function isUpcomingItem(it: TreeItem): boolean {
+  const m = (it.date ?? "").match(/\d{4}-\d{2}-\d{2}/);
+  if (!m) return true;
+  return m[0] >= new Date().toISOString().slice(0, 10);
+}
+
 function DetailPanel({
   node,
   parent,
@@ -1088,6 +1097,7 @@ function DetailPanel({
   const ownerName = owner ? personLabel(owner) : node.owner_name;
   const hasBudget =
     node.budget_amount != null || node.budget_spent != null || !!node.budget_notes;
+  const visibleItems = (node.items ?? []).filter(isUpcomingItem);
   return (
     <div className="fixed inset-0 z-[60] flex justify-end" onKeyDown={(e) => e.key === "Escape" && onClose()}>
       <button type="button" aria-label="Close" onClick={onClose} className="flex-1 bg-slate-900/30 backdrop-blur-sm" />
@@ -1171,13 +1181,13 @@ function DetailPanel({
 
           {node.summary && <p className="text-sm leading-relaxed text-slate-600">{node.summary}</p>}
 
-          {node.items && node.items.length > 0 && (
+          {visibleItems.length > 0 && (
             <div>
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                In this node ({node.items.length})
+                In this node ({visibleItems.length})
               </p>
               <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
-                {node.items.map((it, i) => {
+                {visibleItems.map((it, i) => {
                   const dot = ITEM_STATUS_FILL[it.status ?? ""] ?? "#94a3b8";
                   const internal = !!it.url && it.url.startsWith("/");
                   const dest = it.url ? destinationForUrl(it.url) : undefined;
