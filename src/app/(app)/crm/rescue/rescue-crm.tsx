@@ -8,7 +8,9 @@ import {
   type CrmOrganization,
   type CrmOrgVisit,
   ORG_STATUS_OPTIONS,
+  RESCUE_VISIT_TOPIC_OPTIONS,
   agreementStatusLabel,
+  rescueVisitTopicLabel,
 } from "@/lib/crm/types";
 import {
   ZONE_DEFINITIONS,
@@ -539,6 +541,15 @@ function ActivityTab({ visits, nameById }: { visits: CrmOrgVisit[]; nameById: Ma
               <span className="text-xs text-slate-400">{formatDate(v.visit_date)}</span>
             </div>
             {v.spoke_to && <p className="mt-0.5 text-xs text-slate-500">Spoke with: {v.spoke_to}</p>}
+            {v.topics && v.topics.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {v.topics.map((t) => (
+                  <span key={t} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                    {rescueVisitTopicLabel(t)}
+                  </span>
+                ))}
+              </div>
+            )}
             {v.visit_notes && <p className="mt-1.5 text-sm text-slate-600">{v.visit_notes}</p>}
           </li>
         ))}
@@ -675,8 +686,13 @@ function QuickVisitDialog({
   onSaved: (msg: string) => void;
 }) {
   const [orgId, setOrgId] = useState(rescue?.id ?? "");
+  const [topics, setTopics] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  function toggleTopic(v: string) {
+    setTopics((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+  }
 
   function submit(formData: FormData) {
     setError(null);
@@ -685,6 +701,7 @@ function QuickVisitDialog({
       return;
     }
     formData.set("org_id", orgId);
+    topics.forEach((t) => formData.append("topics", t));
     startTransition(async () => {
       const res = await logRescueVisit(formData);
       if (res.ok) onSaved(res.message ?? "Visit logged.");
@@ -721,6 +738,21 @@ function QuickVisitDialog({
             <span className={fieldLabel}>Spoke with</span>
             <input name="spoke_to" placeholder="Name of contact" className={fieldInput} />
           </label>
+          <div className="flex flex-col gap-1">
+            <span className={fieldLabel}>Topics discussed</span>
+            <div className="mt-0.5 flex flex-wrap gap-1.5">
+              {RESCUE_VISIT_TOPIC_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => toggleTopic(o.value)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${topics.includes(o.value) ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <label className="flex flex-col gap-1">
             <span className={fieldLabel}>Notes</span>
             <textarea name="visit_notes" rows={3} placeholder="What was discussed?" className={fieldInput} />

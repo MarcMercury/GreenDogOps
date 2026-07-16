@@ -154,9 +154,30 @@ export interface CrmOrgVisit {
   visit_date: string;
   spoke_to: string | null;
   visit_notes: string | null;
+  topics: string[] | null;
   logged_via: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// Subjects discussed on a rescue/shelter quick visit (mirrors the Referral
+// CRM's VISIT_ITEM_OPTIONS). Surfaced as tappable chips in the Quick Visit
+// dialog and rendered back on the Activity feed.
+export const RESCUE_VISIT_TOPIC_OPTIONS = [
+  { value: "adoption_event", label: "Adoption Event" },
+  { value: "vaccine_clinic", label: "Vaccine Clinic" },
+  { value: "spay_neuter", label: "Spay/Neuter" },
+  { value: "medical_care", label: "Medical Care" },
+  { value: "wellness_plan", label: "Wellness Plan" },
+  { value: "partnership", label: "Partnership" },
+  { value: "sponsorship", label: "Sponsorship" },
+  { value: "ce", label: "CE" },
+  { value: "gdd_event", label: "GDD Event" },
+  { value: "other", label: "Other" },
+] as const;
+
+export function rescueVisitTopicLabel(value: string): string {
+  return RESCUE_VISIT_TOPIC_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
 /** An uploaded document attached to a CRM organization record. */

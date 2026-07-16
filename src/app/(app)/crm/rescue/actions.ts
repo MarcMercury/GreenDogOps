@@ -17,6 +17,14 @@ function str(v: FormDataEntryValue | null): string | null {
   return s === "" ? null : s;
 }
 
+function arr(formData: FormData, key: string): string[] | null {
+  const values = formData
+    .getAll(key)
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  return values.length ? values : null;
+}
+
 // ---------------------------------------------------------------------------
 // Log a visit against a rescue record → append to the structured activity log
 // (crm_org_visit) and stamp the record's last-visited / last-contacted dates.
@@ -38,6 +46,7 @@ export async function logRescueVisit(formData: FormData): Promise<ActionResult> 
     visit_date: visitDate,
     spoke_to: str(formData.get("spoke_to")),
     visit_notes: str(formData.get("visit_notes")),
+    topics: arr(formData, "topics"),
     logged_via: "web",
   });
   if (insErr) return { ok: false, error: insErr.message };
