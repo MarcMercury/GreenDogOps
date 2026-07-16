@@ -14,18 +14,23 @@ import {
   type MarketingTreeNode,
   type MarketingEventSource,
   type MarketingEventAttendee,
+  type MarketingPromotion,
   type InitiativeLink,
   INITIATIVE_CATEGORIES,
   INITIATIVE_STATUSES,
   PRIORITIES,
   BUDGET_ENTRY_STATUSES,
   RESOURCE_CATEGORIES,
+  PROMO_STATUSES,
+  PROMO_TYPES,
   MARKETING_CHANNELS,
   initiativeCategoryLabel,
   initiativeStatusLabel,
   priorityLabel,
   eventStatusLabel,
   resourceCategoryLabel,
+  promoStatusLabel,
+  promoTypeLabel,
 } from "@/lib/marketing/types";
 import { MarketingTree } from "./marketing-tree";
 import { EventsTab } from "./marketing-events";
@@ -40,6 +45,8 @@ import {
   deleteBudgetEntry,
   saveResource,
   deleteResource,
+  savePromotion,
+  deletePromotion,
   type ActionResult,
 } from "./actions";
 
@@ -162,11 +169,12 @@ function OptionsSelect({
 // ===========================================================================
 // Dashboard
 // ===========================================================================
-type TabKey = "tree" | "initiatives" | "events" | "activity" | "budget" | "channels" | "resources";
+type TabKey = "tree" | "initiatives" | "events" | "promotions" | "activity" | "budget" | "channels" | "resources";
 const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean }[] = [
   { key: "tree", label: "Marketing Tree", icon: "🌳" },
   { key: "initiatives", label: "Initiatives", icon: "🗂️" },
   { key: "events", label: "Events", icon: "🎪" },
+  { key: "promotions", label: "Promotions", icon: "🏷️" },
   { key: "activity", label: "Activity", icon: "📈" },
   { key: "budget", label: "Budget", icon: "💵", adminOnly: true },
   { key: "channels", label: "Channels", icon: "🔗" },
@@ -185,6 +193,7 @@ export function MarketingDashboard({
   treeNodes,
   eventSources,
   eventAttendees,
+  promotions,
 }: {
   canEdit: boolean;
   isAdmin: boolean;
@@ -197,6 +206,7 @@ export function MarketingDashboard({
   treeNodes: MarketingTreeNode[];
   eventSources: MarketingEventSource[];
   eventAttendees: MarketingEventAttendee[];
+  promotions: MarketingPromotion[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("tree");
@@ -279,6 +289,9 @@ export function MarketingDashboard({
           events={events}
           treeNodes={treeNodes}
         />
+      )}
+      {tab === "promotions" && (
+        <PromotionsTab canEdit={canEdit} promotions={promotions} run={run} />
       )}
       {tab === "budget" && isAdmin && (
         <BudgetTab
@@ -1117,6 +1130,216 @@ function ResourceDialog({
           onClose={onClose}
           onDelete={resource ? () => run(() => deleteResource(resource.id), onClose) : undefined}
           deleteLabel="Delete resource"
+        />
+      </form>
+    </Modal>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Promotions tab — the live promo/coupon reference (codes, redemption, rules).
+// ---------------------------------------------------------------------------
+const PROMO_STATUS_COLORS: Record<string, string> = {
+  active: "bg-emerald-50 text-emerald-700",
+  upcoming: "bg-sky-50 text-sky-700",
+  expired: "bg-slate-100 text-slate-500",
+};
+
+function PromotionsTab({
+  canEdit,
+  promotions,
+  run,
+}: {
+  canEdit: boolean;
+  promotions: MarketingPromotion[];
+  run: Run;
+}) {
+  const [editing, setEditing] = useState<MarketingPromotion | "new" | null>(null);
+  const [status, setStatus] = useState("active");
+  const [type, setType] = useState("");
+
+  const filtered = useMemo(
+    () =>
+      promotions.filter(
+        (p) =>
+          (!status || p.status === status) && (!type || p.promo_type === type),
+      ),
+    [promotions, status, type],
+  );
+
+  const counts = useMemo(() => {
+    const m = { active: 0, upcoming: 0, expired: 0 } as Record<string, number>;
+    for (const p of promotions) m[p.status] = (m[p.status] ?? 0) + 1;
+    return m;
+  }, [promotions]);
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${fieldInput} w-auto`}>
+          <option value="">All statuses</option>
+          {PROMO_STATUSES.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label} ({counts[o.value] ?? 0})
+            </option>
+          ))}
+        </select>
+        <select value={type} onChange={(e) => setType(e.target.value)} className={`${fieldInput} w-auto`}>
+          <option value="">All types</option>
+          {PROMO_TYPES.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <span className="text-sm text-slate-400">{filtered.length} shown</span>
+        <div className="ml-auto">
+          {canEdit && (
+            <button type="button" className={btnPrimary} onClick={() => setEditing("new")}>
+              + Promotion
+            </button>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyRow label="No promotions match." />
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-2.5 font-semibold">Promotion</th>
+                <th className="px-4 py-2.5 font-semibold">Placement</th>
+                <th className="px-4 py-2.5 font-semibold">Discount</th>
+                <th className="px-4 py-2.5 font-semibold">Code</th>
+                <th className="px-4 py-2.5 font-semibold">Duration</th>
+                <th className="px-4 py-2.5 font-semibold">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map((p) => (
+                <tr
+                  key={p.id}
+                  className="cursor-pointer align-top transition hover:bg-slate-50"
+                  onClick={() => canEdit && setEditing(p)}
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-slate-900">{p.name}</div>
+                    <div className="mt-0.5 flex items-center gap-1.5">
+                      <Badge>{promoTypeLabel(p.promo_type)}</Badge>
+                      {p.promo_url && (
+                        <a
+                          href={p.promo_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                        >
+                          link ↗
+                        </a>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{p.placement ?? "—"}</td>
+                  <td className="px-4 py-3 text-slate-600">{p.discount_text ?? "—"}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-600">{p.product_code ?? "—"}</td>
+                  <td className="px-4 py-3 text-slate-600">{p.duration_text ?? "—"}</td>
+                  <td className="px-4 py-3">
+                    <Badge className={PROMO_STATUS_COLORS[p.status]}>{promoStatusLabel(p.status)}</Badge>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <PromotionDialog
+          promo={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          run={run}
+        />
+      )}
+    </section>
+  );
+}
+
+function PromotionDialog({
+  promo,
+  onClose,
+  run,
+}: {
+  promo: MarketingPromotion | null;
+  onClose: () => void;
+  run: Run;
+}) {
+  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    run(() => savePromotion(fd), onClose);
+  }
+  return (
+    <Modal title={promo ? "Edit promotion" : "New promotion"} onClose={onClose}>
+      <form onSubmit={onSubmit} className="space-y-4">
+        {promo && <input type="hidden" name="id" value={promo.id} />}
+        <div>
+          <label className={fieldLabel}>Promotion name</label>
+          <input name="name" defaultValue={promo?.name ?? ""} required className={fieldInput} />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-3">
+          <div>
+            <label className={fieldLabel}>Status</label>
+            <OptionsSelect name="status" defaultValue={promo?.status ?? "active"} options={PROMO_STATUSES} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Type</label>
+            <OptionsSelect name="promo_type" defaultValue={promo?.promo_type ?? "standard"} options={PROMO_TYPES} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Duration</label>
+            <input name="duration_text" defaultValue={promo?.duration_text ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Placement</label>
+            <input name="placement" defaultValue={promo?.placement ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Discount</label>
+            <input name="discount_text" defaultValue={promo?.discount_text ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Product code</label>
+            <input name="product_code" defaultValue={promo?.product_code ?? ""} className={fieldInput} />
+          </div>
+          <div className="sm:col-span-2">
+            <label className={fieldLabel}>ezyVet line item</label>
+            <input name="ezyvet_line_item" defaultValue={promo?.ezyvet_line_item ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>How to redeem</label>
+            <input name="how_to_redeem" defaultValue={promo?.how_to_redeem ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Promo link</label>
+            <input name="promo_url" defaultValue={promo?.promo_url ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Booking / widget URL</label>
+            <input name="booking_url" defaultValue={promo?.booking_url ?? ""} className={fieldInput} />
+          </div>
+        </div>
+        <div>
+          <label className={fieldLabel}>Rules</label>
+          <textarea name="rules" defaultValue={promo?.rules ?? ""} rows={2} className={fieldInput} />
+        </div>
+        <div>
+          <label className={fieldLabel}>Notes</label>
+          <textarea name="notes" defaultValue={promo?.notes ?? ""} rows={2} className={fieldInput} />
+        </div>
+        <DialogFooter
+          onClose={onClose}
+          onDelete={promo ? () => run(() => deletePromotion(promo.id), onClose) : undefined}
+          deleteLabel="Delete promotion"
         />
       </form>
     </Modal>

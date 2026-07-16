@@ -452,7 +452,7 @@ function AttendeesManager({ eventId, attendees, canEdit, run }: { eventId: strin
     <div className="border-t border-slate-200 px-5 py-4">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Attendees / sign-ups ({attendees.length})</p>
       {attendees.length > 0 && (
-        <ul className="mb-3 divide-y divide-slate-100 rounded-lg border border-slate-100">
+        <ul className="mb-3 max-h-64 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-100">
           {attendees.map((a) => (
             <li key={a.id} className="flex items-center gap-2 px-3 py-2 text-sm">
               <span className="flex-1 text-slate-700">{a.name || a.email || a.phone || "—"}</span>

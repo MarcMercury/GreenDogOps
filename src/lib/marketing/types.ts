@@ -108,6 +108,28 @@ export interface MarketingEventAttendee {
   updated_at: string;
 }
 
+export interface MarketingPromotion {
+  id: string;
+  name: string;
+  placement: string | null;
+  status: string;
+  promo_type: string;
+  duration_text: string | null;
+  discount_text: string | null;
+  discount_amount: number | null;
+  product_code: string | null;
+  ezyvet_line_item: string | null;
+  how_to_redeem: string | null;
+  promo_url: string | null;
+  booking_url: string | null;
+  rules: string | null;
+  appointments: number | null;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface MarketingBudgetPeriod {
   id: string;
   year: number;
@@ -232,6 +254,20 @@ export const ATTENDEE_TYPES: Option[] = [
   { value: "rescue", label: "Rescue" },
 ];
 
+export const PROMO_STATUSES: Option[] = [
+  { value: "active", label: "Active" },
+  { value: "upcoming", label: "Upcoming" },
+  { value: "expired", label: "Expired" },
+];
+
+export const PROMO_TYPES: Option[] = [
+  { value: "standard", label: "Standard" },
+  { value: "influencer", label: "Influencer code" },
+  { value: "gift_certificate", label: "Gift certificate" },
+  { value: "widget", label: "Booking widget" },
+  { value: "event", label: "Event coupon" },
+];
+
 export const BUDGET_ENTRY_STATUSES: Option[] = [
   { value: "planned", label: "Planned" },
   { value: "paid", label: "Paid" },
@@ -315,6 +351,8 @@ export const attendeeTypeLabel = (v: string | null) =>
 export const resourceCategoryLabel = (v: string | null) =>
   labelFor(RESOURCE_CATEGORIES, v);
 export const nodeStatusLabel = (v: string | null) => labelFor(NODE_STATUSES, v);
+export const promoStatusLabel = (v: string | null) => labelFor(PROMO_STATUSES, v);
+export const promoTypeLabel = (v: string | null) => labelFor(PROMO_TYPES, v);
 export const treeZoneLabel = (v: string | null) => {
   if (!v) return "—";
   return TREE_ZONES.find((z) => z.value === v)?.label ?? v;

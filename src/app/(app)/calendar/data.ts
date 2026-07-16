@@ -201,20 +201,68 @@ async function getInterviews(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Projected: marketing events (marketing_event.starts_on).
+// ---------------------------------------------------------------------------
+type MarketingEventRow = {
+  id: string;
+  name: string;
+  starts_on: string | null;
+  ends_on: string | null;
+  location: string | null;
+  event_type: string | null;
+  status: string | null;
+};
+
+async function getMarketingEvents(
+  start: string,
+  end: string,
+): Promise<CalendarItem[]> {
+  const supabase = await createClient();
+  const { data } = await fetchAllRows<MarketingEventRow>((from, to) =>
+    supabase
+      .from("marketing_event")
+      .select("id, name, starts_on, ends_on, location, event_type, status")
+      .not("starts_on", "is", null)
+      .neq("status", "cancelled")
+      .gte("starts_on", start)
+      .lte("starts_on", end)
+      .range(from, to),
+  );
+  return (data ?? []).map((r) => {
+    const tentative = r.status === "researching" || r.status === "tentative";
+    return {
+      id: itemId("marketing", r.id),
+      source: "marketing" as const,
+      category: "marketing" as const,
+      title: `📣 ${r.name}`,
+      description: r.event_type?.replace(/_/g, " ") ?? null,
+      location: r.location,
+      start: `${r.starts_on}T00:00:00`,
+      end: r.ends_on ? `${r.ends_on}T00:00:00` : null,
+      allDay: true,
+      status: tentative ? ("tentative" as const) : ("confirmed" as const),
+      href: "/marketing",
+      editable: false,
+    };
+  });
+}
+
 /**
  * All calendar items in [start, end], merging physical calendar_event rows with
- * read-time projections of CE events and interviews.
+ * read-time projections of CE events, interviews, and marketing events.
  */
 export async function getCalendarItems(
   start: string,
   end: string,
 ): Promise<CalendarItem[]> {
-  const [stored, ce, interviews] = await Promise.all([
+  const [stored, ce, interviews, marketing] = await Promise.all([
     getStoredEvents(start, end),
     getCeEvents(start, end),
     getInterviews(start, end),
+    getMarketingEvents(start, end),
   ]);
-  return [...stored, ...ce, ...interviews];
+  return [...stored, ...ce, ...interviews, ...marketing];
 }
 
 export interface GoogleSyncStatus {

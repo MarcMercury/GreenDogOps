@@ -399,6 +399,47 @@ export async function deleteResource(id: string): Promise<ActionResult> {
 }
 
 // ===========================================================================
+// Promotions
+// ===========================================================================
+export async function savePromotion(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    name: str(formData.get("name")) ?? "Untitled promotion",
+    placement: str(formData.get("placement")),
+    status: str(formData.get("status")) ?? "active",
+    promo_type: str(formData.get("promo_type")) ?? "standard",
+    duration_text: str(formData.get("duration_text")),
+    discount_text: str(formData.get("discount_text")),
+    discount_amount: num(formData.get("discount_amount")),
+    product_code: str(formData.get("product_code")),
+    ezyvet_line_item: str(formData.get("ezyvet_line_item")),
+    how_to_redeem: str(formData.get("how_to_redeem")),
+    promo_url: str(formData.get("promo_url")),
+    booking_url: str(formData.get("booking_url")),
+    rules: str(formData.get("rules")),
+    notes: str(formData.get("notes")),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_promotion").update(patch).eq("id", id)
+    : await supabase.from("marketing_promotion").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Promotion updated." : "Promotion added.");
+}
+
+export async function deletePromotion(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_promotion")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Promotion deleted.");
+}
+
+// ===========================================================================
 // Marketing Tree nodes
 // ===========================================================================
 function parseMetrics(raw: string | null): Record<string, number | string> {
