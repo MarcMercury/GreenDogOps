@@ -19,14 +19,23 @@ import {
 } from "./actions";
 
 // ---------------------------------------------------------------------------
-// Canvas geometry
+// Canvas geometry — vertical bands are fixed; the canvas WIDTH grows with the
+// number of leaves so nothing overlaps (the SVG scrolls horizontally).
 // ---------------------------------------------------------------------------
-const W = 1200;
-const H = 1200;
-const GROUND_Y = 780;
-const TRUNK_X = W / 2;
-const TRUNK_HALF = 55;
-const TRUNK_TOP_Y = 470;
+const H = 1360;
+const GROUND_Y = 820;
+const TRUNK_HALF = 46;
+const TRUNK_TOP_Y = 500;
+// Horizontal step between adjacent leaf columns. Nodes alternate between two
+// rows per band, so two nodes in the SAME row are 2×COL apart — wide enough for
+// a full-width pill with clear spacing.
+const COL = 168;
+const MARGIN = 130;
+// Two staggered y-rows per band (nodes alternate by column parity).
+const CANOPY_ROWS = [150, 262];
+const BRANCH_ROWS = [372, 452];
+const PRIMARY_ROWS = [936, 1016];
+const FINE_ROWS = [1150, 1262];
 
 const SKY = "#EAF2F0";
 const SOIL = "#3E3128";
@@ -72,17 +81,27 @@ interface Positioned {
   node: MarketingTreeNode;
   x: number;
   y: number;
+  w: number; // dynamic pill width sized to the label
   pathD: string | null; // connector from parent/anchor to this node
+}
+
+/** Pill width sized to fit the full label (capped so same-row nodes never touch). */
+function pillWidth(label: string): number {
+  return clamp(label.length * 7.3 + 42, 96, COL * 2 - 24);
 }
 
 type Run = (action: () => Promise<ActionResult>, after?: () => void) => void;
 
 // ---------------------------------------------------------------------------
-// Layout — deterministic positions computed from the hierarchy + zone.
+// Layout — a wide, centered, two-row-per-band column spread. Every leaf gets
+// its own column; siblings sit next to their parent; nothing overlaps.
 // ---------------------------------------------------------------------------
 function computeLayout(nodes: MarketingTreeNode[]): {
   positioned: Positioned[];
   byId: Map<string, Positioned>;
+  width: number;
+  height: number;
+  centerX: number;
 } {
   const byId = new Map<string, Positioned>();
   const positioned: Positioned[] = [];
@@ -97,92 +116,129 @@ function computeLayout(nodes: MarketingTreeNode[]): {
   const branches = nodes.filter((n) => n.zone === "branch").sort(bySort);
   const trunks = nodes.filter((n) => n.zone === "trunk").sort(bySort);
   const proots = nodes.filter((n) => n.zone === "root_primary").sort(bySort);
+  const canopyOf = (id: string) =>
+    nodes.filter((n) => n.zone === "canopy" && n.parent_id === id).sort(bySort);
+  const fineOf = (id: string) =>
+    nodes.filter((n) => n.zone === "root_fine" && n.parent_id === id).sort(bySort);
 
-  // Branches: fan out into the sky from the trunk top.
-  const branchAnchor = { x: TRUNK_X, y: TRUNK_TOP_Y };
-  branches.forEach((b, i) => {
-    const t = branches.length > 1 ? i / (branches.length - 1) : 0.5;
-    const x = 150 + t * (W - 300);
-    const y = 200 + Math.abs(t - 0.5) * 2 * 180; // outer branches lower
-    const midY = (branchAnchor.y + y) / 2;
-    const pathD = `M ${branchAnchor.x} ${branchAnchor.y} C ${branchAnchor.x} ${midY}, ${x} ${midY + 30}, ${x} ${y}`;
-    push({ node: b, x, y, pathD });
-  });
-
-  // Canopy: fan around the parent branch endpoint.
-  for (const branch of branches) {
-    const parentPos = byId.get(branch.id);
-    if (!parentPos) continue;
-    const kids = nodes
-      .filter((n) => n.zone === "canopy" && n.parent_id === branch.id)
-      .sort(bySort);
-    kids.forEach((k, j) => {
-      const n = kids.length;
-      const u = n > 1 ? j / (n - 1) : 0.5;
-      const ang = (-176 + u * 172) * (Math.PI / 180); // wide upward fan
-      const tiers = n > 6 ? 4 : 3;
-      const r = 124 + (j % tiers) * 54; // multi-tier stagger clears the branch
-      const x = clamp(parentPos.x + r * Math.cos(ang), 90, W - 90);
-      const y = clamp(parentPos.y + r * Math.sin(ang), 44, GROUND_Y - 44);
-      const pathD = `M ${parentPos.x} ${parentPos.y} Q ${(parentPos.x + x) / 2} ${(parentPos.y + y) / 2 - 10}, ${x} ${y}`;
-      push({ node: k, x, y, pathD });
-    });
+  // --- Assign columns for the canopy band (branches + their canopy leaves) ---
+  let col = 0;
+  const branchCenterCol = new Map<string, number>();
+  const canopyCol = new Map<string, number>();
+  for (const b of branches) {
+    const kids = canopyOf(b.id);
+    if (kids.length === 0) {
+      branchCenterCol.set(b.id, col);
+      col += 1;
+    } else {
+      const start = col;
+      for (const k of kids) {
+        canopyCol.set(k.id, col);
+        col += 1;
+      }
+      branchCenterCol.set(b.id, (start + col - 1) / 2);
+    }
+    col += 1; // gap between branch groups
   }
-  // Orphan canopy (no valid branch parent): line them up near the top.
+  // Orphan canopy (no branch parent) get their own trailing columns.
   const orphanCanopy = nodes.filter(
-    (n) => n.zone === "canopy" && !byId.has(n.id),
+    (n) => n.zone === "canopy" && !canopyCol.has(n.id),
   );
-  orphanCanopy.forEach((n, i) => {
-    push({ node: n, x: 120 + i * 150, y: 90, pathD: null });
-  });
+  for (const k of orphanCanopy) {
+    canopyCol.set(k.id, col);
+    col += 1;
+  }
+  const canopyColCount = Math.max(col, 1);
 
-  // Trunk plaques: stacked down the trunk.
-  const topY = TRUNK_TOP_Y + 40;
-  const botY = GROUND_Y - 26;
-  trunks.forEach((n, k) => {
-    const step = (botY - topY) / trunks.length;
-    const y = topY + k * step + step / 2;
-    push({ node: n, x: TRUNK_X, y, pathD: null });
-  });
-
-  // Primary roots: fan downward into the soil from the trunk base.
-  const rootAnchor = { x: TRUNK_X, y: GROUND_Y };
-  proots.forEach((n, i) => {
-    const t = proots.length > 1 ? i / (proots.length - 1) : 0.5;
-    const x = 190 + t * (W - 380);
-    const y = 900 + Math.abs(t - 0.5) * 2 * 130; // outer roots deeper
-    const midY = (rootAnchor.y + y) / 2;
-    const pathD = `M ${rootAnchor.x} ${rootAnchor.y} C ${rootAnchor.x} ${midY}, ${x} ${midY - 20}, ${x} ${y}`;
-    push({ node: n, x, y, pathD });
-  });
-
-  // Fine roots: fan below the parent primary root.
-  for (const proot of proots) {
-    const parentPos = byId.get(proot.id);
-    if (!parentPos) continue;
-    const kids = nodes
-      .filter((n) => n.zone === "root_fine" && n.parent_id === proot.id)
-      .sort(bySort);
-    kids.forEach((k, j) => {
-      const n = kids.length;
-      const u = n > 1 ? j / (n - 1) : 0.5;
-      const ang = (28 + u * 124) * (Math.PI / 180); // downward fan
-      const tiers = n > 6 ? 4 : 3;
-      const r = 118 + (j % tiers) * 50; // multi-tier stagger
-      const x = clamp(parentPos.x + r * Math.cos(ang), 90, W - 90);
-      const y = clamp(parentPos.y + r * Math.sin(ang), GROUND_Y + 30, H - 40);
-      const pathD = `M ${parentPos.x} ${parentPos.y} Q ${(parentPos.x + x) / 2} ${(parentPos.y + y) / 2 + 10}, ${x} ${y}`;
-      push({ node: k, x, y, pathD });
-    });
+  // --- Assign columns for the root band (primary roots + fine roots) ---
+  let rcol = 0;
+  const rootCenterCol = new Map<string, number>();
+  const fineCol = new Map<string, number>();
+  for (const p of proots) {
+    const kids = fineOf(p.id);
+    if (kids.length === 0) {
+      rootCenterCol.set(p.id, rcol);
+      rcol += 1;
+    } else {
+      const start = rcol;
+      for (const k of kids) {
+        fineCol.set(k.id, rcol);
+        rcol += 1;
+      }
+      rootCenterCol.set(p.id, (start + rcol - 1) / 2);
+    }
+    rcol += 1;
   }
   const orphanFine = nodes.filter(
-    (n) => n.zone === "root_fine" && !byId.has(n.id),
+    (n) => n.zone === "root_fine" && !fineCol.has(n.id),
   );
-  orphanFine.forEach((n, i) => {
-    push({ node: n, x: 150 + i * 150, y: H - 60, pathD: null });
+  for (const k of orphanFine) {
+    fineCol.set(k.id, rcol);
+    rcol += 1;
+  }
+  const rootColCount = Math.max(rcol, 1);
+
+  // --- Canvas sizing: wide enough for the busier of the two bands ---
+  const cols = Math.max(canopyColCount, rootColCount, 6);
+  const width = cols * COL + 2 * MARGIN;
+  const centerX = width / 2;
+  const canopyLeft = (width - canopyColCount * COL) / 2 + COL / 2;
+  const rootLeft = (width - rootColCount * COL) / 2 + COL / 2;
+  const cX = (c: number) => canopyLeft + c * COL;
+  const rX = (c: number) => rootLeft + c * COL;
+
+  // --- Branches ---
+  branches.forEach((b, bi) => {
+    const x = cX(branchCenterCol.get(b.id) ?? 0);
+    const y = BRANCH_ROWS[bi % 2];
+    const midY = (TRUNK_TOP_Y + y) / 2;
+    const pathD = `M ${centerX} ${TRUNK_TOP_Y} C ${centerX} ${midY}, ${x} ${midY}, ${x} ${y}`;
+    push({ node: b, x, y, w: pillWidth(b.label), pathD });
   });
 
-  return { positioned, byId };
+  // --- Canopy leaves ---
+  for (const k of nodes.filter((n) => n.zone === "canopy" && canopyCol.has(n.id))) {
+    const c = canopyCol.get(k.id)!;
+    const x = cX(c);
+    const y = CANOPY_ROWS[c % 2];
+    const parent = k.parent_id ? byId.get(k.parent_id) : undefined;
+    const anchorX = parent?.x ?? centerX;
+    const anchorY = parent?.y ?? TRUNK_TOP_Y;
+    const pathD = `M ${anchorX} ${anchorY} Q ${(anchorX + x) / 2} ${(anchorY + y) / 2}, ${x} ${y}`;
+    push({ node: k, x, y, w: pillWidth(k.label), pathD });
+  }
+
+  // --- Trunk plaques ---
+  const topY = TRUNK_TOP_Y + 42;
+  const botY = GROUND_Y - 28;
+  trunks.forEach((n, k) => {
+    const step = (botY - topY) / Math.max(trunks.length, 1);
+    const y = topY + k * step + step / 2;
+    push({ node: n, x: centerX, y, w: pillWidth(n.label), pathD: null });
+  });
+
+  // --- Primary roots ---
+  proots.forEach((p, pi) => {
+    const x = rX(rootCenterCol.get(p.id) ?? 0);
+    const y = PRIMARY_ROWS[pi % 2];
+    const midY = (GROUND_Y + y) / 2;
+    const pathD = `M ${centerX} ${GROUND_Y} C ${centerX} ${midY}, ${x} ${midY}, ${x} ${y}`;
+    push({ node: p, x, y, w: pillWidth(p.label), pathD });
+  });
+
+  // --- Fine roots ---
+  for (const k of nodes.filter((n) => n.zone === "root_fine" && fineCol.has(n.id))) {
+    const c = fineCol.get(k.id)!;
+    const x = rX(c);
+    const y = FINE_ROWS[c % 2];
+    const parent = k.parent_id ? byId.get(k.parent_id) : undefined;
+    const anchorX = parent?.x ?? centerX;
+    const anchorY = parent?.y ?? GROUND_Y;
+    const pathD = `M ${anchorX} ${anchorY} Q ${(anchorX + x) / 2} ${(anchorY + y) / 2}, ${x} ${y}`;
+    push({ node: k, x, y, w: pillWidth(k.label), pathD });
+  }
+
+  return { positioned, byId, width, height: H, centerX };
 }
 
 // ===========================================================================
@@ -225,7 +281,7 @@ export function MarketingTree({
     [nodes, showArchived],
   );
 
-  const { positioned, byId } = useMemo(
+  const { positioned, byId, width, height, centerX } = useMemo(
     () => computeLayout(visibleNodes),
     [visibleNodes],
   );
@@ -317,24 +373,28 @@ export function MarketingTree({
         )}
       </div>
 
-      {/* --- SVG tree (desktop / tablet) --- */}
-      <div className="hidden overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block">
+      {/* --- SVG tree (desktop / tablet) — native size; scroll to explore --- */}
+      <div
+        className="hidden overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block"
+        style={{ maxHeight: "78vh" }}
+      >
         <svg
-          viewBox={`0 0 ${W} ${H}`}
-          className="h-auto w-full"
-          style={{ minWidth: 900 }}
+          viewBox={`0 0 ${width} ${height}`}
+          width={width}
+          height={height}
+          style={{ display: "block", maxWidth: "none" }}
           role="img"
           aria-label="Marketing tree"
           onClick={() => setFocusZone(null)}
         >
           {/* Sky / soil background */}
-          <rect x={0} y={0} width={W} height={GROUND_Y} fill={SKY} />
-          <rect x={0} y={GROUND_Y} width={W} height={H - GROUND_Y} fill={SOIL} />
-          <rect x={0} y={GROUND_Y + (H - GROUND_Y) * 0.55} width={W} height={(H - GROUND_Y) * 0.45} fill={SOIL_DEEP} opacity={0.5} />
+          <rect x={0} y={0} width={width} height={GROUND_Y} fill={SKY} />
+          <rect x={0} y={GROUND_Y} width={width} height={height - GROUND_Y} fill={SOIL} />
+          <rect x={0} y={GROUND_Y + (height - GROUND_Y) * 0.55} width={width} height={(height - GROUND_Y) * 0.45} fill={SOIL_DEEP} opacity={0.5} />
 
           {/* Trunk */}
           <rect
-            x={TRUNK_X - TRUNK_HALF}
+            x={centerX - TRUNK_HALF}
             y={TRUNK_TOP_Y}
             width={TRUNK_HALF * 2}
             height={GROUND_Y - TRUNK_TOP_Y + 6}
@@ -357,11 +417,11 @@ export function MarketingTree({
                       : "#8A6A4A"
                 }
                 strokeWidth={
-                  p.node.zone === "branch" || p.node.zone === "root_primary" ? 12 : 4
+                  p.node.zone === "branch" || p.node.zone === "root_primary" ? 10 : 3.5
                 }
                 strokeLinecap="round"
                 opacity={
-                  (highlightPaths.has(p.node.id) ? 1 : 0.55) *
+                  (highlightPaths.has(p.node.id) ? 1 : 0.5) *
                   (focusZone && p.node.zone !== focusZone ? 0.35 : 1)
                 }
               />
@@ -370,10 +430,10 @@ export function MarketingTree({
 
           {/* Ground line */}
           <g>
-            <line x1={0} y1={GROUND_Y} x2={W} y2={GROUND_Y} stroke="#C9B79A" strokeWidth={4} />
-            <rect x={0} y={GROUND_Y - 3} width={W} height={6} fill="#C9B79A" opacity={0.5} />
-            <rect x={TRUNK_X - 20} y={GROUND_Y - 22} width={40} height={30} rx={4} fill="#EFE7D5" stroke={BARK} strokeWidth={1.5} />
-            <circle cx={TRUNK_X + 9} cy={GROUND_Y - 7} r={2} fill={BARK} />
+            <line x1={0} y1={GROUND_Y} x2={width} y2={GROUND_Y} stroke="#C9B79A" strokeWidth={4} />
+            <rect x={0} y={GROUND_Y - 3} width={width} height={6} fill="#C9B79A" opacity={0.5} />
+            <rect x={centerX - 20} y={GROUND_Y - 22} width={40} height={30} rx={4} fill="#EFE7D5" stroke={BARK} strokeWidth={1.5} />
+            <circle cx={centerX + 9} cy={GROUND_Y - 7} r={2} fill={BARK} />
             <text x={16} y={GROUND_Y - 10} fontSize={13} fontWeight={700} fill="#7A6A52">
               FIRST VISIT
             </text>
@@ -384,8 +444,8 @@ export function MarketingTree({
 
           {/* Zone labels */}
           <ZoneLabel x={30} y={70} label="Canopy" sub="one-off draws" color="#2f5d34" onClick={() => setFocusZone(focusZone === "canopy" ? null : "canopy")} />
-          <ZoneLabel x={30} y={430} label="Branches" sub="core channels" color="#2f5d34" onClick={() => setFocusZone(focusZone === "branch" ? null : "branch")} />
-          <ZoneLabel x={TRUNK_X + TRUNK_HALF + 14} y={TRUNK_TOP_Y + 16} label="Trunk" sub="daily essentials" color="#5b4632" onClick={() => setFocusZone(focusZone === "trunk" ? null : "trunk")} />
+          <ZoneLabel x={30} y={356} label="Branches" sub="core channels" color="#2f5d34" onClick={() => setFocusZone(focusZone === "branch" ? null : "branch")} />
+          <ZoneLabel x={centerX + TRUNK_HALF + 14} y={TRUNK_TOP_Y + 16} label="Trunk" sub="daily essentials" color="#5b4632" onClick={() => setFocusZone(focusZone === "trunk" ? null : "trunk")} />
           <ZoneLabel x={30} y={GROUND_Y + 70} label="Primary roots" sub="retention programs" color="#d8cdb2" onClick={() => setFocusZone(focusZone === "root_primary" ? null : "root_primary")} />
           <ZoneLabel x={30} y={H - 60} label="Fine roots" sub="individual tactics" color="#d8cdb2" onClick={() => setFocusZone(focusZone === "root_fine" ? null : "root_fine")} />
 
@@ -533,13 +593,13 @@ function TreeNodeShape({
   onHover: (id: string | null) => void;
   onSelect: (n: MarketingTreeNode) => void;
 }) {
-  const { node, x, y } = p;
+  const { node, x, y, w } = p;
   const style = ZONE_STYLE[node.zone] ?? ZONE_STYLE.canopy;
-  const maxChars = Math.floor(style.w / 7.2);
+  const maxChars = Math.floor((w - 22) / 7.1);
   const attn = node.status === "needs_attention";
   return (
     <g
-      transform={`translate(${x - style.w / 2}, ${y - style.h / 2})`}
+      transform={`translate(${x - w / 2}, ${y - style.h / 2})`}
       opacity={opacity}
       tabIndex={0}
       role="button"
@@ -565,7 +625,7 @@ function TreeNodeShape({
           className="gdo-attn-ring"
           x={-4}
           y={-4}
-          width={style.w + 8}
+          width={w + 8}
           height={style.h + 8}
           rx={style.rx + 4}
           fill="none"
@@ -574,7 +634,7 @@ function TreeNodeShape({
         />
       )}
       <rect
-        width={style.w}
+        width={w}
         height={style.h}
         rx={style.rx}
         fill={style.fill}
@@ -583,7 +643,7 @@ function TreeNodeShape({
       />
       <circle cx={12} cy={style.h / 2} r={4} fill={STATUS_FILL[node.status] ?? "#94a3b8"} />
       <text
-        x={style.w / 2 + 6}
+        x={w / 2 + 6}
         y={style.h / 2 + 4}
         textAnchor="middle"
         fontSize={12}
