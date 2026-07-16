@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -261,6 +261,11 @@ export function MarketingTree({
   const [toast, setToast] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
+  // Zoom: scale factor applied to the native SVG size. "Fit" sizes the tree so
+  // the whole canvas is visible within the scroll container.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+
   function notify(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
@@ -285,6 +290,32 @@ export function MarketingTree({
     () => computeLayout(visibleNodes),
     [visibleNodes],
   );
+
+  const ZOOM_MIN = 0.15;
+  const ZOOM_MAX = 2;
+  const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+
+  const fitZoom = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const padding = 24;
+    const availW = el.clientWidth - padding;
+    const availH = el.clientHeight - padding;
+    if (availW <= 0 || availH <= 0) return;
+    setZoom(clampZoom(Math.min(availW / width, availH / height)));
+  }, [width, height]);
+
+  // Fit the whole tree into view on first render and whenever the canvas size
+  // changes (e.g. nodes added/removed).
+  useLayoutEffect(() => {
+    fitZoom();
+  }, [fitZoom]);
+
+  useEffect(() => {
+    const onResize = () => fitZoom();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [fitZoom]);
 
   const q = query.trim().toLowerCase();
   const matches = (n: MarketingTreeNode) =>
@@ -373,15 +404,58 @@ export function MarketingTree({
         )}
       </div>
 
+      {/* Zoom controls */}
+      <div className="hidden items-center gap-1.5 md:flex">
+        <span className="text-xs font-medium text-slate-500">Zoom</span>
+        <button
+          type="button"
+          className={`${btnGhost} px-2.5 py-1.5`}
+          onClick={() => setZoom((z) => clampZoom(z - 0.1))}
+          aria-label="Zoom out"
+          title="Zoom out"
+        >
+          −
+        </button>
+        <span className="w-12 text-center text-xs tabular-nums text-slate-600">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          type="button"
+          className={`${btnGhost} px-2.5 py-1.5`}
+          onClick={() => setZoom((z) => clampZoom(z + 0.1))}
+          aria-label="Zoom in"
+          title="Zoom in"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          className={`${btnGhost} px-2.5 py-1.5`}
+          onClick={fitZoom}
+          title="Fit whole tree in view"
+        >
+          Fit
+        </button>
+        <button
+          type="button"
+          className={`${btnGhost} px-2.5 py-1.5`}
+          onClick={() => setZoom(1)}
+          title="Reset to 100%"
+        >
+          100%
+        </button>
+      </div>
+
       {/* --- SVG tree (desktop / tablet) — native size; scroll to explore --- */}
       <div
+        ref={scrollRef}
         className="hidden overflow-auto rounded-2xl border border-slate-200 bg-white shadow-sm md:block"
         style={{ maxHeight: "78vh" }}
       >
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          width={width}
-          height={height}
+          width={width * zoom}
+          height={height * zoom}
           style={{ display: "block", maxWidth: "none" }}
           role="img"
           aria-label="Marketing tree"

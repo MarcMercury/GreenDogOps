@@ -175,6 +175,12 @@ export interface MarketingTreeNode {
   parent_id: string | null;
   status: string;
   owner_name: string | null;
+  owner_person_id: string | null;
+  priority: string;
+  budget_amount: number | null;
+  budget_spent: number | null;
+  budget_notes: string | null;
+  last_handled_at: string | null;
   due_date: string | null;
   links: InitiativeLink[];
   summary: string | null;
@@ -182,6 +188,33 @@ export interface MarketingTreeNode {
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+/** Minimal roster person for owner pickers. */
+export interface PersonOption {
+  id: string;
+  full_name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+}
+
+export function personLabel(p: PersonOption): string {
+  return (
+    p.full_name ||
+    [p.first_name, p.last_name].filter(Boolean).join(" ") ||
+    "Unnamed"
+  );
+}
+
+export interface MarketingActivity {
+  id: string;
+  kind: string;
+  entity_type: string;
+  entity_id: string | null;
+  title: string;
+  detail: string | null;
+  actor: string | null;
+  created_at: string;
 }
 
 // ---------------------------------------------------------------------------

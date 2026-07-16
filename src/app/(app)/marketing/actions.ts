@@ -442,42 +442,78 @@ export async function deletePromotion(id: string): Promise<ActionResult> {
 // ===========================================================================
 // Marketing Tree nodes
 // ===========================================================================
-function parseMetrics(raw: string | null): Record<string, number | string> {
-  if (!raw) return {};
-  const out: Record<string, number | string> = {};
-  // Accept simple "key: value" lines, one per line.
-  for (const line of raw.split(/\n+/)) {
-    const idx = line.indexOf(":");
-    if (idx === -1) continue;
-    const key = line.slice(0, idx).trim();
-    const val = line.slice(idx + 1).trim();
-    if (!key || !val) continue;
-    const n = Number(val.replace(/[$,]/g, ""));
-    out[key] = Number.isFinite(n) && val !== "" ? n : val;
+/** Append a row to the marketing activity feed (best-effort; never throws). */
+async function logActivity(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  entry: { kind: string; entity_id?: string | null; title: string; detail?: string | null; actor?: string | null },
+): Promise<void> {
+  try {
+    await supabase.from("marketing_activity").insert({
+      kind: entry.kind,
+      entity_type: "node",
+      entity_id: entry.entity_id ?? null,
+      title: entry.title,
+      detail: entry.detail ?? null,
+      actor: entry.actor ?? null,
+    });
+  } catch {
+    /* activity logging is best-effort */
   }
-  return out;
 }
 
 export async function saveTreeNode(formData: FormData): Promise<ActionResult> {
-  await requireMarketingEditor();
+  const current = await requireMarketingEditor();
   const supabase = await createClient();
   const id = str(formData.get("id"));
+  const actor = current.appUser.full_name || current.email;
   const patch = {
     label: str(formData.get("label")) ?? "Untitled node",
     zone: str(formData.get("zone")) ?? "canopy",
     parent_id: str(formData.get("parent_id")),
     status: str(formData.get("status")) ?? "active",
-    owner_name: str(formData.get("owner_name")),
+    priority: str(formData.get("priority")) ?? "medium",
+    owner_person_id: str(formData.get("owner_person_id")),
     due_date: str(formData.get("due_date")),
     summary: str(formData.get("summary")),
+    budget_amount: num(formData.get("budget_amount")),
+    budget_spent: num(formData.get("budget_spent")),
+    budget_notes: str(formData.get("budget_notes")),
     links: parseLinks(formData),
-    metrics: parseMetrics(str(formData.get("metrics"))),
   };
   const { error } = id
     ? await supabase.from("marketing_tree_node").update(patch).eq("id", id)
     : await supabase.from("marketing_tree_node").insert(patch);
   if (error) return { ok: false, error: error.message };
+  await logActivity(supabase, {
+    kind: id ? "node_saved" : "node_created",
+    entity_id: id,
+    title: patch.label,
+    detail: id ? "Node updated" : "Node created",
+    actor,
+  });
   return done(id ? "Node updated." : "Node added.");
+}
+
+/** "Updated" button — stamps last_handled_at and logs it to the activity feed. */
+export async function markNodeHandled(
+  id: string,
+  label: string,
+): Promise<ActionResult> {
+  const current = await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_tree_node")
+    .update({ last_handled_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  await logActivity(supabase, {
+    kind: "node_handled",
+    entity_id: id,
+    title: label,
+    detail: "Marked handled",
+    actor: current.appUser.full_name || current.email,
+  });
+  return done("Marked as handled.");
 }
 
 export async function setTreeNodeStatus(

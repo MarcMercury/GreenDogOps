@@ -15,6 +15,8 @@ import {
   type MarketingEventSource,
   type MarketingEventAttendee,
   type MarketingPromotion,
+  type PersonOption,
+  type MarketingActivity,
   type InitiativeLink,
   INITIATIVE_CATEGORIES,
   INITIATIVE_STATUSES,
@@ -194,6 +196,8 @@ export function MarketingDashboard({
   eventSources,
   eventAttendees,
   promotions,
+  people,
+  activity,
 }: {
   canEdit: boolean;
   isAdmin: boolean;
@@ -207,6 +211,8 @@ export function MarketingDashboard({
   eventSources: MarketingEventSource[];
   eventAttendees: MarketingEventAttendee[];
   promotions: MarketingPromotion[];
+  people: PersonOption[];
+  activity: MarketingActivity[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("tree");
@@ -271,7 +277,7 @@ export function MarketingDashboard({
         ))}
       </div>
 
-      {tab === "tree" && <MarketingTree canEdit={canEdit} nodes={treeNodes} />}
+      {tab === "tree" && <MarketingTree canEdit={canEdit} nodes={treeNodes} people={people} />}
       {tab === "initiatives" && (
         <InitiativesTab canEdit={canEdit} initiatives={initiatives} run={run} />
       )}
@@ -285,9 +291,9 @@ export function MarketingDashboard({
       )}
       {tab === "activity" && (
         <ActivityTab
-          initiatives={initiatives}
-          events={events}
+          activity={activity}
           treeNodes={treeNodes}
+          people={people}
         />
       )}
       {tab === "promotions" && (

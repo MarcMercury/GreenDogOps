@@ -12,6 +12,8 @@ import type {
   MarketingEventSource,
   MarketingEventAttendee,
   MarketingPromotion,
+  PersonOption,
+  MarketingActivity,
 } from "@/lib/marketing/types";
 import { MarketingDashboard } from "./marketing-dashboard";
 
@@ -32,6 +34,8 @@ export default async function MarketingManagementPage() {
     sourcesRes,
     attendeesRes,
     promotionsRes,
+    peopleRes,
+    activityRes,
   ] = await Promise.all([
     supabase
       .from("marketing_goal")
@@ -72,6 +76,16 @@ export default async function MarketingManagementPage() {
       .select("*")
       .order("sort_order", { ascending: true })
       .order("name", { ascending: true }),
+    supabase
+      .from("person")
+      .select("id, full_name, first_name, last_name")
+      .in("status", ["employee", "contractor"])
+      .order("full_name", { ascending: true }),
+    supabase
+      .from("marketing_activity")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(100),
   ]);
 
   // Budget is admin-only. Non-admins never receive the rows.
@@ -130,6 +144,8 @@ export default async function MarketingManagementPage() {
       eventSources={(sourcesRes.data ?? []) as MarketingEventSource[]}
       eventAttendees={(attendeesRes.data ?? []) as MarketingEventAttendee[]}
       promotions={(promotionsRes.data ?? []) as MarketingPromotion[]}
+      people={(peopleRes.data ?? []) as PersonOption[]}
+      activity={(activityRes.data ?? []) as MarketingActivity[]}
     />
   );
 }
