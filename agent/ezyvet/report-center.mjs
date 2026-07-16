@@ -236,13 +236,25 @@ function csvRowRegex(reportName) {
   return new RegExp(`${reportName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}.*\\.csv`, "i");
 }
 
-/** Switch to a sub-tab ("Details" | "Report Queue") of the open report. */
-async function openReportSubTab(page, label) {
-  const tab = page.getByText(label, { exact: false }).first();
+/** Click the (global) Report Queue tab within the Reporting section. */
+async function openReportQueue(page) {
+  const tab = page.getByText("Report Queue", { exact: false }).first();
   if (await tab.count()) {
-    await tab.click();
-    await page.waitForTimeout(1500);
+    await tab.click().catch(() => {});
+    await page.waitForTimeout(2000);
   }
+}
+
+/**
+ * Refresh the Report Queue and leave it open. ezyVet's on-page "Refresh"
+ * control is a non-clickable <div> (see probe-agenda), so a full page reload +
+ * re-navigation is the reliable way to pull the latest queue state.
+ */
+async function reloadReportQueue(page, log = () => {}) {
+  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+  await page.waitForTimeout(3000);
+  await openReporting(page, log);
+  await openReportQueue(page);
 }
 
 /**
@@ -268,17 +280,19 @@ async function queueRowSignatures(page, nameRe) {
 
 /**
  * Snapshot the Report Queue rows for `reportName` that already exist, then
- * return to the Details form. Called BEFORE running so the download step can
+ * return to the report catalog. Called BEFORE running so the download step can
  * tell this run's CSV apart from stale entries. The Report Queue retains prior
  * runs under the SAME report name — other locations and earlier days — so
  * downloading the newest name match without this snapshot can grab the wrong
  * file (this is what mis-assigned the per-location Referrer Revenue results:
  * a Van Nuys run picking up Venice's file, or an empty leftover).
  */
-async function snapshotQueue(page, reportName) {
-  await openReportSubTab(page, "Report Queue");
+async function snapshotQueue(page, reportName, log = () => {}) {
+  await openReporting(page, log);
+  await openReportQueue(page);
   const before = new Set(await queueRowSignatures(page, csvRowRegex(reportName)));
-  await openReportSubTab(page, "Details");
+  // Return to the catalog so openReport() can find the report again.
+  await openReporting(page, log);
   return before;
 }
 
@@ -293,20 +307,20 @@ export async function runAndDownloadCsv(page, { downloadPath, reportName, before
   log("running report (Print)");
   const startedAt = Date.now();
   await clickVisibleText(page, "Print");
-  await page.waitForTimeout(3000);
-  await openReportSubTab(page, "Report Queue");
+  await page.waitForTimeout(4000);
 
   // Poll for a NEW completed CSV — a row whose signature was not in the queue
-  // before we clicked Print — refreshing the queue between checks.
+  // before we clicked Print. Reload each pass to refresh the queue (the on-page
+  // "Refresh" is a non-clickable div), reading the SAME global Report Queue
+  // view as the baseline snapshot so the signatures are comparable.
   const deadline = startedAt + 180_000; // up to 3 min for generation
   let newIndex = -1;
   while (Date.now() < deadline) {
+    await reloadReportQueue(page, log);
     const sigs = await queueRowSignatures(page, nameRe);
     newIndex = sigs.findIndex((sig) => !before.has(sig));
     if (newIndex >= 0) break;
-    const refresh = page.getByText("Refresh", { exact: false }).first();
-    if (await refresh.count()) await refresh.click();
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(3000);
   }
   if (newIndex < 0) {
     await page
@@ -332,10 +346,10 @@ export async function runAndDownloadCsv(page, { downloadPath, reportName, before
  */
 export async function runCsvReport(page, opts) {
   const { name, fromIso, toIso, downloadPath, configure, log = () => {} } = opts;
+  // Snapshot the queue BEFORE opening/running the report so the download step
+  // can pick out THIS run's freshly generated CSV rather than a stale entry.
+  const before = await snapshotQueue(page, name, log);
   await openReport(page, name, log);
-  // Snapshot the queue before filling the form so switching to the queue tab
-  // and back never disturbs the format/date inputs.
-  const before = await snapshotQueue(page, name);
   await selectFormat(page, "CSV");
   if (fromIso && toIso) await setDateRange(page, fromIso, toIso);
   if (configure) await configure(page);
