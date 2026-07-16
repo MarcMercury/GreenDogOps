@@ -10,6 +10,9 @@ import {
   TREE_ZONES,
   NODE_STATUSES,
   PRIORITIES,
+  APP_DESTINATIONS,
+  destinationForUrl,
+  suggestDestinations,
   nodeStatusLabel,
   treeZoneLabel,
   priorityLabel,
@@ -649,8 +652,10 @@ export function MarketingTree({
         <DetailPanel
           node={selected}
           parent={selected.parent_id ? nodes.find((n) => n.id === selected.parent_id) ?? null : null}
+          childNodes={nodes.filter((n) => n.parent_id === selected.id && n.status !== "archived")}
           people={people}
           canEdit={canEdit}
+          onOpenNode={(n) => setSelected(n)}
           onClose={() => setSelected(null)}
           onEdit={() => {
             setEditing(selected);
@@ -824,8 +829,10 @@ function handledLabel(iso: string | null): string {
 function DetailPanel({
   node,
   parent,
+  childNodes,
   people,
   canEdit,
+  onOpenNode,
   onClose,
   onEdit,
   onHandled,
@@ -833,8 +840,10 @@ function DetailPanel({
 }: {
   node: MarketingTreeNode;
   parent: MarketingTreeNode | null;
+  childNodes: MarketingTreeNode[];
   people: PersonOption[];
   canEdit: boolean;
+  onOpenNode: (n: MarketingTreeNode) => void;
   onClose: () => void;
   onEdit: () => void;
   onHandled: () => void;
@@ -900,9 +909,15 @@ function DetailPanel({
               {priorityLabel(node.priority)} priority
             </span>
             {ownerName && (
-              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
-                👤 {ownerName}
-              </span>
+              owner ? (
+                <Link href="/hr" className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-200">
+                  👤 {ownerName} ↗
+                </Link>
+              ) : (
+                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
+                  👤 {ownerName}
+                </span>
+              )
             )}
             {node.due_date && (
               <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs text-slate-600">
@@ -912,12 +927,37 @@ function DetailPanel({
           </div>
 
           {parent && (
-            <p className="text-xs text-slate-400">
-              Grows from <span className="font-medium text-slate-600">{parent.label}</span>
-            </p>
+            <button
+              type="button"
+              onClick={() => onOpenNode(parent)}
+              className="text-left text-xs text-slate-400 hover:text-emerald-700"
+            >
+              ↑ Grows from <span className="font-medium text-slate-600">{parent.label}</span>
+            </button>
           )}
 
           {node.summary && <p className="text-sm leading-relaxed text-slate-600">{node.summary}</p>}
+
+          {childNodes.length > 0 && (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Sub-nodes ({childNodes.length})
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {childNodes.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => onOpenNode(c)}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-emerald-300 hover:bg-emerald-50"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: STATUS_FILL[c.status] ?? "#94a3b8" }} />
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {hasBudget && (
             <div className="rounded-lg border border-slate-200 p-3">
@@ -944,28 +984,31 @@ function DetailPanel({
 
           {node.links && node.links.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Go to</p>
-              {node.links.map((l, i) =>
-                l.url.startsWith("/") ? (
-                  <Link
-                    key={i}
-                    href={l.url}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50"
-                  >
-                    {l.label} <span className="text-emerald-500">→</span>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Connected to</p>
+              {node.links.map((l, i) => {
+                const dest = destinationForUrl(l.url);
+                const internal = l.url.startsWith("/");
+                const inner = (
+                  <>
+                    <span className="flex items-center gap-2">
+                      <span aria-hidden>{dest?.icon ?? (internal ? "🔗" : "🌐")}</span>
+                      {l.label}
+                    </span>
+                    <span className="text-emerald-500">{internal ? "→" : "↗"}</span>
+                  </>
+                );
+                const cls =
+                  "flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50";
+                return internal ? (
+                  <Link key={i} href={l.url} className={cls}>
+                    {inner}
                   </Link>
                 ) : (
-                  <a
-                    key={i}
-                    href={l.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-emerald-300 hover:bg-emerald-50"
-                  >
-                    {l.label} <span className="text-emerald-500">↗</span>
+                  <a key={i} href={l.url} target="_blank" rel="noopener noreferrer" className={cls}>
+                    {inner}
                   </a>
-                ),
-              )}
+                );
+              })}
             </div>
           )}
         </div>
@@ -1021,6 +1064,17 @@ function NodeDialog({
   const sortedPeople = [...people].sort((a, b) =>
     personLabel(a).localeCompare(personLabel(b)),
   );
+
+  const linkedUrls = links.map((l) => l.url);
+  const suggestions = suggestDestinations(
+    `${node?.label ?? ""} ${zone} ${node?.summary ?? ""}`,
+    linkedUrls,
+  );
+  const addDestination = (url: string) => {
+    const d = APP_DESTINATIONS.find((x) => x.url === url);
+    if (!d || linkedUrls.includes(d.url)) return;
+    setLinks([...links, { label: d.label, url: d.url }]);
+  };
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1124,28 +1178,68 @@ function NodeDialog({
             </div>
           </fieldset>
 
+          {/* Smart connect — link this node to other pages/sources in the app */}
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+            <label className={`${fieldLabel} text-emerald-700`}>Connect to app pages</label>
+            {suggestions.length > 0 && (
+              <div className="mb-2">
+                <p className="mb-1 text-[11px] text-emerald-700/80">Suggested for this node:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {suggestions.map((d) => (
+                    <button
+                      key={d.url}
+                      type="button"
+                      onClick={() => addDestination(d.url)}
+                      className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-100"
+                    >
+                      <span aria-hidden>{d.icon}</span> + {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) addDestination(e.target.value);
+              }}
+              className={fieldInput}
+            >
+              <option value="">Add a destination…</option>
+              {APP_DESTINATIONS.filter((d) => !linkedUrls.includes(d.url)).map((d) => (
+                <option key={d.url} value={d.url}>
+                  {d.icon} {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className={fieldLabel}>Links</label>
             <div className="space-y-2">
-              {links.map((l, idx) => (
-                <div key={idx} className="flex gap-2">
-                  <input name="link_label" defaultValue={l.label} placeholder="Label" className={`${fieldInput} w-1/3`} />
-                  <input name="link_url" defaultValue={l.url} placeholder="/crm/referral or https://…" className={fieldInput} />
-                  <button
-                    type="button"
-                    onClick={() => setLinks(links.filter((_, i) => i !== idx))}
-                    className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:text-red-600"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
+              {links.map((l, idx) => {
+                const dest = destinationForUrl(l.url);
+                return (
+                  <div key={idx} className="flex items-center gap-2">
+                    {dest && <span className="text-base" aria-hidden>{dest.icon}</span>}
+                    <input name="link_label" defaultValue={l.label} placeholder="Label" className={`${fieldInput} w-1/3`} />
+                    <input name="link_url" defaultValue={l.url} placeholder="/crm/referral or https://…" className={fieldInput} />
+                    <button
+                      type="button"
+                      onClick={() => setLinks(links.filter((_, i) => i !== idx))}
+                      className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:text-red-600"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
               <button
                 type="button"
                 onClick={() => setLinks([...links, { label: "", url: "" }])}
                 className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
               >
-                + Add link
+                + Add custom link
               </button>
             </div>
           </div>

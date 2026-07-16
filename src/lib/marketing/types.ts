@@ -326,6 +326,53 @@ export type TreeZone =
   | "root_primary"
   | "root_fine";
 
+/**
+ * Catalog of in-app destinations a node can be "connected" to. Powers the
+ * smart connect picker in the node editor (suggestions come from keyword hits
+ * against the node's label / zone / summary) and the icon shown on links.
+ */
+export interface AppDestination {
+  label: string;
+  url: string;
+  icon: string;
+  keywords: string[];
+}
+
+export const APP_DESTINATIONS: AppDestination[] = [
+  { label: "Referral CRM", url: "/crm/referral", icon: "🏥", keywords: ["referral", "clinic", "hospital", "medical"] },
+  { label: "Vendor & Partner CRM", url: "/crm/vendor", icon: "🤝", keywords: ["vendor", "partner", "chamber", "business", "grooming", "media", "dog ppl", "sponsor"] },
+  { label: "Rescue / Shelter CRM", url: "/crm/rescue", icon: "🐕", keywords: ["rescue", "shelter", "adopt", "adoption"] },
+  { label: "Influencer CRM", url: "/crm/influencer", icon: "⭐", keywords: ["influencer", "social", "content", "collab", "tiktok", "instagram"] },
+  { label: "CE Leads / Events", url: "/crm/ce", icon: "📋", keywords: ["ce", "continuing education", "outreach", "dvm", "conference", "wet lab"] },
+  { label: "Student CRM", url: "/crm/student", icon: "🎓", keywords: ["student", "extern", "school", "university"] },
+  { label: "Calendar", url: "/calendar", icon: "📅", keywords: ["event", "calendar", "schedule", "date"] },
+  { label: "Reporting", url: "/reporting", icon: "📈", keywords: ["report", "revenue", "production", "roi", "sales"] },
+  { label: "Resources library", url: "/resources", icon: "📚", keywords: ["resource", "tool", "document", "policy", "flyer", "brochure", "signage", "print"] },
+  { label: "HR / Roster", url: "/hr", icon: "👥", keywords: ["staff", "uniform", "employee", "onboarding", "appreciation", "engagement", "swag", "party"] },
+  { label: "Scheduling", url: "/schedule", icon: "🗓️", keywords: ["schedule", "staffing", "shift"] },
+  { label: "Marketing hub", url: "/marketing", icon: "📣", keywords: ["marketing", "promo", "campaign", "email", "sms", "mailchimp"] },
+];
+
+export function destinationForUrl(url: string): AppDestination | undefined {
+  return APP_DESTINATIONS.find((d) => d.url === url);
+}
+
+/** Suggested destinations for a node, ranked by keyword hits (already-linked excluded). */
+export function suggestDestinations(
+  text: string,
+  linkedUrls: string[],
+): AppDestination[] {
+  const hay = text.toLowerCase();
+  const linked = new Set(linkedUrls);
+  return APP_DESTINATIONS.map((d) => ({
+    d,
+    score: d.keywords.reduce((n, k) => (hay.includes(k) ? n + 1 : n), 0),
+  }))
+    .filter((x) => x.score > 0 && !linked.has(x.d.url))
+    .sort((a, b) => b.score - a.score)
+    .map((x) => x.d);
+}
+
 export const TREE_ZONES: {
   value: TreeZone;
   label: string;
