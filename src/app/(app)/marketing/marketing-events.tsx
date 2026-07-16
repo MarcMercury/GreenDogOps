@@ -178,10 +178,10 @@ export function EventsTab({
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-2 font-semibold">Source</th>
+                    <th className="px-4 py-2 font-semibold">Vendor / Partner</th>
+                    <th className="px-4 py-2 font-semibold">Calendar</th>
                     <th className="px-4 py-2 font-semibold">Region</th>
                     <th className="px-4 py-2 font-semibold">Cost</th>
-                    <th className="px-4 py-2 font-semibold">CRM</th>
                     <th className="px-4 py-2 font-semibold">Last checked</th>
                     <th className="px-4 py-2 font-semibold">Notes</th>
                     <th className="px-4 py-2" />
@@ -195,35 +195,42 @@ export function EventsTab({
                       <tr key={s.id} className="align-top">
                         <td className="px-4 py-2.5">
                           <div className="font-medium text-slate-900">
-                            {s.url ? (
-                              <a href={s.url} target="_blank" rel="noopener noreferrer" className="hover:text-emerald-700">{s.name} ↗</a>
-                            ) : s.name}
+                            {s.crm_organization_id ? (
+                              <Link
+                                href={`/crm/org/${s.crm_organization_id}`}
+                                className="text-emerald-700 hover:underline"
+                                title={`Open ${orgById.get(s.crm_organization_id)?.name ?? s.name} in the Vendor & Partner CRM`}
+                              >
+                                {s.name}
+                              </Link>
+                            ) : (
+                              <span className="inline-flex items-center gap-2">
+                                {s.name}
+                                {canEdit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => run(() => syncSourceToCrm(s.id))}
+                                    className="rounded-md border border-slate-200 px-1.5 py-0.5 text-[11px] font-medium text-slate-500 hover:bg-slate-50"
+                                    title="Create or link a Vendor & Partner CRM record"
+                                  >
+                                    + Link CRM
+                                  </button>
+                                )}
+                              </span>
+                            )}
                           </div>
                         </td>
-                        <td className="px-4 py-2.5 text-slate-600">{s.region ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-slate-600">{s.membership_cost ?? "—"}</td>
                         <td className="px-4 py-2.5">
-                          {s.crm_organization_id ? (
-                            <Link
-                              href={`/crm/org/${s.crm_organization_id}`}
-                              className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-                              title={orgById.get(s.crm_organization_id)?.name ?? "Open CRM record"}
-                            >
-                              🤝 CRM ↗
-                            </Link>
-                          ) : canEdit ? (
-                            <button
-                              type="button"
-                              onClick={() => run(() => syncSourceToCrm(s.id))}
-                              className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
-                              title="Create or link a Vendor & Partner CRM record"
-                            >
-                              + Link CRM
-                            </button>
+                          {s.url ? (
+                            <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">
+                              Calendar ↗
+                            </a>
                           ) : (
                             <span className="text-slate-400">—</span>
                           )}
                         </td>
+                        <td className="px-4 py-2.5 text-slate-600">{s.region ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-slate-600">{s.membership_cost ?? "—"}</td>
                         <td className="px-4 py-2.5">
                           <span className={stale ? "text-amber-600" : "text-slate-500"}>
                             {s.last_checked_on ? `${fmtDate(s.last_checked_on)}${d != null ? ` (${d}d)` : ""}` : "never"}
