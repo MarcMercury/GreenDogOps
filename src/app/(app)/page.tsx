@@ -206,8 +206,9 @@ function ModuleCard({ c }: { c: Card }) {
 }
 
 // ---------------------------------------------------------------------------
-// Activity feed — the audit_log powers a program-wide log. Each entry is
-// mapped to a module so it is only shown to users who can access that module.
+// Activity feed — the audit_log powers a per-user log scoped to the signed-in
+// user's own actions (matched by actor_email). Each entry is still mapped to a
+// module so it is only shown to users who can access that module.
 // ---------------------------------------------------------------------------
 const TZ = "America/Los_Angeles";
 
@@ -335,13 +336,19 @@ function timeLabel(iso: string): string {
 
 async function buildActivityDays(
   isVisible: (module: ModuleKey) => boolean,
+  actorEmail: string | null,
 ): Promise<ActivityDay[]> {
+  // Only ever show the signed-in user their own activity. Without an email to
+  // match against we cannot attribute any entry to them, so show nothing.
+  if (!actorEmail) return [];
+
   const admin = createAdminClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const { data } = await admin
     .from("audit_log")
     .select("id, action, entity, summary, actor_email, created_at")
     .gte("created_at", since)
+    .ilike("actor_email", actorEmail)
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -401,14 +408,16 @@ export default async function DashboardPage() {
       })).filter((g) => g.cards.length > 0)
     : GROUPS;
 
-  const activityDays = current ? await buildActivityDays(isVisible) : [];
+  const activityDays = current
+    ? await buildActivityDays(isVisible, current.email)
+    : [];
 
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
         eyebrow="Overview"
         title="Dashboard"
-        description="Quick links to every module, plus a live log of activity across the program."
+        description="Quick links to every module, plus a live log of your recent activity."
       />
 
       {/* Condensed quick links */}
@@ -427,11 +436,11 @@ export default async function DashboardPage() {
         ))}
       </div>
 
-      {/* Program-wide activity log */}
+      {/* Personal activity log */}
       {current ? (
         <section className="mt-10">
           <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Activity Log
+            Your Activity
           </h2>
           <ActivityLog days={activityDays} />
         </section>
