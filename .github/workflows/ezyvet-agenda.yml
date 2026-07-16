@@ -19,6 +19,9 @@ on:
       week_offset:
         description: "Week offset 0..3 (0 = this week). Blank = run all 4 in sequence."
         required: false
+      review_lookback_days:
+        description: "Agenda review look-back days (backfill). Blank = 14."
+        required: false
 
 concurrency:
   # Never let the same week's run overlap its previous (slow) run, but let the
@@ -90,6 +93,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
           RUN_ID: ${{ github.event.inputs.run_id }}
+          REVIEW_LOOKBACK_DAYS: ${{ github.event.inputs.review_lookback_days }}
         run: node agent/agenda-review.mjs
 
       - name: Upload debug artifacts
