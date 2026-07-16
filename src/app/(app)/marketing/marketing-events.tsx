@@ -107,7 +107,7 @@ export function EventsTab({
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState<MarketingEvent | "new" | null>(null);
   const [editingSource, setEditingSource] = useState<MarketingEventSource | "new" | null>(null);
-  const [showSources, setShowSources] = useState(true);
+  const [showSources, setShowSources] = useState(false);
   const [view, setView] = useState<"all" | "upcoming" | "past">("all");
 
   function notify(msg: string) {
@@ -184,6 +184,7 @@ export function EventsTab({
           <button type="button" onClick={() => setShowSources((v) => !v)} className="flex items-center gap-2 text-sm font-semibold text-slate-700">
             <span aria-hidden className={`transition-transform ${showSources ? "" : "-rotate-90"}`}>⌄</span>
             🔎 Event sources to scout ({sources.length})
+            {!showSources && <span className="font-normal text-slate-400">— Expand to search for local events</span>}
           </button>
           {canEdit && (
             <div className="flex items-center gap-1.5">

@@ -48,6 +48,7 @@ export default async function EmployeeDetailPage({
     ? canEditModule(current.appUser, "schedule")
     : false;
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+  const isScheduleAdmin = current?.appUser.role === "schedule_admin";
 
   const { data, error } = await supabase
     .from("person")
@@ -273,6 +274,7 @@ export default async function EmployeeDetailPage({
         canViewComp={canViewComp}
         canEdit={canEdit}
         isAdmin={isAdmin}
+        isScheduleAdmin={isScheduleAdmin}
         canEditSchedule={canEditSchedule}
         locations={locations}
       />

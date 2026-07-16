@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth/session";
-import { canEditGeneral } from "@/lib/auth/permissions";
+import { isEditorRole } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   POLICY_CATEGORIES,
@@ -11,7 +11,9 @@ import { PoliciesLibrary } from "./policies-library";
 
 export default async function ResourcesPoliciesPage() {
   const current = await requireUser();
-  const canUpload = canEditGeneral(current.appUser);
+  // Policies are view-only for everyone except editor roles. Schedule Admins
+  // (who can otherwise write to most modules) may view but not edit here.
+  const canUpload = isEditorRole(current.appUser.role);
 
   const admin = createAdminClient();
   const [{ data }, { data: categoryRows }] = await Promise.all([

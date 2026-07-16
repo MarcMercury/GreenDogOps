@@ -113,6 +113,17 @@ const TABS: Array<{ key: TabKey; label: string }> = [
 
 const FIELD_TABS: TabKey[] = ["general", "comp", "attendance"];
 
+// Tabs hidden from Schedule Admins on the employee record. They may see the
+// General / Onboarding / Attendance / Shift Eligibility tabs but not these
+// sensitive HR sections.
+const SCHEDULE_ADMIN_HIDDEN_TABS: TabKey[] = [
+  "reviews",
+  "disciplinary",
+  "documents",
+  "assets",
+  "history",
+];
+
 function isFieldTab(tab: TabKey): tab is FieldTab {
   return FIELD_TABS.includes(tab);
 }
@@ -138,6 +149,7 @@ export function EmployeeProfile({
   canEdit,
   canEditSchedule,
   isAdmin = false,
+  isScheduleAdmin = false,
   locations,
 }: {
   row: RosterRow;
@@ -160,11 +172,14 @@ export function EmployeeProfile({
   canEdit: boolean;
   canEditSchedule: boolean;
   isAdmin?: boolean;
+  isScheduleAdmin?: boolean;
   locations: LocationOption[];
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
 
-  const tabs = canViewComp ? TABS : TABS.filter((t) => t.key !== "comp");
+  const tabs = (canViewComp ? TABS : TABS.filter((t) => t.key !== "comp")).filter(
+    (t) => !(isScheduleAdmin && SCHEDULE_ADMIN_HIDDEN_TABS.includes(t.key)),
+  );
 
   const heading =
     row.full_name ||
