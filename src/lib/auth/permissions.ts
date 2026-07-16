@@ -45,6 +45,7 @@ export type ModuleKey =
   | "dashboard"
   | "hr"
   | "ats"
+  | "marketing"
   | "crm_referral"
   | "crm_vendor"
   | "crm_rescue"
@@ -71,6 +72,7 @@ export const MODULES: ModuleDef[] = [
   { key: "dashboard", label: "Dashboard", href: "/" },
   { key: "hr", label: "HR / Roster", href: "/hr" },
   { key: "ats", label: "Recruiting (ATS)", href: "/ats" },
+  { key: "marketing", label: "Marketing Management", href: "/marketing" },
   { key: "crm_referral", label: "Referral CRM", href: "/crm/referral" },
   { key: "crm_vendor", label: "Vendor & Partner CRM", href: "/crm/vendor" },
   { key: "crm_rescue", label: "Rescue/Shelter CRM", href: "/crm/rescue" },

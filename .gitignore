@@ -51,6 +51,13 @@ next-env.d.ts
 # ezyVet source exports dropped into public/ (PII — never commit or deploy;
 # served publicly by Next.js from public/. Data is loaded into the DB instead).
 /public/*.csv
+# Marketing/HR source workbooks & docs dropped into public/ (PII + plaintext
+# credentials — never commit or deploy; served publicly by Next.js. Data is
+# loaded into the DB / credentials vault instead).
+/public/*.xlsx
+/public/*.xls
+/public/*.pdf
+/public/*.docx
 
 # Python cache
 __pycache__/

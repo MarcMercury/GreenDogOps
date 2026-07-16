@@ -1,0 +1,345 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { requireUser } from "@/lib/auth/session";
+import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
+import type { InitiativeLink } from "@/lib/marketing/types";
+
+export type ActionResult =
+  | { ok: true; message?: string }
+  | { ok: false; error: string };
+
+// ---------------------------------------------------------------------------
+// Form helpers
+// ---------------------------------------------------------------------------
+function str(v: FormDataEntryValue | null): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+}
+function num(v: FormDataEntryValue | null): number | null {
+  const s = str(v);
+  if (s == null) return null;
+  const n = Number(s.replace(/[$,]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+function int(v: FormDataEntryValue | null): number | null {
+  const n = num(v);
+  return n == null ? null : Math.round(n);
+}
+function bool(v: FormDataEntryValue | null): boolean {
+  return v === "on" || v === "true";
+}
+
+// Every action here mutates marketing data, so it requires *edit* rights on the
+// Marketing Management module. Read-only roles are redirected away.
+async function requireMarketingEditor() {
+  const current = await requireUser();
+  if (!canEditModule(current.appUser, "marketing")) redirect("/");
+  return current;
+}
+
+// Budget data is sensitive — only owners/admins may view OR mutate it.
+async function requireMarketingAdmin() {
+  const current = await requireUser();
+  if (!isAdminRole(current.appUser.role)) redirect("/");
+  return current;
+}
+
+function done(message: string): ActionResult {
+  revalidatePath("/marketing");
+  return { ok: true, message };
+}
+
+// ===========================================================================
+// Goals
+// ===========================================================================
+export async function saveGoal(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    title: str(formData.get("title")) ?? "Untitled goal",
+    category: str(formData.get("category")),
+    metric_unit: str(formData.get("metric_unit")),
+    target_value: num(formData.get("target_value")),
+    current_value: num(formData.get("current_value")),
+    period: str(formData.get("period")),
+    notes: str(formData.get("notes")),
+    is_active: formData.get("is_active") == null ? true : bool(formData.get("is_active")),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_goal").update(patch).eq("id", id)
+    : await supabase.from("marketing_goal").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Goal updated." : "Goal added.");
+}
+
+export async function deleteGoal(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase.from("marketing_goal").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Goal deleted.");
+}
+
+// ===========================================================================
+// Initiatives
+// ===========================================================================
+function parseLinks(formData: FormData): InitiativeLink[] {
+  const labels = formData.getAll("link_label").map((v) => String(v).trim());
+  const urls = formData.getAll("link_url").map((v) => String(v).trim());
+  const out: InitiativeLink[] = [];
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i];
+    if (!url) continue;
+    out.push({ label: labels[i] || url, url });
+  }
+  return out;
+}
+
+export async function saveInitiative(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    title: str(formData.get("title")) ?? "Untitled initiative",
+    category: str(formData.get("category")) ?? "other",
+    status: str(formData.get("status")) ?? "planned",
+    priority: str(formData.get("priority")) ?? "medium",
+    owner_name: str(formData.get("owner_name")),
+    partner_name: str(formData.get("partner_name")),
+    next_action: str(formData.get("next_action")),
+    due_date: str(formData.get("due_date")),
+    notes: str(formData.get("notes")),
+    links: parseLinks(formData),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_initiative").update(patch).eq("id", id)
+    : await supabase.from("marketing_initiative").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Initiative updated." : "Initiative added.");
+}
+
+export async function updateInitiativeStatus(
+  id: string,
+  status: string,
+): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_initiative")
+    .update({ status })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Status updated.");
+}
+
+export async function deleteInitiative(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_initiative")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Initiative deleted.");
+}
+
+// ===========================================================================
+// Events
+// ===========================================================================
+export async function saveEvent(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    name: str(formData.get("name")) ?? "Untitled event",
+    event_type: str(formData.get("event_type")) ?? "third_party",
+    status: str(formData.get("status")) ?? "researching",
+    starts_on: str(formData.get("starts_on")),
+    ends_on: str(formData.get("ends_on")),
+    location: str(formData.get("location")),
+    clinic_served: str(formData.get("clinic_served")),
+    owner_name: str(formData.get("owner_name")),
+    cost: num(formData.get("cost")),
+    staff_needed: str(formData.get("staff_needed")),
+    description: str(formData.get("description")),
+    attendees: int(formData.get("attendees")),
+    signups: int(formData.get("signups")),
+    appointments: int(formData.get("appointments")),
+    products_sold: str(formData.get("products_sold")),
+    redemption_codes: str(formData.get("redemption_codes")),
+    coupons_redeemed: int(formData.get("coupons_redeemed")),
+    client_spend: num(formData.get("client_spend")),
+    feedback: str(formData.get("feedback")),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_event").update(patch).eq("id", id)
+    : await supabase.from("marketing_event").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Event updated." : "Event added.");
+}
+
+export async function deleteEvent(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase.from("marketing_event").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Event deleted.");
+}
+
+// ===========================================================================
+// Budget
+// ===========================================================================
+export async function saveBudgetPeriod(formData: FormData): Promise<ActionResult> {
+  await requireMarketingAdmin();
+  const supabase = await createClient();
+  const year = int(formData.get("year"));
+  if (year == null) return { ok: false, error: "Year is required." };
+  const patch = {
+    year,
+    total_budget: num(formData.get("total_budget")) ?? 0,
+    notes: str(formData.get("notes")),
+  };
+  const { error } = await supabase
+    .from("marketing_budget_period")
+    .upsert(patch, { onConflict: "year" });
+  if (error) return { ok: false, error: error.message };
+  return done("Budget updated.");
+}
+
+export async function saveBudgetEntry(formData: FormData): Promise<ActionResult> {
+  await requireMarketingAdmin();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    entry_date: str(formData.get("entry_date")) ?? new Date().toISOString().slice(0, 10),
+    category: str(formData.get("category")),
+    business: str(formData.get("business")),
+    description: str(formData.get("description")),
+    amount: num(formData.get("amount")) ?? 0,
+    paid_by: str(formData.get("paid_by")),
+    payment_method: str(formData.get("payment_method")),
+    status: str(formData.get("status")) ?? "paid",
+    receipt_submitted: bool(formData.get("receipt_submitted")),
+    notes: str(formData.get("notes")),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_budget_entry").update(patch).eq("id", id)
+    : await supabase.from("marketing_budget_entry").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Spend entry updated." : "Spend entry added.");
+}
+
+export async function deleteBudgetEntry(id: string): Promise<ActionResult> {
+  await requireMarketingAdmin();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_budget_entry")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Spend entry deleted.");
+}
+
+// ===========================================================================
+// Resources
+// ===========================================================================
+export async function saveResource(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    name: str(formData.get("name")) ?? "Untitled resource",
+    category: str(formData.get("category")) ?? "tool",
+    url: str(formData.get("url")),
+    description: str(formData.get("description")),
+    owner_name: str(formData.get("owner_name")),
+    credential_note: str(formData.get("credential_note")),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_resource").update(patch).eq("id", id)
+    : await supabase.from("marketing_resource").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Resource updated." : "Resource added.");
+}
+
+export async function deleteResource(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_resource")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Resource deleted.");
+}
+
+// ===========================================================================
+// Marketing Tree nodes
+// ===========================================================================
+function parseMetrics(raw: string | null): Record<string, number | string> {
+  if (!raw) return {};
+  const out: Record<string, number | string> = {};
+  // Accept simple "key: value" lines, one per line.
+  for (const line of raw.split(/\n+/)) {
+    const idx = line.indexOf(":");
+    if (idx === -1) continue;
+    const key = line.slice(0, idx).trim();
+    const val = line.slice(idx + 1).trim();
+    if (!key || !val) continue;
+    const n = Number(val.replace(/[$,]/g, ""));
+    out[key] = Number.isFinite(n) && val !== "" ? n : val;
+  }
+  return out;
+}
+
+export async function saveTreeNode(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    label: str(formData.get("label")) ?? "Untitled node",
+    zone: str(formData.get("zone")) ?? "canopy",
+    parent_id: str(formData.get("parent_id")),
+    status: str(formData.get("status")) ?? "active",
+    owner_name: str(formData.get("owner_name")),
+    due_date: str(formData.get("due_date")),
+    summary: str(formData.get("summary")),
+    links: parseLinks(formData),
+    metrics: parseMetrics(str(formData.get("metrics"))),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_tree_node").update(patch).eq("id", id)
+    : await supabase.from("marketing_tree_node").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Node updated." : "Node added.");
+}
+
+export async function setTreeNodeStatus(
+  id: string,
+  status: string,
+): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_tree_node")
+    .update({ status })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done(status === "archived" ? "Node archived." : "Status updated.");
+}
+
+export async function deleteTreeNode(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_tree_node")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Node deleted.");
+}
