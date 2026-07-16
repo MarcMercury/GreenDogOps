@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
-import type { CrmOrganization } from "@/lib/crm/types";
+import { type CrmOrganization, RESCUE_SUBTYPE } from "@/lib/crm/types";
 import { OrgListView } from "../crm-views";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,8 @@ export default async function VendorCrmPage() {
         "med_ops",
         "office_marketing",
       ])
+      // Rescues & shelters now live in their own Rescue/Shelter CRM.
+      .or(`subtype.is.null,subtype.neq.${RESCUE_SUBTYPE}`)
       .order("name", { ascending: true })
       .range(from, to),
   );

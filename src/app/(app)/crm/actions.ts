@@ -71,6 +71,7 @@ function organizationPatch(formData: FormData) {
     revenue: num(formData.get("revenue")),
     confirmed_leads: num(formData.get("confirmed_leads")),
     confirmed_clients: num(formData.get("confirmed_clients")),
+    verified_adoptions: num(formData.get("verified_adoptions")),
     spend_ytd: num(formData.get("spend_ytd")),
     is_preferred: bool(formData.get("is_preferred")),
     is_active: bool(formData.get("is_active")),

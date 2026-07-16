@@ -9,7 +9,7 @@ import {
   type CrmOrgDocument,
   type CrmOrgDocumentWithUrl,
   crmSectionBySlug,
-  crmSlugForOrgType,
+  crmSlugForOrg,
 } from "@/lib/crm/types";
 import { LOCATION_COLUMNS, type Location } from "@/lib/shared/locations";
 import { OrganizationForm } from "./organization-form";
@@ -44,7 +44,7 @@ export default async function OrganizationDetailPage({
   if (!data) notFound();
 
   const org = data as CrmOrganization;
-  const section = crmSectionBySlug(crmSlugForOrgType(org.org_type));
+  const section = crmSectionBySlug(crmSlugForOrg(org));
 
   const { data: locationData } = await supabase
     .from("location")

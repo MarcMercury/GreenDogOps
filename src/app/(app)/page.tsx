@@ -217,6 +217,7 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
   ats: "🎯",
   crm_referral: "🏥",
   crm_vendor: "🤝",
+  crm_rescue: "🐕",
   crm_business: "🤝",
   crm_student: "🎓",
   crm_ce: "📋",

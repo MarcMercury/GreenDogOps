@@ -60,6 +60,7 @@ const MARKETING: NavItem[] = [
   crmSection("ce"),
   crmSection("influencer"),
   crmSection("referral"),
+  crmSection("rescue"),
   crmSection("vendor"),
 ];
 

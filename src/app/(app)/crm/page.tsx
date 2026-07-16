@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   CRM_SECTIONS,
+  isRescueOrg,
   type OrgType,
   type ContactType,
 } from "@/lib/crm/types";
@@ -13,7 +14,7 @@ export default async function CrmHubPage() {
   const supabase = await createClient();
 
   const [orgRes, contactRes] = await Promise.all([
-    supabase.from("crm_organization").select("org_type"),
+    supabase.from("crm_organization").select("org_type, subtype"),
     supabase.from("crm_contact").select("contact_type"),
   ]);
 
@@ -22,8 +23,13 @@ export default async function CrmHubPage() {
     .select("id", { count: "exact", head: true });
   const influencerCount = influencerRes.count ?? 0;
 
+  const orgRows = (orgRes.data ?? []) as { org_type: OrgType; subtype: string | null }[];
+  // Rescues are a marketing_partner subtype that now has its own CRM, so they
+  // are counted separately and excluded from the Vendor & Partner total.
+  const rescueCount = orgRows.filter((o) => isRescueOrg(o)).length;
   const orgCounts: Record<string, number> = {};
-  for (const o of (orgRes.data ?? []) as { org_type: OrgType }[]) {
+  for (const o of orgRows) {
+    if (isRescueOrg(o)) continue;
     orgCounts[o.org_type] = (orgCounts[o.org_type] ?? 0) + 1;
   }
   const contactCounts: Record<string, number> = {};
@@ -34,6 +40,7 @@ export default async function CrmHubPage() {
   function sectionCount(slug: string): number {
     const section = CRM_SECTIONS.find((s) => s.slug === slug);
     if (!section) return 0;
+    if (section.slug === "rescue") return rescueCount;
     if (section.entity === "influencer") return influencerCount;
     if (section.entity === "organization") {
       return (section.orgTypes ?? []).reduce(

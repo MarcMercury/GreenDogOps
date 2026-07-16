@@ -46,6 +46,9 @@ export default async function NewOrganizationPage({
     label: ORG_TYPE_LABELS[t],
   }));
   const defaultOrgType: OrgType = section.orgTypes[0];
+  // Rescue/Shelter records are a marketing_partner subtype; pre-fill so a new
+  // record lands in the Rescue CRM without the user having to remember.
+  const defaultCategory = section.slug === "rescue" ? "marketing" : undefined;
 
   return (
     <div className="mx-auto max-w-4xl">
@@ -61,6 +64,8 @@ export default async function NewOrganizationPage({
         orgTypeOptions={orgTypeOptions}
         locations={locationOptions}
         canEdit={canEdit}
+        defaultSubtype={section.subtype}
+        defaultCategory={defaultCategory}
       />
     </div>
   );

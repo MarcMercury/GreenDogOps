@@ -47,6 +47,7 @@ export type ModuleKey =
   | "ats"
   | "crm_referral"
   | "crm_vendor"
+  | "crm_rescue"
   | "crm_business"
   | "crm_student"
   | "crm_ce"
@@ -72,6 +73,7 @@ export const MODULES: ModuleDef[] = [
   { key: "ats", label: "Recruiting (ATS)", href: "/ats" },
   { key: "crm_referral", label: "Referral CRM", href: "/crm/referral" },
   { key: "crm_vendor", label: "Vendor & Partner CRM", href: "/crm/vendor" },
+  { key: "crm_rescue", label: "Rescue/Shelter CRM", href: "/crm/rescue" },
   { key: "crm_business", label: "Business CRM (merged → Vendor & Partner)", href: "/crm/vendor" },
   { key: "crm_student", label: "Student CRM", href: "/crm/student" },
   { key: "crm_ce", label: "CE Leads/Events", href: "/crm/ce" },

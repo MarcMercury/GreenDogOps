@@ -128,9 +128,33 @@ export interface CrmOrganization {
   last_visit_date: string | null;
   last_contact_date: string | null;
   last_referral_date: string | null;
+  // Rescue / shelter: user-maintained count of verified adoptions.
+  verified_adoptions: number | null;
+  // Geocoding cache for the Map View (resolved from `address`).
+  latitude: number | null;
+  longitude: number | null;
+  geocoded_at: string | null;
+  geocoded_address: string | null;
   notes: string | null;
   source: string;
   external_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * A structured visit / activity entry logged against a CRM organization record
+ * (mirrors the Referral CRM's clinic_visits). Powers the Rescue CRM Activity
+ * feed and the Targeting "oldest → newest visit" ordering.
+ */
+export interface CrmOrgVisit {
+  id: string;
+  org_id: string;
+  user_id: string | null;
+  visit_date: string;
+  spoke_to: string | null;
+  visit_notes: string | null;
+  logged_via: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -549,6 +573,7 @@ export const COMPENSATION_TYPE_OPTIONS: CrmOption[] = [
 export type CrmSlug =
   | "referral"
   | "vendor"
+  | "rescue"
   | "student"
   | "ce"
   | "influencer";
@@ -562,7 +587,16 @@ export interface CrmSection {
   entity: "organization" | "contact" | "influencer";
   orgTypes?: OrgType[];
   contactTypes?: ContactType[];
+  /**
+   * Restricts an organization-backed section to records with this `subtype`
+   * (in addition to `orgTypes`). Used by the Rescue/Shelter CRM, which is a
+   * subtype-filtered slice of the marketing_partner org type.
+   */
+  subtype?: string;
 }
+
+/** Canonical subtype value that identifies a rescue / shelter record. */
+export const RESCUE_SUBTYPE = "rescue";
 
 export const CRM_SECTIONS: CrmSection[] = [
   {
@@ -587,6 +621,16 @@ export const CRM_SECTIONS: CrmSection[] = [
       "med_ops",
       "office_marketing",
     ],
+  },
+  {
+    slug: "rescue",
+    title: "Rescue/Shelter CRM",
+    label: "Rescue/Shelter CRM",
+    description: "Rescue & shelter partners, visits & verified adoptions.",
+    icon: "🐕",
+    entity: "organization",
+    orgTypes: ["marketing_partner"],
+    subtype: RESCUE_SUBTYPE,
   },
   {
     slug: "student",
@@ -624,6 +668,24 @@ export function crmSlugForOrgType(t: OrgType): CrmSlug {
   return (
     CRM_SECTIONS.find((s) => s.orgTypes?.includes(t))?.slug ?? "vendor"
   );
+}
+
+/** True when an organization is a rescue / shelter record. */
+export function isRescueOrg(org: { subtype: string | null }): boolean {
+  return (org.subtype ?? "").trim().toLowerCase() === RESCUE_SUBTYPE;
+}
+
+/**
+ * Resolve the owning CRM section slug for a specific organization record.
+ * Rescues live under their own Rescue/Shelter CRM even though they share the
+ * `marketing_partner` org type with the Vendor & Partner CRM.
+ */
+export function crmSlugForOrg(org: {
+  org_type: OrgType;
+  subtype: string | null;
+}): CrmSlug {
+  if (isRescueOrg(org)) return "rescue";
+  return crmSlugForOrgType(org.org_type);
 }
 
 export function crmSlugForContactType(t: ContactType): CrmSlug {

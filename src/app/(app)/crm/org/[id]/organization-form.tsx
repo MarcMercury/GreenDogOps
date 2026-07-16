@@ -16,6 +16,7 @@ import {
   CRM_DOCUMENT_CATEGORY_LABELS,
   subtypeLabel,
   categoryLabel,
+  RESCUE_SUBTYPE,
 } from "@/lib/crm/types";
 import { ZONE_DEFINITIONS } from "@/lib/crm/referral-types";
 import {
@@ -62,6 +63,8 @@ export function OrganizationForm({
   documents = [],
   canEdit = false,
   mode = "edit",
+  defaultSubtype,
+  defaultCategory,
 }: {
   org?: CrmOrganization | null;
   orgType?: OrgType;
@@ -70,10 +73,13 @@ export function OrganizationForm({
   documents?: CrmOrgDocumentWithUrl[];
   canEdit?: boolean;
   mode?: "edit" | "create";
+  defaultSubtype?: string;
+  defaultCategory?: string;
 }) {
   const isCreate = mode === "create";
   const effectiveType: OrgType | undefined = org?.org_type ?? orgType;
   const isReferral = effectiveType === "referral_clinic";
+  const isRescue = (org?.subtype ?? defaultSubtype ?? "").toLowerCase() === RESCUE_SUBTYPE;
   const [activeTab, setActiveTab] = useState<TabKey>("general");
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) =>
@@ -154,14 +160,14 @@ export function OrganizationForm({
               <Select
                 label="Category"
                 name="category"
-                defaultValue={org?.category}
+                defaultValue={org?.category ?? defaultCategory}
                 options={CATEGORY_OPTIONS}
               />
             )}
             <Select
               label="Type"
               name="subtype"
-              defaultValue={org?.subtype}
+              defaultValue={org?.subtype ?? defaultSubtype}
               options={CRM_SUBTYPE_OPTIONS}
             />
             <Select label="Status" name="status" defaultValue={org?.status} options={ORG_STATUS_OPTIONS} />
@@ -174,6 +180,14 @@ export function OrganizationForm({
             />
             <Select label="Tier" name="tier" defaultValue={org?.tier} options={CRM_TIER_OPTIONS} />
             <Select label="Priority" name="priority" defaultValue={org?.priority} options={CRM_PRIORITY_OPTIONS} />
+            {isRescue && (
+              <Field
+                label="Verified adoptions"
+                name="verified_adoptions"
+                type="number"
+                defaultValue={org?.verified_adoptions}
+              />
+            )}
             <Checkbox label="Preferred" name="is_preferred" defaultChecked={org?.is_preferred} />
             <Checkbox label="Active" name="is_active" defaultChecked={org?.is_active ?? true} />
           </Section>
