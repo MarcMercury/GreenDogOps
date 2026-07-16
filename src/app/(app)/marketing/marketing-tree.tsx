@@ -119,8 +119,9 @@ function computeLayout(nodes: MarketingTreeNode[]): {
     kids.forEach((k, j) => {
       const n = kids.length;
       const u = n > 1 ? j / (n - 1) : 0.5;
-      const ang = (-165 + u * 150) * (Math.PI / 180); // wide upward fan
-      const r = 108 + (n > 3 ? 28 : 0) + (j % 2) * 44; // stagger to avoid overlap
+      const ang = (-176 + u * 172) * (Math.PI / 180); // wide upward fan
+      const tiers = n > 6 ? 4 : 3;
+      const r = 124 + (j % tiers) * 54; // multi-tier stagger clears the branch
       const x = clamp(parentPos.x + r * Math.cos(ang), 90, W - 90);
       const y = clamp(parentPos.y + r * Math.sin(ang), 44, GROUND_Y - 44);
       const pathD = `M ${parentPos.x} ${parentPos.y} Q ${(parentPos.x + x) / 2} ${(parentPos.y + y) / 2 - 10}, ${x} ${y}`;
@@ -165,8 +166,9 @@ function computeLayout(nodes: MarketingTreeNode[]): {
     kids.forEach((k, j) => {
       const n = kids.length;
       const u = n > 1 ? j / (n - 1) : 0.5;
-      const ang = (40 + u * 100) * (Math.PI / 180); // downward fan
-      const r = 100 + (n > 3 ? 26 : 0) + (j % 2) * 40; // stagger to avoid overlap
+      const ang = (28 + u * 124) * (Math.PI / 180); // downward fan
+      const tiers = n > 6 ? 4 : 3;
+      const r = 118 + (j % tiers) * 50; // multi-tier stagger
       const x = clamp(parentPos.x + r * Math.cos(ang), 90, W - 90);
       const y = clamp(parentPos.y + r * Math.sin(ang), GROUND_Y + 30, H - 40);
       const pathD = `M ${parentPos.x} ${parentPos.y} Q ${(parentPos.x + x) / 2} ${(parentPos.y + y) / 2 + 10}, ${x} ${y}`;

@@ -12,31 +12,29 @@ import {
   type MarketingBudgetEntry,
   type MarketingResource,
   type MarketingTreeNode,
+  type MarketingEventSource,
+  type MarketingEventAttendee,
   type InitiativeLink,
   INITIATIVE_CATEGORIES,
   INITIATIVE_STATUSES,
   PRIORITIES,
-  EVENT_TYPES,
-  EVENT_STATUSES,
   BUDGET_ENTRY_STATUSES,
   RESOURCE_CATEGORIES,
   MARKETING_CHANNELS,
   initiativeCategoryLabel,
   initiativeStatusLabel,
   priorityLabel,
-  eventTypeLabel,
   eventStatusLabel,
   resourceCategoryLabel,
 } from "@/lib/marketing/types";
 import { MarketingTree } from "./marketing-tree";
+import { EventsTab } from "./marketing-events";
 import {
   saveGoal,
   deleteGoal,
   saveInitiative,
   updateInitiativeStatus,
   deleteInitiative,
-  saveEvent,
-  deleteEvent,
   saveBudgetPeriod,
   saveBudgetEntry,
   deleteBudgetEntry,
@@ -185,6 +183,8 @@ export function MarketingDashboard({
   budgetEntries,
   resources,
   treeNodes,
+  eventSources,
+  eventAttendees,
 }: {
   canEdit: boolean;
   isAdmin: boolean;
@@ -195,6 +195,8 @@ export function MarketingDashboard({
   budgetEntries: MarketingBudgetEntry[];
   resources: MarketingResource[];
   treeNodes: MarketingTreeNode[];
+  eventSources: MarketingEventSource[];
+  eventAttendees: MarketingEventAttendee[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("tree");
@@ -264,7 +266,12 @@ export function MarketingDashboard({
         <InitiativesTab canEdit={canEdit} initiatives={initiatives} run={run} />
       )}
       {tab === "events" && (
-        <EventsTab canEdit={canEdit} events={events} run={run} />
+        <EventsTab
+          canEdit={canEdit}
+          events={events}
+          sources={eventSources}
+          attendees={eventAttendees}
+        />
       )}
       {tab === "activity" && (
         <ActivityTab
@@ -694,251 +701,6 @@ function InitiativeDialog({
           onClose={onClose}
           onDelete={initiative ? () => run(() => deleteInitiative(initiative.id), onClose) : undefined}
           deleteLabel="Delete initiative"
-        />
-      </form>
-    </Modal>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Events tab
-// ---------------------------------------------------------------------------
-function EventsTab({
-  canEdit,
-  events,
-  run,
-}: {
-  canEdit: boolean;
-  events: MarketingEvent[];
-  run: Run;
-}) {
-  const [editing, setEditing] = useState<MarketingEvent | "new" | null>(null);
-  const today = new Date().toISOString().slice(0, 10);
-  const { upcoming, past } = useMemo(() => {
-    const up: MarketingEvent[] = [];
-    const pa: MarketingEvent[] = [];
-    for (const e of events) {
-      const isPast =
-        e.status === "completed" || e.status === "cancelled" || (e.starts_on != null && e.starts_on < today);
-      (isPast ? pa : up).push(e);
-    }
-    pa.sort((a, b) => (b.starts_on ?? "").localeCompare(a.starts_on ?? ""));
-    return { upcoming: up, past: pa };
-  }, [events, today]);
-
-  return (
-    <section className="space-y-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">
-          Pipeline of upcoming events and post-event recaps with ROI.
-        </p>
-        {canEdit && (
-          <button type="button" className={btnPrimary} onClick={() => setEditing("new")}>
-            + Event
-          </button>
-        )}
-      </div>
-
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">Upcoming & planning</h3>
-        {upcoming.length === 0 ? (
-          <EmptyRow label="No upcoming events." />
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {upcoming.map((e) => (
-              <EventCard key={e.id} event={e} canEdit={canEdit} onEdit={() => setEditing(e)} />
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">Past events & recaps</h3>
-        {past.length === 0 ? (
-          <EmptyRow label="No past events yet." />
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {past.map((e) => (
-              <EventCard key={e.id} event={e} canEdit={canEdit} onEdit={() => setEditing(e)} recap />
-            ))}
-          </div>
-        )}
-      </div>
-
-      {editing && (
-        <EventDialog
-          event={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)}
-          run={run}
-        />
-      )}
-    </section>
-  );
-}
-
-function EventCard({
-  event,
-  canEdit,
-  onEdit,
-  recap,
-}: {
-  event: MarketingEvent;
-  canEdit: boolean;
-  onEdit: () => void;
-  recap?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition ${canEdit ? "cursor-pointer hover:border-emerald-300 hover:shadow" : ""}`}
-      onClick={() => canEdit && onEdit()}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="font-semibold text-slate-900">{event.name}</p>
-          <p className="mt-0.5 text-xs text-slate-500">
-            {[fmtDate(event.starts_on), event.location, event.clinic_served]
-              .filter(Boolean)
-              .join(" · ") || "Date TBD"}
-          </p>
-        </div>
-        <Badge className={STATUS_COLORS[event.status]}>{eventStatusLabel(event.status)}</Badge>
-      </div>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <Badge>{eventTypeLabel(event.event_type)}</Badge>
-        {event.owner_name && <span className="text-xs text-slate-500">👤 {event.owner_name}</span>}
-        {event.cost != null && <span className="text-xs text-slate-500">💲 {fmtMoney(event.cost)}</span>}
-      </div>
-      {recap && (event.attendees != null || event.signups != null || event.appointments != null || event.client_spend != null) && (
-        <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-slate-50 p-2.5 text-center sm:grid-cols-4">
-          <Metric label="Attendees" value={fmtNum(event.attendees)} />
-          <Metric label="Sign-ups" value={fmtNum(event.signups)} />
-          <Metric label="Appts" value={fmtNum(event.appointments)} />
-          <Metric label="Client $" value={fmtMoney(event.client_spend)} />
-        </div>
-      )}
-      {event.feedback && <p className="mt-2 text-xs text-slate-500">{event.feedback}</p>}
-    </div>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-sm font-bold text-slate-900">{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-slate-400">{label}</p>
-    </div>
-  );
-}
-
-function EventDialog({
-  event,
-  onClose,
-  run,
-}: {
-  event: MarketingEvent | null;
-  onClose: () => void;
-  run: Run;
-}) {
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    run(() => saveEvent(fd), onClose);
-  }
-  return (
-    <Modal title={event ? "Edit event" : "New event"} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        {event && <input type="hidden" name="id" value={event.id} />}
-        <div>
-          <label className={fieldLabel}>Event name</label>
-          <input name="name" defaultValue={event?.name ?? ""} required className={fieldInput} />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div>
-            <label className={fieldLabel}>Type</label>
-            <OptionsSelect name="event_type" defaultValue={event?.event_type ?? "third_party"} options={EVENT_TYPES} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Status</label>
-            <OptionsSelect name="status" defaultValue={event?.status ?? "researching"} options={EVENT_STATUSES} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Owner</label>
-            <input name="owner_name" defaultValue={event?.owner_name ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Start date</label>
-            <input type="date" name="starts_on" defaultValue={event?.starts_on ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>End date</label>
-            <input type="date" name="ends_on" defaultValue={event?.ends_on ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Cost</label>
-            <input name="cost" defaultValue={event?.cost ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Location</label>
-            <input name="location" defaultValue={event?.location ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Clinic served</label>
-            <input name="clinic_served" defaultValue={event?.clinic_served ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Staff needed</label>
-            <input name="staff_needed" defaultValue={event?.staff_needed ?? ""} className={fieldInput} />
-          </div>
-        </div>
-        <div>
-          <label className={fieldLabel}>Description</label>
-          <textarea name="description" defaultValue={event?.description ?? ""} rows={2} className={fieldInput} />
-        </div>
-
-        <fieldset className="rounded-lg border border-slate-200 p-3">
-          <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Post-event recap (ROI)
-          </legend>
-          <div className="grid gap-4 sm:grid-cols-4">
-            <div>
-              <label className={fieldLabel}>Attendees</label>
-              <input name="attendees" defaultValue={event?.attendees ?? ""} className={fieldInput} />
-            </div>
-            <div>
-              <label className={fieldLabel}>Sign-ups</label>
-              <input name="signups" defaultValue={event?.signups ?? ""} className={fieldInput} />
-            </div>
-            <div>
-              <label className={fieldLabel}>Appointments</label>
-              <input name="appointments" defaultValue={event?.appointments ?? ""} className={fieldInput} />
-            </div>
-            <div>
-              <label className={fieldLabel}>Coupons redeemed</label>
-              <input name="coupons_redeemed" defaultValue={event?.coupons_redeemed ?? ""} className={fieldInput} />
-            </div>
-            <div className="sm:col-span-2">
-              <label className={fieldLabel}>Products sold</label>
-              <input name="products_sold" defaultValue={event?.products_sold ?? ""} className={fieldInput} />
-            </div>
-            <div>
-              <label className={fieldLabel}>Redemption codes</label>
-              <input name="redemption_codes" defaultValue={event?.redemption_codes ?? ""} className={fieldInput} />
-            </div>
-            <div>
-              <label className={fieldLabel}>Client spend ($)</label>
-              <input name="client_spend" defaultValue={event?.client_spend ?? ""} className={fieldInput} />
-            </div>
-          </div>
-          <div className="mt-3">
-            <label className={fieldLabel}>Feedback / notes</label>
-            <textarea name="feedback" defaultValue={event?.feedback ?? ""} rows={2} className={fieldInput} />
-          </div>
-        </fieldset>
-
-        <DialogFooter
-          onClose={onClose}
-          onDelete={event ? () => run(() => deleteEvent(event.id), onClose) : undefined}
-          deleteLabel="Delete event"
         />
       </form>
     </Modal>

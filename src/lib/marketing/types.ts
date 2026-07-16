@@ -61,7 +61,49 @@ export interface MarketingEvent {
   coupons_redeemed: number | null;
   client_spend: number | null;
   feedback: string | null;
+  // Planning / promotion (events-management workflow)
+  planning_phase: string | null;
+  staff: string | null;
+  supplies: string | null;
+  promo_channels: string | null;
+  landing_url: string | null;
+  rsvp_url: string | null;
+  checklist: ChecklistItem[];
+  source_id: string | null;
   sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChecklistItem {
+  label: string;
+  done: boolean;
+}
+
+export interface MarketingEventSource {
+  id: string;
+  name: string;
+  url: string | null;
+  region: string | null;
+  membership_cost: string | null;
+  cadence: string | null;
+  last_checked_on: string | null;
+  active: boolean;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MarketingEventAttendee {
+  id: string;
+  event_id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  attendee_type: string;
+  is_new_client: boolean;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -173,6 +215,23 @@ export const EVENT_STATUSES: Option[] = [
   { value: "cancelled", label: "Cancelled" },
 ];
 
+export const PLANNING_PHASES: Option[] = [
+  { value: "idea", label: "Idea" },
+  { value: "researching", label: "Researching" },
+  { value: "planning", label: "Planning" },
+  { value: "prepping", label: "Prepping" },
+  { value: "ready", label: "Ready" },
+  { value: "wrapped", label: "Wrapped" },
+];
+
+export const ATTENDEE_TYPES: Option[] = [
+  { value: "new_client", label: "New client" },
+  { value: "returning", label: "Returning client" },
+  { value: "lead", label: "Lead / contact" },
+  { value: "vendor", label: "Vendor" },
+  { value: "rescue", label: "Rescue" },
+];
+
 export const BUDGET_ENTRY_STATUSES: Option[] = [
   { value: "planned", label: "Planned" },
   { value: "paid", label: "Paid" },
@@ -249,6 +308,10 @@ export const eventTypeLabel = (v: string | null) => labelFor(EVENT_TYPES, v);
 export const eventStatusLabel = (v: string | null) => labelFor(EVENT_STATUSES, v);
 export const budgetStatusLabel = (v: string | null) =>
   labelFor(BUDGET_ENTRY_STATUSES, v);
+export const planningPhaseLabel = (v: string | null) =>
+  labelFor(PLANNING_PHASES, v);
+export const attendeeTypeLabel = (v: string | null) =>
+  labelFor(ATTENDEE_TYPES, v);
 export const resourceCategoryLabel = (v: string | null) =>
   labelFor(RESOURCE_CATEGORIES, v);
 export const nodeStatusLabel = (v: string | null) => labelFor(NODE_STATUSES, v);

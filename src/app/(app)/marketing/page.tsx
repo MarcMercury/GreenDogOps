@@ -9,6 +9,8 @@ import type {
   MarketingBudgetEntry,
   MarketingResource,
   MarketingTreeNode,
+  MarketingEventSource,
+  MarketingEventAttendee,
 } from "@/lib/marketing/types";
 import { MarketingDashboard } from "./marketing-dashboard";
 
@@ -26,6 +28,8 @@ export default async function MarketingManagementPage() {
     eventsRes,
     resourcesRes,
     treeRes,
+    sourcesRes,
+    attendeesRes,
   ] = await Promise.all([
     supabase
       .from("marketing_goal")
@@ -52,6 +56,15 @@ export default async function MarketingManagementPage() {
       .select("*")
       .order("zone", { ascending: true })
       .order("sort_order", { ascending: true }),
+    supabase
+      .from("marketing_event_source")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
+      .from("marketing_event_attendee")
+      .select("*")
+      .order("created_at", { ascending: true }),
   ]);
 
   // Budget is admin-only. Non-admins never receive the rows.
@@ -78,7 +91,9 @@ export default async function MarketingManagementPage() {
     periodRes.error ||
     entriesRes.error ||
     resourcesRes.error ||
-    treeRes.error;
+    treeRes.error ||
+    sourcesRes.error ||
+    attendeesRes.error;
 
   if (firstError) {
     return (
@@ -104,6 +119,8 @@ export default async function MarketingManagementPage() {
       budgetEntries={(entriesRes.data ?? []) as MarketingBudgetEntry[]}
       resources={(resourcesRes.data ?? []) as MarketingResource[]}
       treeNodes={(treeRes.data ?? []) as MarketingTreeNode[]}
+      eventSources={(sourcesRes.data ?? []) as MarketingEventSource[]}
+      eventAttendees={(attendeesRes.data ?? []) as MarketingEventAttendee[]}
     />
   );
 }

@@ -175,6 +175,15 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
     coupons_redeemed: int(formData.get("coupons_redeemed")),
     client_spend: num(formData.get("client_spend")),
     feedback: str(formData.get("feedback")),
+    // Planning / promotion
+    planning_phase: str(formData.get("planning_phase")),
+    staff: str(formData.get("staff")),
+    supplies: str(formData.get("supplies")),
+    promo_channels: str(formData.get("promo_channels")),
+    landing_url: str(formData.get("landing_url")),
+    rsvp_url: str(formData.get("rsvp_url")),
+    source_id: str(formData.get("source_id")),
+    checklist: parseChecklist(formData),
   };
   const { error } = id
     ? await supabase.from("marketing_event").update(patch).eq("id", id)
@@ -189,6 +198,117 @@ export async function deleteEvent(id: string): Promise<ActionResult> {
   const { error } = await supabase.from("marketing_event").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
   return done("Event deleted.");
+}
+
+// ===========================================================================
+// Event sources & attendees (events-management workflow)
+// ===========================================================================
+function parseChecklist(formData: FormData): { label: string; done: boolean }[] {
+  const labels = formData.getAll("check_label").map((v) => String(v).trim());
+  const done = formData.getAll("check_done").map((v) => String(v));
+  return labels
+    .map((label, i) => ({ label, done: done[i] === "true" }))
+    .filter((c) => c.label);
+}
+
+export async function saveEventSource(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const patch = {
+    name: str(formData.get("name")) ?? "Untitled source",
+    url: str(formData.get("url")),
+    region: str(formData.get("region")),
+    membership_cost: str(formData.get("membership_cost")),
+    cadence: str(formData.get("cadence")) ?? "monthly",
+    active: formData.get("active") == null ? true : bool(formData.get("active")),
+    notes: str(formData.get("notes")),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_event_source").update(patch).eq("id", id)
+    : await supabase.from("marketing_event_source").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Source updated." : "Source added.");
+}
+
+export async function markSourceChecked(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const today = new Date().toISOString().slice(0, 10);
+  const { error } = await supabase
+    .from("marketing_event_source")
+    .update({ last_checked_on: today })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Marked checked today.");
+}
+
+export async function deleteEventSource(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_event_source")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Source deleted.");
+}
+
+/** Create a scheduled event seeded from an event source. */
+export async function createEventFromSource(
+  sourceId: string,
+  name: string,
+): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { data: source } = await supabase
+    .from("marketing_event_source")
+    .select("region, name")
+    .eq("id", sourceId)
+    .maybeSingle();
+  const { error } = await supabase.from("marketing_event").insert({
+    name: name || `Event from ${source?.name ?? "source"}`,
+    event_type: "third_party",
+    status: "researching",
+    planning_phase: "researching",
+    location: source?.region ?? null,
+    source_id: sourceId,
+  });
+  if (error) return { ok: false, error: error.message };
+  return done("Event created from source.");
+}
+
+export async function saveAttendee(formData: FormData): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const id = str(formData.get("id"));
+  const eventId = str(formData.get("event_id"));
+  if (!eventId) return { ok: false, error: "Missing event." };
+  const patch = {
+    event_id: eventId,
+    name: str(formData.get("name")),
+    email: str(formData.get("email")),
+    phone: str(formData.get("phone")),
+    attendee_type: str(formData.get("attendee_type")) ?? "lead",
+    is_new_client: bool(formData.get("is_new_client")),
+    notes: str(formData.get("notes")),
+  };
+  const { error } = id
+    ? await supabase.from("marketing_event_attendee").update(patch).eq("id", id)
+    : await supabase.from("marketing_event_attendee").insert(patch);
+  if (error) return { ok: false, error: error.message };
+  return done(id ? "Attendee updated." : "Attendee added.");
+}
+
+export async function deleteAttendee(id: string): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("marketing_event_attendee")
+    .delete()
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done("Attendee removed.");
 }
 
 // ===========================================================================
