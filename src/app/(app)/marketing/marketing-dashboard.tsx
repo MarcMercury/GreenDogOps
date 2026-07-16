@@ -1589,6 +1589,8 @@ function ActivityTab({
     return (id: string | null) => (id ? m.get(id) ?? null : null);
   }, [people]);
 
+  const [focusOpen, setFocusOpen] = useState(true);
+
   const live = treeNodes.filter((n) => n.status !== "archived");
   const attentionNodes = live.filter((n) => n.status === "needs_attention");
   const staleNodes = live.filter((n) => {
@@ -1615,32 +1617,42 @@ function ActivityTab({
 
       {/* Priority focus — driven by node priority + staleness */}
       <div>
-        <h3 className="mb-2 text-sm font-semibold text-slate-700">Focus — by priority</h3>
-        {focus.length === 0 ? (
-          <EmptyRow label="No nodes yet." />
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-            <ul className="divide-y divide-slate-100">
-              {focus.map((n) => {
-                const d = daysSince(n.last_handled_at);
-                return (
-                  <li key={n.id} className="flex items-center gap-3 px-4 py-2.5">
-                    <Badge className={PRIORITY_COLORS[n.priority]}>{priorityLabel(n.priority)}</Badge>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-800">{n.label}</p>
-                      <p className="text-xs text-slate-400">
-                        {[treeZoneLabel(n.zone), personName(n.owner_person_id) ?? n.owner_name].filter(Boolean).join(" · ")}
-                      </p>
-                    </div>
-                    {n.status === "needs_attention" && <Badge className="bg-amber-50 text-amber-700">Attention</Badge>}
-                    <span className="shrink-0 text-xs text-slate-400">
-                      {d == null ? "never handled" : d === 0 ? "today" : `${d}d ago`}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+        <button
+          type="button"
+          onClick={() => setFocusOpen((v) => !v)}
+          className="mb-2 flex w-full items-center gap-1.5 text-left text-sm font-semibold text-slate-700"
+          aria-expanded={focusOpen}
+        >
+          <span className={`text-slate-400 transition-transform ${focusOpen ? "rotate-90" : ""}`} aria-hidden>▶</span>
+          Focus — by priority
+        </button>
+        {focusOpen && (
+          focus.length === 0 ? (
+            <EmptyRow label="No nodes yet." />
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+              <ul className="divide-y divide-slate-100">
+                {focus.map((n) => {
+                  const d = daysSince(n.last_handled_at);
+                  return (
+                    <li key={n.id} className="flex items-center gap-3 px-4 py-2.5">
+                      <Badge className={PRIORITY_COLORS[n.priority]}>{priorityLabel(n.priority)}</Badge>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-800">{n.label}</p>
+                        <p className="text-xs text-slate-400">
+                          {[treeZoneLabel(n.zone), personName(n.owner_person_id) ?? n.owner_name].filter(Boolean).join(" · ")}
+                        </p>
+                      </div>
+                      {n.status === "needs_attention" && <Badge className="bg-amber-50 text-amber-700">Attention</Badge>}
+                      <span className="shrink-0 text-xs text-slate-400">
+                        {d == null ? "never handled" : d === 0 ? "today" : `${d}d ago`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )
         )}
       </div>
 
