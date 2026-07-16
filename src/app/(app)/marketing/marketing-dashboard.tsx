@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "../_components/ui";
 import {
@@ -26,7 +25,6 @@ import {
   RESOURCE_CATEGORIES,
   PROMO_STATUSES,
   PROMO_TYPES,
-  MARKETING_CHANNELS,
   initiativeCategoryLabel,
   initiativeStatusLabel,
   priorityLabel,
@@ -175,7 +173,7 @@ function OptionsSelect({
 // ===========================================================================
 // Dashboard
 // ===========================================================================
-type TabKey = "tree" | "initiatives" | "events" | "promotions" | "activity" | "budget" | "channels" | "resources";
+type TabKey = "tree" | "initiatives" | "events" | "promotions" | "activity" | "budget" | "resources";
 const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean }[] = [
   { key: "tree", label: "Marketing Tree", icon: "🌳" },
   { key: "initiatives", label: "Initiatives", icon: "🗂️" },
@@ -183,13 +181,13 @@ const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean
   { key: "promotions", label: "Promotions", icon: "🏷️" },
   { key: "activity", label: "Activity", icon: "📈" },
   { key: "budget", label: "Budget", icon: "💵", adminOnly: true },
-  { key: "channels", label: "Channels", icon: "🔗" },
   { key: "resources", label: "Resources", icon: "🧰" },
 ];
 
 export function MarketingDashboard({
   canEdit,
   isAdmin,
+  canViewCredentials,
   goals,
   initiatives,
   events,
@@ -206,6 +204,7 @@ export function MarketingDashboard({
 }: {
   canEdit: boolean;
   isAdmin: boolean;
+  canViewCredentials: boolean;
   goals: MarketingGoal[];
   initiatives: MarketingInitiative[];
   events: MarketingEvent[];
@@ -314,9 +313,8 @@ export function MarketingDashboard({
           run={run}
         />
       )}
-      {tab === "channels" && <ChannelsTab />}
       {tab === "resources" && (
-        <ResourcesTab canEdit={canEdit} resources={resources} run={run} />
+        <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} run={run} />
       )}
 
       {toast && (
@@ -1015,50 +1013,73 @@ function BudgetPeriodDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Channels tab
+// Resources tab
 // ---------------------------------------------------------------------------
-function ChannelsTab() {
+function ResourceLoginCell({
+  resource,
+  canView,
+}: {
+  resource: MarketingResource;
+  canView: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const hasLogin = Boolean(resource.username || resource.password || resource.credential_note);
+
+  if (!hasLogin) return <span className="text-slate-400">—</span>;
+  if (!canView) return <span className="text-xs text-slate-400">🔒 Restricted</span>;
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(true);
+        }}
+        className="text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+      >
+        Click For Login and Password
+      </button>
+    );
+  }
+
   return (
-    <section className="space-y-3">
-      <p className="text-sm text-slate-500">
-        Each marketing channel has its own dedicated CRM. Jump in to manage the
-        detail; this hub keeps the high-level view.
-      </p>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {MARKETING_CHANNELS.map((c) => (
-          <Link
-            key={c.slug}
-            href={c.href}
-            className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-emerald-300 hover:shadow"
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-xl">
-              {c.icon}
-            </span>
-            <div className="min-w-0">
-              <p className="font-semibold text-slate-900 group-hover:text-emerald-700">
-                {c.label}
-              </p>
-              <p className="truncate text-xs text-slate-500">{c.description}</p>
-            </div>
-            <span className="ml-auto text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-emerald-500">
-              →
-            </span>
-          </Link>
-        ))}
-      </div>
-    </section>
+    <div className="space-y-0.5 text-xs" onClick={(e) => e.stopPropagation()}>
+      {resource.username && (
+        <div>
+          <span className="text-slate-400">User: </span>
+          <span className="font-mono text-slate-700">{resource.username}</span>
+        </div>
+      )}
+      {resource.password && (
+        <div>
+          <span className="text-slate-400">Pass: </span>
+          <span className="font-mono text-slate-700">{resource.password}</span>
+        </div>
+      )}
+      {resource.credential_note && <div className="text-slate-400">{resource.credential_note}</div>}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen(false);
+        }}
+        className="text-[11px] text-slate-400 hover:text-slate-600 hover:underline"
+      >
+        Hide
+      </button>
+    </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Resources tab
-// ---------------------------------------------------------------------------
 function ResourcesTab({
   canEdit,
+  canViewCredentials,
   resources,
   run,
 }: {
   canEdit: boolean;
+  canViewCredentials: boolean;
   resources: MarketingResource[];
   run: Run;
 }) {
@@ -1170,25 +1191,7 @@ function ResourcesTab({
                     ) : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-slate-600">
-                    {r.username || r.password || r.credential_note ? (
-                      <div className="space-y-0.5 text-xs">
-                        {r.username && (
-                          <div>
-                            <span className="text-slate-400">User: </span>
-                            <span className="font-mono text-slate-700">{r.username}</span>
-                          </div>
-                        )}
-                        {r.password && (
-                          <div>
-                            <span className="text-slate-400">Pass: </span>
-                            <span className="font-mono text-slate-700">{r.password}</span>
-                          </div>
-                        )}
-                        {r.credential_note && <div className="text-slate-400">{r.credential_note}</div>}
-                      </div>
-                    ) : (
-                      "—"
-                    )}
+                    <ResourceLoginCell resource={r} canView={canViewCredentials} />
                   </td>
                 </tr>
               ))}

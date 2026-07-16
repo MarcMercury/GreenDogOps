@@ -505,9 +505,7 @@ export function DataTable<T extends { id: string }>({
   const tableMarkup = (
     <table className="min-w-full divide-y divide-slate-200 text-sm">
       <thead
-        className={`bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500${
-          stickyScroll ? " sticky top-0 z-10" : ""
-        }`}
+        className="sticky top-0 z-10 bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500 shadow-[inset_0_-1px_0_rgb(226_232_240)]"
       >
         <tr>
           {columns.map((col) => {
@@ -645,7 +643,7 @@ export function DataTable<T extends { id: string }>({
           </div>
         </div>
       ) : (
-        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="mt-4 max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           {tableMarkup}
         </div>
       )}

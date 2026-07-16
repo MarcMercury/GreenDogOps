@@ -185,6 +185,15 @@ export function canViewAllCompensation(role: AppRole): boolean {
   return isEditorRole(role);
 }
 
+/**
+ * Roles allowed to reveal stored logins/passwords (e.g. the marketing
+ * Resources directory). Admins, Managers, and Schedule Admins may click to
+ * see them; Staff may not. (Owner/Executive are above Admin and also allowed.)
+ */
+export function canViewCredentials(role: AppRole): boolean {
+  return role !== "staff";
+}
+
 /** Resolve effective module access: per-user overrides win over role defaults. */
 export function canAccessModule(user: AppUser, key: ModuleKey): boolean {
   if (!user.is_active) return false;

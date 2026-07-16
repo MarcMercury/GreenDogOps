@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
+import { canEditModule, isAdminRole, canViewCredentials } from "@/lib/auth/permissions";
 import type {
   MarketingGoal,
   MarketingInitiative,
@@ -25,6 +25,7 @@ export default async function MarketingManagementPage() {
   const current = await getCurrentUser();
   const canEdit = current ? canEditModule(current.appUser, "marketing") : false;
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+  const canSeeCredentials = current ? canViewCredentials(current.appUser.role) : false;
 
   const [
     goalsRes,
@@ -148,6 +149,7 @@ export default async function MarketingManagementPage() {
     <MarketingDashboard
       canEdit={canEdit}
       isAdmin={isAdmin}
+      canViewCredentials={canSeeCredentials}
       goals={(goalsRes.data ?? []) as MarketingGoal[]}
       initiatives={(initiativesRes.data ?? []) as MarketingInitiative[]}
       events={(eventsRes.data ?? []) as MarketingEvent[]}
