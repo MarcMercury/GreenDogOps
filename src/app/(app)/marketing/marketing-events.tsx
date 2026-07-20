@@ -413,6 +413,14 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
   const [packing, setPacking] = useState<PackingListGroup[]>(
     () => (event?.packing_list?.length ? event.packing_list : defaultPackingList()),
   );
+  const [tab, setTab] = useState<"details" | "planning" | "materials" | "recap">("details");
+
+  const TABS = [
+    { key: "details", label: "Details" },
+    { key: "planning", label: "Planning & promotion" },
+    { key: "materials", label: "Materials" },
+    { key: "recap", label: "Recap" },
+  ] as const;
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -431,6 +439,24 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
           </div>
         </div>
 
+        {/* Tab bar */}
+        <div className="flex gap-1 border-b border-slate-200 px-5 pt-2">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setTab(t.key)}
+              className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition ${
+                tab === t.key
+                  ? "border-emerald-600 text-emerald-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
         <form id="event-form" onSubmit={onSubmit} className="max-h-[72vh] space-y-5 overflow-y-auto px-5 py-4">
           {event && <input type="hidden" name="id" value={event.id} />}
           {/* hidden checklist mirrors */}
@@ -444,6 +470,7 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
           <input type="hidden" name="packing_list_json" value={JSON.stringify(packing)} />
 
           {/* Details */}
+          <div className={tab === "details" ? "space-y-5" : "hidden"}>
           <div>
             <label className={fieldLabel}>Event name</label>
             <input name="name" defaultValue={event?.name ?? ""} required className={fieldInput} />
@@ -480,9 +507,10 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
               <div><label className={fieldLabel}>Parking / loading &amp; unloading</label><textarea name="parking_info" defaultValue={event?.parking_info ?? ""} rows={2} className={fieldInput} placeholder="Where staff parks, load-in/load-out instructions" /></div>
             </div>
           </fieldset>
+          </div>
 
           {/* Planning & promotion */}
-          <fieldset className="rounded-lg border border-slate-200 p-3">
+          <fieldset className={`rounded-lg border border-slate-200 p-3 ${tab === "planning" ? "" : "hidden"}`}>
             <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Planning & promotion</legend>
             <div className="grid gap-4 sm:grid-cols-2">
               <div><label className={fieldLabel}>Staff</label><input name="staff" defaultValue={event?.staff ?? ""} className={fieldInput} placeholder="Who's working it" /></div>
@@ -512,6 +540,7 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
           </fieldset>
 
           {/* Packing / Material list */}
+          <div className={tab === "materials" ? "" : "hidden"}>
           <PackingListEditor
             eventName={event?.name ?? "New event"}
             eventDate={event?.starts_on ?? null}
@@ -519,9 +548,10 @@ function EventDialog({ event, sources, attendees, canEdit, people, onClose, run 
             groups={packing}
             setGroups={setPacking}
           />
+          </div>
 
           {/* Recap */}
-          <fieldset className="rounded-lg border border-slate-200 p-3">
+          <fieldset className={`rounded-lg border border-slate-200 p-3 ${tab === "recap" ? "" : "hidden"}`}>
             <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Recap / results (ROI)</legend>
             <div className="grid gap-4 sm:grid-cols-4">
               <div><label className={fieldLabel}>Attendees</label><input name="attendees" defaultValue={event?.attendees ?? ""} className={fieldInput} /></div>
