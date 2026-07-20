@@ -215,6 +215,8 @@ export interface MarketingResource {
   username: string | null;
   password: string | null;
   credential_note: string | null;
+  /** Optional Vendor & Partner CRM record this resource belongs to. */
+  crm_organization_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;

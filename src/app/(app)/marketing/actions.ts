@@ -648,6 +648,7 @@ export async function saveResource(formData: FormData): Promise<ActionResult> {
     username: str(formData.get("username")),
     password: str(formData.get("password")),
     credential_note: str(formData.get("credential_note")),
+    crm_organization_id: str(formData.get("crm_organization_id")),
   };
   const { error } = id
     ? await supabase.from("marketing_resource").update(patch).eq("id", id)

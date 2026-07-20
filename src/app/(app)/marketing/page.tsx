@@ -20,7 +20,12 @@ import { MarketingDashboard } from "./marketing-dashboard";
 
 export const dynamic = "force-dynamic";
 
-export default async function MarketingManagementPage() {
+export default async function MarketingManagementPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string }>;
+}) {
+  const { tab: initialTab } = await searchParams;
   const supabase = await createClient();
   const current = await getCurrentUser();
   const canEdit = current ? canEditModule(current.appUser, "marketing") : false;
@@ -163,6 +168,7 @@ export default async function MarketingManagementPage() {
       people={(peopleRes.data ?? []) as PersonOption[]}
       activity={(activityRes.data ?? []) as MarketingActivity[]}
       crmOrgs={(crmOrgsRes.data ?? []) as CrmOrgRef[]}
+      initialTab={initialTab}
     />
   );
 }

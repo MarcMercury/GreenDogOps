@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "../_components/ui";
 import {
@@ -244,6 +245,7 @@ export function MarketingDashboard({
   people,
   activity,
   crmOrgs,
+  initialTab,
 }: {
   canEdit: boolean;
   isAdmin: boolean;
@@ -261,9 +263,12 @@ export function MarketingDashboard({
   people: PersonOption[];
   activity: MarketingActivity[];
   crmOrgs: CrmOrgRef[];
+  initialTab?: string;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<TabKey>("tree");
+  const [tab, setTab] = useState<TabKey>(
+    BASE_TABS.some((t) => t.key === initialTab) ? (initialTab as TabKey) : "tree",
+  );
   const [toast, setToast] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -365,7 +370,7 @@ export function MarketingDashboard({
         />
       )}
       {tab === "resources" && (
-        <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} people={people} run={run} />
+        <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} people={people} crmOrgs={crmOrgs} run={run} />
       )}
 
       {toast && (
@@ -1206,12 +1211,14 @@ function ResourcesTab({
   canViewCredentials,
   resources,
   people,
+  crmOrgs,
   run,
 }: {
   canEdit: boolean;
   canViewCredentials: boolean;
   resources: MarketingResource[];
   people: PersonOption[];
+  crmOrgs: CrmOrgRef[];
   run: Run;
 }) {
   const [editing, setEditing] = useState<MarketingResource | "new" | null>(null);
@@ -1219,6 +1226,12 @@ function ResourcesTab({
   const [category, setCategory] = useState("");
   const [sortKey, setSortKey] = useState<"name" | "category" | "owner">("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const orgById = useMemo(() => {
+    const m = new Map<string, CrmOrgRef>();
+    for (const o of crmOrgs) m.set(o.id, o);
+    return m;
+  }, [crmOrgs]);
 
   function toggleSort(k: "name" | "category" | "owner") {
     if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -1293,6 +1306,7 @@ function ResourcesTab({
                 <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("category")}>Category{sortArrow("category")}</th>
                 <th className="px-4 py-2.5 font-semibold">Description</th>
                 <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("owner")}>Owner{sortArrow("owner")}</th>
+                <th className="px-4 py-2.5 font-semibold">Vendor / Partner</th>
                 <th className="px-4 py-2.5 font-semibold">Link</th>
                 <th className="px-4 py-2.5 font-semibold">Login</th>
               </tr>
@@ -1308,6 +1322,19 @@ function ResourcesTab({
                   <td className="whitespace-nowrap px-4 py-2.5"><Badge>{resourceCategoryLabel(r.category)}</Badge></td>
                   <td className="px-4 py-2.5 text-slate-500">{r.description ?? "—"}</td>
                   <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{r.owner_name ?? "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    {r.crm_organization_id ? (
+                      <Link
+                        href={`/crm/org/${r.crm_organization_id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-medium text-emerald-700 hover:text-emerald-800"
+                      >
+                        {orgById.get(r.crm_organization_id)?.name ?? "View ↗"}
+                      </Link>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-2.5">
                     {r.url ? (
                       <a
@@ -1334,6 +1361,7 @@ function ResourcesTab({
         <ResourceDialog
           resource={editing === "new" ? null : editing}
           people={people}
+          crmOrgs={crmOrgs}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -1345,14 +1373,20 @@ function ResourcesTab({
 function ResourceDialog({
   resource,
   people,
+  crmOrgs,
   onClose,
   run,
 }: {
   resource: MarketingResource | null;
   people: PersonOption[];
+  crmOrgs: CrmOrgRef[];
   onClose: () => void;
   run: Run;
 }) {
+  const sortedOrgs = useMemo(
+    () => [...crmOrgs].sort((a, b) => a.name.localeCompare(b.name)),
+    [crmOrgs],
+  );
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -1379,6 +1413,20 @@ function ResourceDialog({
         <div>
           <label className={fieldLabel}>Description</label>
           <textarea name="description" defaultValue={resource?.description ?? ""} rows={2} className={fieldInput} />
+        </div>
+        <div>
+          <label className={fieldLabel}>Linked Vendor / Partner</label>
+          <select name="crm_organization_id" defaultValue={resource?.crm_organization_id ?? ""} className={fieldInput}>
+            <option value="">— None —</option>
+            {sortedOrgs.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-slate-400">
+            Links this resource to its record in the Vendor &amp; Partner CRM (shown on both pages).
+          </p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

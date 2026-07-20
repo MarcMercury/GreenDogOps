@@ -64,6 +64,19 @@ export default async function OrganizationDetailPage({
     .order("uploaded_at", { ascending: false });
   const documents = (docData ?? []) as CrmOrgDocument[];
 
+  // Marketing Resources (tool/login vault rows) that point back at this org.
+  const { data: resourceData } = await supabase
+    .from("marketing_resource")
+    .select("id, name, category, url")
+    .eq("crm_organization_id", id)
+    .order("name", { ascending: true });
+  const linkedResources = (resourceData ?? []) as Array<{
+    id: string;
+    name: string;
+    category: string;
+    url: string | null;
+  }>;
+
   let documentsWithUrls: CrmOrgDocumentWithUrl[] = documents.map((d) => ({
     ...d,
     signed_url: null,
@@ -98,6 +111,46 @@ export default async function OrganizationDetailPage({
         documents={documentsWithUrls}
         canEdit={canEdit}
       />
+
+      {linkedResources.length > 0 && (
+        <div className="mt-6 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+            <span aria-hidden>🧰</span> Linked Marketing Resources
+          </h2>
+          <p className="mt-0.5 text-xs text-emerald-800/70">
+            Tools / logins in Marketing → Resources tied to this record.
+          </p>
+          <ul className="mt-3 space-y-2">
+            {linkedResources.map((r) => (
+              <li
+                key={r.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-emerald-100 bg-white px-3 py-2 text-sm"
+              >
+                <span className="font-medium text-slate-900">{r.name}</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
+                  {r.category}
+                </span>
+                {r.url && (
+                  <a
+                    href={r.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-emerald-700 hover:text-emerald-900"
+                  >
+                    Open ↗
+                  </a>
+                )}
+                <Link
+                  href="/marketing?tab=resources"
+                  className="ml-auto text-xs text-emerald-700 hover:text-emerald-900"
+                >
+                  View in Marketing →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
