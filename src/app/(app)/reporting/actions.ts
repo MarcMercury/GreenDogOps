@@ -11,6 +11,7 @@ import type {
   StaffProductRow,
   StaffProductGroupRow,
   AppointmentReviewRow,
+  AppointmentReviewDetailRow,
 } from "@/lib/reporting/types";
 
 export type ActionResult =
@@ -106,6 +107,40 @@ export async function getAppointmentReview(
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true, rows: (data ?? []) as AppointmentReviewRow[] };
+}
+
+/**
+ * Appointment Review drill-down: the individual appointments behind the
+ * Cancelled/Moved (dropped) and Added On (added) counts for one location /
+ * department across a past-date range, from the dated Agenda detail snapshots.
+ */
+export async function getAppointmentReviewDetail(
+  locationId: string,
+  departmentId: string,
+  startDate: string,
+  endDate: string,
+): Promise<{ ok: true; rows: AppointmentReviewDetailRow[] } | { ok: false; error: string }> {
+  await requireReportingAccess();
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRe.test(locationId) || !uuidRe.test(departmentId)) {
+    return { ok: false, error: "Invalid selection." };
+  }
+  if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
+    return { ok: false, error: "Invalid date range." };
+  }
+  let start = startDate;
+  let end = endDate;
+  if (start > end) [start, end] = [end, start];
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("appointment_review_detail", {
+    p_location: locationId,
+    p_department: departmentId,
+    p_start: start,
+    p_end: end,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rows: (data ?? []) as AppointmentReviewDetailRow[] };
 }
 
 /** Begin an invoice import session; returns the new import id. */

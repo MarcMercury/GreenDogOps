@@ -305,6 +305,25 @@ export interface AppointmentReviewRow {
   rendered_snapshot: string | null;
 }
 
+/**
+ * One appointment behind an Appointment Review Cancelled/Moved or Added On
+ * count. `change` is "dropped" (booked but absent from the post-day pull) or
+ * "added" (present in the post-day pull but not the booked pull). `details`
+ * carries every column from the Agenda CSV (original header -> value).
+ */
+export interface AppointmentReviewDetailRow {
+  appt_date: string;
+  change: "dropped" | "added";
+  appt_key: string;
+  client_name: string | null;
+  patient_name: string | null;
+  resource: string | null;
+  appt_time: string | null;
+  appt_type: string | null;
+  status: string | null;
+  details: Record<string, string> | null;
+}
+
 export const LOCATION_LABELS: Record<LocationKey, string> = {
   sherman_oaks: "Sherman Oaks",
   van_nuys: "Van Nuys",

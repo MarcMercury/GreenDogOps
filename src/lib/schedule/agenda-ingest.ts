@@ -95,12 +95,23 @@ export async function ingestAgendaCsvText(
   if (table.length < 2) {
     return { ok: false, error: "Agenda CSV had no data rows.", parsed: 0, counted: 0, inserted: 0 };
   }
-  const header = table[0].map((h) => h.trim().toLowerCase());
+  const origHeader = table[0].map((h) => (h ?? "").trim());
+  const header = origHeader.map((h) => h.toLowerCase());
   const col = (name: string) => header.indexOf(name.toLowerCase());
+  /** First column whose (lower-cased) header contains any of the fragments. */
+  const colLike = (...fragments: string[]) =>
+    header.findIndex((h) => fragments.some((f) => h.includes(f)));
   const iResource = col("All Resources / Vets");
   const iDivision = col("Division(s)");
   const iDate = col("Date");
   const iClient = col("Client Name");
+  // Optional detail columns (the "detailed" Agenda export carries more than the
+  // four required ones). Used only to enrich the per-appointment drill-down.
+  const iPatient = colLike("patient", "animal");
+  const iTime = colLike("time");
+  const iType = colLike("appointment type", "consult type", "type");
+  const iStatus = colLike("status");
+  const iApptId = colLike("appointment id", "appt id");
   if (iResource < 0 || iDivision < 0 || iDate < 0 || iClient < 0) {
     return {
       ok: false,
@@ -164,6 +175,22 @@ export async function ingestAgendaCsvText(
 
   // Aggregate booked appointments per (location, date, department).
   const counts = new Map<string, { location_id: string; appt_date: string; department_id: string; appt_count: number }>();
+  // Per-appointment detail for the drill-down (same rows that are counted).
+  interface DetailRow {
+    location_id: string;
+    appt_date: string;
+    department_id: string;
+    appt_key: string;
+    client_name: string | null;
+    patient_name: string | null;
+    resource: string | null;
+    appt_time: string | null;
+    appt_type: string | null;
+    status: string | null;
+    details: Record<string, string>;
+  }
+  const detailRows: DetailRow[] = [];
+  const keyOccurrences = new Map<string, number>();
   let counted = 0;
   let minDate = "";
   let maxDate = "";
@@ -193,6 +220,41 @@ export async function ingestAgendaCsvText(
     counted += 1;
     if (!minDate || isoDate < minDate) minDate = isoDate;
     if (!maxDate || isoDate > maxDate) maxDate = isoDate;
+
+    // Build the per-appointment detail row. `details` preserves every CSV
+    // column (original header -> value); the typed fields drive the summary.
+    const cell = (i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
+    const patient = cell(iPatient);
+    const time = cell(iTime);
+    const apptType = cell(iType);
+    const status = cell(iStatus);
+    const resource = cell(iResource);
+    const details: Record<string, string> = {};
+    for (let c = 0; c < origHeader.length; c++) {
+      const h = origHeader[c];
+      if (h) details[h] = (row[c] ?? "").trim();
+    }
+    // Stable identity within the cell: an appointment id when present, else a
+    // composite. A per-cell occurrence suffix keeps duplicates distinct.
+    const apptId = cell(iApptId);
+    const baseKey = apptId || [client, patient, resource, time].join("|");
+    const occKey = `${key}::${baseKey}`;
+    const occ = (keyOccurrences.get(occKey) ?? 0) + 1;
+    keyOccurrences.set(occKey, occ);
+    const apptKey = occ > 1 ? `${baseKey}#${occ}` : baseKey;
+    detailRows.push({
+      location_id: locationId,
+      appt_date: isoDate,
+      department_id: mapped.department_id,
+      appt_key: apptKey,
+      client_name: client || null,
+      patient_name: patient || null,
+      resource: resource || null,
+      appt_time: time || null,
+      appt_type: apptType || null,
+      status: status || null,
+      details,
+    });
   }
 
   if (counts.size === 0) {
@@ -233,6 +295,30 @@ export async function ingestAgendaCsvText(
       .upsert(snapshotRows.slice(i, i + 500), {
         onConflict: "location_id,appt_date,department_id,snapshot_date",
       });
+    if (error) {
+      return { ok: false, error: error.message, parsed: table.length - 1, counted, inserted: rows.length };
+    }
+  }
+
+  // Per-appointment detail snapshot (powers the Appointment Review drill-down).
+  // Rebuild this snapshot day's rows for the covered window (scoped to the
+  // clinic on a per-location pull) so re-runs don't leave stale appointments.
+  let detDel = admin
+    .from("ezyvet_agenda_appt_snapshot")
+    .delete()
+    .eq("snapshot_date", snapshotDate)
+    .gte("appt_date", minDate)
+    .lte("appt_date", maxDate);
+  if (targetLocationId) detDel = detDel.eq("location_id", targetLocationId);
+  const { error: detDelErr } = await detDel;
+  if (detDelErr) {
+    return { ok: false, error: detDelErr.message, parsed: table.length - 1, counted, inserted: rows.length };
+  }
+  const detailSnapshot = detailRows.map((d) => ({ ...d, snapshot_date: snapshotDate }));
+  for (let i = 0; i < detailSnapshot.length; i += 500) {
+    const { error } = await admin
+      .from("ezyvet_agenda_appt_snapshot")
+      .insert(detailSnapshot.slice(i, i + 500));
     if (error) {
       return { ok: false, error: error.message, parsed: table.length - 1, counted, inserted: rows.length };
     }

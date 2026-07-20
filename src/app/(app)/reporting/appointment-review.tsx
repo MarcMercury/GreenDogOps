@@ -1,8 +1,11 @@
 "use client";
 
-import { Fragment, useState, useTransition } from "react";
-import type { AppointmentReviewRow } from "@/lib/reporting/types";
-import { getAppointmentReview } from "./actions";
+import { Fragment, useEffect, useState, useTransition } from "react";
+import type {
+  AppointmentReviewRow,
+  AppointmentReviewDetailRow,
+} from "@/lib/reporting/types";
+import { getAppointmentReview, getAppointmentReviewDetail } from "./actions";
 import { StatCard, SectionCard, fmtNumber, fmtDate } from "./charts";
 import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 
@@ -22,12 +25,14 @@ interface DeptAgg {
   booked: number;
   rendered: number;
   dropped: number;
+  added: number;
   pending: number;
   days: {
     appt_date: string;
     booked: number;
     rendered: number | null;
     dropped: number | null;
+    added: number | null;
   }[];
 }
 
@@ -37,6 +42,7 @@ interface LocationAgg {
   booked: number;
   rendered: number;
   dropped: number;
+  added: number;
   pending: number;
   depts: DeptAgg[];
 }
@@ -53,6 +59,7 @@ function aggregate(rows: AppointmentReviewRow[]): LocationAgg[] {
         booked: 0,
         rendered: 0,
         dropped: 0,
+        added: 0,
         pending: 0,
         depts: [],
       };
@@ -67,6 +74,7 @@ function aggregate(rows: AppointmentReviewRow[]): LocationAgg[] {
         booked: 0,
         rendered: 0,
         dropped: 0,
+        added: 0,
         pending: 0,
         days: [],
       };
@@ -75,6 +83,7 @@ function aggregate(rows: AppointmentReviewRow[]): LocationAgg[] {
     const booked = r.expected_count ?? 0;
     const rendered = r.rendered_count;
     const dropped = rendered == null ? null : Math.max(booked - rendered, 0);
+    const added = rendered == null ? null : Math.max(rendered - booked, 0);
 
     dept.booked += booked;
     loc.booked += booked;
@@ -84,10 +93,12 @@ function aggregate(rows: AppointmentReviewRow[]): LocationAgg[] {
     } else {
       dept.rendered += rendered;
       dept.dropped += dropped ?? 0;
+      dept.added += added ?? 0;
       loc.rendered += rendered;
       loc.dropped += dropped ?? 0;
+      loc.added += added ?? 0;
     }
-    dept.days.push({ appt_date: r.appt_date, booked, rendered, dropped });
+    dept.days.push({ appt_date: r.appt_date, booked, rendered, dropped, added });
   }
 
   const list = [...locs.values()];
@@ -110,6 +121,7 @@ export function AppointmentReview() {
   const [start, setStart] = useState(() => isoDaysAgo(7));
   const [end, setEnd] = useState(() => isoDaysAgo(1));
   const [rows, setRows] = useState<AppointmentReviewRow[] | null>(null);
+  const [ranRange, setRanRange] = useState<{ start: string; end: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -119,6 +131,7 @@ export function AppointmentReview() {
       const res = await getAppointmentReview(start, end);
       if (res.ok) {
         setRows(res.rows);
+        setRanRange({ start, end });
       } else {
         setRows(null);
         setError(res.error);
@@ -132,10 +145,11 @@ export function AppointmentReview() {
       acc.booked += l.booked;
       acc.rendered += l.rendered;
       acc.dropped += l.dropped;
+      acc.added += l.added;
       acc.pending += l.pending;
       return acc;
     },
-    { booked: 0, rendered: 0, dropped: 0, pending: 0 },
+    { booked: 0, rendered: 0, dropped: 0, added: 0, pending: 0 },
   );
 
   return (
@@ -190,7 +204,7 @@ export function AppointmentReview() {
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <StatCard label="Booked" value={fmtNumber(totals.booked)} accent="indigo" />
             <StatCard label="Rendered" value={fmtNumber(totals.rendered)} accent="emerald" />
             <StatCard
@@ -198,6 +212,12 @@ export function AppointmentReview() {
               value={fmtNumber(totals.dropped)}
               accent="amber"
               sub={totals.pending ? `${totals.pending} cell(s) pending re-scan` : undefined}
+            />
+            <StatCard
+              label="Added On"
+              value={fmtNumber(totals.added)}
+              accent="emerald"
+              sub="booked after the day"
             />
             <StatCard
               label="Drop rate"
@@ -213,9 +233,15 @@ export function AppointmentReview() {
               title={loc.location_name}
               description={`${fmtNumber(loc.booked)} booked → ${fmtNumber(
                 loc.rendered,
-              )} rendered · ${fmtNumber(loc.dropped)} cancelled/moved`}
+              )} rendered · ${fmtNumber(loc.dropped)} cancelled/moved · ${fmtNumber(
+                loc.added,
+              )} added`}
             >
-              <LocationTable loc={loc} />
+              <LocationTable
+                loc={loc}
+                start={ranRange?.start ?? start}
+                end={ranRange?.end ?? end}
+              />
             </SectionCard>
           ))}
         </>
@@ -225,14 +251,28 @@ export function AppointmentReview() {
 }
 
 /** Per-location department table with expandable per-day detail. */
-function LocationTable({ loc }: { loc: LocationAgg }) {
+function LocationTable({
+  loc,
+  start,
+  end,
+}: {
+  loc: LocationAgg;
+  start: string;
+  end: string;
+}) {
   const [open, setOpen] = useState<string | null>(null);
+  const [detail, setDetail] = useState<{
+    departmentId: string;
+    departmentName: string;
+    change: "dropped" | "added";
+  } | null>(null);
 
   const sort = useTableSort(loc.depts, {
     department: (d) => d.department_name,
     booked: (d) => d.booked,
     rendered: (d) => d.rendered,
     dropped: (d) => d.dropped,
+    added: (d) => d.added,
     dropPct: (d) => {
       const resolved = d.rendered + d.dropped;
       return resolved > 0 ? d.dropped / resolved : 0;
@@ -248,6 +288,7 @@ function LocationTable({ loc }: { loc: LocationAgg }) {
             <SortHeader label="Booked" sortKey="booked" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
             <SortHeader label="Rendered" sortKey="rendered" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
             <SortHeader label="Cancelled/Moved" sortKey="dropped" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+            <SortHeader label="Added On" sortKey="added" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
             <SortHeader label="Drop %" sortKey="dropPct" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
           </tr>
         </thead>
@@ -291,7 +332,44 @@ function LocationTable({ loc }: { loc: LocationAgg }) {
                     {fmtNumber(d.rendered)}
                   </td>
                   <td className="px-2 py-2 text-right font-semibold tabular-nums text-amber-700">
-                    {fmtNumber(d.dropped)}
+                    {d.dropped > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDetail({
+                            departmentId: d.department_id,
+                            departmentName: d.department_name,
+                            change: "dropped",
+                          })
+                        }
+                        className="underline decoration-dotted underline-offset-2 transition hover:text-amber-900"
+                        title="View cancelled / moved appointments"
+                      >
+                        {fmtNumber(d.dropped)}
+                      </button>
+                    ) : (
+                      fmtNumber(d.dropped)
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-right font-semibold tabular-nums text-emerald-700">
+                    {d.added > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDetail({
+                            departmentId: d.department_id,
+                            departmentName: d.department_name,
+                            change: "added",
+                          })
+                        }
+                        className="underline decoration-dotted underline-offset-2 transition hover:text-emerald-900"
+                        title="View appointments added on"
+                      >
+                        {fmtNumber(d.added)}
+                      </button>
+                    ) : (
+                      fmtNumber(d.added)
+                    )}
                   </td>
                   <td className="px-2 py-2 text-right tabular-nums text-slate-600">
                     {dropPct(resolved, d.dropped)}
@@ -299,7 +377,7 @@ function LocationTable({ loc }: { loc: LocationAgg }) {
                 </tr>
                 {isOpen ? (
                   <tr key={`${d.department_id}-days`}>
-                    <td colSpan={5} className="bg-slate-50/70 px-3 py-3">
+                    <td colSpan={6} className="bg-slate-50/70 px-3 py-3">
                       <table className="w-full border-collapse text-xs">
                         <thead>
                           <tr className="text-left text-slate-400">
@@ -309,6 +387,7 @@ function LocationTable({ loc }: { loc: LocationAgg }) {
                             <th className="px-2 py-1 text-right font-medium">
                               Cancelled/Moved
                             </th>
+                            <th className="px-2 py-1 text-right font-medium">Added On</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -326,6 +405,9 @@ function LocationTable({ loc }: { loc: LocationAgg }) {
                               <td className="px-2 py-1 text-right tabular-nums text-amber-700">
                                 {day.dropped == null ? "pending" : fmtNumber(day.dropped)}
                               </td>
+                              <td className="px-2 py-1 text-right tabular-nums text-emerald-700">
+                                {day.added == null ? "pending" : fmtNumber(day.added)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -338,6 +420,143 @@ function LocationTable({ loc }: { loc: LocationAgg }) {
           })}
         </tbody>
       </table>
+      {detail ? (
+        <AppointmentDetailModal
+          locationId={loc.location_id}
+          locationName={loc.location_name}
+          departmentId={detail.departmentId}
+          departmentName={detail.departmentName}
+          change={detail.change}
+          start={start}
+          end={end}
+          onClose={() => setDetail(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Drill-down modal: the individual appointments behind a Cancelled/Moved or
+ * Added On count for one location / department over the reviewed date range.
+ */
+function AppointmentDetailModal({
+  locationId,
+  locationName,
+  departmentId,
+  departmentName,
+  change,
+  start,
+  end,
+  onClose,
+}: {
+  locationId: string;
+  locationName: string;
+  departmentId: string;
+  departmentName: string;
+  change: "dropped" | "added";
+  start: string;
+  end: string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<AppointmentReviewDetailRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    startTransition(async () => {
+      const res = await getAppointmentReviewDetail(locationId, departmentId, start, end);
+      if (res.ok) setRows(res.rows);
+      else {
+        setRows([]);
+        setError(res.error);
+      }
+    });
+  }, [locationId, departmentId, start, end]);
+
+  const filtered = (rows ?? []).filter((r) => r.change === change);
+  const heading = change === "dropped" ? "Cancelled / Moved" : "Added On";
+  const anyPatient = filtered.some((r) => r.patient_name);
+  const anyTime = filtered.some((r) => r.appt_time);
+  const anyType = filtered.some((r) => r.appt_type);
+  const anyStatus = filtered.some((r) => r.status);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="my-8 w-full max-w-3xl rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">
+              {heading} — {departmentName}
+            </h2>
+            <p className="text-xs text-slate-500">
+              {locationName} · {fmtDate(start)}
+              {start === end ? "" : ` – ${fmtDate(end)}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+          {pending && rows == null ? (
+            <p className="text-sm text-slate-400">Loading appointments…</p>
+          ) : error ? (
+            <p className="text-sm text-red-600">{error}</p>
+          ) : filtered.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              No appointment-level detail is available for this range. Detail is only
+              captured for Agenda pulls taken after this feature shipped.
+            </p>
+          ) : (
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <th className="py-2 pr-3 font-semibold">Date</th>
+                  <th className="px-2 py-2 font-semibold">Client</th>
+                  {anyPatient ? <th className="px-2 py-2 font-semibold">Patient</th> : null}
+                  <th className="px-2 py-2 font-semibold">Resource / Vet</th>
+                  {anyTime ? <th className="px-2 py-2 font-semibold">Time</th> : null}
+                  {anyType ? <th className="px-2 py-2 font-semibold">Type</th> : null}
+                  {anyStatus ? <th className="px-2 py-2 font-semibold">Status</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r, i) => (
+                  <tr key={`${r.appt_date}-${r.appt_key}-${i}`} className="border-b border-slate-100 last:border-0">
+                    <td className="py-2 pr-3 tabular-nums text-slate-600">{fmtDate(r.appt_date)}</td>
+                    <td className="px-2 py-2 text-slate-800">{r.client_name || "—"}</td>
+                    {anyPatient ? (
+                      <td className="px-2 py-2 text-slate-600">{r.patient_name || "—"}</td>
+                    ) : null}
+                    <td className="px-2 py-2 text-slate-600">{r.resource || "—"}</td>
+                    {anyTime ? (
+                      <td className="px-2 py-2 tabular-nums text-slate-600">{r.appt_time || "—"}</td>
+                    ) : null}
+                    {anyType ? (
+                      <td className="px-2 py-2 text-slate-600">{r.appt_type || "—"}</td>
+                    ) : null}
+                    {anyStatus ? (
+                      <td className="px-2 py-2 text-slate-600">{r.status || "—"}</td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {filtered.length > 0 ? (
+            <p className="mt-3 text-xs text-slate-400">
+              {fmtNumber(filtered.length)} appointment{filtered.length === 1 ? "" : "s"}{" "}
+              {change === "dropped" ? "cancelled or moved" : "added on"}.
+            </p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
