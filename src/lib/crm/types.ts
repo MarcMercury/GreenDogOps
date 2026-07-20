@@ -704,8 +704,8 @@ export const CRM_SECTIONS: CrmSection[] = [
   },
   {
     slug: "ce",
-    title: "CE Leads/Events",
-    label: "CE Leads/Events",
+    title: "CE/GDU Mgmt",
+    label: "CE/GDU Mgmt",
     description: "Continuing-education events, submissions, attendees & leads.",
     icon: "📋",
     entity: "contact",
