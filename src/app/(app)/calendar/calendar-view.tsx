@@ -20,13 +20,25 @@ import {
   createCustomEvent,
   updateCustomEvent,
   deleteCustomEvent,
+  createNote,
+  updateNote,
   syncCalendarNow,
 } from "./actions";
 import type { GoogleSyncStatus } from "./data";
+import {
+  EventDialog as MarketingEventDialog,
+  type Run as MarketingRun,
+} from "../marketing/marketing-events";
+import type {
+  MarketingEventSource,
+  PersonOption,
+} from "@/lib/marketing/types";
 
 const LEGEND: CalendarCategory[] = [
   "google",
   "general",
+  "note",
+  "marketing",
   "ce",
   "interview",
 ];
@@ -36,18 +48,49 @@ type EditState =
   | { mode: "create"; date: string | null }
   | { mode: "edit"; item: CalendarItem };
 
+type NoteState =
+  | { mode: "closed" }
+  | { mode: "create"; date: string | null }
+  | { mode: "edit"; item: CalendarItem };
+
 export function CalendarView({
   items,
   canEdit,
+  canCreateEvent,
   syncStatus,
+  eventSources,
+  people,
 }: {
   items: CalendarItem[];
   canEdit: boolean;
+  canCreateEvent: boolean;
   syncStatus: GoogleSyncStatus | null;
+  eventSources: MarketingEventSource[];
+  people: PersonOption[];
 }) {
   const router = useRouter();
   const [edit, setEdit] = useState<EditState>({ mode: "closed" });
+  const [note, setNote] = useState<NoteState>({ mode: "closed" });
+  const [eventOpen, setEventOpen] = useState(false);
   const [view, setView] = useState<CalendarItem | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [, startEventTransition] = useTransition();
+
+  function notify(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3500);
+  }
+
+  const runEvent: MarketingRun = (action, after) => {
+    startEventTransition(async () => {
+      const res = await action();
+      notify(res.ok ? res.message ?? "Saved." : `Error: ${res.error}`);
+      if (res.ok) {
+        after?.();
+        router.refresh();
+      }
+    });
+  };
 
   const events = useMemo<EventInput[]>(
     () =>
@@ -66,7 +109,9 @@ export function CalendarView({
 
   function onEventClick(arg: EventClickArg) {
     const item = arg.event.extendedProps.item as CalendarItem;
-    if (item.editable) {
+    if (item.editable && item.category === "note") {
+      setNote({ mode: "edit", item });
+    } else if (item.editable) {
       setEdit({ mode: "edit", item });
     } else {
       setView(item);
@@ -75,7 +120,7 @@ export function CalendarView({
 
   function onDateClick(arg: DateClickArg) {
     if (!canEdit) return;
-    setEdit({ mode: "create", date: arg.dateStr.slice(0, 10) });
+    setNote({ mode: "create", date: arg.dateStr.slice(0, 10) });
   }
 
   return (
@@ -101,11 +146,20 @@ export function CalendarView({
             <SyncControl status={syncStatus} />
             <button
               type="button"
-              onClick={() => setEdit({ mode: "create", date: null })}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+              onClick={() => setNote({ mode: "create", date: null })}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100"
             >
-              + Add event
+              + Add note
             </button>
+            {canCreateEvent ? (
+              <button
+                type="button"
+                onClick={() => setEventOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-emerald-700"
+              >
+                + Create event
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -151,6 +205,29 @@ export function CalendarView({
         />
       ) : null}
 
+      {note.mode !== "closed" ? (
+        <NoteDialog
+          state={note}
+          onClose={() => setNote({ mode: "closed" })}
+          onSaved={() => {
+            setNote({ mode: "closed" });
+            router.refresh();
+          }}
+        />
+      ) : null}
+
+      {eventOpen ? (
+        <MarketingEventDialog
+          event={null}
+          sources={eventSources}
+          attendees={[]}
+          canEdit={canCreateEvent}
+          people={people}
+          onClose={() => setEventOpen(false)}
+          run={runEvent}
+        />
+      ) : null}
+
       {view ? (
         <DetailsDialog
           item={view}
@@ -160,6 +237,12 @@ export function CalendarView({
             router.push(href);
           }}
         />
+      ) : null}
+
+      {toast ? (
+        <div className="fixed bottom-4 left-1/2 z-[70] -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-lg">
+          {toast}
+        </div>
       ) : null}
     </div>
   );
@@ -338,6 +421,123 @@ function EventDialog({
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
               >
                 {pending ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function NoteDialog({
+  state,
+  onClose,
+  onSaved,
+}: {
+  state: Exclude<NoteState, { mode: "closed" }>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isEdit = state.mode === "edit";
+  const item = isEdit ? state.item : null;
+  const initialDate =
+    state.mode === "create"
+      ? (state.date ?? new Date().toISOString().slice(0, 10))
+      : item!.start.slice(0, 10);
+
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function submit(formData: FormData) {
+    setError(null);
+    startTransition(async () => {
+      const res = isEdit
+        ? await updateNote(formData)
+        : await createNote(formData);
+      if (res.ok) onSaved();
+      else setError(res.error);
+    });
+  }
+
+  function remove() {
+    if (!item) return;
+    setError(null);
+    const fd = new FormData();
+    fd.set("id", stripSource(item.id));
+    startTransition(async () => {
+      const res = await deleteCustomEvent(fd);
+      if (res.ok) onSaved();
+      else setError(res.error);
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-bold text-slate-900">
+          {isEdit ? "Edit note" : "Add note"}
+        </h2>
+        <form action={submit} className="mt-4 space-y-3">
+          {isEdit ? (
+            <input type="hidden" name="id" value={stripSource(item!.id)} />
+          ) : null}
+          <Field label="Date">
+            <input
+              type="date"
+              name="date"
+              required
+              defaultValue={initialDate}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </Field>
+          <Field label="Note">
+            <textarea
+              name="note"
+              required
+              autoFocus
+              rows={4}
+              defaultValue={item?.title ?? ""}
+              placeholder="Anything you want to remember about this day…"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </Field>
+
+          {error ? <p className="text-sm text-red-600">{error}</p> : null}
+
+          <div className="flex items-center justify-between pt-1">
+            {isEdit ? (
+              <button
+                type="button"
+                onClick={remove}
+                disabled={pending}
+                className="rounded-lg px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+              >
+                Delete
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={pending}
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-600 disabled:opacity-50"
+              >
+                {pending ? "Saving…" : "Save note"}
               </button>
             </div>
           </div>

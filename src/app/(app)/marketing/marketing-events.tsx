@@ -85,7 +85,7 @@ function Badge({ children, className }: { children: React.ReactNode; className?:
   );
 }
 
-type Run = (action: () => Promise<ActionResult>, after?: () => void) => void;
+export type Run = (action: () => Promise<ActionResult>, after?: () => void) => void;
 
 // ===========================================================================
 export function EventsTab({
@@ -399,7 +399,7 @@ function OptionsSelect({ name, defaultValue, options, placeholder }: { name: str
 // ---------------------------------------------------------------------------
 // Event dialog with Details / Planning / Recap / Attendees
 // ---------------------------------------------------------------------------
-function EventDialog({ event, sources, attendees, canEdit, people, onClose, run }: {
+export function EventDialog({ event, sources, attendees, canEdit, people, onClose, run }: {
   event: MarketingEvent | null;
   sources: MarketingEventSource[];
   attendees: MarketingEventAttendee[];

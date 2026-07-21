@@ -136,6 +136,66 @@ export async function deleteCustomEvent(
   return { ok: true };
 }
 
+/**
+ * Create a free-form day note (stored as a custom calendar_event with
+ * category = 'note'). The note body doubles as the calendar title.
+ */
+export async function createNote(
+  formData: FormData,
+): Promise<ActionResult<{ id: string }>> {
+  const gate = await ensureCanEdit("calendar");
+  if (!gate.ok) return gate;
+
+  const body = str(formData.get("note"));
+  const date = str(formData.get("date"));
+  if (!body) return { ok: false, error: "Note text is required." };
+  if (!date) return { ok: false, error: "A date is required." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("calendar_event")
+    .insert({
+      source: "custom",
+      title: body,
+      starts_at: `${date}T00:00:00`,
+      ends_at: null,
+      all_day: true,
+      category: "note",
+      created_by: gate.current.authId,
+    })
+    .select("id")
+    .single();
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/calendar");
+  return { ok: true, data: { id: data.id as string } };
+}
+
+/** Update the text and/or date of an existing day note. */
+export async function updateNote(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureCanEdit("calendar");
+  if (!gate.ok) return gate;
+
+  const id = str(formData.get("id"));
+  const body = str(formData.get("note"));
+  const date = str(formData.get("date"));
+  if (!id) return { ok: false, error: "Missing note id." };
+  if (!body) return { ok: false, error: "Note text is required." };
+  if (!date) return { ok: false, error: "A date is required." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("calendar_event")
+    .update({ title: body, starts_at: `${date}T00:00:00` })
+    .eq("id", id)
+    .eq("source", "custom")
+    .eq("category", "note");
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/calendar");
+  return { ok: true };
+}
+
 /** Manually trigger a Google Calendar sync (same job the cron runs). */
 export async function syncCalendarNow(): Promise<ActionResult> {
   const gate = await ensureCanEdit("calendar");

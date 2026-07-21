@@ -12,6 +12,7 @@ export type CalendarSource = "google" | "custom" | "ce" | "interview" | "time_of
 export type CalendarCategory =
   | "google"
   | "general"
+  | "note"
   | "ce"
   | "interview"
   | "time_off"
@@ -43,6 +44,7 @@ export interface CalendarItem {
 export const CATEGORY_LABELS: Record<CalendarCategory, string> = {
   google: "Google Calendar",
   general: "Custom",
+  note: "Note",
   ce: "CE Event",
   interview: "Interview",
   time_off: "Time Off",
@@ -53,6 +55,7 @@ export const CATEGORY_LABELS: Record<CalendarCategory, string> = {
 export const CATEGORY_COLORS: Record<CalendarCategory, string> = {
   google: "#4285F4", // Google blue
   general: "#0f766e", // teal-700 (matches app accent)
+  note: "#eab308", // yellow-500 (sticky-note)
   ce: "#7c3aed", // violet-600
   interview: "#d97706", // amber-600
   time_off: "#64748b", // slate-500
@@ -63,6 +66,7 @@ export const CATEGORY_COLORS: Record<CalendarCategory, string> = {
 export const CATEGORY_TONE: Record<CalendarCategory, string> = {
   google: "bg-blue-100 text-blue-800",
   general: "bg-teal-100 text-teal-800",
+  note: "bg-yellow-100 text-yellow-800",
   ce: "bg-violet-100 text-violet-800",
   interview: "bg-amber-100 text-amber-800",
   time_off: "bg-slate-100 text-slate-600",

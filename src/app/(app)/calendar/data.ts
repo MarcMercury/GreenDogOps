@@ -66,7 +66,9 @@ type CalendarEventRow = {
 
 /** Colour bucket for a stored calendar_event row. */
 function rowCategory(r: CalendarEventRow): CalendarCategory {
-  if (r.source === "custom") return "general";
+  // Custom rows carry the category chosen on the page ('note' for free-form
+  // day notes, otherwise a plain custom event).
+  if (r.source === "custom") return r.category === "note" ? "note" : "general";
   // Google rows carry the category written by the sync job (google | interview).
   return r.category === "interview" ? "interview" : "google";
 }
