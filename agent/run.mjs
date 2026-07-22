@@ -32,6 +32,11 @@ const GLOBAL_REPORTS = [
   { key: "invoice_lines", name: "Invoice Lines", dated: true, endpoint: "ezyvet/invoice-lines" },
   { key: "ezyvet_crm_contacts", name: "Contacts", dated: false, endpoint: "ezyvet/contacts" },
   { key: "referral_statistics", name: "Referral Statistics", dated: false, endpoint: "ezyvet/referral" },
+  // Cancelled appointments (with reason) — spans all clinics from the admin
+  // login; the clinic is identified by the report's "Using" address column.
+  // Powers the Appointment Review cancels-by-type breakdown. From/To = the
+  // target day (the past day being reviewed).
+  { key: "cancelled_appointments", name: "Cancelled Appointments", dated: true, endpoint: "ezyvet/cancelled" },
 ];
 
 // Per-location reports (run once per clinic; the referral ingest auto-detects

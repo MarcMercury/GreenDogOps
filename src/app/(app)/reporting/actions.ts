@@ -14,6 +14,8 @@ import type {
   AppointmentReviewDetailRow,
   AppointmentReviewTypeRow,
   AppointmentReviewTypeDetailRow,
+  CancelledApptTypeRow,
+  CancelledApptDetailRow,
 } from "@/lib/reporting/types";
 
 export type ActionResult =
@@ -206,6 +208,68 @@ export async function getAppointmentReviewTypeDetail(
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true, rows: (data ?? []) as AppointmentReviewTypeDetailRow[] };
+}
+
+/**
+ * Cancels by appointment type: how many appointments of each type were
+ * cancelled across all locations for a past-date range, from the ezyVet
+ * "Canceled Appointments" report. Range capped at 92 days.
+ */
+export async function getCancelledAppointmentsByType(
+  startDate: string,
+  endDate: string,
+): Promise<{ ok: true; rows: CancelledApptTypeRow[] } | { ok: false; error: string }> {
+  await requireReportingAccess();
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
+    return { ok: false, error: "Invalid date range." };
+  }
+  let start = startDate;
+  let end = endDate;
+  if (start > end) [start, end] = [end, start];
+  const spanDays = Math.round(
+    (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000,
+  );
+  if (spanDays > 92) {
+    return { ok: false, error: "Please choose a range of 92 days or fewer." };
+  }
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("cancelled_appointments_by_type", {
+    p_start: start,
+    p_end: end,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rows: (data ?? []) as CancelledApptTypeRow[] };
+}
+
+/**
+ * Cancels drill-down: the individual cancelled appointments of a given type
+ * across all locations for a past-date range, with reason and description.
+ */
+export async function getCancelledAppointmentDetail(
+  startDate: string,
+  endDate: string,
+  apptType: string,
+): Promise<{ ok: true; rows: CancelledApptDetailRow[] } | { ok: false; error: string }> {
+  await requireReportingAccess();
+  const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
+    return { ok: false, error: "Invalid date range." };
+  }
+  if (!apptType || apptType.length > 200) {
+    return { ok: false, error: "Invalid appointment type." };
+  }
+  let start = startDate;
+  let end = endDate;
+  if (start > end) [start, end] = [end, start];
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("cancelled_appointments_detail", {
+    p_start: start,
+    p_end: end,
+    p_type: apptType,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, rows: (data ?? []) as CancelledApptDetailRow[] };
 }
 
 /** Begin an invoice import session; returns the new import id. */

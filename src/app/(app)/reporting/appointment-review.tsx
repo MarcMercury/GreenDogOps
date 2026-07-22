@@ -6,12 +6,16 @@ import type {
   AppointmentReviewDetailRow,
   AppointmentReviewTypeRow,
   AppointmentReviewTypeDetailRow,
+  CancelledApptTypeRow,
+  CancelledApptDetailRow,
 } from "@/lib/reporting/types";
 import {
   getAppointmentReview,
   getAppointmentReviewDetail,
   getAppointmentReviewByType,
   getAppointmentReviewTypeDetail,
+  getCancelledAppointmentsByType,
+  getCancelledAppointmentDetail,
 } from "./actions";
 import { StatCard, SectionCard, fmtNumber, fmtDate } from "./charts";
 import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
@@ -129,6 +133,7 @@ export function AppointmentReview() {
   const [end, setEnd] = useState(() => isoDaysAgo(1));
   const [rows, setRows] = useState<AppointmentReviewRow[] | null>(null);
   const [typeRows, setTypeRows] = useState<AppointmentReviewTypeRow[] | null>(null);
+  const [cancelRows, setCancelRows] = useState<CancelledApptTypeRow[] | null>(null);
   const [ranRange, setRanRange] = useState<{ start: string; end: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -136,17 +141,20 @@ export function AppointmentReview() {
   function run() {
     setError(null);
     startTransition(async () => {
-      const [res, typeRes] = await Promise.all([
+      const [res, typeRes, cancelRes] = await Promise.all([
         getAppointmentReview(start, end),
         getAppointmentReviewByType(start, end),
+        getCancelledAppointmentsByType(start, end),
       ]);
       if (res.ok) {
         setRows(res.rows);
         setTypeRows(typeRes.ok ? typeRes.rows : []);
+        setCancelRows(cancelRes.ok ? cancelRes.rows : []);
         setRanRange({ start, end });
       } else {
         setRows(null);
         setTypeRows(null);
+        setCancelRows(null);
         setError(res.error);
       }
     });
@@ -260,6 +268,7 @@ export function AppointmentReview() {
 
           <AppointmentTypeTable
             rows={typeRows ?? []}
+            cancels={cancelRows ?? []}
             start={ranRange?.start ?? start}
             end={ranRange?.end ?? end}
           />
@@ -580,69 +589,112 @@ function AppointmentDetailModal({
   );
 }
 
-/** Percent of scheduled appointments that rendered. */
-function renderPct(scheduled: number, rendered: number): string {
-  if (!scheduled) return "—";
-  return `${Math.round((rendered / scheduled) * 100)}%`;
-}
-
 /**
  * Breakdown of the reviewed range by ezyVet appointment TYPE (the category on
- * each Agenda appointment): scheduled vs rendered with the not-rendered gap,
- * across all locations. Clicking a Not Rendered count opens the individual
- * cancelled / moved appointments of that type.
+ * each Agenda appointment): every appointment type with its scheduled /
+ * rendered / added counts, plus cancels sourced from the ezyVet "Canceled
+ * Appointments" report (the source of truth for cancels + reasons), across all
+ * locations. Clicking a Cancels count shows the cancelled appointments with
+ * their reason; clicking Not Rendered shows the booked-vs-rendered gap.
  */
 function AppointmentTypeTable({
   rows,
+  cancels,
   start,
   end,
 }: {
   rows: AppointmentReviewTypeRow[];
+  cancels: CancelledApptTypeRow[];
   start: string;
   end: string;
 }) {
-  const [detailType, setDetailType] = useState<string | null>(null);
+  const [notRenderedType, setNotRenderedType] = useState<string | null>(null);
+  const [cancelType, setCancelType] = useState<string | null>(null);
 
-  const sort = useTableSort(rows, {
+  // Merge the Agenda-derived rows with the cancelled-report counts, keyed by
+  // appointment type, so every type from either source is listed.
+  const cancelByType = new Map(cancels.map((c) => [c.appt_type, c.cancel_count]));
+  const merged = new Map<
+    string,
+    {
+      appt_type: string;
+      scheduled: number;
+      rendered: number;
+      not_rendered: number;
+      added: number;
+      pending: number;
+      cancels: number;
+    }
+  >();
+  for (const r of rows) {
+    merged.set(r.appt_type, {
+      appt_type: r.appt_type,
+      scheduled: r.scheduled,
+      rendered: r.rendered,
+      not_rendered: r.not_rendered,
+      added: r.added,
+      pending: r.pending,
+      cancels: cancelByType.get(r.appt_type) ?? 0,
+    });
+  }
+  for (const c of cancels) {
+    if (merged.has(c.appt_type)) continue;
+    merged.set(c.appt_type, {
+      appt_type: c.appt_type,
+      scheduled: 0,
+      rendered: 0,
+      not_rendered: 0,
+      added: 0,
+      pending: 0,
+      cancels: c.cancel_count,
+    });
+  }
+  const mergedRows = [...merged.values()];
+
+  const sort = useTableSort(mergedRows, {
     type: (r) => r.appt_type,
     scheduled: (r) => r.scheduled,
     rendered: (r) => r.rendered,
+    added: (r) => r.added,
     notRendered: (r) => r.not_rendered,
-    renderPct: (r) => (r.scheduled > 0 ? r.rendered / r.scheduled : 0),
+    cancels: (r) => r.cancels,
   });
 
-  const totals = rows.reduce(
+  const totals = mergedRows.reduce(
     (acc, r) => {
       acc.scheduled += r.scheduled;
       acc.rendered += r.rendered;
       acc.not_rendered += r.not_rendered;
+      acc.added += r.added;
       acc.pending += r.pending;
+      acc.cancels += r.cancels;
       return acc;
     },
-    { scheduled: 0, rendered: 0, not_rendered: 0, pending: 0 },
+    { scheduled: 0, rendered: 0, not_rendered: 0, added: 0, pending: 0, cancels: 0 },
   );
 
   return (
     <SectionCard
       title="By Appointment Type"
-      description="Scheduled vs rendered for each ezyVet appointment type on the reviewed days, across all locations. Click a Not Rendered number to see which appointments cancelled or moved."
+      description="Every ezyVet appointment type on the reviewed days, across all locations: scheduled vs rendered (from the Agenda), plus cancels from the Canceled Appointments report. Click a Cancels number for the cancellation reasons; click Not Rendered for the booked-vs-rendered gap."
     >
-      {rows.length === 0 ? (
+      {mergedRows.length === 0 ? (
         <p className="text-sm text-slate-400">
-          No appointment-type detail is available for this range yet. Detail is only
-          captured for Agenda pulls taken after this feature shipped, and the day must
-          have been re-scanned after it passed.
+          No appointment-type data is available for this range yet. Cancels come from
+          the Canceled Appointments report; scheduled/rendered need Agenda pulls that
+          captured the day both before and after it passed.
         </p>
       ) : (
         <div className="max-h-[70vh] overflow-auto">
-          <table className="w-full min-w-[520px] border-collapse text-sm">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead className={stickyHeadClass}>
               <tr className="border-b border-slate-200 text-left">
                 <SortHeader label="Appointment Type" sortKey="type" sort={sort} className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400" />
                 <SortHeader label="Scheduled" sortKey="scheduled" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
                 <SortHeader label="Rendered" sortKey="rendered" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+                <SortHeader label="Added" sortKey="added" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
                 <SortHeader label="Not Rendered" sortKey="notRendered" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
-                <SortHeader label="Render %" sortKey="renderPct" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+                <SortHeader label="Cancels" sortKey="cancels" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
               </tr>
             </thead>
             <tbody>
@@ -662,13 +714,16 @@ function AppointmentTypeTable({
                   <td className="px-2 py-2 text-right tabular-nums text-emerald-700">
                     {fmtNumber(r.rendered)}
                   </td>
-                  <td className="px-2 py-2 text-right font-semibold tabular-nums text-amber-700">
+                  <td className="px-2 py-2 text-right tabular-nums text-sky-700">
+                    {fmtNumber(r.added)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-slate-500">
                     {r.not_rendered > 0 ? (
                       <button
                         type="button"
-                        onClick={() => setDetailType(r.appt_type)}
-                        className="underline decoration-dotted underline-offset-2 transition hover:text-amber-900"
-                        title="View appointments not rendered (cancelled / moved)"
+                        onClick={() => setNotRenderedType(r.appt_type)}
+                        className="underline decoration-dotted underline-offset-2 transition hover:text-slate-800"
+                        title="View the booked-vs-rendered gap (not rendered)"
                       >
                         {fmtNumber(r.not_rendered)}
                       </button>
@@ -676,8 +731,19 @@ function AppointmentTypeTable({
                       fmtNumber(r.not_rendered)
                     )}
                   </td>
-                  <td className="px-2 py-2 text-right tabular-nums text-slate-600">
-                    {renderPct(r.scheduled, r.rendered)}
+                  <td className="px-2 py-2 text-right font-semibold tabular-nums text-amber-700">
+                    {r.cancels > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setCancelType(r.appt_type)}
+                        className="underline decoration-dotted underline-offset-2 transition hover:text-amber-900"
+                        title="View cancelled appointments with reason"
+                      >
+                        {fmtNumber(r.cancels)}
+                      </button>
+                    ) : (
+                      fmtNumber(r.cancels)
+                    )}
                   </td>
                 </tr>
               ))}
@@ -691,23 +757,34 @@ function AppointmentTypeTable({
                 <td className="px-2 py-2 text-right tabular-nums text-emerald-700">
                   {fmtNumber(totals.rendered)}
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums text-amber-700">
+                <td className="px-2 py-2 text-right tabular-nums text-sky-700">
+                  {fmtNumber(totals.added)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums text-slate-500">
                   {fmtNumber(totals.not_rendered)}
                 </td>
-                <td className="px-2 py-2 text-right tabular-nums text-slate-700">
-                  {renderPct(totals.scheduled, totals.rendered)}
+                <td className="px-2 py-2 text-right tabular-nums text-amber-700">
+                  {fmtNumber(totals.cancels)}
                 </td>
               </tr>
             </tfoot>
           </table>
         </div>
       )}
-      {detailType ? (
+      {notRenderedType ? (
         <AppointmentTypeDetailModal
-          apptType={detailType}
+          apptType={notRenderedType}
           start={start}
           end={end}
-          onClose={() => setDetailType(null)}
+          onClose={() => setNotRenderedType(null)}
+        />
+      ) : null}
+      {cancelType ? (
+        <CancelledDetailModal
+          apptType={cancelType}
+          start={start}
+          end={end}
+          onClose={() => setCancelType(null)}
         />
       ) : null}
     </SectionCard>
@@ -819,6 +896,123 @@ function AppointmentTypeDetailModal({
             <p className="mt-3 text-xs text-slate-400">
               {fmtNumber(list.length)} appointment{list.length === 1 ? "" : "s"} not rendered
               (cancelled or moved).
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Drill-down modal: the individual cancelled appointments of one appointment
+ * type over the reviewed date range, from the ezyVet "Canceled Appointments"
+ * report — with the cancellation reason and description.
+ */
+function CancelledDetailModal({
+  apptType,
+  start,
+  end,
+  onClose,
+}: {
+  apptType: string;
+  start: string;
+  end: string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<CancelledApptDetailRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    startTransition(async () => {
+      const res = await getCancelledAppointmentDetail(start, end, apptType);
+      if (res.ok) setRows(res.rows);
+      else {
+        setRows([]);
+        setError(res.error);
+      }
+    });
+  }, [apptType, start, end]);
+
+  const list = rows ?? [];
+  const anyStatus = list.some((r) => r.status);
+  const anyReason = list.some((r) => r.reason);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="my-8 w-full max-w-4xl rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">
+              Cancelled — {apptType}
+            </h2>
+            <p className="text-xs text-slate-500">
+              All locations · {fmtDate(start)}
+              {start === end ? "" : ` – ${fmtDate(end)}`} · from the Canceled Appointments report
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+          {pending && rows == null ? (
+            <p className="text-sm text-slate-400">Loading cancellations…</p>
+          ) : error ? (
+            <p className="text-sm text-red-600">{error}</p>
+          ) : list.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              No cancellation detail is available for this range. The Canceled
+              Appointments report is ingested by the daily ezyVet agent.
+            </p>
+          ) : (
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <th className="py-2 pr-3 font-semibold">Date</th>
+                  <th className="px-2 py-2 font-semibold">Location</th>
+                  <th className="px-2 py-2 font-semibold">Time</th>
+                  {anyStatus ? <th className="px-2 py-2 font-semibold">Status</th> : null}
+                  {anyReason ? <th className="px-2 py-2 font-semibold">Reason</th> : null}
+                  <th className="px-2 py-2 font-semibold">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((r, i) => (
+                  <tr
+                    key={`${r.appt_date}-${i}`}
+                    className="border-b border-slate-100 align-top last:border-0"
+                  >
+                    <td className="py-2 pr-3 tabular-nums text-slate-600">{fmtDate(r.appt_date)}</td>
+                    <td className="px-2 py-2 text-slate-600">{r.location_name || "—"}</td>
+                    <td className="px-2 py-2 tabular-nums text-slate-600">
+                      {r.start_time?.split(" ").slice(1).join(" ") || "—"}
+                    </td>
+                    {anyStatus ? (
+                      <td className="px-2 py-2 text-slate-600">{r.status || "—"}</td>
+                    ) : null}
+                    {anyReason ? (
+                      <td className="px-2 py-2 text-slate-700">{r.reason || "—"}</td>
+                    ) : null}
+                    <td className="px-2 py-2 text-slate-500">
+                      <span className="line-clamp-3 whitespace-pre-line" title={r.description || ""}>
+                        {r.description || "—"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {list.length > 0 ? (
+            <p className="mt-3 text-xs text-slate-400">
+              {fmtNumber(list.length)} cancelled appointment{list.length === 1 ? "" : "s"}.
             </p>
           ) : null}
         </div>

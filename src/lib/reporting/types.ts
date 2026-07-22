@@ -335,6 +335,7 @@ export interface AppointmentReviewTypeRow {
   scheduled: number;
   rendered: number;
   not_rendered: number;
+  added: number;
   pending: number;
 }
 
@@ -356,6 +357,33 @@ export interface AppointmentReviewTypeDetailRow {
   appt_type: string | null;
   status: string | null;
   details: Record<string, string> | null;
+}
+
+/**
+ * One appointment-type row of the ezyVet "Canceled Appointments" report:
+ * how many appointments of that type were cancelled across all locations for a
+ * past-date range.
+ */
+export interface CancelledApptTypeRow {
+  appt_type: string;
+  cancel_count: number;
+}
+
+/**
+ * One cancelled appointment behind a cancels-by-type count, with its
+ * cancellation reason and description.
+ */
+export interface CancelledApptDetailRow {
+  appt_date: string;
+  appt_type: string;
+  location_id: string | null;
+  location_name: string | null;
+  start_time: string | null;
+  with_who: string | null;
+  using_resource: string | null;
+  description: string | null;
+  status: string | null;
+  reason: string | null;
 }
 
 export const LOCATION_LABELS: Record<LocationKey, string> = {
