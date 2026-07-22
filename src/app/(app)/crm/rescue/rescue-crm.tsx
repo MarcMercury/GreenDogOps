@@ -623,6 +623,7 @@ function ActivityTab({
 }) {
   const router = useRouter();
   const [actorFilter, setActorFilter] = useState("");
+  const [logOpen, setLogOpen] = useState(false);
 
   const actors = useMemo(() => {
     const set = new Set<string>();
@@ -642,64 +643,75 @@ function ActivityTab({
     <div className="space-y-6">
       {/* Full activity log — every user action across every rescue record */}
       <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
-          <div className="text-sm font-semibold text-slate-800">
+        <button
+          type="button"
+          onClick={() => setLogOpen((o) => !o)}
+          className={`flex w-full items-center justify-between gap-2 px-4 py-3 text-left ${logOpen ? "border-b border-slate-100" : ""}`}
+        >
+          <span className="text-sm font-semibold text-slate-800">
             Activity Log
             <span className="ml-2 text-xs font-normal text-slate-400">
-              {filtered.length} action{filtered.length === 1 ? "" : "s"}
+              {auditLog.length} action{auditLog.length === 1 ? "" : "s"}
             </span>
-          </div>
-          {actors.length > 0 && (
-            <select
-              value={actorFilter}
-              onChange={(e) => setActorFilter(e.target.value)}
-              className="rounded-lg border border-slate-300 px-2 py-1 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="">All users</option>
-              {actors.map((a) => (
-                <option key={a} value={a}>{a}</option>
-              ))}
-            </select>
-          )}
-        </div>
-        {filtered.length === 0 ? (
-          <div className="p-10 text-center text-sm text-slate-500">No activity recorded yet.</div>
-        ) : (
-          <ol className="divide-y divide-slate-100">
-            {filtered.map((e) => {
-              const who = e.actor_name || e.actor_email || "System";
-              const target = e.entity_id ? nameById.get(e.entity_id) : null;
-              return (
-                <li
-                  key={e.id}
-                  className={`flex items-start gap-3 px-4 py-3 ${e.entity_id && target ? "cursor-pointer transition hover:bg-slate-50" : ""}`}
-                  onClick={() => {
-                    if (e.entity_id && target) router.push(`/crm/org/${e.entity_id}`);
-                  }}
+          </span>
+          <span className={`text-xs text-slate-400 transition-transform ${logOpen ? "rotate-180" : ""}`}>▼</span>
+        </button>
+        {logOpen && (
+          <>
+            {actors.length > 0 && (
+              <div className="flex items-center justify-end border-b border-slate-100 px-4 py-2">
+                <select
+                  value={actorFilter}
+                  onChange={(e) => setActorFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
                 >
-                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">
-                    {activityInitials(e.actor_name, e.actor_email)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="truncate text-sm text-slate-800">
-                        <span className="font-medium text-slate-900">{who}</span>{" "}
-                        {orgActivityActionLabel(e.action).toLowerCase()}
-                        {target && <span className="font-medium text-slate-900"> {target}</span>}
-                      </p>
-                      <span
-                        className="shrink-0 text-xs text-slate-400"
-                        title={new Date(e.created_at).toLocaleString()}
-                      >
-                        {relativeTime(e.created_at)}
+                  <option value="">All users</option>
+                  {actors.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <div className="p-10 text-center text-sm text-slate-500">No activity recorded yet.</div>
+            ) : (
+              <ol className="divide-y divide-slate-100">
+                {filtered.map((e) => {
+                  const who = e.actor_name || e.actor_email || "System";
+                  const target = e.entity_id ? nameById.get(e.entity_id) : null;
+                  return (
+                    <li
+                      key={e.id}
+                      className={`flex items-start gap-3 px-4 py-3 ${e.entity_id && target ? "cursor-pointer transition hover:bg-slate-50" : ""}`}
+                      onClick={() => {
+                        if (e.entity_id && target) router.push(`/crm/org/${e.entity_id}`);
+                      }}
+                    >
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">
+                        {activityInitials(e.actor_name, e.actor_email)}
                       </span>
-                    </div>
-                    {e.summary && <p className="mt-0.5 text-xs text-slate-500">{e.summary}</p>}
-                  </div>
-                </li>
-              );
-            })}
-          </ol>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm text-slate-800">
+                            <span className="font-medium text-slate-900">{who}</span>{" "}
+                            {orgActivityActionLabel(e.action).toLowerCase()}
+                            {target && <span className="font-medium text-slate-900"> {target}</span>}
+                          </p>
+                          <span
+                            className="shrink-0 text-xs text-slate-400"
+                            title={new Date(e.created_at).toLocaleString()}
+                          >
+                            {relativeTime(e.created_at)}
+                          </span>
+                        </div>
+                        {e.summary && <p className="mt-0.5 text-xs text-slate-500">{e.summary}</p>}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </>
         )}
       </div>
 
