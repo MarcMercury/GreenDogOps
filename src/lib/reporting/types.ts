@@ -324,6 +324,40 @@ export interface AppointmentReviewDetailRow {
   details: Record<string, string> | null;
 }
 
+/**
+ * One Appointment Review row grouped by the ezyVet appointment TYPE (the
+ * category shown on each Agenda appointment): scheduled vs rendered for a past
+ * date range, across all locations. `not_rendered` = scheduled - rendered
+ * (cancelled / moved); `pending` = booked on days not yet re-scanned.
+ */
+export interface AppointmentReviewTypeRow {
+  appt_type: string;
+  scheduled: number;
+  rendered: number;
+  not_rendered: number;
+  pending: number;
+}
+
+/**
+ * One appointment of a given type that was NOT rendered (booked but absent from
+ * the post-day pull = cancelled / moved) behind an Appointment Review by-type
+ * count. `details` carries every column from the Agenda CSV.
+ */
+export interface AppointmentReviewTypeDetailRow {
+  location_id: string;
+  location_name: string;
+  department_name: string;
+  appt_date: string;
+  appt_key: string;
+  client_name: string | null;
+  patient_name: string | null;
+  resource: string | null;
+  appt_time: string | null;
+  appt_type: string | null;
+  status: string | null;
+  details: Record<string, string> | null;
+}
+
 export const LOCATION_LABELS: Record<LocationKey, string> = {
   sherman_oaks: "Sherman Oaks",
   van_nuys: "Van Nuys",

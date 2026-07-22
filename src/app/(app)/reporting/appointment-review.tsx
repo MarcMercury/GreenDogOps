@@ -4,8 +4,15 @@ import { Fragment, useEffect, useState, useTransition } from "react";
 import type {
   AppointmentReviewRow,
   AppointmentReviewDetailRow,
+  AppointmentReviewTypeRow,
+  AppointmentReviewTypeDetailRow,
 } from "@/lib/reporting/types";
-import { getAppointmentReview, getAppointmentReviewDetail } from "./actions";
+import {
+  getAppointmentReview,
+  getAppointmentReviewDetail,
+  getAppointmentReviewByType,
+  getAppointmentReviewTypeDetail,
+} from "./actions";
 import { StatCard, SectionCard, fmtNumber, fmtDate } from "./charts";
 import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 
@@ -121,6 +128,7 @@ export function AppointmentReview() {
   const [start, setStart] = useState(() => isoDaysAgo(7));
   const [end, setEnd] = useState(() => isoDaysAgo(1));
   const [rows, setRows] = useState<AppointmentReviewRow[] | null>(null);
+  const [typeRows, setTypeRows] = useState<AppointmentReviewTypeRow[] | null>(null);
   const [ranRange, setRanRange] = useState<{ start: string; end: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -128,12 +136,17 @@ export function AppointmentReview() {
   function run() {
     setError(null);
     startTransition(async () => {
-      const res = await getAppointmentReview(start, end);
+      const [res, typeRes] = await Promise.all([
+        getAppointmentReview(start, end),
+        getAppointmentReviewByType(start, end),
+      ]);
       if (res.ok) {
         setRows(res.rows);
+        setTypeRows(typeRes.ok ? typeRes.rows : []);
         setRanRange({ start, end });
       } else {
         setRows(null);
+        setTypeRows(null);
         setError(res.error);
       }
     });
@@ -244,6 +257,12 @@ export function AppointmentReview() {
               />
             </SectionCard>
           ))}
+
+          <AppointmentTypeTable
+            rows={typeRows ?? []}
+            start={ranRange?.start ?? start}
+            end={ranRange?.end ?? end}
+          />
         </>
       )}
     </div>
@@ -553,6 +572,253 @@ function AppointmentDetailModal({
             <p className="mt-3 text-xs text-slate-400">
               {fmtNumber(filtered.length)} appointment{filtered.length === 1 ? "" : "s"}{" "}
               {change === "dropped" ? "cancelled or moved" : "added on"}.
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Percent of scheduled appointments that rendered. */
+function renderPct(scheduled: number, rendered: number): string {
+  if (!scheduled) return "—";
+  return `${Math.round((rendered / scheduled) * 100)}%`;
+}
+
+/**
+ * Breakdown of the reviewed range by ezyVet appointment TYPE (the category on
+ * each Agenda appointment): scheduled vs rendered with the not-rendered gap,
+ * across all locations. Clicking a Not Rendered count opens the individual
+ * cancelled / moved appointments of that type.
+ */
+function AppointmentTypeTable({
+  rows,
+  start,
+  end,
+}: {
+  rows: AppointmentReviewTypeRow[];
+  start: string;
+  end: string;
+}) {
+  const [detailType, setDetailType] = useState<string | null>(null);
+
+  const sort = useTableSort(rows, {
+    type: (r) => r.appt_type,
+    scheduled: (r) => r.scheduled,
+    rendered: (r) => r.rendered,
+    notRendered: (r) => r.not_rendered,
+    renderPct: (r) => (r.scheduled > 0 ? r.rendered / r.scheduled : 0),
+  });
+
+  const totals = rows.reduce(
+    (acc, r) => {
+      acc.scheduled += r.scheduled;
+      acc.rendered += r.rendered;
+      acc.not_rendered += r.not_rendered;
+      acc.pending += r.pending;
+      return acc;
+    },
+    { scheduled: 0, rendered: 0, not_rendered: 0, pending: 0 },
+  );
+
+  return (
+    <SectionCard
+      title="By Appointment Type"
+      description="Scheduled vs rendered for each ezyVet appointment type on the reviewed days, across all locations. Click a Not Rendered number to see which appointments cancelled or moved."
+    >
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          No appointment-type detail is available for this range yet. Detail is only
+          captured for Agenda pulls taken after this feature shipped, and the day must
+          have been re-scanned after it passed.
+        </p>
+      ) : (
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="w-full min-w-[520px] border-collapse text-sm">
+            <thead className={stickyHeadClass}>
+              <tr className="border-b border-slate-200 text-left">
+                <SortHeader label="Appointment Type" sortKey="type" sort={sort} className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400" />
+                <SortHeader label="Scheduled" sortKey="scheduled" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+                <SortHeader label="Rendered" sortKey="rendered" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+                <SortHeader label="Not Rendered" sortKey="notRendered" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+                <SortHeader label="Render %" sortKey="renderPct" sort={sort} align="right" className="px-2 py-2 text-xs font-semibold text-slate-500" />
+              </tr>
+            </thead>
+            <tbody>
+              {sort.sorted.map((r) => (
+                <tr key={r.appt_type} className="border-b border-slate-100 last:border-0">
+                  <td className="py-2 pr-3 font-medium text-slate-700">
+                    {r.appt_type}
+                    {r.pending ? (
+                      <span className="ml-2 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500">
+                        {fmtNumber(r.pending)} pending
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-slate-600">
+                    {fmtNumber(r.scheduled)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-emerald-700">
+                    {fmtNumber(r.rendered)}
+                  </td>
+                  <td className="px-2 py-2 text-right font-semibold tabular-nums text-amber-700">
+                    {r.not_rendered > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => setDetailType(r.appt_type)}
+                        className="underline decoration-dotted underline-offset-2 transition hover:text-amber-900"
+                        title="View appointments not rendered (cancelled / moved)"
+                      >
+                        {fmtNumber(r.not_rendered)}
+                      </button>
+                    ) : (
+                      fmtNumber(r.not_rendered)
+                    )}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums text-slate-600">
+                    {renderPct(r.scheduled, r.rendered)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-slate-200 font-semibold">
+                <td className="py-2 pr-3 text-slate-700">Total</td>
+                <td className="px-2 py-2 text-right tabular-nums text-slate-700">
+                  {fmtNumber(totals.scheduled)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums text-emerald-700">
+                  {fmtNumber(totals.rendered)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums text-amber-700">
+                  {fmtNumber(totals.not_rendered)}
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums text-slate-700">
+                  {renderPct(totals.scheduled, totals.rendered)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+      {detailType ? (
+        <AppointmentTypeDetailModal
+          apptType={detailType}
+          start={start}
+          end={end}
+          onClose={() => setDetailType(null)}
+        />
+      ) : null}
+    </SectionCard>
+  );
+}
+
+/**
+ * Drill-down modal: the individual appointments of one appointment type that
+ * were NOT rendered (cancelled or moved) over the reviewed date range.
+ */
+function AppointmentTypeDetailModal({
+  apptType,
+  start,
+  end,
+  onClose,
+}: {
+  apptType: string;
+  start: string;
+  end: string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<AppointmentReviewTypeDetailRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  useEffect(() => {
+    startTransition(async () => {
+      const res = await getAppointmentReviewTypeDetail(start, end, apptType);
+      if (res.ok) setRows(res.rows);
+      else {
+        setRows([]);
+        setError(res.error);
+      }
+    });
+  }, [apptType, start, end]);
+
+  const list = rows ?? [];
+  const anyPatient = list.some((r) => r.patient_name);
+  const anyTime = list.some((r) => r.appt_time);
+  const anyStatus = list.some((r) => r.status);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/40 p-4 backdrop-blur-sm">
+      <div className="my-8 w-full max-w-3xl rounded-2xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">
+              Not Rendered — {apptType}
+            </h2>
+            <p className="text-xs text-slate-500">
+              All locations · {fmtDate(start)}
+              {start === end ? "" : ` – ${fmtDate(end)}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="max-h-[70vh] overflow-y-auto px-5 py-4">
+          {pending && rows == null ? (
+            <p className="text-sm text-slate-400">Loading appointments…</p>
+          ) : error ? (
+            <p className="text-sm text-red-600">{error}</p>
+          ) : list.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              No appointment-level detail is available for this range. Detail is only
+              captured for Agenda pulls taken after this feature shipped.
+            </p>
+          ) : (
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <th className="py-2 pr-3 font-semibold">Date</th>
+                  <th className="px-2 py-2 font-semibold">Location</th>
+                  <th className="px-2 py-2 font-semibold">Client</th>
+                  {anyPatient ? <th className="px-2 py-2 font-semibold">Patient</th> : null}
+                  <th className="px-2 py-2 font-semibold">Resource / Vet</th>
+                  {anyTime ? <th className="px-2 py-2 font-semibold">Time</th> : null}
+                  {anyStatus ? <th className="px-2 py-2 font-semibold">Status</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {list.map((r, i) => (
+                  <tr key={`${r.appt_date}-${r.appt_key}-${i}`} className="border-b border-slate-100 last:border-0">
+                    <td className="py-2 pr-3 tabular-nums text-slate-600">{fmtDate(r.appt_date)}</td>
+                    <td className="px-2 py-2 text-slate-600">{r.location_name || "—"}</td>
+                    <td className="px-2 py-2 text-slate-800">{r.client_name || "—"}</td>
+                    {anyPatient ? (
+                      <td className="px-2 py-2 text-slate-600">{r.patient_name || "—"}</td>
+                    ) : null}
+                    <td className="px-2 py-2 text-slate-600">{r.resource || "—"}</td>
+                    {anyTime ? (
+                      <td className="px-2 py-2 tabular-nums text-slate-600">{r.appt_time || "—"}</td>
+                    ) : null}
+                    {anyStatus ? (
+                      <td className="px-2 py-2 text-slate-600">{r.status || "—"}</td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {list.length > 0 ? (
+            <p className="mt-3 text-xs text-slate-400">
+              {fmtNumber(list.length)} appointment{list.length === 1 ? "" : "s"} not rendered
+              (cancelled or moved).
             </p>
           ) : null}
         </div>
