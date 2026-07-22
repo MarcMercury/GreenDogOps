@@ -108,6 +108,46 @@ export interface ClinicVisit {
   visit_notes: string | null;
 }
 
+/**
+ * A single entry from the shared audit_log, scoped to Referral CRM actions
+ * (action starts with "referral."). Powers the Activity tab's "All Activity"
+ * feed so every user mutation — partner edits, contact/note changes, uploads —
+ * is visible, not just logged clinic visits.
+ */
+export interface ActivityLogEntry {
+  id: string;
+  actor_name: string | null;
+  actor_email: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  summary: string | null;
+  created_at: string;
+}
+
+/** Human-readable label for a referral.* audit action. */
+export function activityActionLabel(action: string): string {
+  const map: Record<string, string> = {
+    "referral.partner.create": "Created partner",
+    "referral.partner.update": "Updated partner",
+    "referral.partner.delete": "Deleted partner",
+    "referral.partner.quickadd": "Quick-added partner",
+    "referral.unmatched.dismiss": "Dismissed unmatched clinic",
+    "referral.contact.create": "Added contact",
+    "referral.contact.update": "Updated contact",
+    "referral.contact.delete": "Deleted contact",
+    "referral.note.create": "Added note",
+    "referral.note.update": "Updated note",
+    "referral.note.delete": "Deleted note",
+    "referral.visit.log": "Logged visit",
+    "referral.metrics.recalculate": "Recalculated metrics",
+    "referral.stats.clear": "Cleared referral stats",
+    "referral.upload": "Uploaded referral data",
+    "referral.upload.undo": "Undid an upload",
+  };
+  return map[action] ?? titleCase(action.replace(/^referral\./, "").replace(/[._]/g, " "));
+}
+
 export interface PartnerContact {
   id: string;
   partner_id: string | null;

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getCurrentUser } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
 import type {
   ReferralPartner,
@@ -9,6 +10,7 @@ import type {
   UnmatchedEntry,
   PartnerContact,
   PartnerNote,
+  ActivityLogEntry,
 } from "@/lib/crm/referral-types";
 import { ReferralCrm } from "./referral-crm";
 
@@ -155,6 +157,42 @@ export default async function ReferralCrmPage() {
   const mapsApiKey =
     process.env.GOOGLE_MAPS_PUBLIC_KEY ?? process.env.GOOGLE_MAPS_API_KEY ?? "";
 
+  // Full activity feed — every Referral CRM mutation is recorded in the shared
+  // audit_log (partner edits, contact/note changes, visits, uploads). The admin
+  // client is required because audit_log is not readable under normal RLS.
+  const admin = createAdminClient();
+  const { data: auditRows } = await admin
+    .from("audit_log")
+    .select("id, actor_id, actor_email, action, entity, entity_id, summary, created_at")
+    .like("action", "referral.%")
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  // Resolve actor display names from app_user (falls back to email).
+  const actorIds = [
+    ...new Set((auditRows ?? []).map((r) => r.actor_id).filter((v): v is string => !!v)),
+  ];
+  const actorNames = new Map<string, string>();
+  if (actorIds.length) {
+    const { data: users } = await admin
+      .from("app_user")
+      .select("id, full_name")
+      .in("id", actorIds);
+    for (const u of users ?? []) {
+      if (u.full_name) actorNames.set(u.id as string, u.full_name as string);
+    }
+  }
+  const auditLog: ActivityLogEntry[] = (auditRows ?? []).map((r) => ({
+    id: r.id as string,
+    actor_name: r.actor_id ? actorNames.get(r.actor_id as string) ?? null : null,
+    actor_email: (r.actor_email as string | null) ?? null,
+    action: r.action as string,
+    entity: (r.entity as string | null) ?? null,
+    entity_id: (r.entity_id as string | null) ?? null,
+    summary: (r.summary as string | null) ?? null,
+    created_at: r.created_at as string,
+  }));
+
   return (
     <ReferralCrm
       partners={partners}
@@ -163,6 +201,7 @@ export default async function ReferralCrmPage() {
       unmatched={unmatched}
       contacts={contacts}
       notes={notes}
+      auditLog={auditLog}
       isAdmin={isAdmin}
       canEdit={canEdit}
       mapsApiKey={mapsApiKey}

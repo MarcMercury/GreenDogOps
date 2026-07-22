@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
-import { ensureEditor } from "@/lib/auth/session";
+import { ensureEditor, recordAudit } from "@/lib/auth/session";
 import { RESCUE_SUBTYPE } from "@/lib/crm/types";
 
 export type ActionResult =
@@ -57,6 +57,17 @@ export async function logRescueVisit(formData: FormData): Promise<ActionResult> 
     .eq("id", orgId);
   if (updErr) return { ok: false, error: updErr.message };
 
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "rescue.visit.log",
+    entity: "crm_organization",
+    entityId: orgId,
+    summary: str(formData.get("spoke_to"))
+      ? `Logged visit — spoke with ${str(formData.get("spoke_to"))}`
+      : "Logged visit",
+  });
+
   revalidatePath("/crm/rescue");
   revalidatePath(`/crm/org/${orgId}`);
   return { ok: true, message: "Visit logged." };
@@ -70,11 +81,25 @@ export async function deleteRescue(orgId: string): Promise<ActionResult> {
   if (!gate.ok) return gate;
 
   const admin = createAdminClient();
+  const { data: existing } = await admin
+    .from("crm_organization")
+    .select("name")
+    .eq("id", orgId)
+    .maybeSingle();
   const { error } = await admin
     .from("crm_organization")
     .delete()
     .eq("id", orgId);
   if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "rescue.record.delete",
+    entity: "crm_organization",
+    entityId: orgId,
+    summary: `Deleted rescue ${(existing as { name?: string } | null)?.name ?? ""}`.trim(),
+  });
 
   revalidatePath("/crm/rescue");
   revalidatePath("/crm", "layout");
@@ -179,7 +204,17 @@ export async function geocodeRescues(): Promise<GeocodeResult> {
   }
 
   const remaining = Math.max(0, totalPending - batch.length);
-  if (geocoded > 0) revalidatePath("/crm/rescue");
+  if (geocoded > 0) {
+    revalidatePath("/crm/rescue");
+    await recordAudit({
+      actorId: gate.current.authId,
+      actorEmail: gate.current.email,
+      action: "rescue.geocode",
+      entity: "crm_organization",
+      summary: `Geocoded ${geocoded} rescue${geocoded === 1 ? "" : "s"}`,
+      metadata: { geocoded, failed, remaining },
+    });
+  }
 
   const failNote = failed
     ? ` ${failed} address${failed === 1 ? "" : "es"} could not be located${

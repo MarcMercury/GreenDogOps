@@ -7,10 +7,12 @@ import { PageHeader } from "../../_components/ui";
 import {
   type CrmOrganization,
   type CrmOrgVisit,
+  type OrgActivityLogEntry,
   ORG_STATUS_OPTIONS,
   RESCUE_VISIT_TOPIC_OPTIONS,
   agreementStatusLabel,
   rescueVisitTopicLabel,
+  orgActivityActionLabel,
 } from "@/lib/crm/types";
 import {
   ZONE_DEFINITIONS,
@@ -62,11 +64,13 @@ function compareByVisit(a: CrmOrganization, b: CrmOrganization): number {
 export function RescueCrm({
   rescues,
   visits,
+  auditLog,
   canEdit,
   mapsApiKey,
 }: {
   rescues: CrmOrganization[];
   visits: CrmOrgVisit[];
+  auditLog: OrgActivityLogEntry[];
   canEdit: boolean;
   mapsApiKey: string;
 }) {
@@ -230,7 +234,7 @@ export function RescueCrm({
           onFilterArea={(z) => { setArea(z); setTab("list"); }}
         />
       )}
-      {tab === "activity" && <ActivityTab visits={visits} nameById={nameById} />}
+      {tab === "activity" && <ActivityTab visits={visits} auditLog={auditLog} nameById={nameById} />}
       {tab === "reports" && <ReportsTab rescues={rescues} />}
 
       {quickVisitFor && (
@@ -585,41 +589,151 @@ function AreaRescueTable({ list }: { list: CrmOrganization[] }) {
 }
 
 // ===========================================================================
-// Activity tab — visit feed across all rescues
+// Activity tab — full audit feed + rich visit detail across all rescues
 // ===========================================================================
-function ActivityTab({ visits, nameById }: { visits: CrmOrgVisit[]; nameById: Map<string, string> }) {
+function activityInitials(name: string | null, email: string | null): string {
+  const source = (name || email || "?").trim();
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  const letters = parts.slice(0, 2).map((w) => w[0]).join("");
+  return (letters || source[0] || "?").toUpperCase();
+}
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diff = Date.now() - then;
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function ActivityTab({
+  visits,
+  auditLog,
+  nameById,
+}: {
+  visits: CrmOrgVisit[];
+  auditLog: OrgActivityLogEntry[];
+  nameById: Map<string, string>;
+}) {
   const router = useRouter();
-  if (visits.length === 0) {
-    return <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-500">No visits logged yet. Use “Quick Visit” to record activity.</div>;
-  }
+  const [actorFilter, setActorFilter] = useState("");
+
+  const actors = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of auditLog) {
+      const label = e.actor_name || e.actor_email;
+      if (label) set.add(label);
+    }
+    return [...set].sort();
+  }, [auditLog]);
+
+  const filtered = useMemo(() => {
+    if (!actorFilter) return auditLog;
+    return auditLog.filter((e) => (e.actor_name || e.actor_email) === actorFilter);
+  }, [auditLog, actorFilter]);
+
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
-      <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Recent Rescue Visits</div>
-      <ol className="divide-y divide-slate-100">
-        {visits.slice(0, 100).map((v) => (
-          <li
-            key={v.id}
-            className="cursor-pointer px-4 py-3 transition hover:bg-slate-50"
-            onClick={() => router.push(`/crm/org/${v.org_id}`)}
-          >
-            <div className="flex items-center justify-between">
-              <span className="font-medium text-slate-900">{nameById.get(v.org_id) ?? "Rescue"}</span>
-              <span className="text-xs text-slate-400">{formatDate(v.visit_date)}</span>
-            </div>
-            {v.spoke_to && <p className="mt-0.5 text-xs text-slate-500">Spoke with: {v.spoke_to}</p>}
-            {v.topics && v.topics.length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {v.topics.map((t) => (
-                  <span key={t} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                    {rescueVisitTopicLabel(t)}
+    <div className="space-y-6">
+      {/* Full activity log — every user action across every rescue record */}
+      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
+          <div className="text-sm font-semibold text-slate-800">
+            Activity Log
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              {filtered.length} action{filtered.length === 1 ? "" : "s"}
+            </span>
+          </div>
+          {actors.length > 0 && (
+            <select
+              value={actorFilter}
+              onChange={(e) => setActorFilter(e.target.value)}
+              className="rounded-lg border border-slate-300 px-2 py-1 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="">All users</option>
+              {actors.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          )}
+        </div>
+        {filtered.length === 0 ? (
+          <div className="p-10 text-center text-sm text-slate-500">No activity recorded yet.</div>
+        ) : (
+          <ol className="divide-y divide-slate-100">
+            {filtered.map((e) => {
+              const who = e.actor_name || e.actor_email || "System";
+              const target = e.entity_id ? nameById.get(e.entity_id) : null;
+              return (
+                <li
+                  key={e.id}
+                  className={`flex items-start gap-3 px-4 py-3 ${e.entity_id && target ? "cursor-pointer transition hover:bg-slate-50" : ""}`}
+                  onClick={() => {
+                    if (e.entity_id && target) router.push(`/crm/org/${e.entity_id}`);
+                  }}
+                >
+                  <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">
+                    {activityInitials(e.actor_name, e.actor_email)}
                   </span>
-                ))}
-              </div>
-            )}
-            {v.visit_notes && <p className="mt-1.5 text-sm text-slate-600">{v.visit_notes}</p>}
-          </li>
-        ))}
-      </ol>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="truncate text-sm text-slate-800">
+                        <span className="font-medium text-slate-900">{who}</span>{" "}
+                        {orgActivityActionLabel(e.action).toLowerCase()}
+                        {target && <span className="font-medium text-slate-900"> {target}</span>}
+                      </p>
+                      <span
+                        className="shrink-0 text-xs text-slate-400"
+                        title={new Date(e.created_at).toLocaleString()}
+                      >
+                        {relativeTime(e.created_at)}
+                      </span>
+                    </div>
+                    {e.summary && <p className="mt-0.5 text-xs text-slate-500">{e.summary}</p>}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </div>
+
+      {/* Recent rescue visits — richer detail (topics, notes) */}
+      {visits.length > 0 && (
+        <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Recent Rescue Visits</div>
+          <ol className="divide-y divide-slate-100">
+            {visits.slice(0, 100).map((v) => (
+              <li
+                key={v.id}
+                className="cursor-pointer px-4 py-3 transition hover:bg-slate-50"
+                onClick={() => router.push(`/crm/org/${v.org_id}`)}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-slate-900">{nameById.get(v.org_id) ?? "Rescue"}</span>
+                  <span className="text-xs text-slate-400">{formatDate(v.visit_date)}</span>
+                </div>
+                {v.spoke_to && <p className="mt-0.5 text-xs text-slate-500">Spoke with: {v.spoke_to}</p>}
+                {v.topics && v.topics.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {v.topics.map((t) => (
+                      <span key={t} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                        {rescueVisitTopicLabel(t)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {v.visit_notes && <p className="mt-1.5 text-sm text-slate-600">{v.visit_notes}</p>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

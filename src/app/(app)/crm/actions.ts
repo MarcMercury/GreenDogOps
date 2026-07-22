@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ensureEditor, getCurrentUser } from "@/lib/auth/session";
+import { ensureEditor, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { logProfileTransition } from "@/lib/shared/transition-log";
 import {
   crmSlugForOrgType,
@@ -102,6 +102,14 @@ export async function updateOrganization(
     .update(patch)
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "crm.org.update",
+    entity: "crm_organization",
+    entityId: id,
+    summary: `Updated record ${patch.name}`,
+  });
   revalidatePath(`/crm/org/${id}`);
   revalidatePath("/crm", "layout");
   return { ok: true };
@@ -124,8 +132,17 @@ export async function createOrganization(
     .select("id")
     .single();
   if (error) return { ok: false, error: error.message };
+  const newId = (data as { id: string }).id;
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "crm.org.create",
+    entity: "crm_organization",
+    entityId: newId,
+    summary: `Created record ${str(formData.get("name")) ?? "Unknown"}`,
+  });
   revalidatePath("/crm", "layout");
-  redirect(`/crm/org/${(data as { id: string }).id}`);
+  redirect(`/crm/org/${newId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -172,6 +189,15 @@ export async function logOrgQuickNote(
     .update({ notes, last_visit_date: visitDate, last_contact_date: visitDate })
     .eq("id", orgId);
   if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "crm.org.note",
+    entity: "crm_organization",
+    entityId: orgId,
+    summary: "Added a note",
+  });
 
   revalidatePath(`/crm/org/${orgId}`);
   revalidatePath("/crm", "layout");
@@ -227,6 +253,15 @@ export async function uploadOrgDocument(
     return { ok: false, error: dbErr.message };
   }
 
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "crm.org.document.upload",
+    entity: "crm_organization",
+    entityId: orgId,
+    summary: `Uploaded document ${str(formData.get("title")) ?? file.name}`,
+  });
+
   revalidatePath(`/crm/org/${orgId}`);
   return { ok: true };
 }
@@ -247,6 +282,15 @@ export async function deleteOrgDocument(
     .delete()
     .eq("id", documentId);
   if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "crm.org.document.delete",
+    entity: "crm_organization",
+    entityId: orgId,
+    summary: "Deleted a document",
+  });
 
   revalidatePath(`/crm/org/${orgId}`);
   return { ok: true };
@@ -635,7 +679,7 @@ export async function deleteOrganization(id: string): Promise<SaveResult> {
   const supabase = await createClient();
   const { data: org } = await supabase
     .from("crm_organization")
-    .select("org_type")
+    .select("org_type, name")
     .eq("id", id)
     .maybeSingle();
   const { error } = await supabase
@@ -643,6 +687,14 @@ export async function deleteOrganization(id: string): Promise<SaveResult> {
     .delete()
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "crm.org.delete",
+    entity: "crm_organization",
+    entityId: id,
+    summary: `Deleted record ${(org as { name?: string } | null)?.name ?? ""}`.trim(),
+  });
   const slug = org
     ? crmSlugForOrgType((org as { org_type: OrgType }).org_type)
     : null;

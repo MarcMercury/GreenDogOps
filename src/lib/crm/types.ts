@@ -160,6 +160,41 @@ export interface CrmOrgVisit {
   updated_at: string;
 }
 
+/**
+ * A single entry from the shared audit_log, scoped to a CRM organization
+ * record. Powers the Rescue CRM Activity tab's "Activity Log" feed so every
+ * user mutation — record edits, notes, documents, visits, deletions — is
+ * visible, not just logged visits.
+ */
+export interface OrgActivityLogEntry {
+  id: string;
+  actor_name: string | null;
+  actor_email: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  summary: string | null;
+  created_at: string;
+}
+
+/** Human-readable label for a crm.org.* / rescue.* audit action. */
+export function orgActivityActionLabel(action: string): string {
+  const map: Record<string, string> = {
+    "crm.org.create": "Created record",
+    "crm.org.update": "Updated record",
+    "crm.org.delete": "Deleted record",
+    "crm.org.note": "Added a note",
+    "crm.org.document.upload": "Uploaded a document",
+    "crm.org.document.delete": "Deleted a document",
+    "rescue.visit.log": "Logged visit",
+    "rescue.record.delete": "Deleted rescue",
+    "rescue.geocode": "Geocoded rescue addresses",
+  };
+  if (map[action]) return map[action];
+  const cleaned = action.replace(/^(crm\.org\.|rescue\.)/, "").replace(/[._]/g, " ");
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
 // Subjects discussed on a rescue/shelter quick visit (mirrors the Referral
 // CRM's VISIT_ITEM_OPTIONS). Surfaced as tappable chips in the Quick Visit
 // dialog and rendered back on the Activity feed.

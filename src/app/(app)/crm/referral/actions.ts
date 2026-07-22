@@ -181,6 +181,12 @@ export async function logQuickVisit(formData: FormData): Promise<ActionResult> {
     await createAdminClient().rpc("recalculate_partner_metrics");
   }
 
+  await recordAudit({
+    actorId: current.authId, actorEmail: current.email,
+    action: "referral.visit.log", entity: "referral_partner", entityId: partnerId ?? undefined,
+    summary: `Logged visit to ${clinicName}`,
+  });
+
   revalidatePath("/crm/referral");
   return { ok: true, message: "Visit logged." };
 }
@@ -340,10 +346,21 @@ export async function saveContact(formData: FormData): Promise<ActionResult> {
 }
 
 export async function deleteContact(id: string): Promise<ActionResult> {
-  await requireReferralUser();
+  const current = await requireReferralUser();
   const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("partner_contacts")
+    .select("partner_id, name")
+    .eq("id", id)
+    .maybeSingle();
   const { error } = await supabase.from("partner_contacts").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
+  await recordAudit({
+    actorId: current.authId, actorEmail: current.email,
+    action: "referral.contact.delete", entity: "referral_partner",
+    entityId: existing?.partner_id ?? undefined,
+    summary: `Deleted contact ${existing?.name ?? ""}`.trim(),
+  });
   revalidatePath("/crm/referral");
   return { ok: true, message: "Contact deleted." };
 }
@@ -402,10 +419,21 @@ export async function saveNote(formData: FormData): Promise<ActionResult> {
 }
 
 export async function deleteNote(id: string): Promise<ActionResult> {
-  await requireReferralUser();
+  const current = await requireReferralUser();
   const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("partner_notes")
+    .select("partner_id")
+    .eq("id", id)
+    .maybeSingle();
   const { error } = await supabase.from("partner_notes").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
+  await recordAudit({
+    actorId: current.authId, actorEmail: current.email,
+    action: "referral.note.delete", entity: "referral_partner",
+    entityId: existing?.partner_id ?? undefined,
+    summary: "Deleted note",
+  });
   revalidatePath("/crm/referral");
   return { ok: true, message: "Note deleted." };
 }
