@@ -185,12 +185,17 @@ export async function getAppointmentReviewByType(
  * locations for a past-date range.
  */
 export async function getAppointmentReviewTypeDetail(
+  locationId: string,
   startDate: string,
   endDate: string,
   apptType: string,
 ): Promise<{ ok: true; rows: AppointmentReviewTypeDetailRow[] } | { ok: false; error: string }> {
   await requireReportingAccess();
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRe.test(locationId)) {
+    return { ok: false, error: "Invalid location." };
+  }
   if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
     return { ok: false, error: "Invalid date range." };
   }
@@ -202,6 +207,7 @@ export async function getAppointmentReviewTypeDetail(
   if (start > end) [start, end] = [end, start];
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("appointment_review_type_detail", {
+    p_location: locationId,
     p_start: start,
     p_end: end,
     p_type: apptType,
@@ -247,12 +253,17 @@ export async function getCancelledAppointmentsByType(
  * across all locations for a past-date range, with reason and description.
  */
 export async function getCancelledAppointmentDetail(
+  locationId: string,
   startDate: string,
   endDate: string,
   apptType: string,
 ): Promise<{ ok: true; rows: CancelledApptDetailRow[] } | { ok: false; error: string }> {
   await requireReportingAccess();
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRe.test(locationId)) {
+    return { ok: false, error: "Invalid location." };
+  }
   if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
     return { ok: false, error: "Invalid date range." };
   }
@@ -264,6 +275,7 @@ export async function getCancelledAppointmentDetail(
   if (start > end) [start, end] = [end, start];
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("cancelled_appointments_detail", {
+    p_location: locationId,
     p_start: start,
     p_end: end,
     p_type: apptType,

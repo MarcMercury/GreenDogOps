@@ -331,6 +331,8 @@ export interface AppointmentReviewDetailRow {
  * (cancelled / moved); `pending` = booked on days not yet re-scanned.
  */
 export interface AppointmentReviewTypeRow {
+  location_id: string;
+  location_name: string;
   appt_type: string;
   scheduled: number;
   rendered: number;
@@ -365,6 +367,8 @@ export interface AppointmentReviewTypeDetailRow {
  * past-date range.
  */
 export interface CancelledApptTypeRow {
+  location_id: string | null;
+  location_name: string | null;
   appt_type: string;
   cancel_count: number;
 }

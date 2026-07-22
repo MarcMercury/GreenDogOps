@@ -266,8 +266,8 @@ export function AppointmentReview() {
             </SectionCard>
           ))}
 
-          <AppointmentTypeTable
-            rows={typeRows ?? []}
+          <AppointmentTypeByLocation
+            typeRows={typeRows ?? []}
             cancels={cancelRows ?? []}
             start={ranRange?.start ?? start}
             end={ranRange?.end ?? end}
@@ -590,19 +590,88 @@ function AppointmentDetailModal({
 }
 
 /**
- * Breakdown of the reviewed range by ezyVet appointment TYPE (the category on
- * each Agenda appointment): every appointment type with its scheduled /
- * rendered / added counts, plus cancels sourced from the ezyVet "Canceled
- * Appointments" report (the source of truth for cancels + reasons), across all
- * locations. Clicking a Cancels count shows the cancelled appointments with
- * their reason; clicking Not Rendered shows the booked-vs-rendered gap.
+ * By Appointment Type, broken down per clinic location (mirrors the department
+ * view above). Renders one appointment-type table per location.
+ */
+function AppointmentTypeByLocation({
+  typeRows,
+  cancels,
+  start,
+  end,
+}: {
+  typeRows: AppointmentReviewTypeRow[];
+  cancels: CancelledApptTypeRow[];
+  start: string;
+  end: string;
+}) {
+  // Collect the locations present in either source, in name order.
+  const locs = new Map<string, string>();
+  for (const r of typeRows) locs.set(r.location_id, r.location_name);
+  for (const c of cancels) {
+    if (c.location_id) locs.set(c.location_id, c.location_name ?? "Unknown clinic");
+  }
+  const ordered = [...locs.entries()]
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (ordered.length === 0) {
+    return (
+      <SectionCard
+        title="By Appointment Type"
+        description="Every ezyVet appointment type per clinic: scheduled vs rendered (from the Agenda), plus cancels from the Cancelled Appointments report."
+      >
+        <p className="text-sm text-slate-400">
+          No appointment-type data is available for this range yet. Cancels come from
+          the Cancelled Appointments report; scheduled/rendered need Agenda pulls that
+          captured the day both before and after it passed.
+        </p>
+      </SectionCard>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-900">By Appointment Type</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Every ezyVet appointment type per clinic: scheduled vs rendered (from the
+          Agenda), plus cancels from the Cancelled Appointments report. Click a Cancels
+          number for the cancellation reasons; click Not Rendered for the
+          booked-vs-rendered gap.
+        </p>
+      </div>
+      {ordered.map((loc) => (
+        <AppointmentTypeTable
+          key={loc.id}
+          locationId={loc.id}
+          locationName={loc.name}
+          rows={typeRows.filter((r) => r.location_id === loc.id)}
+          cancels={cancels.filter((c) => c.location_id === loc.id)}
+          start={start}
+          end={end}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * One clinic's appointment-type table: every appointment type with its
+ * scheduled / rendered / added counts, plus cancels sourced from the ezyVet
+ * "Cancelled Appointments" report. Clicking a Cancels count shows the cancelled
+ * appointments with their reason; clicking Not Rendered shows the
+ * booked-vs-rendered gap. All drill-downs are scoped to this location.
  */
 function AppointmentTypeTable({
+  locationId,
+  locationName,
   rows,
   cancels,
   start,
   end,
 }: {
+  locationId: string;
+  locationName: string;
   rows: AppointmentReviewTypeRow[];
   cancels: CancelledApptTypeRow[];
   start: string;
@@ -675,14 +744,12 @@ function AppointmentTypeTable({
 
   return (
     <SectionCard
-      title="By Appointment Type"
-      description="Every ezyVet appointment type on the reviewed days, across all locations: scheduled vs rendered (from the Agenda), plus cancels from the Canceled Appointments report. Click a Cancels number for the cancellation reasons; click Not Rendered for the booked-vs-rendered gap."
+      title={locationName}
+      description="Appointment types on the reviewed days for this clinic: scheduled vs rendered, plus cancels (with reasons)."
     >
       {mergedRows.length === 0 ? (
         <p className="text-sm text-slate-400">
-          No appointment-type data is available for this range yet. Cancels come from
-          the Canceled Appointments report; scheduled/rendered need Agenda pulls that
-          captured the day both before and after it passed.
+          No appointment-type data for this clinic in this range.
         </p>
       ) : (
         <div className="max-h-[70vh] overflow-auto">
@@ -773,6 +840,8 @@ function AppointmentTypeTable({
       )}
       {notRenderedType ? (
         <AppointmentTypeDetailModal
+          locationId={locationId}
+          locationName={locationName}
           apptType={notRenderedType}
           start={start}
           end={end}
@@ -781,6 +850,8 @@ function AppointmentTypeTable({
       ) : null}
       {cancelType ? (
         <CancelledDetailModal
+          locationId={locationId}
+          locationName={locationName}
           apptType={cancelType}
           start={start}
           end={end}
@@ -796,11 +867,15 @@ function AppointmentTypeTable({
  * were NOT rendered (cancelled or moved) over the reviewed date range.
  */
 function AppointmentTypeDetailModal({
+  locationId,
+  locationName,
   apptType,
   start,
   end,
   onClose,
 }: {
+  locationId: string;
+  locationName: string;
   apptType: string;
   start: string;
   end: string;
@@ -812,14 +887,14 @@ function AppointmentTypeDetailModal({
 
   useEffect(() => {
     startTransition(async () => {
-      const res = await getAppointmentReviewTypeDetail(start, end, apptType);
+      const res = await getAppointmentReviewTypeDetail(locationId, start, end, apptType);
       if (res.ok) setRows(res.rows);
       else {
         setRows([]);
         setError(res.error);
       }
     });
-  }, [apptType, start, end]);
+  }, [locationId, apptType, start, end]);
 
   const list = rows ?? [];
   const anyPatient = list.some((r) => r.patient_name);
@@ -835,7 +910,7 @@ function AppointmentTypeDetailModal({
               Not Rendered — {apptType}
             </h2>
             <p className="text-xs text-slate-500">
-              All locations · {fmtDate(start)}
+              {locationName} · {fmtDate(start)}
               {start === end ? "" : ` – ${fmtDate(end)}`}
             </p>
           </div>
@@ -910,11 +985,15 @@ function AppointmentTypeDetailModal({
  * report — with the cancellation reason and description.
  */
 function CancelledDetailModal({
+  locationId,
+  locationName,
   apptType,
   start,
   end,
   onClose,
 }: {
+  locationId: string;
+  locationName: string;
   apptType: string;
   start: string;
   end: string;
@@ -926,14 +1005,14 @@ function CancelledDetailModal({
 
   useEffect(() => {
     startTransition(async () => {
-      const res = await getCancelledAppointmentDetail(start, end, apptType);
+      const res = await getCancelledAppointmentDetail(locationId, start, end, apptType);
       if (res.ok) setRows(res.rows);
       else {
         setRows([]);
         setError(res.error);
       }
     });
-  }, [apptType, start, end]);
+  }, [locationId, apptType, start, end]);
 
   const list = rows ?? [];
   const anyStatus = list.some((r) => r.status);
@@ -948,8 +1027,8 @@ function CancelledDetailModal({
               Cancelled — {apptType}
             </h2>
             <p className="text-xs text-slate-500">
-              All locations · {fmtDate(start)}
-              {start === end ? "" : ` – ${fmtDate(end)}`} · from the Canceled Appointments report
+              {locationName} · {fmtDate(start)}
+              {start === end ? "" : ` – ${fmtDate(end)}`} · from the Cancelled Appointments report
             </p>
           </div>
           <button
@@ -976,7 +1055,6 @@ function CancelledDetailModal({
               <thead>
                 <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wider text-slate-400">
                   <th className="py-2 pr-3 font-semibold">Date</th>
-                  <th className="px-2 py-2 font-semibold">Location</th>
                   <th className="px-2 py-2 font-semibold">Time</th>
                   {anyStatus ? <th className="px-2 py-2 font-semibold">Status</th> : null}
                   {anyReason ? <th className="px-2 py-2 font-semibold">Reason</th> : null}
@@ -990,7 +1068,6 @@ function CancelledDetailModal({
                     className="border-b border-slate-100 align-top last:border-0"
                   >
                     <td className="py-2 pr-3 tabular-nums text-slate-600">{fmtDate(r.appt_date)}</td>
-                    <td className="px-2 py-2 text-slate-600">{r.location_name || "—"}</td>
                     <td className="px-2 py-2 tabular-nums text-slate-600">
                       {r.start_time?.split(" ").slice(1).join(" ") || "—"}
                     </td>
