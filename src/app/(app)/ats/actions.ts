@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser, ensureCanEdit, recordAudit } from "@/lib/auth/session";
+import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { logProfileTransition } from "@/lib/shared/transition-log";
 import { isAdminRole } from "@/lib/auth/permissions";
 import {
@@ -357,6 +358,9 @@ export async function hireCandidate(personId: string): Promise<void> {
     },
     { onConflict: "person_id" },
   );
+
+  // ATS graduation to roster should create an auth login when eligible.
+  await ensureAuthUserForPerson(personId);
 
   const current = await getCurrentUser();
   await logProfileTransition({

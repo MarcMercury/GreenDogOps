@@ -5,10 +5,20 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureCanEdit, getCurrentUser, recordAudit } from "@/lib/auth/session";
+import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
+import * as XLSX from "xlsx";
 
 const DOCUMENTS_BUCKET = "employee-documents";
+
+const STATUS_MAP: Record<string, "prospect" | "applicant" | "employee" | "former" | "contractor"> = {
+  prospect: "prospect",
+  applicant: "applicant",
+  employee: "employee",
+  former: "former",
+  contractor: "contractor",
+};
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -32,6 +42,59 @@ export type SaveResult = { ok: true } | { ok: false; error: string };
 export type CreateResult =
   | { ok: true; id: string }
   | { ok: false; error: string };
+
+export type ImportRosterResult =
+  | {
+      ok: true;
+      processed: number;
+      created: number;
+      updated: number;
+      skipped: number;
+      failed: number;
+      authCreated: number;
+      authExisting: number;
+    }
+  | { ok: false; error: string };
+
+function normalizeStatus(raw: string | null): "prospect" | "applicant" | "employee" | "former" | "contractor" {
+  const key = (raw ?? "").trim().toLowerCase();
+  return STATUS_MAP[key] ?? "employee";
+}
+
+function normalizedHeaderKey(k: string): string {
+  return k.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_");
+}
+
+function valueAsString(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s.length > 0 ? s : null;
+}
+
+function rowValue(row: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const v = valueAsString(row[key]);
+    if (v) return v;
+  }
+  return null;
+}
+
+function splitName(fullName: string): { firstName: string | null; lastName: string | null } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: null, lastName: null };
+  if (parts.length === 1) return { firstName: parts[0], lastName: null };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
+function addIfPresent<T extends Record<string, unknown>>(
+  target: T,
+  key: string,
+  value: string | number | boolean | null,
+): void {
+  if (value !== null) {
+    target[key] = value;
+  }
+}
 
 /**
  * Create a brand-new person + employment record from the "Add New Employee"
@@ -108,6 +171,8 @@ export async function createEmployee(
     await supabase.from("person").delete().eq("id", personId);
     return { ok: false, error: eErr.message };
   }
+
+  await ensureAuthUserForPerson(personId);
 
   revalidatePath("/hr");
   revalidatePath("/schedule");
@@ -213,6 +278,8 @@ export async function updateEmployee(
     .upsert({ person_id: personId, ...empPatch }, { onConflict: "person_id" });
 
   if (eErr) return { ok: false, error: eErr.message };
+
+  await ensureAuthUserForPerson(personId);
 
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/hr");
@@ -376,12 +443,195 @@ export async function updateEmployeeField(
     return { ok: false, error: "This field is not editable." };
   }
 
+  if (field === "status" || field === "email") {
+    await ensureAuthUserForPerson(personId);
+  }
+
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/hr");
   revalidatePath("/schedule");
   revalidatePath("/schedule/setup");
   revalidatePath("/admin/users");
   return { ok: true };
+}
+
+/**
+ * Import HR roster rows from CSV/XLS/XLSX and upsert people + employment.
+ * Eligible employee/contractor rows with email are auto-provisioned in Auth.
+ */
+export async function importRosterFile(formData: FormData): Promise<ImportRosterResult> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const file = formData.get("file");
+  if (!(file instanceof File)) {
+    return { ok: false, error: "No file was uploaded." };
+  }
+  if (file.size === 0) {
+    return { ok: false, error: "The uploaded file is empty." };
+  }
+
+  let rows: Record<string, unknown>[] = [];
+  try {
+    const wb = XLSX.read(Buffer.from(await file.arrayBuffer()), { type: "buffer", cellDates: true });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+    rows = raw.map((row) => {
+      const mapped: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(row)) {
+        mapped[normalizedHeaderKey(k)] = v;
+      }
+      return mapped;
+    });
+  } catch {
+    return { ok: false, error: "Could not parse the file. Use CSV, XLS, or XLSX." };
+  }
+
+  if (rows.length === 0) {
+    return { ok: false, error: "No data rows were found in the file." };
+  }
+
+  let created = 0;
+  let updated = 0;
+  let skipped = 0;
+  let failed = 0;
+  let authCreated = 0;
+  let authExisting = 0;
+
+  for (const row of rows) {
+    try {
+      const email = rowValue(row, ["email", "email_address", "work_email", "personal_email"]);
+      const fullNameRaw = rowValue(row, ["full_name", "name", "employee_name"]);
+      const firstNameRaw = rowValue(row, ["first_name", "firstname", "first"]);
+      const lastNameRaw = rowValue(row, ["last_name", "lastname", "last"]);
+
+      const split = fullNameRaw ? splitName(fullNameRaw) : { firstName: null, lastName: null };
+      const firstName = firstNameRaw ?? split.firstName;
+      const lastName = lastNameRaw ?? split.lastName;
+      const fullName = fullNameRaw ?? [firstName, lastName].filter(Boolean).join(" ") || null;
+
+      if (!email && !fullName) {
+        skipped += 1;
+        continue;
+      }
+
+      const status = normalizeStatus(rowValue(row, ["status", "employment_status", "employee_status"]));
+      const personPatch: Record<string, unknown> = { status };
+      addIfPresent(personPatch, "first_name", firstName);
+      addIfPresent(personPatch, "last_name", lastName);
+      addIfPresent(personPatch, "full_name", fullName);
+      addIfPresent(personPatch, "grid_name", rowValue(row, ["grid_name", "display_name", "nickname"]));
+      addIfPresent(personPatch, "email", email);
+      addIfPresent(personPatch, "phone_mobile", rowValue(row, ["phone_mobile", "mobile", "cell", "cell_phone"]));
+      addIfPresent(personPatch, "phone_home", rowValue(row, ["phone_home", "home_phone"]));
+      addIfPresent(personPatch, "phone_other", rowValue(row, ["phone_other", "other_phone"]));
+      addIfPresent(personPatch, "date_of_birth", rowValue(row, ["date_of_birth", "dob", "birth_date"]));
+      addIfPresent(personPatch, "postal_code", rowValue(row, ["postal_code", "zip", "zipcode"]));
+      addIfPresent(personPatch, "work_location_type", rowValue(row, ["work_location_type", "location_type"]));
+      addIfPresent(personPatch, "opportunity_type", rowValue(row, ["opportunity_type"]));
+      addIfPresent(personPatch, "notes", rowValue(row, ["notes"]));
+
+      let personId: string | null = null;
+      if (email) {
+        const { data: matches } = await supabase
+          .from("person")
+          .select("id")
+          .ilike("email", email);
+        if (matches && matches.length === 1) {
+          personId = (matches[0] as { id: string }).id;
+        }
+      }
+      if (!personId && fullName) {
+        const { data: matches } = await supabase
+          .from("person")
+          .select("id")
+          .eq("full_name", fullName);
+        if (matches && matches.length === 1) {
+          personId = (matches[0] as { id: string }).id;
+        }
+      }
+
+      if (personId) {
+        const { error } = await supabase.from("person").update(personPatch).eq("id", personId);
+        if (error) {
+          failed += 1;
+          continue;
+        }
+        updated += 1;
+      } else {
+        const insertPatch = {
+          ...personPatch,
+          is_active: status !== "former",
+        };
+        const { data: inserted, error } = await supabase
+          .from("person")
+          .insert(insertPatch)
+          .select("id")
+          .single();
+        if (error || !inserted) {
+          failed += 1;
+          continue;
+        }
+        personId = inserted.id as string;
+        created += 1;
+      }
+
+      const empPatch: Record<string, unknown> = { person_id: personId };
+      addIfPresent(empPatch, "adp_job_title", rowValue(row, ["adp_job_title", "job_title", "title"]));
+      addIfPresent(empPatch, "offer_title", rowValue(row, ["offer_title"]));
+      addIfPresent(empPatch, "flsa_status", rowValue(row, ["flsa_status", "flsa"]));
+      addIfPresent(empPatch, "work_schedule", rowValue(row, ["work_schedule", "schedule"]));
+      addIfPresent(empPatch, "schedule_type", rowValue(row, ["schedule_type"]));
+      addIfPresent(empPatch, "hire_date", rowValue(row, ["hire_date", "start_date"]));
+      addIfPresent(empPatch, "original_hire_date", rowValue(row, ["original_hire_date"]));
+
+      if (Object.keys(empPatch).length > 1) {
+        await supabase
+          .from("person_employment")
+          .upsert(empPatch, { onConflict: "person_id" });
+      }
+
+      const auth = await ensureAuthUserForPerson(personId);
+      if (auth.outcome === "created") authCreated += 1;
+      if (auth.outcome === "exists") authExisting += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "import",
+    entity: "person",
+    summary: `Imported ${rows.length} HR roster row(s)`,
+    metadata: {
+      processed: rows.length,
+      created,
+      updated,
+      skipped,
+      failed,
+      auth_created: authCreated,
+      auth_existing: authExisting,
+    },
+  });
+
+  revalidatePath("/hr");
+  revalidatePath("/admin/users");
+  revalidatePath("/schedule");
+  revalidatePath("/schedule/setup");
+
+  return {
+    ok: true,
+    processed: rows.length,
+    created,
+    updated,
+    skipped,
+    failed,
+    authCreated,
+    authExisting,
+  };
 }
 
 // ---------------------------------------------------------------------------

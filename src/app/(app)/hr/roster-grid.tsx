@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   type RosterRow,
@@ -19,11 +19,11 @@ import {
   DataTable,
   ModuleHeader,
   exportColumnsCsv,
-  previewCsvImport,
 } from "../_components/data-views";
 import { opportunityShortLabel, OPPORTUNITY_TYPES } from "@/lib/shared/opportunity-types";
 import { NewEmployeeWizard } from "./new-employee-wizard";
 import { EditableCell, type SelectOption } from "./editable-cell";
+import { importRosterFile } from "./actions";
 
 const STATUS_BADGE: Record<EmploymentStatus, string> = {
   prospect: "bg-amber-100 text-amber-800",
@@ -104,6 +104,7 @@ export function RosterGrid({
 }) {
   const router = useRouter();
   const [view, setView] = useState<"standard" | "detailed">("standard");
+  const [importing, startImport] = useTransition();
 
   const counts: Record<string, number> = {};
   for (const r of rows) counts[r.status] = (counts[r.status] ?? 0) + 1;
@@ -791,7 +792,30 @@ export function RosterGrid({
             rows,
           )
         }
-        onImport={(f) => previewCsvImport(f, "person")}
+        importAccept=".csv,.xls,.xlsx"
+        onImport={(f) => {
+          if (importing) return;
+          startImport(async () => {
+            const formData = new FormData();
+            formData.set("file", f);
+            const result = await importRosterFile(formData);
+            if (!result.ok) {
+              window.alert(`Import failed: ${result.error}`);
+              return;
+            }
+            window.alert(
+              `Roster import complete.\n\n` +
+                `Processed: ${result.processed}\n` +
+                `Created: ${result.created}\n` +
+                `Updated: ${result.updated}\n` +
+                `Skipped: ${result.skipped}\n` +
+                `Failed: ${result.failed}\n` +
+                `Auth created: ${result.authCreated}\n` +
+                `Auth existing: ${result.authExisting}`,
+            );
+            router.refresh();
+          });
+        }}
         actions={
           <>
             {canViewAllComp ? (
