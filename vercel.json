@@ -7,6 +7,10 @@
     {
       "path": "/api/ats/gmail",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/admin/users/roster-sync",
+      "schedule": "15 5 * * *"
     }
   ]
 }

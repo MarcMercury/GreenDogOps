@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, recordAudit } from "@/lib/auth/session";
+import { syncAppUsersToRoster } from "@/lib/admin/user-roster-sync";
 import {
   APP_ROLES,
   MODULES,
@@ -241,52 +242,24 @@ export async function linkUserToPerson(formData: FormData): Promise<void> {
 /** Auto-match every unlinked login to its roster profile by unique email. */
 export async function autoMatchUsersToRoster(): Promise<void> {
   const current = await requireAdmin();
-  const admin = createAdminClient();
-
-  const { data: usersData } = await admin
-    .from("app_user")
-    .select("id, email, person_id");
-  const users = (usersData ?? []) as Array<{
-    id: string;
-    email: string | null;
-    person_id: string | null;
-  }>;
-
-  let matched = 0;
-  for (const u of users) {
-    if (u.person_id || !u.email) continue;
-
-    const { data: matches } = await admin
-      .from("person")
-      .select("id")
-      .ilike("email", u.email);
-    if (!matches || matches.length !== 1) continue;
-
-    const personId = (matches[0] as { id: string }).id;
-    const identity = await rosterIdentity(admin, personId);
-
-    const { error } = await admin
-      .from("app_user")
-      .update({
-        person_id: personId,
-        full_name: identity?.name ?? null,
-        title: identity?.title ?? null,
-      })
-      .eq("id", u.id);
-    if (!error) matched += 1;
-  }
+  const result = await syncAppUsersToRoster();
 
   await recordAudit({
     actorId: current.authId,
     actorEmail: current.email,
     action: "user.roster_auto_matched",
     entity: "app_user",
-    summary: `Auto-matched ${matched} login(s) to roster profiles by email`,
-    metadata: { matched },
+    summary: `Auto-matched ${result.matchedByEmail} login(s) to roster profiles by email`,
+    metadata: {
+      matched: result.matchedByEmail,
+      refreshed_profiles: result.refreshedProfiles,
+      updated_users: result.updatedUsers,
+      scanned_users: result.scannedUsers,
+    },
   });
 
   revalidatePath("/admin/users");
-  redirect(`/admin/users?match=${matched}`);
+  redirect(`/admin/users?match=${result.matchedByEmail}`);
 }
 
 // ── Password management ────────────────────────────────────────────────────
