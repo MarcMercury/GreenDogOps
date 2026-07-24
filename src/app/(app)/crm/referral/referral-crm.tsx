@@ -1272,6 +1272,7 @@ function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
   }
 
   const maxMonthly = report ? Math.max(1, ...report.monthly.map((m) => m.revenue)) : 1;
+  const maxVisitRegion = report ? Math.max(1, ...report.visitTotals.byRegion.map((r) => r.visits)) : 1;
 
   return (
     <div className="space-y-5">
@@ -1325,11 +1326,9 @@ function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
         )}
 
         {!report && !error && (
-          <div className="flex flex-col items-center justify-center gap-2 py-14 text-center">
-            <span className="text-3xl text-slate-300">📈</span>
-            <p className="text-sm font-medium text-slate-500">Select a time period and click Generate</p>
-            <p className="text-xs text-slate-400">View referral metrics, top clinics, visit counts, and revenue breakdowns</p>
-          </div>
+          <p className="px-4 py-3 text-sm text-slate-500">
+            Select a time period and click Generate to view referral metrics.
+          </p>
         )}
 
         {report && (
@@ -1346,6 +1345,34 @@ function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
                 value={formatCurrency(report.matchedRevenue)}
                 sub={report.unmatchedRevenue > 0 ? `${formatCurrency(report.unmatchedRevenue)} unmatched` : undefined}
               />
+            </div>
+
+            <div className="rounded-xl border border-slate-200/80 bg-white">
+              <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Visit Totals (Quick Visits)</div>
+              <div className="space-y-3 p-4">
+                <div className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
+                  <span className="text-slate-600">Total visits in selected range</span>
+                  <span className="tabular-nums font-semibold text-slate-800">{report.visitTotals.total.toLocaleString()}</span>
+                </div>
+
+                {report.visitTotals.total === 0 ? (
+                  <p className="text-center text-xs text-slate-400">No quick visits recorded in this period.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {report.visitTotals.byRegion.map((r) => (
+                      <div key={r.region} className="flex items-center gap-3">
+                        <span className="w-44 shrink-0 text-xs text-slate-600">
+                          {r.region === "Unassigned" ? "Unassigned" : getZoneDisplay(r.region)}
+                        </span>
+                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                          <div className="h-full bg-emerald-500" style={{ width: `${(r.visits / maxVisitRegion) * 100}%` }} />
+                        </div>
+                        <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-700">{r.visits}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
 
             {report.totalReferrals === 0 ? (

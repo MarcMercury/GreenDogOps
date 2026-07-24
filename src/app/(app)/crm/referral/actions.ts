@@ -683,6 +683,10 @@ export interface ReferralReport {
   matchedRevenue: number;
   unmatchedRevenue: number;
   uniqueClinics: number;
+  visitTotals: {
+    total: number;
+    byRegion: { region: string; visits: number }[];
+  };
   topClinics: ReferralReportClinic[];
   byDivision: { division: string; revenue: number; referrals: number }[];
   monthly: { month: string; revenue: number; referrals: number }[];
@@ -721,9 +725,23 @@ export async function getReferralReport(start: string, end: string): Promise<Ref
   );
   if (error) return { ok: false, error: error.message };
 
-  // Map partner ids to display names.
-  const { data: partnerRows } = await supabase.from("referral_partners").select("id, name");
+  // Map partner ids to display names and zones.
+  const { data: partnerRows } = await supabase.from("referral_partners").select("id, name, zone");
   const partnerNames = new Map<string, string>((partnerRows ?? []).map((p) => [p.id as string, (p.name as string) ?? "Unnamed"]));
+  const partnerZones = new Map<string, string | null>((partnerRows ?? []).map((p) => [p.id as string, (p.zone as string | null) ?? null]));
+
+  const { data: visitRows, error: visitError } = await fetchAllRows<{
+    partner_id: string | null;
+    visit_date: string | null;
+  }>((from, to) =>
+    supabase
+      .from("clinic_visits")
+      .select("partner_id, visit_date")
+      .gte("visit_date", start)
+      .lte("visit_date", end)
+      .range(from, to),
+  );
+  if (visitError) return { ok: false, error: visitError.message };
 
   const clinics = new Map<string, ReferralReportClinic>();
   const divisions = new Map<string, { revenue: number; referrals: number }>();
@@ -767,6 +785,14 @@ export async function getReferralReport(start: string, end: string): Promise<Ref
   }
 
   const clinicList = [...clinics.values()];
+  const visitByRegion = new Map<string, number>();
+  for (const row of visitRows) {
+    const region = row.partner_id
+      ? (partnerZones.get(row.partner_id)?.trim() || "Unassigned")
+      : "Unassigned";
+    visitByRegion.set(region, (visitByRegion.get(region) ?? 0) + 1);
+  }
+
   const report: ReferralReport = {
     start,
     end,
@@ -775,6 +801,12 @@ export async function getReferralReport(start: string, end: string): Promise<Ref
     matchedRevenue,
     unmatchedRevenue: totalRevenue - matchedRevenue,
     uniqueClinics: clinicList.length,
+    visitTotals: {
+      total: visitRows.length,
+      byRegion: [...visitByRegion.entries()]
+        .map(([region, visits]) => ({ region, visits }))
+        .sort((a, b) => b.visits - a.visits || a.region.localeCompare(b.region)),
+    },
     topClinics: clinicList.sort((a, b) => b.revenue - a.revenue).slice(0, 15),
     byDivision: [...divisions.entries()]
       .map(([division, v]) => ({ division, ...v }))
