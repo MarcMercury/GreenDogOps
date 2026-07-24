@@ -509,7 +509,7 @@ export async function importRosterFile(formData: FormData): Promise<ImportRoster
       const split = fullNameRaw ? splitName(fullNameRaw) : { firstName: null, lastName: null };
       const firstName = firstNameRaw ?? split.firstName;
       const lastName = lastNameRaw ?? split.lastName;
-      const fullName = fullNameRaw ?? [firstName, lastName].filter(Boolean).join(" ") || null;
+      const fullName = fullNameRaw ?? ([firstName, lastName].filter(Boolean).join(" ") || null);
 
       if (!email && !fullName) {
         skipped += 1;
