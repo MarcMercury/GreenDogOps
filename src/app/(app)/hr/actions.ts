@@ -86,8 +86,8 @@ function splitName(fullName: string): { firstName: string | null; lastName: stri
   return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
 }
 
-function addIfPresent<T extends Record<string, unknown>>(
-  target: T,
+function addIfPresent(
+  target: Record<string, unknown>,
   key: string,
   value: string | number | boolean | null,
 ): void {
