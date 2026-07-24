@@ -57,7 +57,7 @@ import {
   stickyHeadClass,
 } from "../../_components/data-views";
 
-type TabKey = "list" | "map" | "targeting" | "activity" | "upload-log" | "reports";
+type TabKey = "list" | "map" | "targeting" | "activity" | "upload-log" | "reports" | "incomplete";
 type FollowFilter = "all" | "followup" | "overdue";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
@@ -67,7 +67,36 @@ const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "activity", label: "Activity", icon: "🕑" },
   { key: "upload-log", label: "Upload Log", icon: "📤" },
   { key: "reports", label: "Reports", icon: "📊" },
+  { key: "incomplete", label: "Incomplete Records", icon: "⚠️" },
 ];
+
+const REQUIRED_RECORD_FIELDS = [
+  "Name",
+  "Address",
+  "Email",
+  "Phone",
+  "Primary Contact",
+  "Clinic Type",
+  "Zone",
+  "Website",
+] as const;
+
+function hasText(v: string | null | undefined): boolean {
+  return typeof v === "string" && v.trim().length > 0;
+}
+
+function missingRecordFields(p: ReferralPartner): string[] {
+  const missing: string[] = [];
+  if (!hasText(p.name) && !hasText(p.hospital_name)) missing.push("Name");
+  if (!hasText(p.address)) missing.push("Address");
+  if (!hasText(p.email)) missing.push("Email");
+  if (!hasText(p.phone)) missing.push("Phone");
+  if (!hasText(p.contact_name) && !hasText(p.contact_person)) missing.push("Primary Contact");
+  if (!hasText(p.clinic_type)) missing.push("Clinic Type");
+  if (!hasText(p.zone)) missing.push("Zone");
+  if (!hasText(p.website)) missing.push("Website");
+  return missing;
+}
 
 const fieldInput = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 const fieldLabel = "text-xs font-medium text-slate-500";
@@ -109,6 +138,14 @@ export function ReferralCrm({
   const [toast, setToast] = useState<string | null>(null);
 
   const [pending, startTransition] = useTransition();
+
+  const incompleteRecords = useMemo(
+    () => partners
+      .map((partner) => ({ partner, missing: missingRecordFields(partner) }))
+      .filter((row) => row.missing.length > 0)
+      .sort((a, b) => b.missing.length - a.missing.length || partnerName(a.partner).localeCompare(partnerName(b.partner))),
+    [partners],
+  );
 
   function notify(msg: string) {
     setToast(msg);
@@ -240,6 +277,11 @@ export function ReferralCrm({
                 {unmatched.length}
               </span>
             )}
+            {t.key === "incomplete" && incompleteRecords.length > 0 && (
+              <span className="ml-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-semibold text-white">
+                {incompleteRecords.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -306,6 +348,13 @@ export function ReferralCrm({
         />
       )}
       {tab === "reports" && <ReportsTab partners={partners} onView={setDetail} />}
+      {tab === "incomplete" && (
+        <IncompleteRecordsTab
+          rows={incompleteRecords}
+          onView={setDetail}
+          onEdit={(p) => setEditing(p)}
+        />
+      )}
 
       {/* Dialogs */}
       {detail && (
@@ -348,6 +397,88 @@ export function ReferralCrm({
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+function IncompleteRecordsTab({
+  rows,
+  onView,
+  onEdit,
+}: {
+  rows: { partner: ReferralPartner; missing: string[] }[];
+  onView: (p: ReferralPartner) => void;
+  onEdit: (p: ReferralPartner) => void;
+}) {
+  const totalMissingValues = rows.reduce((sum, row) => sum + row.missing.length, 0);
+
+  if (rows.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          All records are complete for required fields.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <StatCard label="Incomplete Records" value={rows.length.toLocaleString()} tone="text-red-600" />
+        <StatCard label="Missing Values" value={totalMissingValues.toLocaleString()} tone="text-amber-600" />
+        <StatCard label="Required Fields" value={REQUIRED_RECORD_FIELDS.length.toLocaleString()} tone="text-slate-700" />
+      </div>
+
+      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-4 py-3">
+          <p className="text-sm font-semibold text-slate-800">Records Missing Key Information</p>
+          <p className="text-xs text-slate-500">Required: {REQUIRED_RECORD_FIELDS.join(", ")}</p>
+        </div>
+
+        <div className="divide-y divide-slate-100">
+          {rows.map(({ partner, missing }) => (
+            <div key={partner.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => onView(partner)}
+                  className="truncate text-left text-sm font-semibold text-emerald-700 hover:underline"
+                >
+                  {partnerName(partner)}
+                </button>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Missing {missing.length} of {REQUIRED_RECORD_FIELDS.length} required fields
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {missing.map((field) => (
+                    <span key={`${partner.id}-${field}`} className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 ring-1 ring-red-100">
+                      {field}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onView(partner)}
+                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onEdit(partner)}
+                  className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
