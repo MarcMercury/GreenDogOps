@@ -685,7 +685,11 @@ export interface ReferralReport {
   uniqueClinics: number;
   visitTotals: {
     total: number;
-    byRegion: { region: string; visits: number }[];
+    byRegion: {
+      region: string;
+      visits: number;
+      clinics: { clinicName: string; partnerId: string | null; visits: number }[];
+    }[];
   };
   topClinics: ReferralReportClinic[];
   byDivision: { division: string; revenue: number; referrals: number }[];
@@ -732,11 +736,12 @@ export async function getReferralReport(start: string, end: string): Promise<Ref
 
   const { data: visitRows, error: visitError } = await fetchAllRows<{
     partner_id: string | null;
+    clinic_name: string | null;
     visit_date: string | null;
   }>((from, to) =>
     supabase
       .from("clinic_visits")
-      .select("partner_id, visit_date")
+      .select("partner_id, clinic_name, visit_date")
       .gte("visit_date", start)
       .lte("visit_date", end)
       .range(from, to),
@@ -785,12 +790,39 @@ export async function getReferralReport(start: string, end: string): Promise<Ref
   }
 
   const clinicList = [...clinics.values()];
-  const visitByRegion = new Map<string, number>();
+  const partnerIdsByName = new Map<string, string>();
+  for (const p of partnerRows ?? []) {
+    const id = (p.id as string) ?? "";
+    const name = ((p.name as string | null) ?? "").trim().toLowerCase();
+    if (id && name && !partnerIdsByName.has(name)) partnerIdsByName.set(name, id);
+  }
+
+  const visitByRegion = new Map<string, {
+    visits: number;
+    clinics: Map<string, { clinicName: string; partnerId: string | null; visits: number }>;
+  }>();
   for (const row of visitRows) {
     const region = row.partner_id
       ? (partnerZones.get(row.partner_id)?.trim() || "Unassigned")
       : "Unassigned";
-    visitByRegion.set(region, (visitByRegion.get(region) ?? 0) + 1);
+    const bucket = visitByRegion.get(region) ?? { visits: 0, clinics: new Map() };
+    bucket.visits += 1;
+
+    const rawName = (row.clinic_name ?? "").trim();
+    const clinicKey = rawName.toLowerCase() || "(unnamed)";
+    const existingClinic = bucket.clinics.get(clinicKey);
+    if (existingClinic) {
+      existingClinic.visits += 1;
+    } else {
+      const fallbackPartnerId = partnerIdsByName.get(clinicKey) ?? null;
+      bucket.clinics.set(clinicKey, {
+        clinicName: rawName || "Unnamed Clinic",
+        partnerId: row.partner_id ?? fallbackPartnerId,
+        visits: 1,
+      });
+    }
+
+    visitByRegion.set(region, bucket);
   }
 
   const report: ReferralReport = {
@@ -804,7 +836,12 @@ export async function getReferralReport(start: string, end: string): Promise<Ref
     visitTotals: {
       total: visitRows.length,
       byRegion: [...visitByRegion.entries()]
-        .map(([region, visits]) => ({ region, visits }))
+        .map(([region, value]) => ({
+          region,
+          visits: value.visits,
+          clinics: [...value.clinics.values()]
+            .sort((a, b) => b.visits - a.visits || a.clinicName.localeCompare(b.clinicName)),
+        }))
         .sort((a, b) => b.visits - a.visits || a.region.localeCompare(b.region)),
     },
     topClinics: clinicList.sort((a, b) => b.revenue - a.revenue).slice(0, 15),

@@ -305,7 +305,7 @@ export function ReferralCrm({
           }}
         />
       )}
-      {tab === "reports" && <ReportsTab partners={partners} />}
+      {tab === "reports" && <ReportsTab partners={partners} onView={setDetail} />}
 
       {/* Dialogs */}
       {detail && (
@@ -1235,7 +1235,13 @@ function formatMonthLabel(ym: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
-function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
+function ReportsTab({
+  partners,
+  onView,
+}: {
+  partners: ReferralPartner[];
+  onView: (partner: ReferralPartner) => void;
+}) {
   const byTier = REFERRAL_TIERS.map((t) => ({ label: t, count: partners.filter((p) => p.tier === t).length, criteria: TIER_CRITERIA[t] }));
   const byPriority = REFERRAL_PRIORITIES.map((t) => ({ label: t, count: partners.filter((p) => p.priority === t).length, criteria: PRIORITY_CRITERIA[t] }));
   const top = [...partners].sort((a, b) => (Number(b.total_revenue_all_time) || 0) - (Number(a.total_revenue_all_time) || 0)).slice(0, 10);
@@ -1247,7 +1253,13 @@ function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
   const [to, setTo] = useState(initial.to);
   const [report, setReport] = useState<ReferralReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openVisitRegion, setOpenVisitRegion] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  const partnersById = useMemo(
+    () => new Map(partners.map((p) => [p.id, p])),
+    [partners],
+  );
 
   function onPresetChange(next: RangePreset) {
     setPreset(next);
@@ -1264,6 +1276,7 @@ function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
       const res = await getReferralReport(from, to);
       if (res.ok) {
         setReport(res.report);
+        setOpenVisitRegion(null);
       } else {
         setReport(null);
         setError(res.error);
@@ -1360,14 +1373,53 @@ function ReportsTab({ partners }: { partners: ReferralPartner[] }) {
                 ) : (
                   <div className="space-y-2">
                     {report.visitTotals.byRegion.map((r) => (
-                      <div key={r.region} className="flex items-center gap-3">
-                        <span className="w-44 shrink-0 text-xs text-slate-600">
-                          {r.region === "Unassigned" ? "Unassigned" : getZoneDisplay(r.region)}
-                        </span>
-                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
-                          <div className="h-full bg-emerald-500" style={{ width: `${(r.visits / maxVisitRegion) * 100}%` }} />
-                        </div>
-                        <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-700">{r.visits}</span>
+                      <div key={r.region} className="space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => setOpenVisitRegion((prev) => (prev === r.region ? null : r.region))}
+                          className="flex w-full items-center gap-3 text-left"
+                        >
+                          <span className="w-44 shrink-0 text-xs font-medium text-emerald-700 hover:underline">
+                            {r.region === "Unassigned" ? "Unassigned" : getZoneDisplay(r.region)}
+                          </span>
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                            <div className="h-full bg-emerald-500" style={{ width: `${(r.visits / maxVisitRegion) * 100}%` }} />
+                          </div>
+                          <span className="w-12 shrink-0 text-right text-xs tabular-nums text-slate-700">{r.visits}</span>
+                        </button>
+
+                        {openVisitRegion === r.region && (
+                          <div className="ml-44 rounded-lg border border-slate-200 bg-slate-50/70 p-2">
+                            {r.clinics.length === 0 ? (
+                              <p className="px-2 py-1 text-xs text-slate-500">No clinics found for this region.</p>
+                            ) : (
+                              <ul className="divide-y divide-slate-200">
+                                {r.clinics.map((c) => {
+                                  const partner = c.partnerId ? partnersById.get(c.partnerId) ?? null : null;
+                                  return (
+                                    <li key={`${r.region}-${c.clinicName}`} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
+                                      {partner ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => onView(partner)}
+                                          className="truncate text-left font-medium text-emerald-700 hover:underline"
+                                          title={`Open ${partnerName(partner)}`}
+                                        >
+                                          {partnerName(partner)}
+                                        </button>
+                                      ) : (
+                                        <span className="truncate text-slate-600" title="No linked partner account">
+                                          {c.clinicName}
+                                        </span>
+                                      )}
+                                      <span className="shrink-0 tabular-nums text-slate-500">{c.visits}</span>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
