@@ -318,6 +318,67 @@ export function healthColor(health: number | null | undefined): string {
   return "bg-red-500";
 }
 
+// ---------------------------------------------------------------------------
+// Visit-urgency heat map (map dot colors)
+// ---------------------------------------------------------------------------
+// Blends "days since last visit" with relationship health so the hottest dots
+// flag the partners that most need an in-person visit. Cooler (blue/cyan) =
+// recently visited & healthy; hotter (orange/red) = overdue and/or unhealthy.
+export interface VisitHeatLevel {
+  color: string;
+  label: string;
+}
+
+// Coolest → hottest. Index maps directly onto the 0–1 urgency score.
+export const VISIT_HEAT_LEVELS: VisitHeatLevel[] = [
+  { color: "#2563eb", label: "Recently visited" }, // blue-600
+  { color: "#0891b2", label: "On track" }, // cyan-600
+  { color: "#eab308", label: "Due soon" }, // yellow-500
+  { color: "#f97316", label: "Overdue" }, // orange-500
+  { color: "#dc2626", label: "Needs a visit" }, // red-600
+];
+
+export interface VisitHeatInput {
+  lastVisitDate?: string | null;
+  daysSinceLastVisit?: number | null;
+  expectedFrequencyDays?: number | null;
+  /** Relationship health on a 0–100 scale, if known. */
+  health?: number | null;
+}
+
+// Returns the heat level + raw 0–1 urgency score for a partner/organization.
+export function visitHeat(input: VisitHeatInput): VisitHeatLevel & { score: number } {
+  const expected =
+    input.expectedFrequencyDays && input.expectedFrequencyDays > 0
+      ? input.expectedFrequencyDays
+      : 90;
+
+  // Days since last visit — derive from the date when not pre-computed.
+  let days = input.daysSinceLastVisit ?? null;
+  if (days == null && input.lastVisitDate) {
+    const t = Date.parse(input.lastVisitDate);
+    if (!Number.isNaN(t)) days = Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+  }
+
+  // Recency urgency: 0 when freshly visited, 1 at 2× the expected cadence.
+  // A partner with no visit on record counts as maximum recency urgency.
+  const daysUrgency = days == null ? 1 : Math.max(0, Math.min(1, days / (expected * 2)));
+
+  // Health urgency: lower health = more urgent. Skipped when health is unknown.
+  const hasHealth = input.health != null && !Number.isNaN(Number(input.health));
+  const healthUrgency = hasHealth
+    ? Math.max(0, Math.min(1, (100 - Number(input.health)) / 100))
+    : 0;
+
+  const score = hasHealth ? daysUrgency * 0.7 + healthUrgency * 0.3 : daysUrgency;
+
+  const idx = Math.max(
+    0,
+    Math.min(VISIT_HEAT_LEVELS.length - 1, Math.floor(score * VISIT_HEAT_LEVELS.length - 1e-9)),
+  );
+  return { ...VISIT_HEAT_LEVELS[idx], score };
+}
+
 export function statusClass(status: string | null | undefined): string {
   switch ((status || "").toLowerCase()) {
     case "active": return "bg-emerald-100 text-emerald-700 ring-emerald-200";

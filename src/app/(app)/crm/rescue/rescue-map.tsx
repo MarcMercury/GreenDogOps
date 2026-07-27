@@ -5,7 +5,7 @@ import {
   type CrmOrganization,
   ORG_STATUS_OPTIONS,
 } from "@/lib/crm/types";
-import { ZONE_DEFINITIONS } from "@/lib/crm/referral-types";
+import { ZONE_DEFINITIONS, VISIT_HEAT_LEVELS, visitHeat } from "@/lib/crm/referral-types";
 import { geocodeRescues } from "./actions";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,20 @@ const UNSET_STYLE = { color: "#cbd5e1", label: "Unset" }; // slate-300
 function statusStyle(status: string | null | undefined) {
   const key = (status ?? "").toLowerCase();
   return STATUS_STYLE[key] ?? UNSET_STYLE;
+}
+
+// ---------------------------------------------------------------------------
+// Visit-urgency heat map (dot colors)
+// ---------------------------------------------------------------------------
+// Dots are colored by how badly a rescue needs a visit — driven by how long
+// since the last visit — rather than by status.
+function heatFor(r: CrmOrganization) {
+  return visitHeat({ lastVisitDate: r.last_visit_date });
+}
+
+function lastVisitLabel(r: CrmOrganization): string {
+  if (!r.last_visit_date) return "No visit on record";
+  return `Last visit ${new Date(r.last_visit_date).toLocaleDateString()}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +258,7 @@ export function RescueMap({
 
     for (const r of visible) {
       const position = { lat: r.latitude as number, lng: r.longitude as number };
-      const { color } = statusStyle(r.status);
+      const { color } = heatFor(r);
       const marker = new maps.Marker({
         position,
         map,
@@ -262,11 +276,15 @@ export function RescueMap({
       marker.addListener("click", () => {
         const info = infoRef.current;
         if (info) {
+          const heat = heatFor(r);
           const ss = statusStyle(r.status);
           info.setContent(
             `<div style="font:13px/1.4 system-ui,sans-serif;max-width:230px">
               <div style="font-weight:600;color:#0f172a;margin-bottom:2px">${escapeHtml(r.name)}</div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">
+                <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#475569">
+                  <span style="width:9px;height:9px;border-radius:9999px;background:${heat.color};display:inline-block"></span>${heat.label}
+                </span>
                 <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#475569">
                   <span style="width:9px;height:9px;border-radius:9999px;background:${ss.color};display:inline-block"></span>${ss.label}
                 </span>
@@ -276,6 +294,7 @@ export function RescueMap({
                     : ""
                 }
               </div>
+              <div style="color:#64748b;font-size:12px;margin-bottom:${r.address ? "2px" : "6px"}">${escapeHtml(lastVisitLabel(r))}</div>
               ${r.address ? `<div style="color:#64748b;font-size:12px;margin-bottom:6px">${escapeHtml(r.address)}</div>` : ""}
               <button id="gdo-view-${r.id}" style="all:unset;cursor:pointer;color:#047857;font-weight:600;font-size:12px">View details →</button>
             </div>`,
@@ -350,8 +369,8 @@ export function RescueMap({
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-            <span className="font-medium text-slate-500">Status:</span>
-            {[...ORG_STATUS_OPTIONS.map((o) => statusStyle(o.value)), UNSET_STYLE].map((s) => (
+            <span className="font-medium text-slate-500">Visit need:</span>
+            {VISIT_HEAT_LEVELS.map((s) => (
               <span key={s.label} className="inline-flex items-center gap-1.5">
                 <span className="inline-block h-3 w-3 rounded-full ring-2 ring-white" style={{ backgroundColor: s.color }} />
                 {s.label}

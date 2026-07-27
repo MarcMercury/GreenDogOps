@@ -7,6 +7,8 @@ import {
   REFERRAL_TIERS,
   REFERRAL_PRIORITIES,
   STATUS_OPTIONS,
+  VISIT_HEAT_LEVELS,
+  visitHeat,
   partnerName,
   titleCase,
 } from "@/lib/crm/referral-types";
@@ -54,18 +56,25 @@ declare global {
 }
 
 // ---------------------------------------------------------------------------
-// Priority → dot color system
+// Visit-urgency heat map (dot colors)
 // ---------------------------------------------------------------------------
-const PRIORITY_STYLE: Record<string, { color: string; label: string }> = {
-  "Very High": { color: "#dc2626", label: "Very High" }, // red-600
-  High: { color: "#f97316", label: "High" }, // orange-500
-  Medium: { color: "#f59e0b", label: "Medium" }, // amber-500
-  Low: { color: "#0ea5e9", label: "Low" }, // sky-500
-};
-const UNSET_STYLE = { color: "#94a3b8", label: "Unset" }; // slate-400
+// Dots are colored by how badly a clinic needs a visit — blending days since
+// the last visit with relationship health — rather than by priority rating.
+function heatFor(p: ReferralPartner) {
+  return visitHeat({
+    lastVisitDate: p.last_visit_date,
+    daysSinceLastVisit: p.days_since_last_visit,
+    expectedFrequencyDays: p.expected_visit_frequency_days,
+    health: p.relationship_health,
+  });
+}
 
-function priorityStyle(priority: string | null | undefined) {
-  return (priority && PRIORITY_STYLE[priority]) || UNSET_STYLE;
+function lastVisitLabel(p: ReferralPartner): string {
+  const days = p.days_since_last_visit;
+  if (!p.last_visit_date) return "No visit on record";
+  const when = new Date(p.last_visit_date).toLocaleDateString();
+  if (typeof days === "number") return `Last visit ${when} · ${days}d ago`;
+  return `Last visit ${when}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -259,7 +268,7 @@ export function PartnerMap({
 
     for (const p of visible) {
       const position = { lat: p.latitude as number, lng: p.longitude as number };
-      const { color } = priorityStyle(p.priority);
+      const { color } = heatFor(p);
       const marker = new maps.Marker({
         position,
         map,
@@ -277,16 +286,19 @@ export function PartnerMap({
       marker.addListener("click", () => {
         const info = infoRef.current;
         if (info) {
-          const ps = priorityStyle(p.priority);
+          const heat = heatFor(p);
           info.setContent(
             `<div style="font:13px/1.4 system-ui,sans-serif;max-width:230px">
               <div style="font-weight:600;color:#0f172a;margin-bottom:2px">${escapeHtml(partnerName(p))}</div>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">
                 <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#475569">
-                  <span style="width:9px;height:9px;border-radius:9999px;background:${ps.color};display:inline-block"></span>${ps.label} priority
+                  <span style="width:9px;height:9px;border-radius:9999px;background:${heat.color};display:inline-block"></span>${heat.label}
                 </span>
                 ${p.tier ? `<span style="font-size:11px;color:#475569">· ${escapeHtml(p.tier)}</span>` : ""}
               </div>
+              <div style="color:#64748b;font-size:12px;margin-bottom:${p.address ? "2px" : "6px"}">${escapeHtml(lastVisitLabel(p))}${
+                p.relationship_health != null ? ` · Health ${p.relationship_health}%` : ""
+              }</div>
               ${p.address ? `<div style="color:#64748b;font-size:12px;margin-bottom:6px">${escapeHtml(p.address)}</div>` : ""}
               <button id="gdo-view-${p.id}" style="all:unset;cursor:pointer;color:#047857;font-weight:600;font-size:12px">View details →</button>
             </div>`,
@@ -374,8 +386,8 @@ export function PartnerMap({
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Legend */}
           <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
-            <span className="font-medium text-slate-500">Priority:</span>
-            {[...REFERRAL_PRIORITIES.map((p) => PRIORITY_STYLE[p]), UNSET_STYLE].map((s) => (
+            <span className="font-medium text-slate-500">Visit need:</span>
+            {VISIT_HEAT_LEVELS.map((s) => (
               <span key={s.label} className="inline-flex items-center gap-1.5">
                 <span className="inline-block h-3 w-3 rounded-full ring-2 ring-white" style={{ backgroundColor: s.color }} />
                 {s.label}
