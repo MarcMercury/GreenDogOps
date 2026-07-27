@@ -50,6 +50,8 @@ export async function updateSession(request: NextRequest) {
     // Agent endpoints self-authenticate via the CRON_SECRET bearer token
     // (worker run status, ezyVet data sinks, run creation).
     pathname.startsWith("/api/agents/") ||
+    // Resend webhook self-authenticates via its Svix signature (whsec_…).
+    pathname.startsWith("/api/email/webhook") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico";
 
