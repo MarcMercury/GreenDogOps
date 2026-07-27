@@ -1764,6 +1764,9 @@ function DetailDialog({
   onChange: (msg: string) => void;
 }) {
   const [composeEmail, setComposeEmail] = useState(false);
+  const [detailTab, setDetailTab] = useState<
+    "contact" | "classification" | "visit" | "agreements" | "activity"
+  >("contact");
   return (
     <Modal onClose={onClose} wide>
       <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-4">
@@ -1814,65 +1817,119 @@ function DetailDialog({
           <StatCard label="Last Visit" value={formatDate(partner.last_visit_date)} tone="text-slate-700" />
         </div>
 
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Contact</h3>
-          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <DetailRow label="Contact" value={partner.contact_name || partner.contact_person} />
-            <DetailRow label="Phone" value={partner.phone ? <a className="text-emerald-700 hover:underline" href={`tel:${partner.phone}`}>{partner.phone}</a> : null} />
-            <DetailRow label="Email" value={partner.email ? <a className="text-emerald-700 hover:underline" href={`mailto:${partner.email}`}>{partner.email}</a> : null} />
-            <DetailRow label="Website" value={partner.website ? <a className="text-emerald-700 hover:underline" href={partner.website} target="_blank" rel="noreferrer">{partner.website}</a> : null} />
-            <DetailRow label="Address" value={partner.address} />
-            <DetailRow label="Instagram" value={partner.instagram_handle} />
-          </dl>
-        </section>
+        <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-100 pb-2">
+          {([
+            { key: "contact", label: "Contact" },
+            { key: "classification", label: "Classification" },
+            { key: "visit", label: "Visit Schedule" },
+            { key: "agreements", label: "Agreements" },
+            { key: "activity", label: "Activity" },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setDetailTab(t.key)}
+              className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${detailTab === t.key ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Classification</h3>
-          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <DetailRow label="Clinic Type" value={titleCase(partner.clinic_type)} />
-            <DetailRow label="Size" value={titleCase(partner.size)} />
-            <DetailRow label="Organization" value={titleCase(partner.organization_type)} />
-            <DetailRow label="Employees" value={partner.employee_count} />
-            <DetailRow label="Visit Frequency" value={titleCase(partner.visit_frequency)} />
-            <DetailRow label="Best Contact" value={partner.best_contact_person} />
-            <DetailRow label="Services" value={partner.services?.join(", ")} />
-            <DetailRow label="Divisions" value={partner.referral_divisions?.join(", ")} />
-            <DetailRow label="Agreement" value={titleCase(partner.referral_agreement_type)} />
-          </dl>
-        </section>
-
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Visit History</h3>
-          {visits.length === 0 ? (
-            <p className="text-sm text-slate-400">No visits logged yet.</p>
-          ) : (
-            <ol className="space-y-2">
-              {visits.slice(0, 10).map((v) => (
-                <li key={v.id} className="rounded-lg border border-slate-100 p-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium text-slate-700">{formatDate(v.visit_date)}</span>
-                    {v.spoke_to && <span className="text-xs text-slate-400">with {v.spoke_to}</span>}
-                  </div>
-                  {v.visit_notes && <p className="mt-1 text-sm text-slate-600">{v.visit_notes}</p>}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-
-        <section>
-          <ContactsPanel partnerId={partner.id} contacts={contacts} onChange={onChange} />
-        </section>
-
-        <section>
-          <NotesPanel partnerId={partner.id} notes={notes} onChange={onChange} />
-        </section>
-
-        {partner.notes && (
+        {detailTab === "contact" && (
           <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Profile Notes</h3>
-            <p className="whitespace-pre-wrap text-sm text-slate-600">{partner.notes}</p>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Contact" value={partner.contact_name || partner.contact_person} />
+              <DetailRow label="Best Contact" value={partner.best_contact_person} />
+              <DetailRow label="Status" value={titleCase(partner.status)} />
+              <DetailRow label="Phone" value={partner.phone ? <a className="text-emerald-700 hover:underline" href={`tel:${partner.phone}`}>{partner.phone}</a> : null} />
+              <DetailRow label="Email" value={partner.email ? <a className="text-emerald-700 hover:underline" href={`mailto:${partner.email}`}>{partner.email}</a> : null} />
+              <DetailRow label="Website" value={partner.website ? <a className="text-emerald-700 hover:underline" href={partner.website} target="_blank" rel="noreferrer">{partner.website}</a> : null} />
+              <DetailRow label="Address" value={partner.address} />
+              <DetailRow label="Instagram" value={partner.instagram_handle} />
+              <DetailRow label="Facebook" value={partner.facebook_url ? <a className="text-emerald-700 hover:underline" href={partner.facebook_url} target="_blank" rel="noreferrer">Facebook</a> : null} />
+              <DetailRow label="LinkedIn" value={partner.linkedin_url ? <a className="text-emerald-700 hover:underline" href={partner.linkedin_url} target="_blank" rel="noreferrer">LinkedIn</a> : null} />
+            </dl>
+            {partner.notes && (
+              <div className="mt-4">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Profile Notes</h3>
+                <p className="whitespace-pre-wrap text-sm text-slate-600">{partner.notes}</p>
+              </div>
+            )}
           </section>
+        )}
+
+        {detailTab === "classification" && (
+          <section>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Tier" value={partner.tier} />
+              <DetailRow label="Priority" value={partner.priority} />
+              <DetailRow label="Zone" value={partner.zone ? getZoneDisplay(partner.zone) : null} />
+              <DetailRow label="Clinic Type" value={titleCase(partner.clinic_type)} />
+              <DetailRow label="Size" value={titleCase(partner.size)} />
+              <DetailRow label="Organization" value={titleCase(partner.organization_type)} />
+              <DetailRow label="Employees" value={partner.employee_count} />
+              <DetailRow label="Services" value={partner.services?.join(", ")} />
+              <DetailRow label="Divisions" value={partner.referral_divisions?.join(", ")} />
+            </dl>
+          </section>
+        )}
+
+        {detailTab === "visit" && (
+          <section>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Visit Frequency" value={titleCase(partner.visit_frequency)} />
+              <DetailRow label="Expected Days Between Visits" value={partner.expected_visit_frequency_days} />
+              <DetailRow label="Preferred Day" value={titleCase(partner.preferred_visit_day)} />
+              <DetailRow label="Preferred Time" value={titleCase(partner.preferred_visit_time)} />
+              <DetailRow label="Next Follow-up" value={formatDate(partner.next_followup_date)} />
+              <DetailRow label="Needs Follow-up" value={partner.needs_followup ? "Yes" : null} />
+              <DetailRow label="Last Visit" value={formatDate(partner.last_visit_date)} />
+              <DetailRow label="Last Referral" value={formatDate(partner.last_referral_date)} />
+              <DetailRow label="Last Contact" value={formatDate(partner.last_contact_date)} />
+            </dl>
+          </section>
+        )}
+
+        {detailTab === "agreements" && (
+          <section>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Agreement Type" value={titleCase(partner.referral_agreement_type)} />
+              <DetailRow label="CE Event Host" value={partner.ce_event_host ? "Yes" : null} />
+              <DetailRow label="Lunch & Learn Eligible" value={partner.lunch_and_learn_eligible ? "Yes" : null} />
+              <DetailRow label="Drop-off Materials" value={partner.drop_off_materials ? "Yes" : null} />
+            </dl>
+          </section>
+        )}
+
+        {detailTab === "activity" && (
+          <div className="space-y-6">
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Visit History</h3>
+              {visits.length === 0 ? (
+                <p className="text-sm text-slate-400">No visits logged yet.</p>
+              ) : (
+                <ol className="space-y-2">
+                  {visits.slice(0, 10).map((v) => (
+                    <li key={v.id} className="rounded-lg border border-slate-100 p-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-slate-700">{formatDate(v.visit_date)}</span>
+                        {v.spoke_to && <span className="text-xs text-slate-400">with {v.spoke_to}</span>}
+                      </div>
+                      {v.visit_notes && <p className="mt-1 text-sm text-slate-600">{v.visit_notes}</p>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            <section>
+              <ContactsPanel partnerId={partner.id} contacts={contacts} onChange={onChange} />
+            </section>
+
+            <section>
+              <NotesPanel partnerId={partner.id} notes={notes} onChange={onChange} />
+            </section>
+          </div>
         )}
       </div>
     </Modal>
