@@ -289,7 +289,7 @@ export function PartnerMap({
           const heat = heatFor(p);
           info.setContent(
             `<div style="font:13px/1.4 system-ui,sans-serif;max-width:230px">
-              <div style="font-weight:600;color:#0f172a;margin-bottom:2px">${escapeHtml(partnerName(p))}</div>
+              <a id="gdo-name-${p.id}" href="#" style="font-weight:600;color:#047857;text-decoration:none;cursor:pointer;margin-bottom:2px;display:inline-block">${escapeHtml(partnerName(p))}</a>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">
                 <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#475569">
                   <span style="width:9px;height:9px;border-radius:9999px;background:${heat.color};display:inline-block"></span>${heat.label}
@@ -304,13 +304,15 @@ export function PartnerMap({
             </div>`,
           );
           info.open({ anchor: marker, map });
-          // Wire the "View details" button after the InfoWindow renders.
+          // Wire the clinic name link + "View details" button after the InfoWindow renders.
           setTimeout(() => {
-            const btn = document.getElementById(`gdo-view-${p.id}`);
-            btn?.addEventListener("click", () => {
+            const open = (e?: Event) => {
+              e?.preventDefault();
               info.close();
               onViewRef.current(p);
-            });
+            };
+            document.getElementById(`gdo-name-${p.id}`)?.addEventListener("click", open);
+            document.getElementById(`gdo-view-${p.id}`)?.addEventListener("click", open);
           }, 0);
         }
       });

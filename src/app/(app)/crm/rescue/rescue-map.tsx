@@ -280,7 +280,7 @@ export function RescueMap({
           const ss = statusStyle(r.status);
           info.setContent(
             `<div style="font:13px/1.4 system-ui,sans-serif;max-width:230px">
-              <div style="font-weight:600;color:#0f172a;margin-bottom:2px">${escapeHtml(r.name)}</div>
+              <a href="/crm/org/${escapeHtml(r.id)}" style="font-weight:600;color:#047857;text-decoration:none;cursor:pointer;margin-bottom:2px;display:inline-block">${escapeHtml(r.name)}</a>
               <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">
                 <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:#475569">
                   <span style="width:9px;height:9px;border-radius:9999px;background:${heat.color};display:inline-block"></span>${heat.label}
