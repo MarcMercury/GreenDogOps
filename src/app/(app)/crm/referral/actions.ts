@@ -8,6 +8,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows, mapWithConcurrency } from "@/lib/supabase/paginate";
 import { requireUser, requireAdmin, recordAudit } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
+import { sendEmail } from "@/lib/shared/email";
+import { textToHtml } from "@/lib/crm/email-templates";
 import { redirect } from "next/navigation";
 
 // ---------------------------------------------------------------------------
@@ -1292,4 +1294,50 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
     revenueAdded: Math.round(revenueAdded * 100) / 100, visitorsAdded,
     newRows, totalRows, invalidDateRows, dateRange, overlapWarning, isDuplicateUpload, details: result,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Send a templated email to a referral account
+// ---------------------------------------------------------------------------
+export async function sendReferralEmail(formData: FormData): Promise<ActionResult> {
+  const current = await requireReferralUser();
+
+  const partnerId = str(formData.get("partnerId"));
+  const to = str(formData.get("to"));
+  const subject = str(formData.get("subject"));
+  const body = str(formData.get("body"));
+  const templateName = str(formData.get("templateName"));
+
+  if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    return { ok: false, error: "Enter a valid recipient email address." };
+  }
+  if (!subject) return { ok: false, error: "Subject is required." };
+  if (!body) return { ok: false, error: "Message body is required." };
+
+  const result = await sendEmail({
+    to,
+    subject,
+    text: body,
+    html: textToHtml(body),
+    // Replies go back to the staff member who sent it, not the shared From.
+    replyTo: current.email,
+    tags: [{ name: "type", value: "referral" }],
+  });
+
+  if (!result.ok) {
+    return { ok: false, error: result.error ?? "Failed to send email." };
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "referral.email.sent",
+    entity: "referral_partner",
+    entityId: partnerId ?? undefined,
+    summary: `Sent email to ${to}${templateName ? ` — “${templateName}”` : ""}: ${subject}`,
+    metadata: { to, subject, template: templateName },
+  });
+
+  revalidatePath("/crm/referral");
+  return { ok: true, message: `Email sent to ${to}.` };
 }

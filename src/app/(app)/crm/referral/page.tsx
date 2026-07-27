@@ -13,6 +13,7 @@ import type {
   ActivityLogEntry,
 } from "@/lib/crm/referral-types";
 import { ReferralCrm } from "./referral-crm";
+import type { EmailTemplate } from "@/lib/crm/email-templates";
 
 export const dynamic = "force-dynamic";
 
@@ -193,6 +194,15 @@ export default async function ReferralCrmPage() {
     created_at: r.created_at as string,
   }));
 
+  // Active email templates for the "Send Email" action (referral + general).
+  const { data: templateRows } = await admin
+    .from("email_template")
+    .select("*")
+    .eq("is_active", true)
+    .in("category", ["referral", "general"])
+    .order("name");
+  const templates = (templateRows ?? []) as EmailTemplate[];
+
   return (
     <ReferralCrm
       partners={partners}
@@ -205,6 +215,9 @@ export default async function ReferralCrmPage() {
       isAdmin={isAdmin}
       canEdit={canEdit}
       mapsApiKey={mapsApiKey}
+      templates={templates}
+      senderName={current?.appUser.full_name ?? null}
+      senderEmail={current?.email ?? null}
     />
   );
 }

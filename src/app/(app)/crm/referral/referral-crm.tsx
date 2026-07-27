@@ -47,6 +47,8 @@ import {
 } from "./actions";
 import { PartnerDialog } from "./partner-dialog";
 import { PartnerMap } from "./partner-map";
+import { EmailComposeDialog } from "./email-compose-dialog";
+import type { EmailTemplate } from "@/lib/crm/email-templates";
 import {
   type CellValue,
   type SortDir,
@@ -112,6 +114,9 @@ export function ReferralCrm({
   isAdmin,
   canEdit = false,
   mapsApiKey,
+  templates,
+  senderName,
+  senderEmail,
 }: {
   partners: ReferralPartner[];
   visits: ClinicVisit[];
@@ -123,6 +128,9 @@ export function ReferralCrm({
   isAdmin: boolean;
   canEdit?: boolean;
   mapsApiKey: string;
+  templates: EmailTemplate[];
+  senderName: string | null;
+  senderEmail: string | null;
 }) {
   const [tab, setTab] = useState<TabKey>("list");
   const [search, setSearch] = useState("");
@@ -363,6 +371,10 @@ export function ReferralCrm({
           visits={visits.filter((v) => v.partner_id === detail.id)}
           contacts={contacts.filter((c) => c.partner_id === detail.id)}
           notes={notes.filter((n) => n.partner_id === detail.id)}
+          canEdit={canEdit}
+          templates={templates}
+          senderName={senderName}
+          senderEmail={senderEmail}
           onClose={() => setDetail(null)}
           onEdit={() => { setEditing(detail); setDetail(null); }}
           onQuickVisit={() => { setQuickVisitFor(detail); setDetail(null); }}
@@ -1732,17 +1744,22 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function DetailDialog({
-  partner, visits, contacts, notes, onClose, onEdit, onQuickVisit, onChange,
+  partner, visits, contacts, notes, canEdit, templates, senderName, senderEmail, onClose, onEdit, onQuickVisit, onChange,
 }: {
   partner: ReferralPartner;
   visits: ClinicVisit[];
   contacts: PartnerContact[];
   notes: PartnerNote[];
+  canEdit: boolean;
+  templates: EmailTemplate[];
+  senderName: string | null;
+  senderEmail: string | null;
   onClose: () => void;
   onEdit: () => void;
   onQuickVisit: () => void;
   onChange: (msg: string) => void;
 }) {
+  const [composeEmail, setComposeEmail] = useState(false);
   return (
     <Modal onClose={onClose} wide>
       <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-4">
@@ -1756,11 +1773,26 @@ function DetailDialog({
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
+          {canEdit && (
+            <button onClick={() => setComposeEmail(true)} className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50">Send Email</button>
+          )}
           <button onClick={onQuickVisit} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">Log Visit</button>
           <button onClick={onEdit} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">Edit</button>
           <button onClick={onClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50">✕</button>
         </div>
       </div>
+
+      {composeEmail && (
+        <EmailComposeDialog
+          partner={partner}
+          contacts={contacts}
+          templates={templates}
+          senderName={senderName}
+          senderEmail={senderEmail}
+          onClose={() => setComposeEmail(false)}
+          onSent={(msg) => { setComposeEmail(false); onChange(msg); }}
+        />
+      )}
 
       <div className="space-y-6 p-5">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

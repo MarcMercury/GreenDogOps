@@ -528,3 +528,97 @@ export async function deleteCredential(formData: FormData): Promise<void> {
 
   revalidatePath("/admin/credentials");
 }
+
+// ---------------------------------------------------------------------------
+// Email templates (Admin > Templates). Used by the Referral CRM "Send Email".
+// ---------------------------------------------------------------------------
+export async function saveEmailTemplate(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+
+  const name = String(formData.get("name") ?? "").trim();
+  const subject = String(formData.get("subject") ?? "").trim();
+  const body = String(formData.get("body") ?? "");
+  if (!name || !subject || !body.trim()) return;
+
+  const values: Record<string, unknown> = {
+    name,
+    subject,
+    body,
+    description: String(formData.get("description") ?? "").trim() || null,
+    category: String(formData.get("category") ?? "").trim() || "referral",
+    is_active: formData.get("is_active") === "on",
+    updated_by: current.authId,
+    updated_at: new Date().toISOString(),
+  };
+
+  const admin = createAdminClient();
+  if (id) {
+    await admin.from("email_template").update(values).eq("id", id);
+  } else {
+    values.created_by = current.authId;
+    values.created_by_email = current.email;
+    await admin.from("email_template").insert(values);
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: id ? "template.updated" : "template.created",
+    entity: "email_template",
+    entityId: id || undefined,
+    summary: `${id ? "Updated" : "Created"} email template “${name}”`,
+  });
+
+  revalidatePath("/admin/templates");
+}
+
+/** Toggle a template's active state (inactive templates hide from Send Email). */
+export async function setEmailTemplateActive(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return;
+  const isActive = String(formData.get("is_active") ?? "") === "true";
+
+  const admin = createAdminClient();
+  await admin
+    .from("email_template")
+    .update({ is_active: isActive, updated_by: current.authId, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: isActive ? "template.activated" : "template.deactivated",
+    entity: "email_template",
+    entityId: id,
+    summary: `${isActive ? "Activated" : "Deactivated"} email template ${id}`,
+  });
+
+  revalidatePath("/admin/templates");
+}
+
+export async function deleteEmailTemplate(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return;
+
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("email_template")
+    .select("name")
+    .eq("id", id)
+    .maybeSingle();
+  await admin.from("email_template").delete().eq("id", id);
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "template.deleted",
+    entity: "email_template",
+    entityId: id,
+    summary: `Deleted email template “${(data as { name?: string } | null)?.name ?? id}”`,
+  });
+
+  revalidatePath("/admin/templates");
+}
