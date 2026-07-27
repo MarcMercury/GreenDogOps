@@ -114,7 +114,8 @@ export function CalendarView({
           // Schedule shifts render as compact dot markers, smaller than events.
           display: isSchedule ? "list-item" : "block",
           classNames: isSchedule ? ["gdo-sched"] : [],
-          extendedProps: { item: it },
+          // Keep schedule markers pinned to the bottom of each day cell.
+          extendedProps: { item: it, sortIdx: isSchedule ? 1 : 0 },
         };
       }),
     [items],
@@ -204,6 +205,7 @@ export function CalendarView({
           dateClick={onDateClick}
           eventDisplay="block"
           displayEventEnd={false}
+          eventOrder="sortIdx,start,title"
           dayMaxEvents={3}
           nowIndicator
           eventTimeFormat={{
