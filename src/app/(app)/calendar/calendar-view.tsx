@@ -23,8 +23,10 @@ import {
   createNote,
   updateNote,
   syncCalendarNow,
+  addSchedulePins,
+  removeSchedulePin,
 } from "./actions";
-import type { GoogleSyncStatus } from "./data";
+import type { GoogleSyncStatus, SchedulePin } from "./data";
 import {
   EventDialog as MarketingEventDialog,
   type Run as MarketingRun,
@@ -33,6 +35,7 @@ import type {
   MarketingEventSource,
   PersonOption,
 } from "@/lib/marketing/types";
+import { personLabel } from "@/lib/marketing/types";
 
 const LEGEND: CalendarCategory[] = [
   "google",
@@ -41,6 +44,7 @@ const LEGEND: CalendarCategory[] = [
   "marketing",
   "ce",
   "interview",
+  "schedule",
 ];
 
 type EditState =
@@ -60,6 +64,7 @@ export function CalendarView({
   syncStatus,
   eventSources,
   people,
+  schedulePins,
 }: {
   items: CalendarItem[];
   canEdit: boolean;
@@ -67,11 +72,13 @@ export function CalendarView({
   syncStatus: GoogleSyncStatus | null;
   eventSources: MarketingEventSource[];
   people: PersonOption[];
+  schedulePins: SchedulePin[];
 }) {
   const router = useRouter();
   const [edit, setEdit] = useState<EditState>({ mode: "closed" });
   const [note, setNote] = useState<NoteState>({ mode: "closed" });
   const [eventOpen, setEventOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [view, setView] = useState<CalendarItem | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [, startEventTransition] = useTransition();
@@ -94,16 +101,22 @@ export function CalendarView({
 
   const events = useMemo<EventInput[]>(
     () =>
-      items.map((it) => ({
-        id: it.id,
-        title: it.title,
-        start: it.start,
-        end: it.end ?? undefined,
-        allDay: it.allDay,
-        backgroundColor: CATEGORY_COLORS[it.category],
-        borderColor: CATEGORY_COLORS[it.category],
-        extendedProps: { item: it },
-      })),
+      items.map((it) => {
+        const isSchedule = it.category === "schedule";
+        return {
+          id: it.id,
+          title: it.title,
+          start: it.start,
+          end: it.end ?? undefined,
+          allDay: it.allDay,
+          backgroundColor: CATEGORY_COLORS[it.category],
+          borderColor: CATEGORY_COLORS[it.category],
+          // Schedule shifts render as compact dot markers, smaller than events.
+          display: isSchedule ? "list-item" : "block",
+          classNames: isSchedule ? ["gdo-sched"] : [],
+          extendedProps: { item: it },
+        };
+      }),
     [items],
   );
 
@@ -144,6 +157,13 @@ export function CalendarView({
         {canEdit ? (
           <div className="flex items-center gap-2">
             <SyncControl status={syncStatus} />
+            <button
+              type="button"
+              onClick={() => setScheduleOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-300 bg-cyan-50 px-3.5 py-2 text-sm font-medium text-cyan-800 transition hover:bg-cyan-100"
+            >
+              + Add employee schedules
+            </button>
             <button
               type="button"
               onClick={() => setNote({ mode: "create", date: null })}
@@ -225,6 +245,15 @@ export function CalendarView({
           people={people}
           onClose={() => setEventOpen(false)}
           run={runEvent}
+        />
+      ) : null}
+
+      {scheduleOpen ? (
+        <ScheduleWizard
+          people={people}
+          pins={schedulePins}
+          onClose={() => setScheduleOpen(false)}
+          onChanged={() => router.refresh()}
         />
       ) : null}
 
@@ -542,6 +571,169 @@ function NoteDialog({
             </div>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function ScheduleWizard({
+  people,
+  pins,
+  onClose,
+  onChanged,
+}: {
+  people: PersonOption[];
+  pins: SchedulePin[];
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const pinnedIds = useMemo(
+    () => new Set(pins.map((p) => p.personId)),
+    [pins],
+  );
+  const available = useMemo(
+    () =>
+      people
+        .filter((p) => !pinnedIds.has(p.id))
+        .sort((a, b) => personLabel(a).localeCompare(personLabel(b))),
+    [people, pinnedIds],
+  );
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function toggle(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function add() {
+    if (selected.size === 0) {
+      setError("Select at least one employee.");
+      return;
+    }
+    setError(null);
+    const fd = new FormData();
+    for (const id of selected) fd.append("person_ids", id);
+    startTransition(async () => {
+      const res = await addSchedulePins(fd);
+      if (res.ok) {
+        setSelected(new Set());
+        onChanged();
+      } else {
+        setError(res.error);
+      }
+    });
+  }
+
+  function remove(personId: string) {
+    setError(null);
+    const fd = new FormData();
+    fd.set("person_id", personId);
+    startTransition(async () => {
+      const res = await removeSchedulePin(fd);
+      if (res.ok) onChanged();
+      else setError(res.error);
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="text-lg font-bold text-slate-900">
+          Add employee schedules
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Pick employees to overlay their scheduled shifts on the calendar. They
+          appear as small entries and stay in sync with the schedule grid.
+        </p>
+
+        {pins.length > 0 ? (
+          <div className="mt-4">
+            <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+              On the calendar
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {pins.map((p) => (
+                <span
+                  key={p.id}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-cyan-100 px-2.5 py-1 text-xs font-medium text-cyan-800"
+                >
+                  {p.name}
+                  <button
+                    type="button"
+                    onClick={() => remove(p.personId)}
+                    disabled={pending}
+                    className="text-cyan-500 transition hover:text-cyan-900 disabled:opacity-50"
+                    aria-label={`Remove ${p.name}`}
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        <div className="mt-4 flex min-h-0 flex-1 flex-col">
+          <span className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-slate-400">
+            Employees
+          </span>
+          <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-200">
+            {available.length === 0 ? (
+              <p className="p-3 text-sm text-slate-400">
+                All employees are already on the calendar.
+              </p>
+            ) : (
+              available.map((p) => (
+                <label
+                  key={p.id}
+                  className="flex cursor-pointer items-center gap-2.5 border-b border-slate-100 px-3 py-2 text-sm text-slate-700 last:border-b-0 hover:bg-slate-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(p.id)}
+                    onChange={() => toggle(p.id)}
+                  />
+                  {personLabel(p)}
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+
+        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+          >
+            Done
+          </button>
+          <button
+            type="button"
+            onClick={add}
+            disabled={pending || selected.size === 0}
+            className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-cyan-700 disabled:opacity-50"
+          >
+            {pending
+              ? "Adding…"
+              : `Add${selected.size ? ` ${selected.size}` : ""} to calendar`}
+          </button>
+        </div>
       </div>
     </div>
   );

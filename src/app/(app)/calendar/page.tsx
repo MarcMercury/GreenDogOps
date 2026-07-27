@@ -6,7 +6,7 @@ import type {
   MarketingEventSource,
   PersonOption,
 } from "@/lib/marketing/types";
-import { getCalendarItems, getGoogleSyncStatus, defaultRange } from "./data";
+import { getCalendarItems, getGoogleSyncStatus, getSchedulePins, defaultRange } from "./data";
 import { CalendarView } from "./calendar-view";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +20,10 @@ export default async function CalendarPage() {
 
   const supabase = await createClient();
   const range = defaultRange();
-  const [items, syncStatus, sourcesRes, peopleRes] = await Promise.all([
+  const [items, syncStatus, schedulePins, sourcesRes, peopleRes] = await Promise.all([
     getCalendarItems(range.start, range.end),
     getGoogleSyncStatus(),
+    getSchedulePins(),
     supabase
       .from("marketing_event_source")
       .select("*")
@@ -52,6 +53,7 @@ export default async function CalendarPage() {
         syncStatus={syncStatus}
         eventSources={eventSources}
         people={people}
+        schedulePins={schedulePins}
       />
     </div>
   );

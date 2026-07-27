@@ -7,7 +7,7 @@
 //
 // `category` drives colour + the legend and is the single knob the UI keys on.
 
-export type CalendarSource = "google" | "custom" | "ce" | "interview" | "time_off" | "marketing";
+export type CalendarSource = "google" | "custom" | "ce" | "interview" | "time_off" | "marketing" | "schedule";
 
 export type CalendarCategory =
   | "google"
@@ -16,7 +16,8 @@ export type CalendarCategory =
   | "ce"
   | "interview"
   | "time_off"
-  | "marketing";
+  | "marketing"
+  | "schedule";
 
 export type CalendarStatus = "confirmed" | "tentative" | "cancelled";
 
@@ -49,6 +50,7 @@ export const CATEGORY_LABELS: Record<CalendarCategory, string> = {
   interview: "Interview",
   time_off: "Time Off",
   marketing: "Marketing Event",
+  schedule: "Employee Schedule",
 };
 
 /** Hex colours fed to FullCalendar for event backgrounds. */
@@ -60,6 +62,7 @@ export const CATEGORY_COLORS: Record<CalendarCategory, string> = {
   interview: "#d97706", // amber-600
   time_off: "#64748b", // slate-500
   marketing: "#db2777", // pink-600
+  schedule: "#0891b2", // cyan-600 (subtle schedule marker)
 };
 
 /** Tailwind chip classes used by the legend / lists (server-safe strings). */
@@ -71,6 +74,7 @@ export const CATEGORY_TONE: Record<CalendarCategory, string> = {
   interview: "bg-amber-100 text-amber-800",
   time_off: "bg-slate-100 text-slate-600",
   marketing: "bg-pink-100 text-pink-800",
+  schedule: "bg-cyan-100 text-cyan-800",
 };
 
 /** Source-qualified id used everywhere a CalendarItem needs a stable key. */

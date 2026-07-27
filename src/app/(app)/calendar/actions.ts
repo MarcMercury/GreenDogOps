@@ -206,3 +206,54 @@ export async function syncCalendarNow(): Promise<ActionResult> {
   if (!res.ok) return { ok: false, error: res.error ?? "Sync failed." };
   return { ok: true };
 }
+
+/**
+ * Pin one or more employees so their Schedule-grid shifts project onto the
+ * calendar. Existing pins are ignored (upsert on person_id).
+ */
+export async function addSchedulePins(
+  formData: FormData,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("calendar");
+  if (!gate.ok) return gate;
+
+  const ids = formData
+    .getAll("person_ids")
+    .map((v) => String(v).trim())
+    .filter(Boolean);
+  if (ids.length === 0) return { ok: false, error: "Select at least one employee." };
+
+  const supabase = await createClient();
+  const rows = ids.map((person_id) => ({
+    person_id,
+    created_by: gate.current.authId,
+  }));
+  const { error } = await supabase
+    .from("calendar_schedule_pin")
+    .upsert(rows, { onConflict: "person_id", ignoreDuplicates: true });
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/calendar");
+  return { ok: true };
+}
+
+/** Remove a pinned employee schedule from the calendar. */
+export async function removeSchedulePin(
+  formData: FormData,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("calendar");
+  if (!gate.ok) return gate;
+
+  const personId = str(formData.get("person_id"));
+  if (!personId) return { ok: false, error: "Missing employee." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("calendar_schedule_pin")
+    .delete()
+    .eq("person_id", personId);
+
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/calendar");
+  return { ok: true };
+}

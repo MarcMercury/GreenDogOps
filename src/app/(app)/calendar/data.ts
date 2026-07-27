@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getGoogleCalendars } from "@/lib/calendar/config";
+import { searchShifts } from "../schedule-search/data";
 import {
   type CalendarItem,
   type CalendarCategory,
@@ -250,21 +251,91 @@ async function getMarketingEvents(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Projected: pinned employee schedules (sched_assignment via searchShifts).
+// ---------------------------------------------------------------------------
+
+/** A person whose Schedule-grid shifts are pinned onto the calendar. */
+export interface SchedulePin {
+  id: string;
+  personId: string;
+  name: string;
+}
+
+/** People whose schedules are currently pinned to the calendar. */
+export async function getSchedulePins(): Promise<SchedulePin[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("calendar_schedule_pin")
+    .select(`id, person_id, person:person_id (${PERSON_COLS})`)
+    .order("created_at", { ascending: true });
+  return ((data ?? []) as {
+    id: string;
+    person_id: string;
+    person: PersonName | PersonName[] | null;
+  }[]).map((r) => ({
+    id: r.id,
+    personId: r.person_id,
+    name: displayName(firstPerson(r.person)),
+  }));
+}
+
+/**
+ * Scheduled shifts for pinned employees projected as compact calendar items.
+ * Reuses the Schedule-search query so entries always mirror the live grid.
+ */
+async function getScheduleShifts(
+  start: string,
+  end: string,
+): Promise<CalendarItem[]> {
+  const pins = await getSchedulePins();
+  if (pins.length === 0) return [];
+
+  const nameById = new Map(pins.map((p) => [p.personId, p.name]));
+  const shifts = await searchShifts(
+    pins.map((p) => p.personId),
+    start,
+    end,
+  );
+
+  return shifts.map((s) => {
+    const name = nameById.get(s.person_id) ?? "Employee";
+    const timed = combineDateTime(s.work_date, s.start_time);
+    const end = s.end_time ? combineDateTime(s.work_date, s.end_time).iso : null;
+    return {
+      id: itemId("schedule", `${s.person_id}:${s.work_date}:${s.location_id}`),
+      source: "schedule" as const,
+      category: "schedule" as const,
+      title: `${name} · ${s.location_name}`,
+      description: s.label,
+      location: s.location_name,
+      start: timed.iso,
+      end,
+      allDay: timed.allDay,
+      status: "confirmed" as const,
+      href: "/schedule-search",
+      editable: false,
+    };
+  });
+}
+
 /**
  * All calendar items in [start, end], merging physical calendar_event rows with
- * read-time projections of CE events, interviews, and marketing events.
+ * read-time projections of CE events, interviews, marketing events, and pinned
+ * employee schedules.
  */
 export async function getCalendarItems(
   start: string,
   end: string,
 ): Promise<CalendarItem[]> {
-  const [stored, ce, interviews, marketing] = await Promise.all([
+  const [stored, ce, interviews, marketing, schedules] = await Promise.all([
     getStoredEvents(start, end),
     getCeEvents(start, end),
     getInterviews(start, end),
     getMarketingEvents(start, end),
+    getScheduleShifts(start, end),
   ]);
-  return [...stored, ...ce, ...interviews, ...marketing];
+  return [...stored, ...ce, ...interviews, ...marketing, ...schedules];
 }
 
 export interface GoogleSyncStatus {
