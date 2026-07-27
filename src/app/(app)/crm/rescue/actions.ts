@@ -272,6 +272,34 @@ export async function sendRescueEmail(formData: FormData): Promise<ActionResult>
     return { ok: false, error: result.error ?? "Failed to send email." };
   }
 
+  // Record the send as a note (prepended to the org's notes, matching the
+  // quick-note format) and stamp last contact.
+  if (orgId) {
+    const supabase = await createClient();
+    const { data: existing } = await supabase
+      .from("crm_organization")
+      .select("notes")
+      .eq("id", orgId)
+      .maybeSingle();
+
+    const stamp = new Date().toLocaleString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const entry = `[${stamp}] Email sent to ${to}${templateName ? ` — template “${templateName}”` : ""}: ${subject}`;
+    const prevNotes = (existing as { notes: string | null } | null)?.notes?.trim();
+    const notes = prevNotes ? `${entry}\n\n${prevNotes}` : entry;
+    const today = new Date().toISOString().slice(0, 10);
+
+    await supabase
+      .from("crm_organization")
+      .update({ notes, last_contact_date: today })
+      .eq("id", orgId);
+  }
+
   await recordAudit({
     actorId: gate.current.authId,
     actorEmail: gate.current.email,

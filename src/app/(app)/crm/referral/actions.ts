@@ -1327,6 +1327,44 @@ export async function sendReferralEmail(formData: FormData): Promise<ActionResul
     return { ok: false, error: result.error ?? "Failed to send email." };
   }
 
+  // Record the send as a note, stamp the contact/email dates, and refresh
+  // health (an email counts as 25% of a visit — see migration 0137).
+  if (partnerId) {
+    const supabase = await createClient();
+    const authorName = current.appUser.full_name || current.email || "Unknown";
+    const initials = authorName
+      .split(/\s+/)
+      .map((w) => w[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase();
+    const today = new Date().toISOString().slice(0, 10);
+
+    await supabase.from("partner_notes").insert({
+      partner_id: partnerId,
+      category: "email",
+      note_type: "email",
+      content: `Email sent to ${to}${templateName ? ` — template “${templateName}”` : ""}: ${subject}`,
+      is_pinned: false,
+      created_by: current.authId,
+      created_by_name: authorName,
+      author_initials: initials,
+    });
+
+    await supabase
+      .from("referral_partners")
+      .update({
+        last_email_date: today,
+        last_contact_date: today,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", partnerId);
+
+    // Recompute derived metrics so the email's health contribution applies.
+    await createAdminClient().rpc("recalculate_partner_metrics");
+  }
+
   await recordAudit({
     actorId: current.authId,
     actorEmail: current.email,
