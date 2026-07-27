@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Panel } from "../_components";
 import {
   REFERRAL_TEMPLATE_VARIABLES,
@@ -27,7 +27,13 @@ function variablesForCategory(category: string): TemplateVariable[] {
   return REFERRAL_TEMPLATE_VARIABLES;
 }
 
-function VariableReference({ category }: { category: string }) {
+function VariableReference({
+  category,
+  onInsert,
+}: {
+  category: string;
+  onInsert: (token: string) => void;
+}) {
   const vars = variablesForCategory(category);
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -35,18 +41,20 @@ function VariableReference({ category }: { category: string }) {
         Available variables — {templateCategoryLabel(category)}
       </p>
       <p className="mb-2 text-xs text-slate-500">
-        Type these anywhere in the subject or body. They are filled from the
-        account when the email is sent.
+        Click a variable to insert it at your cursor in the subject or body.
+        They are filled from the account when the email is sent.
       </p>
       <div className="flex flex-wrap gap-1.5">
         {vars.map((v) => (
-          <span
+          <button
             key={v.token}
+            type="button"
             title={v.description}
-            className="cursor-help rounded-md bg-white px-2 py-1 font-mono text-[11px] text-slate-600 ring-1 ring-slate-200"
+            onClick={() => onInsert(`{{${v.token}}}`)}
+            className="rounded-md bg-white px-2 py-1 font-mono text-[11px] text-slate-600 ring-1 ring-slate-200 transition hover:bg-emerald-50 hover:text-emerald-700 hover:ring-emerald-300"
           >
             {`{{${v.token}}}`}
-          </span>
+          </button>
         ))}
       </div>
     </div>
@@ -61,6 +69,22 @@ function TemplateForm({
   onClose: () => void;
 }) {
   const [category, setCategory] = useState<string>(template?.category ?? "referral");
+  const subjectRef = useRef<HTMLInputElement>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // Which field to insert a clicked variable into — the last one focused.
+  const lastFocused = useRef<"subject" | "body">("body");
+
+  function insertVariable(token: string) {
+    const el = lastFocused.current === "subject" ? subjectRef.current : bodyRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    el.value = el.value.slice(0, start) + token + el.value.slice(end);
+    const caret = start + token.length;
+    el.focus();
+    el.setSelectionRange(caret, caret);
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/30">
       <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl">
@@ -130,6 +154,8 @@ function TemplateForm({
               Subject *
             </span>
             <input
+              ref={subjectRef}
+              onFocus={() => (lastFocused.current = "subject")}
               name="subject"
               defaultValue={template?.subject ?? ""}
               placeholder="Thank you from Green Dog Dental, {{contact_first_name}}"
@@ -143,6 +169,8 @@ function TemplateForm({
               Body *
             </span>
             <textarea
+              ref={bodyRef}
+              onFocus={() => (lastFocused.current = "body")}
               name="body"
               defaultValue={template?.body ?? ""}
               rows={12}
@@ -152,7 +180,7 @@ function TemplateForm({
             />
           </label>
 
-          <VariableReference category={category} />
+          <VariableReference category={category} onInsert={insertVariable} />
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
