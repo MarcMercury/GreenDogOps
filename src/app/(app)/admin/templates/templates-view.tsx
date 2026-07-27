@@ -4,6 +4,10 @@ import { useState } from "react";
 import { Panel } from "../_components";
 import {
   REFERRAL_TEMPLATE_VARIABLES,
+  RESCUE_TEMPLATE_VARIABLES,
+  TEMPLATE_CATEGORIES,
+  templateCategoryLabel,
+  type TemplateVariable,
   type EmailTemplate,
 } from "@/lib/crm/email-templates";
 import {
@@ -15,20 +19,27 @@ import {
 const inputCls =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100";
 
-const CATEGORY_OPTIONS = ["referral", "general"] as const;
+const CATEGORY_OPTIONS = TEMPLATE_CATEGORIES;
 
-function VariableReference() {
+/** Variable reference depends on which partner type the template targets. */
+function variablesForCategory(category: string): TemplateVariable[] {
+  if (category === "rescue") return RESCUE_TEMPLATE_VARIABLES;
+  return REFERRAL_TEMPLATE_VARIABLES;
+}
+
+function VariableReference({ category }: { category: string }) {
+  const vars = variablesForCategory(category);
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Available variables
+        Available variables — {templateCategoryLabel(category)}
       </p>
       <p className="mb-2 text-xs text-slate-500">
         Type these anywhere in the subject or body. They are filled from the
         account when the email is sent.
       </p>
       <div className="flex flex-wrap gap-1.5">
-        {REFERRAL_TEMPLATE_VARIABLES.map((v) => (
+        {vars.map((v) => (
           <span
             key={v.token}
             title={v.description}
@@ -49,6 +60,7 @@ function TemplateForm({
   template: EmailTemplate | null;
   onClose: () => void;
 }) {
+  const [category, setCategory] = useState<string>(template?.category ?? "referral");
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/30">
       <div className="h-full w-full max-w-2xl overflow-y-auto bg-white shadow-xl">
@@ -84,16 +96,17 @@ function TemplateForm({
             </label>
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-500">
-                Category
+                Partner type
               </span>
               <select
                 name="category"
-                defaultValue={template?.category ?? "referral"}
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
                 className={inputCls}
               >
                 {CATEGORY_OPTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
+                  <option key={c.value} value={c.value}>
+                    {c.label}
                   </option>
                 ))}
               </select>
@@ -139,7 +152,7 @@ function TemplateForm({
             />
           </label>
 
-          <VariableReference />
+          <VariableReference category={category} />
 
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
@@ -175,84 +188,57 @@ function TemplateForm({
 export function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
   const [editing, setEditing] = useState<EmailTemplate | "new" | null>(null);
 
+  // Group by partner type, preserving the catalog order and appending any
+  // unknown categories at the end so nothing is ever hidden.
+  const known = new Set(TEMPLATE_CATEGORIES.map((c) => c.value));
+  const extraCategories = [
+    ...new Set(templates.map((t) => t.category).filter((c) => !known.has(c))),
+  ];
+  const orderedCategories = [
+    ...TEMPLATE_CATEGORIES.map((c) => c.value),
+    ...extraCategories,
+  ];
+
   return (
     <div className="space-y-4">
-      <Panel
-        title="Email templates"
-        description="Reusable templates for the Referral CRM “Send Email” action. Use {{variables}} to personalize each message."
-        actions={
-          <button
-            onClick={() => setEditing("new")}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
-          >
-            + Add template
-          </button>
-        }
-      >
-        {templates.length === 0 ? (
-          <p className="px-5 py-6 text-sm text-slate-400">
-            No templates yet. Add one to get started.
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-900">Email templates</h1>
+          <p className="text-sm text-slate-500">
+            Reusable templates for CRM “Send Email”, grouped by the partner type
+            they target. Use {"{{variables}}"} to personalize each message.
           </p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {templates.map((t) => (
-              <li key={t.id} className="flex items-start justify-between gap-4 px-5 py-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium text-slate-900">{t.name}</span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500">
-                      {t.category}
-                    </span>
-                    {!t.is_active && (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
-                        Inactive
-                      </span>
-                    )}
-                  </div>
-                  {t.description && (
-                    <p className="mt-0.5 text-xs text-slate-500">{t.description}</p>
-                  )}
-                  <p className="mt-1 truncate text-sm text-slate-600">
-                    <span className="text-slate-400">Subject:</span> {t.subject}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <button
-                    onClick={() => setEditing(t)}
-                    className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                  >
-                    Edit
-                  </button>
-                  <form action={setEmailTemplateActive}>
-                    <input type="hidden" name="id" value={t.id} />
-                    <input type="hidden" name="is_active" value={(!t.is_active).toString()} />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                    >
-                      {t.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                  </form>
-                  <form
-                    action={deleteEmailTemplate}
-                    onSubmit={(e) => {
-                      if (!confirm(`Delete template “${t.name}”?`)) e.preventDefault();
-                    }}
-                  >
-                    <input type="hidden" name="id" value={t.id} />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
-                    >
-                      Delete
-                    </button>
-                  </form>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
+        </div>
+        <button
+          onClick={() => setEditing("new")}
+          className="shrink-0 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          + Add template
+        </button>
+      </div>
+
+      {orderedCategories.map((cat) => {
+        const rows = templates.filter((t) => t.category === cat);
+        return (
+          <Panel
+            key={cat}
+            title={templateCategoryLabel(cat)}
+            description={`${rows.length} template${rows.length === 1 ? "" : "s"}`}
+          >
+            {rows.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-slate-400">
+                No {templateCategoryLabel(cat).toLowerCase()} templates yet.
+              </p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {rows.map((t) => (
+                  <TemplateRow key={t.id} t={t} onEdit={() => setEditing(t)} />
+                ))}
+              </ul>
+            )}
+          </Panel>
+        );
+      })}
 
       {editing && (
         <TemplateForm
@@ -261,5 +247,60 @@ export function TemplatesView({ templates }: { templates: EmailTemplate[] }) {
         />
       )}
     </div>
+  );
+}
+
+function TemplateRow({ t, onEdit }: { t: EmailTemplate; onEdit: () => void }) {
+  return (
+    <li className="flex items-start justify-between gap-4 px-5 py-4">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-medium text-slate-900">{t.name}</span>
+          {!t.is_active && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700">
+              Inactive
+            </span>
+          )}
+        </div>
+        {t.description && (
+          <p className="mt-0.5 text-xs text-slate-500">{t.description}</p>
+        )}
+        <p className="mt-1 truncate text-sm text-slate-600">
+          <span className="text-slate-400">Subject:</span> {t.subject}
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          onClick={onEdit}
+          className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+        >
+          Edit
+        </button>
+        <form action={setEmailTemplateActive}>
+          <input type="hidden" name="id" value={t.id} />
+          <input type="hidden" name="is_active" value={(!t.is_active).toString()} />
+          <button
+            type="submit"
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            {t.is_active ? "Deactivate" : "Activate"}
+          </button>
+        </form>
+        <form
+          action={deleteEmailTemplate}
+          onSubmit={(e) => {
+            if (!confirm(`Delete template “${t.name}”?`)) e.preventDefault();
+          }}
+        >
+          <input type="hidden" name="id" value={t.id} />
+          <button
+            type="submit"
+            className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+          >
+            Delete
+          </button>
+        </form>
+      </div>
+    </li>
   );
 }

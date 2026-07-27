@@ -13,7 +13,7 @@ PROJECT="green-dog-ops"
 SCOPE="marc-mercurys-projects"
 ENVL="$ROOT/.env.local"
 ENVIRONMENTS=(production preview development)
-VARS=(RESEND_API_KEY RESEND_FROM_EMAIL RESEND_REPLY_TO RESEND_WEBHOOK_SECRET)
+VARS=(RESEND_API_KEY RESEND_FROM_EMAIL RESEND_RESCUE_FROM_EMAIL RESEND_REPLY_TO RESEND_WEBHOOK_SECRET)
 
 val() { grep -m1 "^$1=" "$ENVL" | cut -d= -f2-; }
 

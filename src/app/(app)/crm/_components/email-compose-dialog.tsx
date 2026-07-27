@@ -1,46 +1,50 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
-import type { ReferralPartner, PartnerContact } from "@/lib/crm/referral-types";
+import { useState, useTransition } from "react";
 import {
-  buildReferralTemplateVars,
   renderTemplate,
   type EmailTemplate,
+  type TemplateVars,
 } from "@/lib/crm/email-templates";
-import { sendReferralEmail } from "./actions";
 
 const inputCls =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
+export type SendResult = { ok: true; message?: string } | { ok: false; error: string };
+
+/**
+ * Generic email compose dialog. Used by any CRM "Send Email" surface. The
+ * caller supplies the account label, default recipient, the templates to offer,
+ * the variable map used to fill them, and a `sendAction` that performs the
+ * actual send (a page-specific server action wrapper).
+ */
 export function EmailComposeDialog({
-  partner,
-  contacts,
+  accountName,
+  defaultTo,
   templates,
-  senderName,
-  senderEmail,
+  vars,
+  fromNote,
+  sendAction,
   onClose,
   onSent,
 }: {
-  partner: ReferralPartner;
-  contacts: PartnerContact[];
+  accountName: string;
+  defaultTo: string;
   templates: EmailTemplate[];
-  senderName: string | null;
-  senderEmail: string | null;
+  vars: TemplateVars;
+  /** Optional note under the header, e.g. the From address used. */
+  fromNote?: string;
+  sendAction: (payload: {
+    to: string;
+    subject: string;
+    body: string;
+    templateName: string | null;
+  }) => Promise<SendResult>;
   onClose: () => void;
   onSent: (msg: string) => void;
 }) {
-  const primaryContactEmail = useMemo(() => {
-    const primary = contacts.find((c) => c.is_primary && c.email);
-    return primary?.email ?? contacts.find((c) => c.email)?.email ?? null;
-  }, [contacts]);
-
-  const vars = useMemo(
-    () => buildReferralTemplateVars(partner, { name: senderName, email: senderEmail }),
-    [partner, senderName, senderEmail],
-  );
-
   const [templateId, setTemplateId] = useState<string>("");
-  const [to, setTo] = useState<string>(partner.email ?? primaryContactEmail ?? "");
+  const [to, setTo] = useState<string>(defaultTo);
   const [subject, setSubject] = useState<string>("");
   const [body, setBody] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -57,14 +61,13 @@ export function EmailComposeDialog({
   function handleSend() {
     setError(null);
     const t = templates.find((x) => x.id === templateId);
-    const fd = new FormData();
-    fd.set("partnerId", partner.id);
-    fd.set("to", to.trim());
-    fd.set("subject", subject);
-    fd.set("body", body);
-    if (t) fd.set("templateName", t.name);
     startTransition(async () => {
-      const res = await sendReferralEmail(fd);
+      const res = await sendAction({
+        to: to.trim(),
+        subject,
+        body,
+        templateName: t?.name ?? null,
+      });
       if (res.ok) {
         onSent(res.message ?? "Email sent.");
       } else {
@@ -85,7 +88,8 @@ export function EmailComposeDialog({
         <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-4">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Send Email</h2>
-            <p className="mt-0.5 text-sm text-slate-500">{partner.name ?? partner.hospital_name}</p>
+            <p className="mt-0.5 text-sm text-slate-500">{accountName}</p>
+            {fromNote && <p className="mt-0.5 text-xs text-slate-400">{fromNote}</p>}
           </div>
           <button
             onClick={onClose}
@@ -114,7 +118,7 @@ export function EmailComposeDialog({
             </select>
             {templates.length === 0 && (
               <span className="mt-1 block text-xs text-amber-600">
-                No active templates. Add one in Admin → Templates.
+                No active templates for this partner type. Add one in Admin → Templates.
               </span>
             )}
           </label>
@@ -127,7 +131,7 @@ export function EmailComposeDialog({
               type="email"
               value={to}
               onChange={(e) => setTo(e.target.value)}
-              placeholder="recipient@clinic.com"
+              placeholder="recipient@example.com"
               className={inputCls}
             />
           </label>

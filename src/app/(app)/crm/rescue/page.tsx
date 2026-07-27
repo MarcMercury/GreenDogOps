@@ -10,6 +10,7 @@ import {
   RESCUE_SUBTYPE,
 } from "@/lib/crm/types";
 import { RescueCrm } from "./rescue-crm";
+import type { EmailTemplate } from "@/lib/crm/email-templates";
 
 export const dynamic = "force-dynamic";
 
@@ -148,6 +149,15 @@ export default async function RescueCrmPage() {
     created_at: r.created_at,
   }));
 
+  // Active email templates for the rescue "Send Email" (rescue + general).
+  const { data: templateRows } = await admin
+    .from("email_template")
+    .select("*")
+    .eq("is_active", true)
+    .in("category", ["rescue", "general"])
+    .order("name");
+  const templates = (templateRows ?? []) as EmailTemplate[];
+
   return (
     <RescueCrm
       rescues={rescues}
@@ -155,6 +165,9 @@ export default async function RescueCrmPage() {
       auditLog={auditLog}
       canEdit={canEdit}
       mapsApiKey={mapsApiKey}
+      templates={templates}
+      senderName={current?.appUser.full_name ?? null}
+      senderEmail={current?.email ?? null}
     />
   );
 }

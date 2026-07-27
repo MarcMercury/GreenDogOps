@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { ensureEditor, recordAudit } from "@/lib/auth/session";
+import { sendEmail } from "@/lib/shared/email";
+import { textToHtml } from "@/lib/crm/email-templates";
 import { RESCUE_SUBTYPE } from "@/lib/crm/types";
 
 export type ActionResult =
@@ -232,4 +234,55 @@ export async function geocodeRescues(): Promise<GeocodeResult> {
         ? `Geocoded ${geocoded} rescue${geocoded === 1 ? "" : "s"}.${failNote} ${remaining} still pending — run again to continue.`
         : `Geocoded ${geocoded} rescue${geocoded === 1 ? "" : "s"}.${failNote} Map is up to date.`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Send a templated email to a rescue / shelter account.
+// From address is the rescue mailbox (RESEND_RESCUE_FROM_EMAIL), distinct from
+// the referral From. Replies still route to RESEND_REPLY_TO.
+// ---------------------------------------------------------------------------
+export async function sendRescueEmail(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const orgId = str(formData.get("orgId"));
+  const to = str(formData.get("to"));
+  const subject = str(formData.get("subject"));
+  const body = str(formData.get("body"));
+  const templateName = str(formData.get("templateName"));
+
+  if (!to || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    return { ok: false, error: "Enter a valid recipient email address." };
+  }
+  if (!subject) return { ok: false, error: "Subject is required." };
+  if (!body) return { ok: false, error: "Message body is required." };
+
+  const result = await sendEmail({
+    to,
+    subject,
+    text: body,
+    html: textToHtml(body),
+    from:
+      process.env.RESEND_RESCUE_FROM_EMAIL ||
+      "Green Dog Rescues <rescues@greendogops.com>",
+    tags: [{ name: "type", value: "rescue" }],
+  });
+
+  if (!result.ok) {
+    return { ok: false, error: result.error ?? "Failed to send email." };
+  }
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "rescue.email.sent",
+    entity: "crm_organization",
+    entityId: orgId ?? undefined,
+    summary: `Sent email to ${to}${templateName ? ` — “${templateName}”` : ""}: ${subject}`,
+    metadata: { to, subject, template: templateName },
+  });
+
+  revalidatePath("/crm/rescue");
+  if (orgId) revalidatePath(`/crm/org/${orgId}`);
+  return { ok: true, message: `Email sent to ${to}.` };
 }

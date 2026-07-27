@@ -20,8 +20,13 @@ import {
   formatDate,
   statusClass,
 } from "@/lib/crm/referral-types";
-import { logRescueVisit, deleteRescue } from "./actions";
+import { logRescueVisit, deleteRescue, sendRescueEmail } from "./actions";
 import { RescueMap } from "./rescue-map";
+import { EmailComposeDialog } from "../_components/email-compose-dialog";
+import {
+  buildRescueTemplateVars,
+  type EmailTemplate,
+} from "@/lib/crm/email-templates";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
 type TabKey = "list" | "map" | "targeting" | "activity" | "reports";
@@ -67,12 +72,18 @@ export function RescueCrm({
   auditLog,
   canEdit,
   mapsApiKey,
+  templates,
+  senderName,
+  senderEmail,
 }: {
   rescues: CrmOrganization[];
   visits: CrmOrgVisit[];
   auditLog: OrgActivityLogEntry[];
   canEdit: boolean;
   mapsApiKey: string;
+  templates: EmailTemplate[];
+  senderName: string | null;
+  senderEmail: string | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<TabKey>("list");
@@ -81,6 +92,7 @@ export function RescueCrm({
   const [status, setStatus] = useState("");
 
   const [quickVisitFor, setQuickVisitFor] = useState<CrmOrganization | "any" | null>(null);
+  const [emailFor, setEmailFor] = useState<CrmOrganization | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -216,6 +228,7 @@ export function RescueCrm({
           status={status} setStatus={setStatus}
           canEdit={canEdit}
           onQuickVisit={(r) => setQuickVisitFor(r)}
+          onEmail={(r) => setEmailFor(r)}
           onDelete={onDelete}
         />
       )}
@@ -243,6 +256,27 @@ export function RescueCrm({
           rescues={rescues}
           onClose={() => setQuickVisitFor(null)}
           onSaved={(msg) => { setQuickVisitFor(null); notify(msg); router.refresh(); }}
+        />
+      )}
+
+      {emailFor && (
+        <EmailComposeDialog
+          accountName={emailFor.name}
+          defaultTo={emailFor.email ?? emailFor.secondary_contact_email ?? ""}
+          templates={templates}
+          vars={buildRescueTemplateVars(emailFor, { name: senderName, email: senderEmail })}
+          fromNote="From: Green Dog Rescues <rescues@greendogops.com>"
+          sendAction={async ({ to, subject, body, templateName }) => {
+            const fd = new FormData();
+            fd.set("orgId", emailFor.id);
+            fd.set("to", to);
+            fd.set("subject", subject);
+            fd.set("body", body);
+            if (templateName) fd.set("templateName", templateName);
+            return sendRescueEmail(fd);
+          }}
+          onClose={() => setEmailFor(null)}
+          onSent={(msg) => { setEmailFor(null); notify(msg); }}
         />
       )}
 
@@ -286,7 +320,7 @@ function IconBtn({ children, title, onClick, danger }: { children: React.ReactNo
 // ===========================================================================
 function ListTab({
   rescues, stats, search, setSearch, area, setArea, status, setStatus,
-  canEdit, onQuickVisit, onDelete,
+  canEdit, onQuickVisit, onEmail, onDelete,
 }: {
   rescues: CrmOrganization[];
   stats: { total: number; active: number; adoptions: number; neverVisited: number; signed: number };
@@ -295,6 +329,7 @@ function ListTab({
   status: string; setStatus: (v: string) => void;
   canEdit: boolean;
   onQuickVisit: (r: CrmOrganization) => void;
+  onEmail: (r: CrmOrganization) => void;
   onDelete: (r: CrmOrganization) => void;
 }) {
   return (
@@ -326,7 +361,7 @@ function ListTab({
         </div>
       </div>
 
-      <RescueTable rescues={rescues} canEdit={canEdit} onQuickVisit={onQuickVisit} onDelete={onDelete} />
+      <RescueTable rescues={rescues} canEdit={canEdit} onQuickVisit={onQuickVisit} onEmail={onEmail} onDelete={onDelete} />
     </div>
   );
 }
@@ -334,11 +369,12 @@ function ListTab({
 type RescueSortKey = "name" | "area" | "status" | "adoptions" | "agreement" | "last_visit";
 
 function RescueTable({
-  rescues, canEdit, onQuickVisit, onDelete,
+  rescues, canEdit, onQuickVisit, onEmail, onDelete,
 }: {
   rescues: CrmOrganization[];
   canEdit: boolean;
   onQuickVisit: (r: CrmOrganization) => void;
+  onEmail: (r: CrmOrganization) => void;
   onDelete: (r: CrmOrganization) => void;
 }) {
   const router = useRouter();
@@ -437,6 +473,7 @@ function RescueTable({
               <td className="px-3 py-3">
                 <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                   <IconBtn title="View / edit" onClick={() => router.push(`/crm/org/${r.id}`)}>👁</IconBtn>
+                  {canEdit && <IconBtn title="Send email" onClick={() => onEmail(r)}>✉️</IconBtn>}
                   {canEdit && <IconBtn title="Quick visit" onClick={() => onQuickVisit(r)}>📍</IconBtn>}
                   {canEdit && <IconBtn title="Delete" onClick={() => onDelete(r)} danger>🗑</IconBtn>}
                 </div>
@@ -464,6 +501,7 @@ function RescueTable({
             </div>
             {canEdit && (
               <div className="mt-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <IconBtn title="Send email" onClick={() => onEmail(r)}>✉️</IconBtn>
                 <IconBtn title="Quick visit" onClick={() => onQuickVisit(r)}>📍</IconBtn>
                 <IconBtn title="Delete" onClick={() => onDelete(r)} danger>🗑</IconBtn>
               </div>

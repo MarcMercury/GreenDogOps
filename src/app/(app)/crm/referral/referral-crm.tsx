@@ -47,8 +47,12 @@ import {
 } from "./actions";
 import { PartnerDialog } from "./partner-dialog";
 import { PartnerMap } from "./partner-map";
-import { EmailComposeDialog } from "./email-compose-dialog";
-import type { EmailTemplate } from "@/lib/crm/email-templates";
+import { EmailComposeDialog } from "../_components/email-compose-dialog";
+import {
+  buildReferralTemplateVars,
+  type EmailTemplate,
+} from "@/lib/crm/email-templates";
+import { sendReferralEmail } from "./actions";
 import {
   type CellValue,
   type SortDir,
@@ -1784,11 +1788,19 @@ function DetailDialog({
 
       {composeEmail && (
         <EmailComposeDialog
-          partner={partner}
-          contacts={contacts}
+          accountName={partnerName(partner)}
+          defaultTo={partner.email ?? contacts.find((c) => c.is_primary && c.email)?.email ?? contacts.find((c) => c.email)?.email ?? ""}
           templates={templates}
-          senderName={senderName}
-          senderEmail={senderEmail}
+          vars={buildReferralTemplateVars(partner, { name: senderName, email: senderEmail })}
+          sendAction={async ({ to, subject, body, templateName }) => {
+            const fd = new FormData();
+            fd.set("partnerId", partner.id);
+            fd.set("to", to);
+            fd.set("subject", subject);
+            fd.set("body", body);
+            if (templateName) fd.set("templateName", templateName);
+            return sendReferralEmail(fd);
+          }}
           onClose={() => setComposeEmail(false)}
           onSent={(msg) => { setComposeEmail(false); onChange(msg); }}
         />
