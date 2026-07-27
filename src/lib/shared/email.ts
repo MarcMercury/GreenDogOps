@@ -84,7 +84,10 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   };
   if (input.html) payload.html = input.html;
   if (input.text) payload.text = input.text;
-  if (input.replyTo) payload.reply_to = input.replyTo;
+  // Reply-To: explicit override wins, else the app-wide RESEND_REPLY_TO inbox,
+  // so replies land in a monitored mailbox rather than the no-reply From.
+  const replyTo = input.replyTo ?? process.env.RESEND_REPLY_TO;
+  if (replyTo) payload.reply_to = replyTo;
   if (input.cc) payload.cc = input.cc;
   if (input.bcc) payload.bcc = input.bcc;
   if (input.tags?.length) payload.tags = input.tags;

@@ -1319,8 +1319,7 @@ export async function sendReferralEmail(formData: FormData): Promise<ActionResul
     subject,
     text: body,
     html: textToHtml(body),
-    // Replies go back to the staff member who sent it, not the shared From.
-    replyTo: current.email,
+    // Reply-To defaults to RESEND_REPLY_TO (greendogsocial@gmail.com).
     tags: [{ name: "type", value: "referral" }],
   });
 
