@@ -93,6 +93,7 @@ export function RescueCrm({
 
   const [quickVisitFor, setQuickVisitFor] = useState<CrmOrganization | "any" | null>(null);
   const [emailFor, setEmailFor] = useState<CrmOrganization | null>(null);
+  const [detail, setDetail] = useState<CrmOrganization | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
@@ -227,6 +228,7 @@ export function RescueCrm({
           area={area} setArea={setArea}
           status={status} setStatus={setStatus}
           canEdit={canEdit}
+          onView={(r) => setDetail(r)}
           onQuickVisit={(r) => setQuickVisitFor(r)}
           onEmail={(r) => setEmailFor(r)}
           onDelete={onDelete}
@@ -237,7 +239,7 @@ export function RescueCrm({
           rescues={rescues}
           mapsApiKey={mapsApiKey}
           canEdit={canEdit}
-          onView={(r) => router.push(`/crm/org/${r.id}`)}
+          onView={(r) => setDetail(r)}
           onNotify={notify}
         />
       )}
@@ -249,6 +251,18 @@ export function RescueCrm({
       )}
       {tab === "activity" && <ActivityTab visits={visits} auditLog={auditLog} nameById={nameById} />}
       {tab === "reports" && <ReportsTab rescues={rescues} />}
+
+      {detail && (
+        <RescueDetailDialog
+          rescue={detail}
+          visits={visits.filter((v) => v.org_id === detail.id)}
+          canEdit={canEdit}
+          onClose={() => setDetail(null)}
+          onEdit={() => { const id = detail.id; setDetail(null); router.push(`/crm/org/${id}`); }}
+          onQuickVisit={() => { setQuickVisitFor(detail); setDetail(null); }}
+          onEmail={() => { setEmailFor(detail); setDetail(null); }}
+        />
+      )}
 
       {quickVisitFor && (
         <QuickVisitDialog
@@ -316,11 +330,150 @@ function IconBtn({ children, title, onClick, danger }: { children: React.ReactNo
 }
 
 // ===========================================================================
+// Detail overlay (mirrors the Referral clinic detail dialog)
+// ===========================================================================
+function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        className={`max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:rounded-2xl ${wide ? "sm:max-w-3xl" : "sm:max-w-xl"}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="mt-0.5 text-sm text-slate-800">{value || "—"}</dd>
+    </div>
+  );
+}
+
+function RescueDetailDialog({
+  rescue, visits, canEdit, onClose, onEdit, onQuickVisit, onEmail,
+}: {
+  rescue: CrmOrganization;
+  visits: CrmOrgVisit[];
+  canEdit: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  onQuickVisit: () => void;
+  onEmail: () => void;
+}) {
+  const addr = [rescue.address, rescue.city, rescue.state, rescue.zip].filter(Boolean).join(", ");
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">
+            {rescue.name}
+            {rescue.is_preferred && <span className="ml-1.5 text-amber-500">★</span>}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${statusClass(rescue.status)}`}>{rescue.status || (rescue.is_active ? "active" : "—")}</span>
+            {rescue.agreement_status && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{agreementStatusLabel(rescue.agreement_status)}</span>}
+            {rescue.area && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{getZoneDisplay(rescue.area)}</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {canEdit && <button onClick={onEmail} className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50">Send Email</button>}
+          {canEdit && <button onClick={onQuickVisit} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">Log Visit</button>}
+          <button onClick={onEdit} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">Edit</button>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50">✕</button>
+        </div>
+      </div>
+
+      <div className="space-y-6 p-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="Verified Adoptions" value={(rescue.verified_adoptions ?? 0).toLocaleString()} tone="text-emerald-700" />
+          <StatCard label="Visits" value={visits.length.toLocaleString()} tone="text-sky-700" />
+          <StatCard label="Last Visit" value={formatDate(rescue.last_visit_date)} tone="text-slate-700" />
+          <StatCard label="Last Contact" value={formatDate(rescue.last_contact_date)} tone="text-slate-700" />
+        </div>
+
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Contact</h3>
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <DetailRow label="Contact" value={rescue.contact_name} />
+            <DetailRow label="Phone" value={rescue.phone ? <a className="text-emerald-700 hover:underline" href={`tel:${rescue.phone}`}>{rescue.phone}</a> : null} />
+            <DetailRow label="Email" value={rescue.email ? <a className="text-emerald-700 hover:underline" href={`mailto:${rescue.email}`}>{rescue.email}</a> : null} />
+            <DetailRow label="Website" value={rescue.website ? <a className="text-emerald-700 hover:underline" href={rescue.website} target="_blank" rel="noreferrer">{rescue.website}</a> : null} />
+            <DetailRow label="Address" value={addr || null} />
+            <DetailRow label="Instagram" value={rescue.instagram} />
+          </dl>
+        </section>
+
+        {(rescue.secondary_contact_name || rescue.secondary_contact_email || rescue.secondary_contact_phone) && (
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Secondary Contact</h3>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Name" value={rescue.secondary_contact_name} />
+              <DetailRow label="Phone" value={rescue.secondary_contact_phone} />
+              <DetailRow label="Email" value={rescue.secondary_contact_email} />
+            </dl>
+          </section>
+        )}
+
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Details</h3>
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <DetailRow label="Area" value={rescue.area ? getZoneDisplay(rescue.area) : null} />
+            <DetailRow label="Status" value={rescue.status || (rescue.is_active ? "active" : null)} />
+            <DetailRow label="Agreement" value={agreementStatusLabel(rescue.agreement_status)} />
+            <DetailRow label="Agreement Signed" value={formatDate(rescue.agreement_signed_date)} />
+            <DetailRow label="Verified Adoptions" value={(rescue.verified_adoptions ?? 0).toLocaleString()} />
+            <DetailRow label="Preferred" value={rescue.is_preferred ? "Yes" : null} />
+          </dl>
+        </section>
+
+        <section>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Visit History</h3>
+          {visits.length === 0 ? (
+            <p className="text-sm text-slate-400">No visits logged yet.</p>
+          ) : (
+            <ol className="space-y-2">
+              {visits.slice(0, 10).map((v) => (
+                <li key={v.id} className="rounded-lg border border-slate-100 p-3">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-700">{formatDate(v.visit_date)}</span>
+                    {v.spoke_to && <span className="text-xs text-slate-400">with {v.spoke_to}</span>}
+                  </div>
+                  {v.topics && v.topics.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {v.topics.map((t) => (
+                        <span key={t} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{rescueVisitTopicLabel(t)}</span>
+                      ))}
+                    </div>
+                  )}
+                  {v.visit_notes && <p className="mt-1 text-sm text-slate-600">{v.visit_notes}</p>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        {rescue.notes && rescue.notes.trim() && (
+          <section>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Notes</h3>
+            <p className="whitespace-pre-wrap rounded-lg border border-slate-100 p-3 text-sm text-slate-600">{rescue.notes}</p>
+          </section>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ===========================================================================
 // List tab
 // ===========================================================================
 function ListTab({
   rescues, stats, search, setSearch, area, setArea, status, setStatus,
-  canEdit, onQuickVisit, onEmail, onDelete,
+  canEdit, onView, onQuickVisit, onEmail, onDelete,
 }: {
   rescues: CrmOrganization[];
   stats: { total: number; active: number; adoptions: number; neverVisited: number; signed: number };
@@ -328,6 +481,7 @@ function ListTab({
   area: string; setArea: (v: string) => void;
   status: string; setStatus: (v: string) => void;
   canEdit: boolean;
+  onView: (r: CrmOrganization) => void;
   onQuickVisit: (r: CrmOrganization) => void;
   onEmail: (r: CrmOrganization) => void;
   onDelete: (r: CrmOrganization) => void;
@@ -361,7 +515,7 @@ function ListTab({
         </div>
       </div>
 
-      <RescueTable rescues={rescues} canEdit={canEdit} onQuickVisit={onQuickVisit} onEmail={onEmail} onDelete={onDelete} />
+      <RescueTable rescues={rescues} canEdit={canEdit} onView={onView} onQuickVisit={onQuickVisit} onEmail={onEmail} onDelete={onDelete} />
     </div>
   );
 }
@@ -369,15 +523,15 @@ function ListTab({
 type RescueSortKey = "name" | "area" | "status" | "adoptions" | "agreement" | "last_visit";
 
 function RescueTable({
-  rescues, canEdit, onQuickVisit, onEmail, onDelete,
+  rescues, canEdit, onView, onQuickVisit, onEmail, onDelete,
 }: {
   rescues: CrmOrganization[];
   canEdit: boolean;
+  onView: (r: CrmOrganization) => void;
   onQuickVisit: (r: CrmOrganization) => void;
   onEmail: (r: CrmOrganization) => void;
   onDelete: (r: CrmOrganization) => void;
 }) {
-  const router = useRouter();
   const [sortKey, setSortKey] = useState<RescueSortKey>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
@@ -451,7 +605,7 @@ function RescueTable({
         </thead>
         <tbody className="divide-y divide-slate-200">
           {sorted.map((r) => (
-            <tr key={r.id} className="group cursor-pointer transition hover:bg-emerald-50/40" onClick={() => router.push(`/crm/org/${r.id}`)}>
+            <tr key={r.id} className="group cursor-pointer transition hover:bg-emerald-50/40" onClick={() => onView(r)}>
               <td className="px-4 py-3">
                 <div className="min-w-0">
                   <div className="truncate font-medium text-slate-900">
@@ -472,7 +626,7 @@ function RescueTable({
               <td className="px-3 py-3 text-xs text-slate-500">{formatDate(r.last_visit_date)}</td>
               <td className="px-3 py-3">
                 <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                  <IconBtn title="View / edit" onClick={() => router.push(`/crm/org/${r.id}`)}>👁</IconBtn>
+                  <IconBtn title="View" onClick={() => onView(r)}>👁</IconBtn>
                   {canEdit && <IconBtn title="Send email" onClick={() => onEmail(r)}>✉️</IconBtn>}
                   {canEdit && <IconBtn title="Quick visit" onClick={() => onQuickVisit(r)}>📍</IconBtn>}
                   {canEdit && <IconBtn title="Delete" onClick={() => onDelete(r)} danger>🗑</IconBtn>}
@@ -487,7 +641,7 @@ function RescueTable({
       {/* Mobile cards */}
       <div className="divide-y divide-slate-100 sm:hidden">
         {sorted.map((r) => (
-          <div key={r.id} className="p-4" onClick={() => router.push(`/crm/org/${r.id}`)}>
+          <div key={r.id} className="p-4" onClick={() => onView(r)}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="truncate font-medium text-slate-900">{r.name}</div>
