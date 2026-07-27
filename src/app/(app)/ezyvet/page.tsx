@@ -17,9 +17,9 @@ const PAGE_SIZE = 50;
 export default async function EzyvetCrmPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; filter?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; filter?: string; group?: string; page?: string }>;
 }) {
-  const { q, filter, page: pageParam } = await searchParams;
+  const { q, filter, group, page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
   const supabase = await createClient();
   const current = await getCurrentUser();
@@ -46,11 +46,15 @@ export default async function EzyvetCrmPage({
   }
   if (filter === "customers") query = query.eq("is_customer", true);
   if (filter === "active") query = query.eq("is_active", true);
+  if (group) {
+    if (group === "Ungrouped") query = query.or("customer_group.is.null,customer_group.eq.");
+    else query = query.eq("customer_group", group);
+  }
 
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  const [contactsRes, summaryRes, importsRes] = await Promise.all([
+  const [contactsRes, summaryRes, importsRes, groupsRes] = await Promise.all([
     query
       .order("revenue_spend_ytd", { ascending: false, nullsFirst: false })
       .range(from, to),
@@ -60,12 +64,19 @@ export default async function EzyvetCrmPage({
       .select("*")
       .order("created_at", { ascending: false })
       .limit(24),
+    supabase
+      .from("report_clients_by_group")
+      .select("customer_group, contacts")
+      .order("contacts", { ascending: false }),
   ]);
 
   const contacts = (contactsRes.data ?? []) as ContactRow[];
   const total = contactsRes.count ?? 0;
   const summary = (summaryRes.data as ClientSummary | null) ?? null;
   const imports = (importsRes.data ?? []) as ContactImportRow[];
+  const groups = ((groupsRes.data ?? []) as { customer_group: string | null }[])
+    .map((g) => g.customer_group)
+    .filter((g): g is string => !!g);
   const hasData = (summary?.total_contacts ?? 0) > 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -73,6 +84,7 @@ export default async function EzyvetCrmPage({
     const sp = new URLSearchParams();
     if (q) sp.set("q", q);
     if (filter) sp.set("filter", filter);
+    if (group) sp.set("group", group);
     if (p > 1) sp.set("page", String(p));
     const s = sp.toString();
     return s ? `/ezyvet?${s}` : "/ezyvet";
@@ -141,7 +153,7 @@ export default async function EzyvetCrmPage({
           }
         >
           <div className="mb-4">
-            <ContactSearch />
+            <ContactSearch groups={groups} />
           </div>
           <ContactsTable contacts={contacts} />
 

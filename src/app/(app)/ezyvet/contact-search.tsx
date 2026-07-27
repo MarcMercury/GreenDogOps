@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
-export function ContactSearch() {
+export function ContactSearch({ groups = [] }: { groups?: string[] }) {
   const router = useRouter();
   const params = useSearchParams();
   const [value, setValue] = useState(params.get("q") ?? "");
@@ -27,6 +27,15 @@ export function ContactSearch() {
     startTransition(() => router.push(`/ezyvet?${next.toString()}`));
   }
 
+  const group = params.get("group") ?? "";
+  function setGroup(g: string) {
+    const next = new URLSearchParams(params.toString());
+    if (!g) next.delete("group");
+    else next.set("group", g);
+    next.delete("page");
+    startTransition(() => router.push(`/ezyvet?${next.toString()}`));
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <form onSubmit={submit} className="flex flex-1 items-center gap-2">
@@ -43,6 +52,20 @@ export function ContactSearch() {
           Search
         </button>
       </form>
+      {groups.length > 0 ? (
+        <select
+          value={group}
+          onChange={(e) => setGroup(e.target.value)}
+          className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+        >
+          <option value="">All groups</option>
+          {groups.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
+          ))}
+        </select>
+      ) : null}
       <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-0.5">
         {[
           { k: "all", label: "All" },
