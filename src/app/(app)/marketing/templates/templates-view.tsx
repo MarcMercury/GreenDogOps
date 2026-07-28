@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Panel } from "../_components";
+import { Panel } from "../../admin/_components";
 import {
   REFERRAL_TEMPLATE_VARIABLES,
   RESCUE_TEMPLATE_VARIABLES,
