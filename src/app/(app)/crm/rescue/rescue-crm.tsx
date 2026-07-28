@@ -379,6 +379,9 @@ function RescueDetailDialog({
   onQuickVisit: () => void;
   onEmail: () => void;
 }) {
+  const [detailTab, setDetailTab] = useState<
+    "contact" | "details" | "agreement" | "activity"
+  >("contact");
   const addr = [rescue.address, rescue.city, rescue.state, rescue.zip].filter(Boolean).join(", ");
   return (
     <Modal onClose={onClose} wide>
@@ -410,72 +413,120 @@ function RescueDetailDialog({
           <StatCard label="Last Contact" value={formatDate(rescue.last_contact_date)} tone="text-slate-700" />
         </div>
 
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Contact</h3>
-          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <DetailRow label="Contact" value={rescue.contact_name} />
-            <DetailRow label="Phone" value={rescue.phone ? <a className="text-emerald-700 hover:underline" href={`tel:${rescue.phone}`}>{rescue.phone}</a> : null} />
-            <DetailRow label="Email" value={rescue.email ? <a className="text-emerald-700 hover:underline" href={`mailto:${rescue.email}`}>{rescue.email}</a> : null} />
-            <DetailRow label="Website" value={rescue.website ? <a className="text-emerald-700 hover:underline" href={rescue.website} target="_blank" rel="noreferrer">{rescue.website}</a> : null} />
-            <DetailRow label="Address" value={addr || null} />
-            <DetailRow label="Instagram" value={rescue.instagram} />
-          </dl>
-        </section>
+        <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-100 pb-2">
+          {([
+            { key: "contact", label: "Contact" },
+            { key: "details", label: "Details" },
+            { key: "agreement", label: "Agreement" },
+            { key: "activity", label: "Activity" },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setDetailTab(t.key)}
+              className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${detailTab === t.key ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-        {(rescue.secondary_contact_name || rescue.secondary_contact_email || rescue.secondary_contact_phone) && (
+        {detailTab === "contact" && (
+          <div className="space-y-6">
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Contact</h3>
+              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <DetailRow label="Contact" value={rescue.contact_name} />
+                <DetailRow label="Title" value={rescue.title} />
+                <DetailRow label="Phone" value={rescue.phone ? <a className="text-emerald-700 hover:underline" href={`tel:${rescue.phone}`}>{rescue.phone}</a> : null} />
+                <DetailRow label="Alt Phone" value={rescue.phone_alt} />
+                <DetailRow label="Email" value={rescue.email ? <a className="text-emerald-700 hover:underline" href={`mailto:${rescue.email}`}>{rescue.email}</a> : null} />
+                <DetailRow label="Website" value={rescue.website ? <a className="text-emerald-700 hover:underline" href={rescue.website} target="_blank" rel="noreferrer">{rescue.website}</a> : null} />
+                <DetailRow label="Instagram" value={rescue.instagram} />
+                <DetailRow label="Address" value={addr || null} />
+              </dl>
+            </section>
+
+            {(rescue.secondary_contact_name || rescue.secondary_contact_email || rescue.secondary_contact_phone) && (
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Secondary Contact</h3>
+                <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <DetailRow label="Name" value={rescue.secondary_contact_name} />
+                  <DetailRow label="Title" value={rescue.secondary_contact_title} />
+                  <DetailRow label="Phone" value={rescue.secondary_contact_phone} />
+                  <DetailRow label="Email" value={rescue.secondary_contact_email} />
+                </dl>
+              </section>
+            )}
+          </div>
+        )}
+
+        {detailTab === "details" && (
           <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Secondary Contact</h3>
             <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-              <DetailRow label="Name" value={rescue.secondary_contact_name} />
-              <DetailRow label="Phone" value={rescue.secondary_contact_phone} />
-              <DetailRow label="Email" value={rescue.secondary_contact_email} />
+              <DetailRow label="Area" value={rescue.area ? getZoneDisplay(rescue.area) : null} />
+              <DetailRow label="Status" value={rescue.status || (rescue.is_active ? "active" : null)} />
+              <DetailRow label="Tier" value={rescue.tier} />
+              <DetailRow label="Priority" value={rescue.priority} />
+              <DetailRow label="Verified Adoptions" value={(rescue.verified_adoptions ?? 0).toLocaleString()} />
+              <DetailRow label="Preferred" value={rescue.is_preferred ? "Yes" : null} />
+              <DetailRow label="Services" value={rescue.services} />
+              <DetailRow label="Membership Level" value={rescue.membership_level} />
             </dl>
           </section>
         )}
 
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Details</h3>
-          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <DetailRow label="Area" value={rescue.area ? getZoneDisplay(rescue.area) : null} />
-            <DetailRow label="Status" value={rescue.status || (rescue.is_active ? "active" : null)} />
-            <DetailRow label="Agreement" value={agreementStatusLabel(rescue.agreement_status)} />
-            <DetailRow label="Agreement Signed" value={formatDate(rescue.agreement_signed_date)} />
-            <DetailRow label="Verified Adoptions" value={(rescue.verified_adoptions ?? 0).toLocaleString()} />
-            <DetailRow label="Preferred" value={rescue.is_preferred ? "Yes" : null} />
-          </dl>
-        </section>
-
-        <section>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Visit History</h3>
-          {visits.length === 0 ? (
-            <p className="text-sm text-slate-400">No visits logged yet.</p>
-          ) : (
-            <ol className="space-y-2">
-              {visits.slice(0, 10).map((v) => (
-                <li key={v.id} className="rounded-lg border border-slate-100 p-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium text-slate-700">{formatDate(v.visit_date)}</span>
-                    {v.spoke_to && <span className="text-xs text-slate-400">with {v.spoke_to}</span>}
-                  </div>
-                  {v.topics && v.topics.length > 0 && (
-                    <div className="mt-1 flex flex-wrap gap-1">
-                      {v.topics.map((t) => (
-                        <span key={t} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{rescueVisitTopicLabel(t)}</span>
-                      ))}
-                    </div>
-                  )}
-                  {v.visit_notes && <p className="mt-1 text-sm text-slate-600">{v.visit_notes}</p>}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-
-        {rescue.notes && rescue.notes.trim() && (
+        {detailTab === "agreement" && (
           <section>
-            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Notes</h3>
-            <p className="whitespace-pre-wrap rounded-lg border border-slate-100 p-3 text-sm text-slate-600">{rescue.notes}</p>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Agreement" value={agreementStatusLabel(rescue.agreement_status)} />
+              <DetailRow label="Agreement Signed" value={formatDate(rescue.agreement_signed_date)} />
+              <DetailRow label="Tax ID / 501(c)(3)" value={rescue.tax_id} />
+              <DetailRow label="Annual Fee" value={rescue.annual_fee != null ? rescue.annual_fee.toLocaleString() : null} />
+              <DetailRow label="Account Number" value={rescue.account_number} />
+              <DetailRow label="Confirmed Leads" value={rescue.confirmed_leads != null ? rescue.confirmed_leads.toLocaleString() : null} />
+              <DetailRow label="Confirmed Clients" value={rescue.confirmed_clients != null ? rescue.confirmed_clients.toLocaleString() : null} />
+              <DetailRow label="Spend YTD" value={rescue.spend_ytd != null ? rescue.spend_ytd.toLocaleString() : null} />
+              <DetailRow label="Last Visit" value={formatDate(rescue.last_visit_date)} />
+              <DetailRow label="Last Contact" value={formatDate(rescue.last_contact_date)} />
+            </dl>
           </section>
+        )}
+
+        {detailTab === "activity" && (
+          <div className="space-y-6">
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Visit History</h3>
+              {visits.length === 0 ? (
+                <p className="text-sm text-slate-400">No visits logged yet.</p>
+              ) : (
+                <ol className="space-y-2">
+                  {visits.slice(0, 10).map((v) => (
+                    <li key={v.id} className="rounded-lg border border-slate-100 p-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-slate-700">{formatDate(v.visit_date)}</span>
+                        {v.spoke_to && <span className="text-xs text-slate-400">with {v.spoke_to}</span>}
+                      </div>
+                      {v.topics && v.topics.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {v.topics.map((t) => (
+                            <span key={t} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{rescueVisitTopicLabel(t)}</span>
+                          ))}
+                        </div>
+                      )}
+                      {v.visit_notes && <p className="mt-1 text-sm text-slate-600">{v.visit_notes}</p>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            {rescue.notes && rescue.notes.trim() && (
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Notes</h3>
+                <p className="whitespace-pre-wrap rounded-lg border border-slate-100 p-3 text-sm text-slate-600">{rescue.notes}</p>
+              </section>
+            )}
+          </div>
         )}
       </div>
     </Modal>
