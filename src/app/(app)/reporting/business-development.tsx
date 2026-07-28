@@ -151,44 +151,85 @@ function LocationPlanner({
   const totals = useMemo(() => computeTotals(loc), [loc]);
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
+  const [collapsed, setCollapsed] = useState(false);
   const color = LOCATION_COLORS[loc.location_key] ?? "#10b981";
   const upliftMonthly = totals.projMonthly - totals.currentMonthly;
 
+  // Included rows first (in their base order); unchecked rows drop to the bottom.
+  const orderedTypes = useMemo(
+    () =>
+      [...loc.types].sort(
+        (a, b) =>
+          (a.included === b.included ? 0 : a.included ? -1 : 1) ||
+          a.sort_order - b.sort_order ||
+          a.appt_type.localeCompare(b.appt_type),
+      ),
+    [loc.types],
+  );
+
   return (
-    <SectionCard
-      title={loc.location_label}
-      description={`Base numbers from real data — appointment values recovered by matching the Agenda to invoices; avg/day from recent Agenda bookings. Clinic blended average ${fmtCurrency(
-        loc.blended_avg_value,
-      )} (fallback for types with no matched revenue).`}
-      action={
-        <div className="flex items-center gap-1.5">
-          {DAY_DEFS.map((d) => {
-            const on = loc.open_days[d.key];
-            return (
-              <button
-                key={d.key}
-                type="button"
-                title={d.title}
-                disabled={!canEdit}
-                onClick={() => onToggleDay(d.key)}
-                className={`h-7 w-7 rounded-full text-xs font-semibold transition ${
-                  on
-                    ? "text-white"
-                    : "bg-slate-100 text-slate-400 hover:bg-slate-200"
-                } disabled:cursor-not-allowed`}
-                style={on ? { backgroundColor: color } : undefined}
-              >
-                {d.label}
-              </button>
-            );
-          })}
-          <span className="ml-1 text-xs text-slate-500">
-            {totals.openDays} days/wk
+    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="group flex items-start gap-2 text-left"
+          aria-expanded={!collapsed}
+        >
+          <span className="mt-0.5 text-slate-400 transition group-hover:text-slate-600">
+            {collapsed ? "▸" : "▾"}
           </span>
-        </div>
-      }
-    >
-      <div className="overflow-x-auto">
+          <span>
+            <span className="text-sm font-semibold text-slate-900">
+              {loc.location_label}
+            </span>
+            {collapsed ? (
+              <span className="ml-2 text-xs font-normal text-slate-500">
+                {fmtCurrency(totals.projMonthly)}/mo · {totals.openDays} days/wk
+              </span>
+            ) : (
+              <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                Base numbers from real data — appointment values recovered by
+                matching the Agenda to invoices; avg/day from recent Agenda
+                bookings. Clinic blended average{" "}
+                {fmtCurrency(loc.blended_avg_value)} (fallback for types with no
+                matched revenue).
+              </span>
+            )}
+          </span>
+        </button>
+        {!collapsed ? (
+          <div className="flex items-center gap-1.5">
+            {DAY_DEFS.map((d) => {
+              const on = loc.open_days[d.key];
+              return (
+                <button
+                  key={d.key}
+                  type="button"
+                  title={d.title}
+                  disabled={!canEdit}
+                  onClick={() => onToggleDay(d.key)}
+                  className={`h-7 w-7 rounded-full text-xs font-semibold transition ${
+                    on
+                      ? "text-white"
+                      : "bg-slate-100 text-slate-400 hover:bg-slate-200"
+                  } disabled:cursor-not-allowed`}
+                  style={on ? { backgroundColor: color } : undefined}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+            <span className="ml-1 text-xs text-slate-500">
+              {totals.openDays} days/wk
+            </span>
+          </div>
+        ) : null}
+      </div>
+
+      {!collapsed ? (
+        <>
+      <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
@@ -202,7 +243,7 @@ function LocationPlanner({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {loc.types.map((t) => {
+            {orderedTypes.map((t) => {
               const projDaily = t.planned_per_day * t.avg_value;
               return (
                 <tr
@@ -353,7 +394,9 @@ function LocationPlanner({
           tone={upliftMonthly >= 0 ? "up" : "down"}
         />
       </div>
-    </SectionCard>
+        </>
+      ) : null}
+    </section>
   );
 }
 
