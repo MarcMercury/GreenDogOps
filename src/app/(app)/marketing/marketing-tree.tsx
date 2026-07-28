@@ -103,8 +103,8 @@ const ZONE_STYLE: Record<
 // (reddish-brown → light brown → dark brown → grey).
 // ---------------------------------------------------------------------------
 // Day cut-offs for freshness buckets 0,1,2 (anything older, or never handled,
-// falls into bucket 3).
-const SEASON_CUTOFFS = [14, 45, 90] as const;
+// falls into bucket 3). 3 days between each stage.
+const SEASON_CUTOFFS = [3, 6, 9] as const;
 const SEASON_LABELS = ["Fresh", "Aging", "Stale", "Overdue"] as const;
 
 const SEASON_LEAF: { fill: string; text: string }[] = [
