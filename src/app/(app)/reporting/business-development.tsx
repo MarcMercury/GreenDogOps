@@ -4,12 +4,16 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import type {
   BizDevLocation,
   BizDevOpenDays,
+  BizDevWeekdayFactors,
+  BizDevProviderCapacity,
 } from "@/lib/reporting/types";
 import { LOCATION_COLORS } from "@/lib/reporting/types";
 import {
   getBusinessDevelopmentData,
   updateBizDevApptType,
   saveBizDevOpenDays,
+  saveBizDevWeekdayFactors,
+  saveBizDevProviderCapacity,
   addBizDevApptType,
   deleteBizDevApptType,
 } from "./actions";
@@ -18,56 +22,93 @@ import { StatCard, SectionCard, fmtCurrency } from "./charts";
 /** Average number of weeks in a month (52 / 12) for the monthly roll-up. */
 const WEEKS_PER_MONTH = 52 / 12;
 
-const DAY_DEFS: { key: keyof BizDevOpenDays; label: string; title: string }[] = [
-  { key: "open_sun", label: "S", title: "Sunday" },
-  { key: "open_mon", label: "M", title: "Monday" },
-  { key: "open_tue", label: "T", title: "Tuesday" },
-  { key: "open_wed", label: "W", title: "Wednesday" },
-  { key: "open_thu", label: "T", title: "Thursday" },
-  { key: "open_fri", label: "F", title: "Friday" },
-  { key: "open_sat", label: "S", title: "Saturday" },
+const DAY_DEFS: {
+  key: keyof BizDevOpenDays;
+  factorKey: keyof BizDevWeekdayFactors;
+  label: string;
+  title: string;
+}[] = [
+  { key: "open_sun", factorKey: "factor_sun", label: "S", title: "Sunday" },
+  { key: "open_mon", factorKey: "factor_mon", label: "M", title: "Monday" },
+  { key: "open_tue", factorKey: "factor_tue", label: "T", title: "Tuesday" },
+  { key: "open_wed", factorKey: "factor_wed", label: "W", title: "Wednesday" },
+  { key: "open_thu", factorKey: "factor_thu", label: "T", title: "Thursday" },
+  { key: "open_fri", factorKey: "factor_fri", label: "F", title: "Friday" },
+  { key: "open_sat", factorKey: "factor_sat", label: "S", title: "Saturday" },
 ];
 
 function openDayCount(d: BizDevOpenDays): number {
   return DAY_DEFS.reduce((n, def) => n + (d[def.key] ? 1 : 0), 0);
 }
 
-/** Monthly projection = daily × open days/week × ~4.33 weeks/month. */
-function monthlyFrom(daily: number, openDays: number): number {
-  return daily * openDays * WEEKS_PER_MONTH;
+/** Sum of the volume factors for the clinic's OPEN days (Σ factor over open days). */
+function openDayFactorSum(loc: BizDevLocation): number {
+  return DAY_DEFS.reduce(
+    (s, def) =>
+      s + (loc.open_days[def.key] ? Number(loc.weekday_factors[def.factorKey] ?? 1) : 0),
+    0,
+  );
 }
 
 interface LocTotals {
-  plannedApptsPerDay: number;
+  /** Sum of realized avg appointments per day (current run-rate reference). */
   currentApptsPerDay: number;
-  projDaily: number;
-  currentDaily: number;
+  /** Planned appts/day across DAILY-cadence rows only. */
+  plannedApptsPerDayDaily: number;
+  /** Planned appts/week across WEEKLY-cadence rows only. */
+  plannedWeeklyAppts: number;
+  /** Expected planned appts on a typical (factor = 1) open day. */
+  plannedApptsTypicalDay: number;
+  /** Factor-weighted planned appts per week. */
+  plannedApptsPerWeek: number;
+  projWeekly: number;
+  projDailyEffective: number;
+  currentWeekly: number;
   projMonthly: number;
   currentMonthly: number;
   openDays: number;
+  factorSum: number;
 }
 
 function computeTotals(loc: BizDevLocation): LocTotals {
   const openDays = openDayCount(loc.open_days);
-  let plannedApptsPerDay = 0;
+  const factorSum = openDayFactorSum(loc);
   let currentApptsPerDay = 0;
-  let projDaily = 0;
-  let currentDaily = 0;
+  let plannedApptsPerDayDaily = 0;
+  let plannedWeeklyAppts = 0;
+  let projWeekly = 0;
+  let currentWeekly = 0;
   for (const t of loc.types) {
     if (!t.included) continue;
-    plannedApptsPerDay += t.planned_per_day;
+    // Current run-rate: realized daily average, weighted by the weekday mix.
     currentApptsPerDay += t.avg_per_day;
-    projDaily += t.planned_per_day * t.avg_value;
-    currentDaily += t.avg_per_day * t.avg_value;
+    currentWeekly += t.avg_per_day * t.avg_value * factorSum;
+    if (t.cadence === "weekly") {
+      // A weekly service happens N times per week regardless of open-day count.
+      plannedWeeklyAppts += t.planned_per_week;
+      projWeekly += t.planned_per_week * t.avg_value;
+    } else {
+      plannedApptsPerDayDaily += t.planned_per_day;
+      // Weight the week by the sum of open-day factors (Saturdays lighter, etc.).
+      projWeekly += t.planned_per_day * t.avg_value * factorSum;
+    }
   }
+  const plannedApptsTypicalDay =
+    plannedApptsPerDayDaily + (openDays > 0 ? plannedWeeklyAppts / openDays : 0);
+  const plannedApptsPerWeek = plannedApptsPerDayDaily * factorSum + plannedWeeklyAppts;
   return {
-    plannedApptsPerDay,
     currentApptsPerDay,
-    projDaily,
-    currentDaily,
-    projMonthly: monthlyFrom(projDaily, openDays),
-    currentMonthly: monthlyFrom(currentDaily, openDays),
+    plannedApptsPerDayDaily,
+    plannedWeeklyAppts,
+    plannedApptsTypicalDay,
+    plannedApptsPerWeek,
+    projWeekly,
+    projDailyEffective: openDays > 0 ? projWeekly / openDays : projWeekly,
+    currentWeekly,
+    projMonthly: projWeekly * WEEKS_PER_MONTH,
+    currentMonthly: currentWeekly * WEEKS_PER_MONTH,
     openDays,
+    factorSum,
   };
 }
 
@@ -124,6 +165,245 @@ function NumberField({
   );
 }
 
+/** Day/Week segmented toggle: how a row's planned volume is modeled. */
+function CadenceToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: "daily" | "weekly";
+  onChange: (c: "daily" | "weekly") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-md border border-slate-200 text-[11px] font-semibold">
+      {(["daily", "weekly"] as const).map((c) => {
+        const on = value === c;
+        return (
+          <button
+            key={c}
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              if (!on) onChange(c);
+            }}
+            title={c === "daily" ? "Modeled per open day" : "Modeled per week"}
+            className={`px-2 py-1 transition ${
+              on ? "bg-slate-800 text-white" : "bg-white text-slate-400 hover:bg-slate-50"
+            } disabled:cursor-not-allowed disabled:opacity-60`}
+          >
+            {c === "daily" ? "Day" : "Wk"}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Small realized hourly-demand bar chart (booked appts on a typical open day). */
+function HourDemandChart({
+  data,
+  color,
+}: {
+  data: { hour: number; avg_per_open_day: number }[];
+  color: string;
+}) {
+  if (data.length === 0) {
+    return (
+      <p className="text-xs text-slate-400">
+        No hourly demand yet — accrues as the Agenda is pulled each morning.
+      </p>
+    );
+  }
+  const byHour = new Map(data.map((d) => [d.hour, d.avg_per_open_day]));
+  const hours = data.map((d) => d.hour);
+  const lo = Math.min(7, ...hours);
+  const hi = Math.max(20, ...hours);
+  const max = Math.max(...data.map((d) => d.avg_per_open_day), 0.1);
+  const fmtHour = (h: number) =>
+    h === 12 ? "12p" : h < 12 ? `${h}a` : `${h - 12}p`;
+  const cols: number[] = [];
+  for (let h = lo; h <= hi; h++) cols.push(h);
+  return (
+    <div className="flex items-end gap-1" style={{ height: 96 }}>
+      {cols.map((h) => {
+        const v = byHour.get(h) ?? 0;
+        const pct = Math.round((v / max) * 100);
+        return (
+          <div key={h} className="flex flex-1 flex-col items-center gap-1">
+            <span className="text-[9px] tabular-nums text-slate-400">
+              {v > 0 ? v.toFixed(1) : ""}
+            </span>
+            <div className="flex w-full items-end" style={{ height: 60 }}>
+              <div
+                className="w-full rounded-t"
+                style={{
+                  height: `${pct}%`,
+                  minHeight: v > 0 ? 2 : 0,
+                  backgroundColor: color,
+                  opacity: 0.85,
+                }}
+                title={`${fmtHour(h)}: ${v.toFixed(2)} appts/day`}
+              />
+            </div>
+            <span className="text-[9px] tabular-nums text-slate-400">
+              {fmtHour(h)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Editable day-of-week volume factors for a clinic's OPEN days. */
+function WeekdayFactorRow({
+  loc,
+  canEdit,
+  color,
+  onChange,
+}: {
+  loc: BizDevLocation;
+  canEdit: boolean;
+  color: string;
+  onChange: (factors: BizDevWeekdayFactors) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      {DAY_DEFS.map((d) => {
+        const open = loc.open_days[d.key];
+        if (!open) return null;
+        const val = Number(loc.weekday_factors[d.factorKey] ?? 1);
+        return (
+          <label key={d.factorKey} className="flex flex-col items-center gap-0.5">
+            <span
+              className="text-[10px] font-semibold uppercase tracking-wide"
+              style={{ color }}
+            >
+              {d.title.slice(0, 3)}
+            </span>
+            <NumberField
+              value={val}
+              disabled={!canEdit}
+              step={0.05}
+              prefix="×"
+              onCommit={(n) =>
+                onChange({ ...loc.weekday_factors, [d.factorKey]: n })
+              }
+            />
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Provider-backed capacity planner: doctors × appts/provider → capacity + upside. */
+function ProviderCapacityPanel({
+  loc,
+  totals,
+  canEdit,
+  onChange,
+}: {
+  loc: BizDevLocation;
+  totals: LocTotals;
+  canEdit: boolean;
+  onChange: (provider: BizDevProviderCapacity) => void;
+}) {
+  const { dvm_count, appts_per_dvm_day, added_dvms } = loc.provider;
+  const capacityPerDay = (dvm_count + added_dvms) * appts_per_dvm_day;
+  const basePerDay = dvm_count * appts_per_dvm_day;
+  const util = capacityPerDay > 0 ? totals.plannedApptsTypicalDay / capacityPerDay : 0;
+  // Revenue value of the added doctors at capacity (filled at blended value),
+  // weighted by the clinic's weekday mix.
+  const addedWeekly =
+    added_dvms * appts_per_dvm_day * loc.blended_avg_value * totals.factorSum;
+  const overBase = basePerDay > 0 && totals.plannedApptsTypicalDay > basePerDay + 0.01;
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
+      <div className="flex flex-wrap items-end gap-4">
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Doctors / day
+          </p>
+          <NumberField
+            value={dvm_count}
+            disabled={!canEdit}
+            step={0.5}
+            onCommit={(n) => onChange({ ...loc.provider, dvm_count: n })}
+          />
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+            Appts / doctor / day
+          </p>
+          <NumberField
+            value={appts_per_dvm_day}
+            disabled={!canEdit}
+            onCommit={(n) => onChange({ ...loc.provider, appts_per_dvm_day: n })}
+          />
+        </div>
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+            + Add doctors
+          </p>
+          <NumberField
+            value={added_dvms}
+            disabled={!canEdit}
+            step={0.5}
+            onCommit={(n) => onChange({ ...loc.provider, added_dvms: n })}
+          />
+        </div>
+        <div className="ml-auto flex flex-wrap items-end gap-4 text-right">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Capacity/day
+            </p>
+            <p className="text-lg font-bold tabular-nums text-slate-800">
+              {capacityPerDay.toFixed(0)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Planned vs cap
+            </p>
+            <p
+              className={`text-lg font-bold tabular-nums ${
+                util > 1 ? "text-rose-600" : "text-slate-800"
+              }`}
+            >
+              {capacityPerDay > 0
+                ? `${totals.plannedApptsTypicalDay.toFixed(0)}/${capacityPerDay.toFixed(0)} · ${Math.round(util * 100)}%`
+                : "—"}
+            </p>
+          </div>
+          {added_dvms > 0 ? (
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
+                Added-doctor upside
+              </p>
+              <p className="text-lg font-bold tabular-nums text-emerald-700">
+                {fmtCurrency(addedWeekly * WEEKS_PER_MONTH)}/mo
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {util > 1 ? (
+        <p className="mt-2 text-xs font-medium text-rose-600">
+          Plan exceeds current doctor capacity — add doctors or reduce planned
+          volume.
+        </p>
+      ) : overBase && added_dvms === 0 ? (
+        <p className="mt-2 text-xs text-amber-600">
+          Plan is above your current doctors&apos; capacity; model adding a doctor
+          to close the gap.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 /** One clinic's planning card. */
 function LocationPlanner({
   loc,
@@ -132,6 +412,8 @@ function LocationPlanner({
   onToggleDay,
   onAddType,
   onRemoveType,
+  onSaveFactors,
+  onSaveProvider,
 }: {
   loc: BizDevLocation;
   canEdit: boolean;
@@ -141,12 +423,17 @@ function LocationPlanner({
       avg_value?: number;
       avg_per_day?: number;
       planned_per_day?: number;
+      planned_per_week?: number;
+      cadence?: "daily" | "weekly";
+      max_per_day?: number;
       included?: boolean;
     },
   ) => void;
   onToggleDay: (key: keyof BizDevOpenDays) => void;
   onAddType: (name: string, value: number) => void;
   onRemoveType: (typeId: string) => void;
+  onSaveFactors: (factors: BizDevWeekdayFactors) => void;
+  onSaveProvider: (provider: BizDevProviderCapacity) => void;
 }) {
   const totals = useMemo(() => computeTotals(loc), [loc]);
   const [newName, setNewName] = useState("");
@@ -229,22 +516,46 @@ function LocationPlanner({
 
       {!collapsed ? (
         <>
+      <div className="mt-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Weekday volume mix (× a typical weekday — seeded from real revenue)
+        </p>
+        <WeekdayFactorRow
+          loc={loc}
+          canEdit={canEdit}
+          color={color}
+          onChange={onSaveFactors}
+        />
+      </div>
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[720px] text-sm">
+        <table className="w-full min-w-[860px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <th className="w-8 py-2 pr-2 text-center">On</th>
               <th className="py-2 pr-3">Appointment type</th>
+              <th className="py-2 pr-3 text-center">Cadence</th>
               <th className="py-2 pr-3 text-right">Avg/day</th>
               <th className="py-2 pr-3 text-right">Planned/day</th>
+              <th className="py-2 pr-3 text-right">Planned/wk</th>
+              <th className="py-2 pr-3 text-right">Max/day</th>
               <th className="py-2 pr-3 text-right">Avg value</th>
-              <th className="py-2 pr-3 text-right">Proj. $/day</th>
+              <th className="py-2 pr-3 text-right">Proj. $/wk</th>
               {canEdit ? <th className="w-8 py-2" /> : null}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {orderedTypes.map((t) => {
-              const projDaily = t.planned_per_day * t.avg_value;
+              const isWeekly = t.cadence === "weekly";
+              const projWeekly = isWeekly
+                ? t.planned_per_week * t.avg_value
+                : t.planned_per_day * t.avg_value * totals.factorSum;
+              // Effective appts on a typical day vs the capacity ceiling.
+              const effPerDay = isWeekly
+                ? totals.openDays > 0
+                  ? t.planned_per_week / totals.openDays
+                  : t.planned_per_week
+                : t.planned_per_day;
+              const overCap = t.max_per_day > 0 && effPerDay > t.max_per_day + 0.001;
               return (
                 <tr
                   key={t.id}
@@ -278,6 +589,38 @@ function LocationPlanner({
                         n={t.matched_paid}
                       </span>
                     ) : null}
+                    {overCap ? (
+                      <span
+                        className="ml-1.5 rounded bg-rose-50 px-1 py-0.5 text-[10px] font-semibold uppercase text-rose-600"
+                        title={`Planned ${effPerDay.toFixed(1)}/day exceeds the ${t.max_per_day}/day capacity ceiling`}
+                      >
+                         over cap
+                      </span>
+                    ) : null}
+                  </td>
+                  <td className="py-1.5 pr-3 text-center">
+                    <CadenceToggle
+                      value={t.cadence}
+                      disabled={!canEdit}
+                      onChange={(c) => {
+                        // Switching to weekly with no weekly count yet? Seed it
+                        // from the daily plan × open days so the projection holds.
+                        if (
+                          c === "weekly" &&
+                          t.planned_per_week === 0 &&
+                          t.planned_per_day > 0
+                        ) {
+                          onPatchType(t.id, {
+                            cadence: c,
+                            planned_per_week: Math.round(
+                              t.planned_per_day * totals.openDays,
+                            ),
+                          });
+                        } else {
+                          onPatchType(t.id, { cadence: c });
+                        }
+                      }}
+                    />
                   </td>
                   <td className="py-1.5 pr-3">
                     <NumberField
@@ -290,10 +633,28 @@ function LocationPlanner({
                   <td className="py-1.5 pr-3">
                     <NumberField
                       value={t.planned_per_day}
-                      disabled={!canEdit}
+                      disabled={!canEdit || isWeekly}
                       onCommit={(n) =>
                         onPatchType(t.id, { planned_per_day: n })
                       }
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <NumberField
+                      value={t.planned_per_week}
+                      disabled={!canEdit || !isWeekly}
+                      onCommit={(n) =>
+                        onPatchType(t.id, { planned_per_week: n })
+                      }
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <NumberField
+                      value={t.max_per_day}
+                      disabled={!canEdit}
+                      step={0.5}
+                      className={overCap ? "text-rose-600" : ""}
+                      onCommit={(n) => onPatchType(t.id, { max_per_day: n })}
                     />
                   </td>
                   <td className="py-1.5 pr-3">
@@ -306,7 +667,7 @@ function LocationPlanner({
                     />
                   </td>
                   <td className="py-1.5 pr-3 text-right font-semibold tabular-nums text-slate-800">
-                    {fmtCurrency(projDaily)}
+                    {fmtCurrency(projWeekly)}
                   </td>
                   {canEdit ? (
                     <td className="py-1.5 text-center">
@@ -329,16 +690,21 @@ function LocationPlanner({
           <tfoot>
             <tr className="border-t-2 border-slate-200 text-sm font-semibold text-slate-800">
               <td />
-              <td className="py-2 pr-3">Totals (per open day)</td>
+              <td className="py-2 pr-3">Totals</td>
+              <td className="py-2 pr-3" />
               <td className="py-2 pr-3 text-right tabular-nums text-slate-500">
                 {totals.currentApptsPerDay.toFixed(1)}
               </td>
               <td className="py-2 pr-3 text-right tabular-nums">
-                {totals.plannedApptsPerDay.toFixed(1)}
+                {totals.plannedApptsPerDayDaily.toFixed(1)}
+              </td>
+              <td className="py-2 pr-3 text-right tabular-nums">
+                {totals.plannedApptsPerWeek.toFixed(1)}
               </td>
               <td className="py-2 pr-3" />
+              <td className="py-2 pr-3" />
               <td className="py-2 pr-3 text-right tabular-nums text-emerald-700">
-                {fmtCurrency(totals.projDaily)}
+                {fmtCurrency(totals.projWeekly)}
               </td>
               {canEdit ? <td /> : null}
             </tr>
@@ -378,10 +744,13 @@ function LocationPlanner({
       ) : null}
 
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <MiniStat label="Proj. $/day" value={fmtCurrency(totals.projDaily)} />
+        <MiniStat
+          label="Proj. $/day"
+          value={fmtCurrency(totals.projDailyEffective)}
+        />
         <MiniStat
           label="Proj. $/week"
-          value={fmtCurrency(totals.projDaily * totals.openDays)}
+          value={fmtCurrency(totals.projWeekly)}
         />
         <MiniStat
           label="Proj. $/month"
@@ -393,6 +762,25 @@ function LocationPlanner({
           value={`${upliftMonthly >= 0 ? "+" : ""}${fmtCurrency(upliftMonthly)}`}
           tone={upliftMonthly >= 0 ? "up" : "down"}
         />
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Provider capacity
+        </p>
+        <ProviderCapacityPanel
+          loc={loc}
+          totals={totals}
+          canEdit={canEdit}
+          onChange={onSaveProvider}
+        />
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Hourly demand — booked appts on a typical open day
+        </p>
+        <HourDemandChart data={loc.hour_demand} color={color} />
       </div>
         </>
       ) : null}
@@ -454,6 +842,9 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
       avg_value?: number;
       avg_per_day?: number;
       planned_per_day?: number;
+      planned_per_week?: number;
+      cadence?: "daily" | "weekly";
+      max_per_day?: number;
       included?: boolean;
     },
   ) => {
@@ -496,6 +887,34 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
         if (!res.ok) setError(res.error);
       });
     }
+  };
+
+  const saveFactors = (locId: string, factors: BizDevWeekdayFactors) => {
+    setLocations((prev) =>
+      prev
+        ? prev.map((l) =>
+            l.location_id === locId ? { ...l, weekday_factors: factors } : l,
+          )
+        : prev,
+    );
+    startTransition(async () => {
+      const res = await saveBizDevWeekdayFactors(locId, factors);
+      if (!res.ok) setError(res.error);
+    });
+  };
+
+  const saveProvider = (locId: string, provider: BizDevProviderCapacity) => {
+    setLocations((prev) =>
+      prev
+        ? prev.map((l) =>
+            l.location_id === locId ? { ...l, provider } : l,
+          )
+        : prev,
+    );
+    startTransition(async () => {
+      const res = await saveBizDevProviderCapacity(locId, provider);
+      if (!res.ok) setError(res.error);
+    });
   };
 
   const addType = (locId: string, name: string, value: number) => {
@@ -597,12 +1016,22 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
 
       <p className="text-xs text-slate-500">
         Model potential revenue by clinic: pick the days open, then set how many
-        of each appointment type you&apos;d render per open day. The{" "}
-        <strong>avg value</strong> and <strong>avg/day</strong> are real base
-        numbers — values are recovered by matching each Agenda appointment to its
-        invoice through the client record, and avg/day is your recent realized
-        booking rate. Both are editable, so tune them and the projection
-        recalculates.
+        of each appointment type you&apos;d render. Use the{" "}
+        <strong>Day/Wk</strong> toggle to model a service that doesn&apos;t
+        happen every day on a <strong>weekly</strong> basis instead (e.g. a
+        weekly surgery block) — weekly rows project{" "}
+        <em>planned/week × value</em> directly. Every appointment type is listed
+        at every clinic, so you can <strong>toggle on</strong> a service a clinic
+        doesn&apos;t offer yet to model adding it. The{" "}
+        <strong>weekday volume mix</strong> weights each open day (Saturdays run
+        lighter — seeded from real revenue), <strong>Max/day</strong> flags a
+        plan that exceeds a service&apos;s realistic capacity, and the{" "}
+        <strong>provider capacity</strong> panel shows whether your plan fits
+        current doctors and the upside of adding one. The{" "}
+        <strong>hourly demand</strong> chart shows when appointments actually
+        book. The <strong>avg value</strong> and <strong>avg/day</strong> are
+        real base numbers recovered from the Agenda and invoices. All are
+        editable, so tune them and the projection recalculates.
         {canEdit ? " Changes save automatically." : " Read-only — ask an admin to edit."}
       </p>
 
@@ -617,6 +1046,8 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
           onToggleDay={(key) => toggleDay(loc.location_id, key)}
           onAddType={(name, value) => addType(loc.location_id, name, value)}
           onRemoveType={(typeId) => removeType(loc.location_id, typeId)}
+          onSaveFactors={(factors) => saveFactors(loc.location_id, factors)}
+          onSaveProvider={(provider) => saveProvider(loc.location_id, provider)}
         />
       ))}
     </div>

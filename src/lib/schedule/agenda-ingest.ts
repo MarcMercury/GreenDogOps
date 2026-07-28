@@ -108,7 +108,9 @@ export async function ingestAgendaCsvText(
   // Optional detail columns (the "detailed" Agenda export carries more than the
   // four required ones). Used only to enrich the per-appointment drill-down.
   const iPatient = colLike("patient", "animal");
-  const iTime = colLike("time");
+  // The Agenda export's start time lives in a column literally named "Start"
+  // (with "End"), NOT "Start Time" — so match "start" first, then any "time".
+  const iTime = colLike("start time", "start", "time");
   const iType = colLike("appointment type", "consult type", "type");
   const iStatus = colLike("status");
   const iApptId = colLike("appointment id", "appt id");

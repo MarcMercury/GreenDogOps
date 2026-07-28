@@ -419,11 +419,38 @@ export interface BizDevApptTypeRow {
   avg_value: number;
   avg_per_day: number;
   planned_per_day: number;
+  /** Scenario count rendered per WEEK (used when cadence = "weekly"). */
+  planned_per_week: number;
+  /** Whether the planned volume is modeled per open day or per week. */
+  cadence: "daily" | "weekly";
+  /** Realistic capacity ceiling per day (0 = no cap). */
+  max_per_day: number;
   included: boolean;
   is_custom: boolean;
   sort_order: number;
   matched_paid: number;
   days_observed: number;
+}
+
+/** Day-of-week volume multipliers vs a typical weekday (1.0 = normal weekday). */
+export interface BizDevWeekdayFactors {
+  factor_sun: number;
+  factor_mon: number;
+  factor_tue: number;
+  factor_wed: number;
+  factor_thu: number;
+  factor_fri: number;
+  factor_sat: number;
+}
+
+/** Provider-backed capacity scenario for a clinic. */
+export interface BizDevProviderCapacity {
+  /** Doctors staffed on a typical open day. */
+  dvm_count: number;
+  /** Appointments one doctor renders per day (capacity). */
+  appts_per_dvm_day: number;
+  /** Scenario: extra doctors to add. */
+  added_dvms: number;
 }
 
 /** A clinic's full Business Development planning state. */
@@ -434,6 +461,10 @@ export interface BizDevLocation {
   /** Clinic blended average appointment value used to seed per-type values. */
   blended_avg_value: number;
   open_days: BizDevOpenDays;
+  weekday_factors: BizDevWeekdayFactors;
+  provider: BizDevProviderCapacity;
+  /** Realized average booked appointments by hour-of-day (0..23) on a typical day. */
+  hour_demand: { hour: number; avg_per_open_day: number }[];
   types: BizDevApptTypeRow[];
 }
 
