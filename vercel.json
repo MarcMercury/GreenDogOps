@@ -11,6 +11,10 @@
     {
       "path": "/api/admin/users/roster-sync",
       "schedule": "15 5 * * *"
+    },
+    {
+      "path": "/api/agents/ezyvet/rescue-partners",
+      "schedule": "0 14,15 * * *"
     }
   ]
 }

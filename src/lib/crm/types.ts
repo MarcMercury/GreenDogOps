@@ -138,6 +138,8 @@ export interface CrmOrganization {
   notes: string | null;
   source: string;
   external_id: string | null;
+  // ezyVet "Rescue Partners" contact this record was assimilated from (daily sync).
+  ezyvet_contact_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -189,6 +191,7 @@ export function orgActivityActionLabel(action: string): string {
     "rescue.visit.log": "Logged visit",
     "rescue.record.delete": "Deleted rescue",
     "rescue.geocode": "Geocoded rescue addresses",
+    "rescue.ezyvet.sync": "Synced ezyVet rescue partners",
   };
   if (map[action]) return map[action];
   const cleaned = action.replace(/^(crm\.org\.|rescue\.)/, "").replace(/[._]/g, " ");

@@ -20,7 +20,7 @@ import {
   formatDate,
   statusClass,
 } from "@/lib/crm/referral-types";
-import { logRescueVisit, deleteRescue, sendRescueEmail } from "./actions";
+import { logRescueVisit, deleteRescue, sendRescueEmail, syncRescuePartners } from "./actions";
 import { RescueMap } from "./rescue-map";
 import { EmailComposeDialog } from "../_components/email-compose-dialog";
 import {
@@ -182,6 +182,20 @@ export function RescueCrm({
                 className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
               >
                 📍 Quick Visit
+              </button>
+            )}
+            {canEdit && (
+              <button
+                onClick={() =>
+                  startTransition(async () => {
+                    const res = await syncRescuePartners();
+                    notify(res.ok ? (res.message ?? "ezyVet partners synced.") : res.error);
+                    if (res.ok) router.refresh();
+                  })
+                }
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                🔄 Sync ezyVet
               </button>
             )}
             <button

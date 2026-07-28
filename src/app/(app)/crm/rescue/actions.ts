@@ -7,6 +7,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { ensureEditor, recordAudit } from "@/lib/auth/session";
 import { sendEmail } from "@/lib/shared/email";
 import { textToHtml } from "@/lib/crm/email-templates";
+import { syncRescuePartnersFromEzyvet } from "@/lib/crm/rescue-partner-sync";
 import { RESCUE_SUBTYPE } from "@/lib/crm/types";
 
 export type ActionResult =
@@ -106,6 +107,37 @@ export async function deleteRescue(orgId: string): Promise<ActionResult> {
   revalidatePath("/crm/rescue");
   revalidatePath("/crm", "layout");
   return { ok: true, message: "Rescue deleted." };
+}
+
+// ---------------------------------------------------------------------------
+// Assimilate ezyVet "Rescue Partners" contacts into the Rescue/Shelter CRM.
+// Runs automatically after the daily contact ingest; this action is the manual
+// "Sync now" trigger from the Rescue CRM header.
+// ---------------------------------------------------------------------------
+export async function syncRescuePartners(): Promise<ActionResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const sync = await syncRescuePartnersFromEzyvet();
+  if (!sync.ok) return { ok: false, error: sync.error ?? "Sync failed." };
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "rescue.ezyvet.sync",
+    entity: "crm_organization",
+    summary: `Synced ezyVet rescue partners — ${sync.created} created, ${sync.updated} updated, ${sync.matched} matched`,
+  });
+
+  revalidatePath("/crm/rescue");
+  revalidatePath("/crm", "layout");
+
+  const parts = [
+    `${sync.contacts} rescue-partner contact${sync.contacts === 1 ? "" : "s"} reviewed`,
+    `${sync.created} created`,
+    `${sync.updated} updated`,
+  ];
+  return { ok: true, message: parts.join(" · ") };
 }
 
 // ---------------------------------------------------------------------------
