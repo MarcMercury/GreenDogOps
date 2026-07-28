@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireUser } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireUser, recordAudit } from "@/lib/auth/session";
 import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
 import type { InitiativeLink, TreeItem } from "@/lib/marketing/types";
 export type ActionResult =

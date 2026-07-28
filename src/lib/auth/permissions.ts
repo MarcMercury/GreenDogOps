@@ -53,6 +53,7 @@ export type ModuleKey =
   | "crm_student"
   | "crm_ce"
   | "crm_influencer"
+  | "email_templates"
   | "reporting"
   | "emp_reporting"
   | "ezyvet"
@@ -80,6 +81,7 @@ export const MODULES: ModuleDef[] = [
   { key: "crm_student", label: "Student CRM", href: "/crm/student" },
   { key: "crm_ce", label: "CE/GDU Mgmt", href: "/crm/ce" },
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
+  { key: "email_templates", label: "Email Templates", href: "/marketing/templates" },
   { key: "ezyvet", label: "ezyVet CRM", href: "/ezyvet" },
   { key: "reporting", label: "Reporting", href: "/reporting" },
   { key: "emp_reporting", label: "Emp Reporting", href: "/emp-reporting" },
@@ -109,6 +111,8 @@ const ADMIN_ONLY_MODULES: ModuleKey[] = [
 const NON_ADMIN_MODULES = ALL_MODULES.filter(
   (m) => !ADMIN_ONLY_MODULES.includes(m),
 );
+// Email Templates management is open to Schedule Admins and up, but not Staff.
+const STAFF_MODULES = NON_ADMIN_MODULES.filter((m) => m !== "email_templates");
 // Executives see and edit everything except the Admin panel — including the
 // admin-only Reporting / Emp Reporting pages that other non-admins can't see.
 const EXECUTIVE_MODULES = ALL_MODULES.filter((m) => m !== "admin");
@@ -118,7 +122,7 @@ const ROLE_DEFAULT_MODULES: Record<AppRole, ModuleKey[]> = {
   executive: EXECUTIVE_MODULES,
   manager: NON_ADMIN_MODULES,
   schedule_admin: NON_ADMIN_MODULES,
-  staff: NON_ADMIN_MODULES,
+  staff: STAFF_MODULES,
 };
 
 export interface AppUser {

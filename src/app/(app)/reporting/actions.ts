@@ -16,6 +16,10 @@ import type {
   AppointmentReviewTypeDetailRow,
   CancelledApptTypeRow,
   CancelledApptDetailRow,
+  BizDevLocation,
+  BizDevApptTypeRow,
+  BizDevOpenDays,
+  LocationKey,
 } from "@/lib/reporting/types";
 
 export type ActionResult =
@@ -478,4 +482,311 @@ export async function resetInvoiceData(): Promise<ActionResult> {
   await admin.rpc("request_reporting_refresh");
   revalidatePath("/reporting");
   return { ok: true, message: "All invoice reporting data cleared. Reports refresh within a minute." };
+}
+
+// ---------------------------------------------------------------------------
+// Business Development planner
+// ---------------------------------------------------------------------------
+
+/** Clinic `location.name` → reporting location key (blended-value lookup). */
+const BIZDEV_NAME_TO_KEY: Record<string, LocationKey> = {
+  "Sherman Oaks": "sherman_oaks",
+  "Van Nuys": "van_nuys",
+  Venice: "venice",
+};
+
+/** Order clinics consistently across the planner. */
+const BIZDEV_LOCATION_ORDER: LocationKey[] = ["sherman_oaks", "van_nuys", "venice"];
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface DailyAvgRow {
+  location_id: string;
+  appt_type: string;
+  avg_per_day: number;
+  days_observed: number;
+  total_appts: number;
+}
+
+interface BizDevApptTypeDbRow {
+  id: string;
+  location_id: string;
+  appt_type: string;
+  avg_value: number | string;
+  planned_per_day: number | string;
+  included: boolean;
+  is_custom: boolean;
+  sort_order: number;
+}
+
+/**
+ * Load the Business Development planner: for each clinic, its open-days scenario
+ * and one editable row per appointment type (average value assumption + planned
+ * count per open day). On first load, missing rows are seeded from the realized
+ * Agenda mix (value = the clinic's blended average appointment value, planned =
+ * the current realized average per day). Returns clinics in a fixed order.
+ */
+export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
+  await requireReportingAccess();
+  const admin = createAdminClient();
+
+  // Clinics we plan for (active clinics with a reporting key).
+  const { data: locData } = await admin
+    .from("location")
+    .select("id, name")
+    .in("name", Object.keys(BIZDEV_NAME_TO_KEY));
+  const locations = (locData ?? []) as { id: string; name: string }[];
+  if (locations.length === 0) return [];
+
+  // Blended average appointment value per clinic, from the latest report year.
+  const { data: yearData } = await admin.from("report_years").select("year");
+  const years = ((yearData ?? []) as { year: number }[]).map((r) => r.year);
+  const latestYear = years.length ? Math.max(...years) : new Date().getFullYear();
+  const { data: locRevData } = await admin
+    .from("report_by_location")
+    .select("location_key, avg_appointment_value")
+    .eq("year", latestYear);
+  const blendedByKey = new Map<string, number>();
+  for (const r of (locRevData ?? []) as { location_key: string; avg_appointment_value: number | string }[]) {
+    blendedByKey.set(r.location_key, Number(r.avg_appointment_value ?? 0));
+  }
+
+  // Current realized average appointments/day per (clinic, appointment type).
+  const { data: avgData } = await admin.rpc("bizdev_appt_type_daily_avg");
+  const dailyAvg = (avgData ?? []) as DailyAvgRow[];
+  const avgByKey = new Map<string, DailyAvgRow>();
+  for (const r of dailyAvg) avgByKey.set(`${r.location_id}|${r.appt_type}`, r);
+
+  const locationIds = locations.map((l) => l.id);
+
+  // Existing planner rows.
+  const { data: existingData } = await admin
+    .from("bizdev_appt_type")
+    .select("id, location_id, appt_type, avg_value, planned_per_day, included, is_custom, sort_order")
+    .in("location_id", locationIds);
+  const existing = (existingData ?? []) as BizDevApptTypeDbRow[];
+  const existingKeys = new Set(existing.map((r) => `${r.location_id}|${r.appt_type}`));
+
+  // Seed any appointment type seen in the realized Agenda mix that has no row.
+  const seeds: {
+    location_id: string;
+    appt_type: string;
+    avg_value: number;
+    planned_per_day: number;
+    sort_order: number;
+  }[] = [];
+  for (const r of dailyAvg) {
+    if (!locationIds.includes(r.location_id)) continue;
+    if (existingKeys.has(`${r.location_id}|${r.appt_type}`)) continue;
+    const loc = locations.find((l) => l.id === r.location_id);
+    const key = loc ? BIZDEV_NAME_TO_KEY[loc.name] : undefined;
+    const blended = key ? (blendedByKey.get(key) ?? 0) : 0;
+    seeds.push({
+      location_id: r.location_id,
+      appt_type: r.appt_type,
+      avg_value: Math.round(blended * 100) / 100,
+      planned_per_day: Math.round(Number(r.avg_per_day ?? 0)),
+      // Bigger volume types sort first (lower number = earlier).
+      sort_order: 1000 - Math.min(999, Number(r.total_appts ?? 0)),
+    });
+  }
+  if (seeds.length > 0) {
+    await admin
+      .from("bizdev_appt_type")
+      .upsert(seeds, { onConflict: "location_id,appt_type", ignoreDuplicates: true });
+  }
+
+  // Ensure every clinic has an open-days config row (default Mon–Sat).
+  const { data: cfgData } = await admin
+    .from("bizdev_location_config")
+    .select("location_id, open_sun, open_mon, open_tue, open_wed, open_thu, open_fri, open_sat")
+    .in("location_id", locationIds);
+  const cfgRows = (cfgData ?? []) as (BizDevOpenDays & { location_id: string })[];
+  const cfgByLoc = new Map<string, BizDevOpenDays>();
+  for (const c of cfgRows) {
+    cfgByLoc.set(c.location_id, {
+      open_sun: c.open_sun,
+      open_mon: c.open_mon,
+      open_tue: c.open_tue,
+      open_wed: c.open_wed,
+      open_thu: c.open_thu,
+      open_fri: c.open_fri,
+      open_sat: c.open_sat,
+    });
+  }
+  const missingCfg = locationIds
+    .filter((id) => !cfgByLoc.has(id))
+    .map((id) => ({ location_id: id }));
+  if (missingCfg.length > 0) {
+    await admin
+      .from("bizdev_location_config")
+      .upsert(missingCfg, { onConflict: "location_id", ignoreDuplicates: true });
+  }
+  const defaultDays: BizDevOpenDays = {
+    open_sun: false,
+    open_mon: true,
+    open_tue: true,
+    open_wed: true,
+    open_thu: true,
+    open_fri: true,
+    open_sat: true,
+  };
+
+  // Re-read the (now seeded) planner rows.
+  const { data: allRowsData } = await admin
+    .from("bizdev_appt_type")
+    .select("id, location_id, appt_type, avg_value, planned_per_day, included, is_custom, sort_order")
+    .in("location_id", locationIds);
+  const allRows = (allRowsData ?? []) as BizDevApptTypeDbRow[];
+
+  const result: BizDevLocation[] = [];
+  for (const loc of locations) {
+    const key = BIZDEV_NAME_TO_KEY[loc.name];
+    if (!key) continue;
+    const rows = allRows
+      .filter((r) => r.location_id === loc.id)
+      .map<BizDevApptTypeRow>((r) => {
+        const avg = avgByKey.get(`${r.location_id}|${r.appt_type}`);
+        return {
+          id: r.id,
+          location_id: r.location_id,
+          appt_type: r.appt_type,
+          avg_value: Number(r.avg_value ?? 0),
+          planned_per_day: Number(r.planned_per_day ?? 0),
+          included: r.included,
+          is_custom: r.is_custom,
+          sort_order: r.sort_order,
+          current_avg_per_day: avg ? Number(avg.avg_per_day ?? 0) : 0,
+          days_observed: avg ? Number(avg.days_observed ?? 0) : 0,
+        };
+      })
+      .sort(
+        (a, b) =>
+          a.sort_order - b.sort_order ||
+          a.appt_type.localeCompare(b.appt_type),
+      );
+    result.push({
+      location_id: loc.id,
+      location_key: key,
+      location_label: loc.name,
+      blended_avg_value: Math.round((blendedByKey.get(key) ?? 0) * 100) / 100,
+      open_days: cfgByLoc.get(loc.id) ?? defaultDays,
+      types: rows,
+    });
+  }
+
+  result.sort(
+    (a, b) =>
+      BIZDEV_LOCATION_ORDER.indexOf(a.location_key) -
+      BIZDEV_LOCATION_ORDER.indexOf(b.location_key),
+  );
+  return result;
+}
+
+/** Update one planner row's value / planned count / included flag. */
+export async function updateBizDevApptType(
+  id: string,
+  patch: { avg_value?: number; planned_per_day?: number; included?: boolean },
+): Promise<ActionResult> {
+  await requireReportingEditor();
+  if (!UUID_RE.test(id)) return { ok: false, error: "Invalid row." };
+  const update: Record<string, number | boolean | string> = { updated_at: new Date().toISOString() };
+  if (typeof patch.avg_value === "number" && Number.isFinite(patch.avg_value)) {
+    update.avg_value = Math.max(0, Math.round(patch.avg_value * 100) / 100);
+  }
+  if (typeof patch.planned_per_day === "number" && Number.isFinite(patch.planned_per_day)) {
+    update.planned_per_day = Math.max(0, Math.round(patch.planned_per_day * 100) / 100);
+  }
+  if (typeof patch.included === "boolean") update.included = patch.included;
+  const admin = createAdminClient();
+  const { error } = await admin.from("bizdev_appt_type").update(update).eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, message: "Saved." };
+}
+
+/** Save which weekdays a clinic is open. */
+export async function saveBizDevOpenDays(
+  locationId: string,
+  days: BizDevOpenDays,
+): Promise<ActionResult> {
+  await requireReportingEditor();
+  if (!UUID_RE.test(locationId)) return { ok: false, error: "Invalid clinic." };
+  const admin = createAdminClient();
+  const { error } = await admin.from("bizdev_location_config").upsert(
+    {
+      location_id: locationId,
+      open_sun: !!days.open_sun,
+      open_mon: !!days.open_mon,
+      open_tue: !!days.open_tue,
+      open_wed: !!days.open_wed,
+      open_thu: !!days.open_thu,
+      open_fri: !!days.open_fri,
+      open_sat: !!days.open_sat,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "location_id" },
+  );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, message: "Saved." };
+}
+
+/** Add a custom appointment type to a clinic's planner. */
+export async function addBizDevApptType(
+  locationId: string,
+  apptType: string,
+  avgValue: number,
+): Promise<{ ok: true; row: BizDevApptTypeRow } | { ok: false; error: string }> {
+  await requireReportingEditor();
+  if (!UUID_RE.test(locationId)) return { ok: false, error: "Invalid clinic." };
+  const name = (apptType ?? "").trim();
+  if (!name) return { ok: false, error: "Enter an appointment type name." };
+  const value = Number.isFinite(avgValue) ? Math.max(0, Math.round(avgValue * 100) / 100) : 0;
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("bizdev_appt_type")
+    .insert({
+      location_id: locationId,
+      appt_type: name,
+      avg_value: value,
+      planned_per_day: 0,
+      included: true,
+      is_custom: true,
+      sort_order: 900,
+    })
+    .select("id, location_id, appt_type, avg_value, planned_per_day, included, is_custom, sort_order")
+    .single();
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "That appointment type already exists here." };
+    return { ok: false, error: error.message };
+  }
+  const r = data as BizDevApptTypeDbRow;
+  return {
+    ok: true,
+    row: {
+      id: r.id,
+      location_id: r.location_id,
+      appt_type: r.appt_type,
+      avg_value: Number(r.avg_value ?? 0),
+      planned_per_day: Number(r.planned_per_day ?? 0),
+      included: r.included,
+      is_custom: r.is_custom,
+      sort_order: r.sort_order,
+      current_avg_per_day: 0,
+      days_observed: 0,
+    },
+  };
+}
+
+/** Remove a user-added appointment type row (custom rows only). */
+export async function deleteBizDevApptType(id: string): Promise<ActionResult> {
+  await requireReportingEditor();
+  if (!UUID_RE.test(id)) return { ok: false, error: "Invalid row." };
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("bizdev_appt_type")
+    .delete()
+    .eq("id", id)
+    .eq("is_custom", true);
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, message: "Removed." };
 }

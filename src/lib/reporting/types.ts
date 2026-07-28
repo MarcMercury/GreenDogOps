@@ -390,6 +390,50 @@ export interface CancelledApptDetailRow {
   reason: string | null;
 }
 
+// --- Business Development planner -------------------------------------------
+
+/** Which weekdays a clinic is open (drives the weekly/monthly roll-up). */
+export interface BizDevOpenDays {
+  open_sun: boolean;
+  open_mon: boolean;
+  open_tue: boolean;
+  open_wed: boolean;
+  open_thu: boolean;
+  open_fri: boolean;
+  open_sat: boolean;
+}
+
+/**
+ * One planning row for the Business Development tab: a clinic's appointment
+ * type with an editable average dollar value assumption (seeded from the
+ * clinic's blended average appointment value) and a scenario count rendered per
+ * open day. `current_avg_per_day` is the realized average from the Agenda
+ * snapshots (reference only, not editable).
+ */
+export interface BizDevApptTypeRow {
+  id: string;
+  location_id: string;
+  appt_type: string;
+  avg_value: number;
+  planned_per_day: number;
+  included: boolean;
+  is_custom: boolean;
+  sort_order: number;
+  current_avg_per_day: number;
+  days_observed: number;
+}
+
+/** A clinic's full Business Development planning state. */
+export interface BizDevLocation {
+  location_id: string;
+  location_key: LocationKey;
+  location_label: string;
+  /** Clinic blended average appointment value used to seed per-type values. */
+  blended_avg_value: number;
+  open_days: BizDevOpenDays;
+  types: BizDevApptTypeRow[];
+}
+
 export const LOCATION_LABELS: Record<LocationKey, string> = {
   sherman_oaks: "Sherman Oaks",
   van_nuys: "Van Nuys",
