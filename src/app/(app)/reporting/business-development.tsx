@@ -12,7 +12,6 @@ import {
   getBusinessDevelopmentData,
   updateBizDevApptType,
   saveBizDevOpenDays,
-  saveBizDevWeekdayFactors,
   saveBizDevProviderCapacity,
   addBizDevApptType,
   deleteBizDevApptType,
@@ -256,44 +255,34 @@ function HourDemandChart({
   );
 }
 
-/** Editable day-of-week volume factors for a clinic's OPEN days. */
-function WeekdayFactorRow({
+/** Read-only weekday ranking, busiest (1) to slowest (7), from the volume mix. */
+function WeekdayRanking({
   loc,
-  canEdit,
   color,
-  onChange,
 }: {
   loc: BizDevLocation;
-  canEdit: boolean;
   color: string;
-  onChange: (factors: BizDevWeekdayFactors) => void;
 }) {
+  const ranked = DAY_DEFS.map((d) => ({
+    title: d.title,
+    factor: Number(loc.weekday_factors[d.factorKey] ?? 1),
+  })).sort((a, b) => b.factor - a.factor);
   return (
-    <div className="flex flex-wrap items-end gap-2">
-      {DAY_DEFS.map((d) => {
-        const open = loc.open_days[d.key];
-        if (!open) return null;
-        const val = Number(loc.weekday_factors[d.factorKey] ?? 1);
-        return (
-          <label key={d.factorKey} className="flex flex-col items-center gap-0.5">
-            <span
-              className="text-[10px] font-semibold uppercase tracking-wide"
-              style={{ color }}
-            >
-              {d.title.slice(0, 3)}
-            </span>
-            <NumberField
-              value={val}
-              disabled={!canEdit}
-              step={0.05}
-              prefix="×"
-              onCommit={(n) =>
-                onChange({ ...loc.weekday_factors, [d.factorKey]: n })
-              }
-            />
-          </label>
-        );
-      })}
+    <div className="flex flex-wrap gap-2">
+      {ranked.map((d, i) => (
+        <div
+          key={d.title}
+          className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1"
+        >
+          <span
+            className="flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold text-white"
+            style={{ backgroundColor: color }}
+          >
+            {i + 1}
+          </span>
+          <span className="text-xs font-medium text-slate-700">{d.title}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -412,7 +401,6 @@ function LocationPlanner({
   onToggleDay,
   onAddType,
   onRemoveType,
-  onSaveFactors,
   onSaveProvider,
 }: {
   loc: BizDevLocation;
@@ -432,7 +420,6 @@ function LocationPlanner({
   onToggleDay: (key: keyof BizDevOpenDays) => void;
   onAddType: (name: string, value: number) => void;
   onRemoveType: (typeId: string) => void;
-  onSaveFactors: (factors: BizDevWeekdayFactors) => void;
   onSaveProvider: (provider: BizDevProviderCapacity) => void;
 }) {
   const totals = useMemo(() => computeTotals(loc), [loc]);
@@ -518,14 +505,9 @@ function LocationPlanner({
         <>
       <div className="mt-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2">
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          Weekday volume mix (× a typical weekday — seeded from real revenue)
+          Weekday ranking (busiest → slowest)
         </p>
-        <WeekdayFactorRow
-          loc={loc}
-          canEdit={canEdit}
-          color={color}
-          onChange={onSaveFactors}
-        />
+        <WeekdayRanking loc={loc} color={color} />
       </div>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full min-w-[860px] text-sm">
@@ -889,20 +871,6 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
     }
   };
 
-  const saveFactors = (locId: string, factors: BizDevWeekdayFactors) => {
-    setLocations((prev) =>
-      prev
-        ? prev.map((l) =>
-            l.location_id === locId ? { ...l, weekday_factors: factors } : l,
-          )
-        : prev,
-    );
-    startTransition(async () => {
-      const res = await saveBizDevWeekdayFactors(locId, factors);
-      if (!res.ok) setError(res.error);
-    });
-  };
-
   const saveProvider = (locId: string, provider: BizDevProviderCapacity) => {
     setLocations((prev) =>
       prev
@@ -1046,7 +1014,6 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
           onToggleDay={(key) => toggleDay(loc.location_id, key)}
           onAddType={(name, value) => addType(loc.location_id, name, value)}
           onRemoveType={(typeId) => removeType(loc.location_id, typeId)}
-          onSaveFactors={(factors) => saveFactors(loc.location_id, factors)}
           onSaveProvider={(provider) => saveProvider(loc.location_id, provider)}
         />
       ))}
