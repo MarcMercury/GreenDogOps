@@ -81,7 +81,7 @@ export const MODULES: ModuleDef[] = [
   { key: "crm_student", label: "Student CRM", href: "/crm/student" },
   { key: "crm_ce", label: "CE/GDU Mgmt", href: "/crm/ce" },
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
-  { key: "email_templates", label: "Email Templates", href: "/marketing/templates" },
+  { key: "email_templates", label: "Email Templates", href: "/email-templates" },
   { key: "ezyvet", label: "ezyVet CRM", href: "/ezyvet" },
   { key: "reporting", label: "Reporting", href: "/reporting" },
   { key: "emp_reporting", label: "Emp Reporting", href: "/emp-reporting" },

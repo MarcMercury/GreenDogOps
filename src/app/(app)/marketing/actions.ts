@@ -933,7 +933,7 @@ export async function saveEmailTemplate(formData: FormData): Promise<void> {
     summary: `${id ? "Updated" : "Created"} email template “${name}”`,
   });
 
-  revalidatePath("/marketing/templates");
+  revalidatePath("/email-templates");
 }
 
 /** Toggle a template's active state (inactive templates hide from Send Email). */
@@ -958,7 +958,7 @@ export async function setEmailTemplateActive(formData: FormData): Promise<void> 
     summary: `${isActive ? "Activated" : "Deactivated"} email template ${id}`,
   });
 
-  revalidatePath("/marketing/templates");
+  revalidatePath("/email-templates");
 }
 
 export async function deleteEmailTemplate(formData: FormData): Promise<void> {
@@ -983,5 +983,5 @@ export async function deleteEmailTemplate(formData: FormData): Promise<void> {
     summary: `Deleted email template “${(data as { name?: string } | null)?.name ?? id}”`,
   });
 
-  revalidatePath("/marketing/templates");
+  revalidatePath("/email-templates");
 }

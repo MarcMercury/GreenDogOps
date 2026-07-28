@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Panel } from "../../admin/_components";
+import { Panel } from "../admin/_components";
 import {
   REFERRAL_TEMPLATE_VARIABLES,
   RESCUE_TEMPLATE_VARIABLES,
@@ -14,7 +14,7 @@ import {
   saveEmailTemplate,
   deleteEmailTemplate,
   setEmailTemplateActive,
-} from "../actions";
+} from "../marketing/actions";
 
 const inputCls =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100";

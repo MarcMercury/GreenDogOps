@@ -224,6 +224,7 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
   crm_student: "🎓",
   crm_ce: "📋",
   crm_influencer: "⭐",
+  email_templates: "✉️",
   reporting: "📈",
   emp_reporting: "💰",
   ezyvet: "🐾",
