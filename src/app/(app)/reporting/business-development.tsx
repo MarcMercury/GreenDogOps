@@ -5,14 +5,12 @@ import type {
   BizDevLocation,
   BizDevOpenDays,
   BizDevWeekdayFactors,
-  BizDevProviderCapacity,
 } from "@/lib/reporting/types";
 import { LOCATION_COLORS } from "@/lib/reporting/types";
 import {
   getBusinessDevelopmentData,
   updateBizDevApptType,
   saveBizDevOpenDays,
-  saveBizDevProviderCapacity,
   addBizDevApptType,
   deleteBizDevApptType,
 } from "./actions";
@@ -287,183 +285,6 @@ function WeekdayRanking({
   );
 }
 
-/** Compact provider-role picker for a service line. */
-function RoleSelect({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: "dvm" | "tech" | "none";
-  onChange: (v: "dvm" | "tech" | "none") => void;
-  disabled?: boolean;
-}) {
-  return (
-    <select
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value as "dvm" | "tech" | "none")}
-      className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-200 disabled:bg-slate-50 disabled:text-slate-400"
-    >
-      <option value="dvm">Doctor</option>
-      <option value="tech">Tech</option>
-      <option value="none">None</option>
-    </select>
-  );
-}
-
-interface RoleCapacity {
-  demandDays: number;
-  count: number;
-  added: number;
-  capacity: number;
-  util: number;
-  avgRevPerDay: number;
-  addedWeekly: number;
-  unsetCount: number;
-}
-
-/** Aggregate a clinic's capacity demand for one provider role. */
-function roleCapacity(
-  loc: BizDevLocation,
-  totals: LocTotals,
-  role: "dvm" | "tech",
-): RoleCapacity {
-  let demandDays = 0;
-  let revPerDay = 0;
-  let unsetCount = 0;
-  for (const t of loc.types) {
-    if (!t.included || t.provider_role !== role) continue;
-    const eff =
-      t.cadence === "weekly"
-        ? totals.openDays > 0
-          ? t.planned_per_week / totals.openDays
-          : 0
-        : t.planned_per_day;
-    if (eff <= 0) continue;
-    if (t.per_provider_day > 0) {
-      demandDays += eff / t.per_provider_day;
-      revPerDay += eff * t.avg_value;
-    } else {
-      unsetCount += 1;
-    }
-  }
-  const count = role === "dvm" ? loc.provider.dvm_count : loc.provider.tech_count;
-  const added = role === "dvm" ? loc.provider.added_dvms : loc.provider.added_techs;
-  const capacity = count + added;
-  const avgRevPerDay = demandDays > 0 ? revPerDay / demandDays : 0;
-  const unmet = Math.max(demandDays - count, 0);
-  const addedFill = Math.min(added, unmet);
-  const addedWeekly = addedFill * avgRevPerDay * totals.factorSum;
-  const util = capacity > 0 ? demandDays / capacity : demandDays > 0 ? Infinity : 0;
-  return { demandDays, count, added, capacity, util, avgRevPerDay, addedWeekly, unsetCount };
-}
-
-/** Provider-backed capacity: doctors AND techs, driven by per-service throughput. */
-function ProviderCapacityPanel({
-  loc,
-  totals,
-  canEdit,
-  onChange,
-}: {
-  loc: BizDevLocation;
-  totals: LocTotals;
-  canEdit: boolean;
-  onChange: (provider: BizDevProviderCapacity) => void;
-}) {
-  const rows: {
-    key: "dvm" | "tech";
-    label: string;
-    cap: RoleCapacity;
-    countField: keyof BizDevProviderCapacity;
-    addField: keyof BizDevProviderCapacity;
-  }[] = [
-    {
-      key: "dvm",
-      label: "Doctors",
-      cap: roleCapacity(loc, totals, "dvm"),
-      countField: "dvm_count",
-      addField: "added_dvms",
-    },
-    {
-      key: "tech",
-      label: "Techs",
-      cap: roleCapacity(loc, totals, "tech"),
-      countField: "tech_count",
-      addField: "added_techs",
-    },
-  ];
-  const addedMonthly =
-    (rows[0].cap.addedWeekly + rows[1].cap.addedWeekly) * WEEKS_PER_MONTH;
-  return (
-    <div className="space-y-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
-      {rows.map((r) => {
-        const over = r.cap.util > 1;
-        return (
-          <div key={r.key} className="flex flex-wrap items-end gap-3">
-            <div className="w-16 pb-1 text-sm font-semibold text-slate-700">
-              {r.label}
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Staffed/day
-              </p>
-              <NumberField
-                value={r.cap.count}
-                disabled={!canEdit}
-                step={0.5}
-                onCommit={(n) => onChange({ ...loc.provider, [r.countField]: n })}
-              />
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
-                + Add
-              </p>
-              <NumberField
-                value={r.cap.added}
-                disabled={!canEdit}
-                step={0.5}
-                onCommit={(n) => onChange({ ...loc.provider, [r.addField]: n })}
-              />
-            </div>
-            <div className="ml-auto pb-1 text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                Demand vs capacity
-              </p>
-              <p
-                className={`text-sm font-bold tabular-nums ${over ? "text-rose-600" : "text-slate-800"}`}
-              >
-                {r.cap.demandDays.toFixed(1)} / {r.cap.capacity.toFixed(1)} prov-days
-                {Number.isFinite(r.cap.util)
-                  ? ` · ${Math.round(r.cap.util * 100)}%`
-                  : r.cap.demandDays > 0
-                    ? " · no staff"
-                    : ""}
-              </p>
-              {r.cap.unsetCount > 0 ? (
-                <p className="text-[10px] text-amber-600">
-                  {r.cap.unsetCount} service{r.cap.unsetCount === 1 ? "" : "s"} with
-                  no /prov·day rate — not counted
-                </p>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-      {rows.some((r) => r.cap.util > 1) ? (
-        <p className="text-xs font-medium text-rose-600">
-          Plan exceeds provider capacity — add providers or reduce planned volume.
-        </p>
-      ) : null}
-      {addedMonthly > 0 ? (
-        <p className="text-xs font-medium text-emerald-700">
-          Added-provider upside: {fmtCurrency(addedMonthly)}/mo (fills unmet demand
-          at the average value of those services).
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 /** One clinic's planning card. */
 function LocationPlanner({
   loc,
@@ -472,7 +293,6 @@ function LocationPlanner({
   onToggleDay,
   onAddType,
   onRemoveType,
-  onSaveProvider,
 }: {
   loc: BizDevLocation;
   canEdit: boolean;
@@ -485,33 +305,41 @@ function LocationPlanner({
       planned_per_week?: number;
       cadence?: "daily" | "weekly";
       max_per_day?: number;
-      provider_role?: "dvm" | "tech" | "none";
-      per_provider_day?: number;
       included?: boolean;
+      hidden?: boolean;
     },
   ) => void;
   onToggleDay: (key: keyof BizDevOpenDays) => void;
   onAddType: (name: string, value: number) => void;
   onRemoveType: (typeId: string) => void;
-  onSaveProvider: (provider: BizDevProviderCapacity) => void;
 }) {
   const totals = useMemo(() => computeTotals(loc), [loc]);
   const [newName, setNewName] = useState("");
   const [newValue, setNewValue] = useState("");
   const [collapsed, setCollapsed] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
   const color = LOCATION_COLORS[loc.location_key] ?? "#10b981";
   const upliftMonthly = totals.projMonthly - totals.currentMonthly;
 
-  // Included rows first (in their base order); unchecked rows drop to the bottom.
+  const hiddenCount = useMemo(
+    () => loc.types.filter((t) => t.hidden).length,
+    [loc.types],
+  );
+
+  // Visible rows: hidden types are excluded unless "show hidden" is on. Included
+  // rows first (in their base order); unchecked rows drop to the bottom.
   const orderedTypes = useMemo(
     () =>
-      [...loc.types].sort(
-        (a, b) =>
-          (a.included === b.included ? 0 : a.included ? -1 : 1) ||
-          a.sort_order - b.sort_order ||
-          a.appt_type.localeCompare(b.appt_type),
-      ),
-    [loc.types],
+      loc.types
+        .filter((t) => showHidden || !t.hidden)
+        .sort(
+          (a, b) =>
+            (a.hidden === b.hidden ? 0 : a.hidden ? 1 : -1) ||
+            (a.included === b.included ? 0 : a.included ? -1 : 1) ||
+            a.sort_order - b.sort_order ||
+            a.appt_type.localeCompare(b.appt_type),
+        ),
+    [loc.types, showHidden],
   );
 
   return (
@@ -583,7 +411,7 @@ function LocationPlanner({
         <WeekdayRanking loc={loc} color={color} />
       </div>
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[1040px] text-sm">
+        <table className="w-full min-w-[880px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <th className="w-8 py-2 pr-2 text-center">On</th>
@@ -593,8 +421,6 @@ function LocationPlanner({
               <th className="py-2 pr-3 text-right">Planned/day</th>
               <th className="py-2 pr-3 text-right">Planned/wk</th>
               <th className="py-2 pr-3 text-right">Max/day</th>
-              <th className="py-2 pr-3">Role</th>
-              <th className="py-2 pr-3 text-right">/Prov·day</th>
               <th className="py-2 pr-3 text-right">Avg value</th>
               <th className="py-2 pr-3 text-right">Proj. $/wk</th>
               {canEdit ? <th className="w-8 py-2" /> : null}
@@ -616,7 +442,13 @@ function LocationPlanner({
               return (
                 <tr
                   key={t.id}
-                  className={t.included ? "" : "opacity-45"}
+                  className={
+                    t.hidden
+                      ? "bg-slate-50/60 opacity-40"
+                      : t.included
+                        ? ""
+                        : "opacity-45"
+                  }
                 >
                   <td className="py-1.5 pr-2 text-center">
                     <input
@@ -715,23 +547,6 @@ function LocationPlanner({
                     />
                   </td>
                   <td className="py-1.5 pr-3">
-                    <RoleSelect
-                      value={t.provider_role}
-                      disabled={!canEdit}
-                      onChange={(v) => onPatchType(t.id, { provider_role: v })}
-                    />
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <NumberField
-                      value={t.per_provider_day}
-                      disabled={!canEdit || t.provider_role === "none"}
-                      step={0.5}
-                      onCommit={(n) =>
-                        onPatchType(t.id, { per_provider_day: n })
-                      }
-                    />
-                  </td>
-                  <td className="py-1.5 pr-3">
                     <NumberField
                       value={t.avg_value}
                       disabled={!canEdit}
@@ -745,16 +560,28 @@ function LocationPlanner({
                   </td>
                   {canEdit ? (
                     <td className="py-1.5 text-center">
-                      {t.is_custom ? (
+                      <div className="flex items-center justify-center gap-1.5">
                         <button
                           type="button"
-                          title="Remove"
-                          onClick={() => onRemoveType(t.id)}
-                          className="text-slate-300 hover:text-rose-500"
+                          title={t.hidden ? "Unhide" : "Hide from list"}
+                          onClick={() =>
+                            onPatchType(t.id, { hidden: !t.hidden })
+                          }
+                          className="text-slate-300 hover:text-slate-600"
                         >
-                          ×
+                          {t.hidden ? "🕶" : "⦸"}
                         </button>
-                      ) : null}
+                        {t.is_custom ? (
+                          <button
+                            type="button"
+                            title="Delete"
+                            onClick={() => onRemoveType(t.id)}
+                            className="text-slate-300 hover:text-rose-500"
+                          >
+                            ×
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   ) : null}
                 </tr>
@@ -775,8 +602,6 @@ function LocationPlanner({
               <td className="py-2 pr-3 text-right tabular-nums">
                 {totals.plannedApptsPerWeek.toFixed(1)}
               </td>
-              <td className="py-2 pr-3" />
-              <td className="py-2 pr-3" />
               <td className="py-2 pr-3" />
               <td className="py-2 pr-3" />
               <td className="py-2 pr-3 text-right tabular-nums text-emerald-700">
@@ -819,6 +644,17 @@ function LocationPlanner({
         </div>
       ) : null}
 
+      {hiddenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setShowHidden((s) => !s)}
+          className="mt-2 text-xs font-medium text-slate-500 hover:text-slate-700"
+        >
+          {showHidden ? "Hide" : "Show"} {hiddenCount} hidden{" "}
+          {hiddenCount === 1 ? "type" : "types"}
+        </button>
+      ) : null}
+
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MiniStat
           label="Proj. $/day"
@@ -837,18 +673,6 @@ function LocationPlanner({
           label="Monthly vs current"
           value={`${upliftMonthly >= 0 ? "+" : ""}${fmtCurrency(upliftMonthly)}`}
           tone={upliftMonthly >= 0 ? "up" : "down"}
-        />
-      </div>
-
-      <div className="mt-4">
-        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          Provider capacity
-        </p>
-        <ProviderCapacityPanel
-          loc={loc}
-          totals={totals}
-          canEdit={canEdit}
-          onChange={onSaveProvider}
         />
       </div>
 
@@ -921,9 +745,8 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
       planned_per_week?: number;
       cadence?: "daily" | "weekly";
       max_per_day?: number;
-      provider_role?: "dvm" | "tech" | "none";
-      per_provider_day?: number;
       included?: boolean;
+      hidden?: boolean;
     },
   ) => {
     setLocations((prev) =>
@@ -965,20 +788,6 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
         if (!res.ok) setError(res.error);
       });
     }
-  };
-
-  const saveProvider = (locId: string, provider: BizDevProviderCapacity) => {
-    setLocations((prev) =>
-      prev
-        ? prev.map((l) =>
-            l.location_id === locId ? { ...l, provider } : l,
-          )
-        : prev,
-    );
-    startTransition(async () => {
-      const res = await saveBizDevProviderCapacity(locId, provider);
-      if (!res.ok) setError(res.error);
-    });
   };
 
   const addType = (locId: string, name: string, value: number) => {
@@ -1086,19 +895,15 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
         weekly surgery block) — weekly rows project{" "}
         <em>planned/week × value</em> directly. Every appointment type is listed
         at every clinic, so you can <strong>toggle on</strong> a service a clinic
-        doesn&apos;t offer yet to model adding it. The{" "}
-        <strong>weekday volume mix</strong> weights each open day (Saturdays run
-        lighter — seeded from real revenue), <strong>Max/day</strong> flags a
-        plan that exceeds a service&apos;s realistic capacity, and each service
-        has a <strong>Role</strong> (Doctor / Tech / None) and a{" "}
-        <strong>/prov·day</strong> throughput so the{" "}
-        <strong>provider capacity</strong> panel checks doctors and techs
-        separately — Advanced Procedures tie up a doctor far longer than exams,
-        and Tech Services need no doctor at all. The{" "}
-        <strong>hourly demand</strong> chart shows when appointments actually
-        book. The <strong>avg value</strong> and <strong>avg/day</strong> are
-        real base numbers recovered from the Agenda and invoices. All are
-        editable, so tune them and the projection recalculates.
+        doesn&apos;t offer yet, or <strong>hide</strong> ones you don&apos;t
+        use. The <strong>weekday ranking</strong> orders each day busiest to
+        slowest and weights the projection accordingly, and{" "}
+        <strong>Max/day</strong> flags a plan that exceeds a service&apos;s
+        realistic capacity. The <strong>hourly demand</strong> chart shows when
+        appointments actually book. The <strong>avg value</strong> and{" "}
+        <strong>avg/day</strong> are real base numbers recovered from the Agenda
+        and invoices. All are editable, so tune them and the projection
+        recalculates.
         {canEdit ? " Changes save automatically." : " Read-only — ask an admin to edit."}
       </p>
 
@@ -1113,7 +918,6 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
           onToggleDay={(key) => toggleDay(loc.location_id, key)}
           onAddType={(name, value) => addType(loc.location_id, name, value)}
           onRemoveType={(typeId) => removeType(loc.location_id, typeId)}
-          onSaveProvider={(provider) => saveProvider(loc.location_id, provider)}
         />
       ))}
     </div>

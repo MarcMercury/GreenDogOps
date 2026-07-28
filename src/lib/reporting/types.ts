@@ -425,11 +425,9 @@ export interface BizDevApptTypeRow {
   cadence: "daily" | "weekly";
   /** Realistic capacity ceiling per day (0 = no cap). */
   max_per_day: number;
-  /** Who renders this service: a doctor, a technician, or no provider. */
-  provider_role: "dvm" | "tech" | "none";
-  /** How many of THIS service one provider of that role renders per day (0 = unset). */
-  per_provider_day: number;
   included: boolean;
+  /** Fully hidden from the planner list (distinct from `included`). */
+  hidden: boolean;
   is_custom: boolean;
   sort_order: number;
   matched_paid: number;
@@ -447,20 +445,6 @@ export interface BizDevWeekdayFactors {
   factor_sat: number;
 }
 
-/** Provider-backed capacity scenario for a clinic. */
-export interface BizDevProviderCapacity {
-  /** Doctors staffed on a typical open day. */
-  dvm_count: number;
-  /** Appointments one doctor renders per day (capacity). */
-  appts_per_dvm_day: number;
-  /** Scenario: extra doctors to add. */
-  added_dvms: number;
-  /** Technicians staffed on a typical open day. */
-  tech_count: number;
-  /** Scenario: extra technicians to add. */
-  added_techs: number;
-}
-
 /** A clinic's full Business Development planning state. */
 export interface BizDevLocation {
   location_id: string;
@@ -470,7 +454,6 @@ export interface BizDevLocation {
   blended_avg_value: number;
   open_days: BizDevOpenDays;
   weekday_factors: BizDevWeekdayFactors;
-  provider: BizDevProviderCapacity;
   /** Realized average booked appointments by hour-of-day (0..23) on a typical day. */
   hour_demand: { hour: number; avg_per_open_day: number }[];
   types: BizDevApptTypeRow[];
