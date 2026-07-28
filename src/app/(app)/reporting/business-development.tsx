@@ -287,7 +287,78 @@ function WeekdayRanking({
   );
 }
 
-/** Provider-backed capacity planner: doctors × appts/provider → capacity + upside. */
+/** Compact provider-role picker for a service line. */
+function RoleSelect({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: "dvm" | "tech" | "none";
+  onChange: (v: "dvm" | "tech" | "none") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as "dvm" | "tech" | "none")}
+      className="w-full rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-200 disabled:bg-slate-50 disabled:text-slate-400"
+    >
+      <option value="dvm">Doctor</option>
+      <option value="tech">Tech</option>
+      <option value="none">None</option>
+    </select>
+  );
+}
+
+interface RoleCapacity {
+  demandDays: number;
+  count: number;
+  added: number;
+  capacity: number;
+  util: number;
+  avgRevPerDay: number;
+  addedWeekly: number;
+  unsetCount: number;
+}
+
+/** Aggregate a clinic's capacity demand for one provider role. */
+function roleCapacity(
+  loc: BizDevLocation,
+  totals: LocTotals,
+  role: "dvm" | "tech",
+): RoleCapacity {
+  let demandDays = 0;
+  let revPerDay = 0;
+  let unsetCount = 0;
+  for (const t of loc.types) {
+    if (!t.included || t.provider_role !== role) continue;
+    const eff =
+      t.cadence === "weekly"
+        ? totals.openDays > 0
+          ? t.planned_per_week / totals.openDays
+          : 0
+        : t.planned_per_day;
+    if (eff <= 0) continue;
+    if (t.per_provider_day > 0) {
+      demandDays += eff / t.per_provider_day;
+      revPerDay += eff * t.avg_value;
+    } else {
+      unsetCount += 1;
+    }
+  }
+  const count = role === "dvm" ? loc.provider.dvm_count : loc.provider.tech_count;
+  const added = role === "dvm" ? loc.provider.added_dvms : loc.provider.added_techs;
+  const capacity = count + added;
+  const avgRevPerDay = demandDays > 0 ? revPerDay / demandDays : 0;
+  const unmet = Math.max(demandDays - count, 0);
+  const addedFill = Math.min(added, unmet);
+  const addedWeekly = addedFill * avgRevPerDay * totals.factorSum;
+  const util = capacity > 0 ? demandDays / capacity : demandDays > 0 ? Infinity : 0;
+  return { demandDays, count, added, capacity, util, avgRevPerDay, addedWeekly, unsetCount };
+}
+
+/** Provider-backed capacity: doctors AND techs, driven by per-service throughput. */
 function ProviderCapacityPanel({
   loc,
   totals,
@@ -299,94 +370,94 @@ function ProviderCapacityPanel({
   canEdit: boolean;
   onChange: (provider: BizDevProviderCapacity) => void;
 }) {
-  const { dvm_count, appts_per_dvm_day, added_dvms } = loc.provider;
-  const capacityPerDay = (dvm_count + added_dvms) * appts_per_dvm_day;
-  const basePerDay = dvm_count * appts_per_dvm_day;
-  const util = capacityPerDay > 0 ? totals.plannedApptsTypicalDay / capacityPerDay : 0;
-  // Revenue value of the added doctors at capacity (filled at blended value),
-  // weighted by the clinic's weekday mix.
-  const addedWeekly =
-    added_dvms * appts_per_dvm_day * loc.blended_avg_value * totals.factorSum;
-  const overBase = basePerDay > 0 && totals.plannedApptsTypicalDay > basePerDay + 0.01;
+  const rows: {
+    key: "dvm" | "tech";
+    label: string;
+    cap: RoleCapacity;
+    countField: keyof BizDevProviderCapacity;
+    addField: keyof BizDevProviderCapacity;
+  }[] = [
+    {
+      key: "dvm",
+      label: "Doctors",
+      cap: roleCapacity(loc, totals, "dvm"),
+      countField: "dvm_count",
+      addField: "added_dvms",
+    },
+    {
+      key: "tech",
+      label: "Techs",
+      cap: roleCapacity(loc, totals, "tech"),
+      countField: "tech_count",
+      addField: "added_techs",
+    },
+  ];
+  const addedMonthly =
+    (rows[0].cap.addedWeekly + rows[1].cap.addedWeekly) * WEEKS_PER_MONTH;
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
-      <div className="flex flex-wrap items-end gap-4">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Doctors / day
-          </p>
-          <NumberField
-            value={dvm_count}
-            disabled={!canEdit}
-            step={0.5}
-            onCommit={(n) => onChange({ ...loc.provider, dvm_count: n })}
-          />
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Appts / doctor / day
-          </p>
-          <NumberField
-            value={appts_per_dvm_day}
-            disabled={!canEdit}
-            onCommit={(n) => onChange({ ...loc.provider, appts_per_dvm_day: n })}
-          />
-        </div>
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
-            + Add doctors
-          </p>
-          <NumberField
-            value={added_dvms}
-            disabled={!canEdit}
-            step={0.5}
-            onCommit={(n) => onChange({ ...loc.provider, added_dvms: n })}
-          />
-        </div>
-        <div className="ml-auto flex flex-wrap items-end gap-4 text-right">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Capacity/day
-            </p>
-            <p className="text-lg font-bold tabular-nums text-slate-800">
-              {capacityPerDay.toFixed(0)}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-              Planned vs cap
-            </p>
-            <p
-              className={`text-lg font-bold tabular-nums ${
-                util > 1 ? "text-rose-600" : "text-slate-800"
-              }`}
-            >
-              {capacityPerDay > 0
-                ? `${totals.plannedApptsTypicalDay.toFixed(0)}/${capacityPerDay.toFixed(0)} · ${Math.round(util * 100)}%`
-                : "—"}
-            </p>
-          </div>
-          {added_dvms > 0 ? (
+    <div className="space-y-2 rounded-xl border border-slate-200/80 bg-slate-50/60 p-3">
+      {rows.map((r) => {
+        const over = r.cap.util > 1;
+        return (
+          <div key={r.key} className="flex flex-wrap items-end gap-3">
+            <div className="w-16 pb-1 text-sm font-semibold text-slate-700">
+              {r.label}
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Staffed/day
+              </p>
+              <NumberField
+                value={r.cap.count}
+                disabled={!canEdit}
+                step={0.5}
+                onCommit={(n) => onChange({ ...loc.provider, [r.countField]: n })}
+              />
+            </div>
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
-                Added-doctor upside
+                + Add
               </p>
-              <p className="text-lg font-bold tabular-nums text-emerald-700">
-                {fmtCurrency(addedWeekly * WEEKS_PER_MONTH)}/mo
-              </p>
+              <NumberField
+                value={r.cap.added}
+                disabled={!canEdit}
+                step={0.5}
+                onCommit={(n) => onChange({ ...loc.provider, [r.addField]: n })}
+              />
             </div>
-          ) : null}
-        </div>
-      </div>
-      {util > 1 ? (
-        <p className="mt-2 text-xs font-medium text-rose-600">
-          Plan exceeds current doctor capacity — add doctors or reduce planned
-          volume.
+            <div className="ml-auto pb-1 text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Demand vs capacity
+              </p>
+              <p
+                className={`text-sm font-bold tabular-nums ${over ? "text-rose-600" : "text-slate-800"}`}
+              >
+                {r.cap.demandDays.toFixed(1)} / {r.cap.capacity.toFixed(1)} prov-days
+                {Number.isFinite(r.cap.util)
+                  ? ` · ${Math.round(r.cap.util * 100)}%`
+                  : r.cap.demandDays > 0
+                    ? " · no staff"
+                    : ""}
+              </p>
+              {r.cap.unsetCount > 0 ? (
+                <p className="text-[10px] text-amber-600">
+                  {r.cap.unsetCount} service{r.cap.unsetCount === 1 ? "" : "s"} with
+                  no /prov·day rate — not counted
+                </p>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+      {rows.some((r) => r.cap.util > 1) ? (
+        <p className="text-xs font-medium text-rose-600">
+          Plan exceeds provider capacity — add providers or reduce planned volume.
         </p>
-      ) : overBase && added_dvms === 0 ? (
-        <p className="mt-2 text-xs text-amber-600">
-          Plan is above your current doctors&apos; capacity; model adding a doctor
-          to close the gap.
+      ) : null}
+      {addedMonthly > 0 ? (
+        <p className="text-xs font-medium text-emerald-700">
+          Added-provider upside: {fmtCurrency(addedMonthly)}/mo (fills unmet demand
+          at the average value of those services).
         </p>
       ) : null}
     </div>
@@ -414,6 +485,8 @@ function LocationPlanner({
       planned_per_week?: number;
       cadence?: "daily" | "weekly";
       max_per_day?: number;
+      provider_role?: "dvm" | "tech" | "none";
+      per_provider_day?: number;
       included?: boolean;
     },
   ) => void;
@@ -510,7 +583,7 @@ function LocationPlanner({
         <WeekdayRanking loc={loc} color={color} />
       </div>
       <div className="mt-4 overflow-x-auto">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[1040px] text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <th className="w-8 py-2 pr-2 text-center">On</th>
@@ -520,6 +593,8 @@ function LocationPlanner({
               <th className="py-2 pr-3 text-right">Planned/day</th>
               <th className="py-2 pr-3 text-right">Planned/wk</th>
               <th className="py-2 pr-3 text-right">Max/day</th>
+              <th className="py-2 pr-3">Role</th>
+              <th className="py-2 pr-3 text-right">/Prov·day</th>
               <th className="py-2 pr-3 text-right">Avg value</th>
               <th className="py-2 pr-3 text-right">Proj. $/wk</th>
               {canEdit ? <th className="w-8 py-2" /> : null}
@@ -640,6 +715,23 @@ function LocationPlanner({
                     />
                   </td>
                   <td className="py-1.5 pr-3">
+                    <RoleSelect
+                      value={t.provider_role}
+                      disabled={!canEdit}
+                      onChange={(v) => onPatchType(t.id, { provider_role: v })}
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <NumberField
+                      value={t.per_provider_day}
+                      disabled={!canEdit || t.provider_role === "none"}
+                      step={0.5}
+                      onCommit={(n) =>
+                        onPatchType(t.id, { per_provider_day: n })
+                      }
+                    />
+                  </td>
+                  <td className="py-1.5 pr-3">
                     <NumberField
                       value={t.avg_value}
                       disabled={!canEdit}
@@ -683,6 +775,8 @@ function LocationPlanner({
               <td className="py-2 pr-3 text-right tabular-nums">
                 {totals.plannedApptsPerWeek.toFixed(1)}
               </td>
+              <td className="py-2 pr-3" />
+              <td className="py-2 pr-3" />
               <td className="py-2 pr-3" />
               <td className="py-2 pr-3" />
               <td className="py-2 pr-3 text-right tabular-nums text-emerald-700">
@@ -827,6 +921,8 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
       planned_per_week?: number;
       cadence?: "daily" | "weekly";
       max_per_day?: number;
+      provider_role?: "dvm" | "tech" | "none";
+      per_provider_day?: number;
       included?: boolean;
     },
   ) => {
@@ -993,9 +1089,12 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
         doesn&apos;t offer yet to model adding it. The{" "}
         <strong>weekday volume mix</strong> weights each open day (Saturdays run
         lighter — seeded from real revenue), <strong>Max/day</strong> flags a
-        plan that exceeds a service&apos;s realistic capacity, and the{" "}
-        <strong>provider capacity</strong> panel shows whether your plan fits
-        current doctors and the upside of adding one. The{" "}
+        plan that exceeds a service&apos;s realistic capacity, and each service
+        has a <strong>Role</strong> (Doctor / Tech / None) and a{" "}
+        <strong>/prov·day</strong> throughput so the{" "}
+        <strong>provider capacity</strong> panel checks doctors and techs
+        separately — Advanced Procedures tie up a doctor far longer than exams,
+        and Tech Services need no doctor at all. The{" "}
         <strong>hourly demand</strong> chart shows when appointments actually
         book. The <strong>avg value</strong> and <strong>avg/day</strong> are
         real base numbers recovered from the Agenda and invoices. All are

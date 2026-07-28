@@ -540,6 +540,8 @@ interface BizDevApptTypeDbRow {
   planned_per_week: number | string;
   cadence: string;
   max_per_day: number | string;
+  provider_role: string;
+  per_provider_day: number | string;
   included: boolean;
   is_custom: boolean;
   sort_order: number;
@@ -632,7 +634,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   // Existing planner rows.
   const { data: existingData } = await admin
     .from("bizdev_appt_type")
-    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, included, is_custom, sort_order")
+    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, provider_role, per_provider_day, included, is_custom, sort_order")
     .in("location_id", locationIds);
   const existing = (existingData ?? []) as BizDevApptTypeDbRow[];
   const existingKeys = new Set(existing.map((r) => `${r.location_id}|${r.appt_type}`));
@@ -657,6 +659,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     planned_per_day: number;
     included: boolean;
     sort_order: number;
+    provider_role: string;
   }[] = [];
   for (const locationId of locationIds) {
     for (const apptType of allApptTypes) {
@@ -683,6 +686,8 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
         sort_order: realized
           ? 1000 - Math.min(999, Number(realized.total_appts ?? 0))
           : 2000,
+        // Obvious default: tech-named services are tech-rendered, else doctor.
+        provider_role: /tech/i.test(apptType) ? "tech" : "dvm",
       });
     }
   }
@@ -697,7 +702,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   const CFG_COLS =
     "location_id, open_sun, open_mon, open_tue, open_wed, open_thu, open_fri, open_sat, " +
     "factor_sun, factor_mon, factor_tue, factor_wed, factor_thu, factor_fri, factor_sat, " +
-    "dvm_count, appts_per_dvm_day, added_dvms";
+    "dvm_count, appts_per_dvm_day, added_dvms, tech_count, added_techs";
   interface CfgDbRow extends BizDevOpenDays {
     location_id: string;
     factor_sun: number | string;
@@ -710,6 +715,8 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     dvm_count: number | string;
     appts_per_dvm_day: number | string;
     added_dvms: number | string;
+    tech_count: number | string;
+    added_techs: number | string;
   }
   const { data: cfgData } = await admin
     .from("bizdev_location_config")
@@ -806,12 +813,14 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     dvm_count: Number(c?.dvm_count ?? 0),
     appts_per_dvm_day: Number(c?.appts_per_dvm_day ?? 0),
     added_dvms: Number(c?.added_dvms ?? 0),
+    tech_count: Number(c?.tech_count ?? 0),
+    added_techs: Number(c?.added_techs ?? 0),
   });
 
   // Re-read the (now seeded) planner rows.
   const { data: allRowsData } = await admin
     .from("bizdev_appt_type")
-    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, included, is_custom, sort_order")
+    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, provider_role, per_provider_day, included, is_custom, sort_order")
     .in("location_id", locationIds);
   const allRows = (allRowsData ?? []) as BizDevApptTypeDbRow[];
 
@@ -834,6 +843,11 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
           planned_per_week: Number(r.planned_per_week ?? 0),
           cadence: r.cadence === "weekly" ? "weekly" : "daily",
           max_per_day: Number(r.max_per_day ?? 0),
+          provider_role:
+            r.provider_role === "tech" || r.provider_role === "none"
+              ? r.provider_role
+              : "dvm",
+          per_provider_day: Number(r.per_provider_day ?? 0),
           included: r.included,
           is_custom: r.is_custom,
           sort_order: r.sort_order,
@@ -877,6 +891,8 @@ export async function updateBizDevApptType(
     planned_per_week?: number;
     cadence?: "daily" | "weekly";
     max_per_day?: number;
+    provider_role?: "dvm" | "tech" | "none";
+    per_provider_day?: number;
     included?: boolean;
   },
 ): Promise<ActionResult> {
@@ -900,6 +916,12 @@ export async function updateBizDevApptType(
   }
   if (typeof patch.max_per_day === "number" && Number.isFinite(patch.max_per_day)) {
     update.max_per_day = Math.max(0, Math.round(patch.max_per_day * 100) / 100);
+  }
+  if (patch.provider_role === "dvm" || patch.provider_role === "tech" || patch.provider_role === "none") {
+    update.provider_role = patch.provider_role;
+  }
+  if (typeof patch.per_provider_day === "number" && Number.isFinite(patch.per_provider_day)) {
+    update.per_provider_day = Math.max(0, Math.round(patch.per_provider_day * 100) / 100);
   }
   if (typeof patch.included === "boolean") update.included = patch.included;
   const admin = createAdminClient();
@@ -976,6 +998,8 @@ export async function saveBizDevProviderCapacity(
       dvm_count: clamp(provider.dvm_count),
       appts_per_dvm_day: clamp(provider.appts_per_dvm_day),
       added_dvms: clamp(provider.added_dvms),
+      tech_count: clamp(provider.tech_count),
+      added_techs: clamp(provider.added_techs),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "location_id" },
@@ -1007,8 +1031,9 @@ export async function addBizDevApptType(
       included: true,
       is_custom: true,
       sort_order: 900,
+      provider_role: /tech/i.test(name) ? "tech" : "dvm",
     })
-    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, included, is_custom, sort_order")
+    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, provider_role, per_provider_day, included, is_custom, sort_order")
     .single();
   if (error) {
     if (error.code === "23505") return { ok: false, error: "That appointment type already exists here." };
@@ -1027,6 +1052,11 @@ export async function addBizDevApptType(
       planned_per_week: Number(r.planned_per_week ?? 0),
       cadence: r.cadence === "weekly" ? "weekly" : "daily",
       max_per_day: Number(r.max_per_day ?? 0),
+      provider_role:
+        r.provider_role === "tech" || r.provider_role === "none"
+          ? r.provider_role
+          : "dvm",
+      per_provider_day: Number(r.per_provider_day ?? 0),
       included: r.included,
       is_custom: r.is_custom,
       sort_order: r.sort_order,

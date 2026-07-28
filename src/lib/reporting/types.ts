@@ -425,6 +425,10 @@ export interface BizDevApptTypeRow {
   cadence: "daily" | "weekly";
   /** Realistic capacity ceiling per day (0 = no cap). */
   max_per_day: number;
+  /** Who renders this service: a doctor, a technician, or no provider. */
+  provider_role: "dvm" | "tech" | "none";
+  /** How many of THIS service one provider of that role renders per day (0 = unset). */
+  per_provider_day: number;
   included: boolean;
   is_custom: boolean;
   sort_order: number;
@@ -451,6 +455,10 @@ export interface BizDevProviderCapacity {
   appts_per_dvm_day: number;
   /** Scenario: extra doctors to add. */
   added_dvms: number;
+  /** Technicians staffed on a typical open day. */
+  tech_count: number;
+  /** Scenario: extra technicians to add. */
+  added_techs: number;
 }
 
 /** A clinic's full Business Development planning state. */
