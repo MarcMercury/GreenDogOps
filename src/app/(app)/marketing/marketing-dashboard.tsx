@@ -37,6 +37,8 @@ import {
 } from "@/lib/marketing/types";
 import { MarketingTree } from "./marketing-tree";
 import { EventsTab } from "./marketing-events";
+import { TemplatesView } from "../email-templates/templates-view";
+import type { EmailTemplate } from "@/lib/crm/email-templates";
 import {
   saveGoal,
   deleteGoal,
@@ -217,8 +219,8 @@ function OptionsSelect({
 // ===========================================================================
 // Dashboard
 // ===========================================================================
-type TabKey = "tree" | "initiatives" | "events" | "promotions" | "activity" | "budget" | "resources";
-const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean }[] = [
+type TabKey = "tree" | "initiatives" | "events" | "promotions" | "activity" | "budget" | "resources" | "email_templates";
+const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean; emailTemplatesOnly?: boolean }[] = [
   { key: "tree", label: "Marketing Tree", icon: "🌳" },
   { key: "initiatives", label: "Goals & Initiatives", icon: "🗂️" },
   { key: "events", label: "Events", icon: "🎪" },
@@ -226,6 +228,7 @@ const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean
   { key: "activity", label: "Activity", icon: "📈" },
   { key: "budget", label: "Budget", icon: "💵", adminOnly: true },
   { key: "resources", label: "Resources", icon: "🧰" },
+  { key: "email_templates", label: "Email Templates", icon: "✉️", emailTemplatesOnly: true },
 ];
 
 export function MarketingDashboard({
@@ -245,6 +248,8 @@ export function MarketingDashboard({
   people,
   activity,
   crmOrgs,
+  emailTemplates,
+  canManageEmailTemplates,
   initialTab,
 }: {
   canEdit: boolean;
@@ -263,6 +268,8 @@ export function MarketingDashboard({
   people: PersonOption[];
   activity: MarketingActivity[];
   crmOrgs: CrmOrgRef[];
+  emailTemplates: EmailTemplate[];
+  canManageEmailTemplates: boolean;
   initialTab?: string;
 }) {
   const router = useRouter();
@@ -273,8 +280,13 @@ export function MarketingDashboard({
   const [, startTransition] = useTransition();
 
   const tabs = useMemo(
-    () => BASE_TABS.filter((t) => !t.adminOnly || isAdmin),
-    [isAdmin],
+    () =>
+      BASE_TABS.filter(
+        (t) =>
+          (!t.adminOnly || isAdmin) &&
+          (!t.emailTemplatesOnly || canManageEmailTemplates),
+      ),
+    [isAdmin, canManageEmailTemplates],
   );
 
   // Budget-category goals are sensitive; only admins see them in the KPI strip.
@@ -371,6 +383,9 @@ export function MarketingDashboard({
       )}
       {tab === "resources" && (
         <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} people={people} crmOrgs={crmOrgs} run={run} />
+      )}
+      {tab === "email_templates" && canManageEmailTemplates && (
+        <TemplatesView templates={emailTemplates} />
       )}
 
       {toast && (

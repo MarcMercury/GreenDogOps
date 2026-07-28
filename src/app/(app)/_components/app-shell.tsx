@@ -63,7 +63,6 @@ const MARKETING: NavItem[] = [
   crmSection("referral"),
   crmSection("rescue"),
   crmSection("vendor"),
-  { key: "email_templates", href: "/email-templates", label: "Email Templates", icon: "✉️" },
 ];
 
 /** Operations modules. */

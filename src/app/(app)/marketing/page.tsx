@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canEditModule, isAdminRole, canViewCredentials } from "@/lib/auth/permissions";
+import { canEditModule, isAdminRole, canViewCredentials, canAccessModule } from "@/lib/auth/permissions";
+import type { EmailTemplate } from "@/lib/crm/email-templates";
 import type {
   MarketingGoal,
   MarketingInitiative,
@@ -31,6 +33,20 @@ export default async function MarketingManagementPage({
   const canEdit = current ? canEditModule(current.appUser, "marketing") : false;
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
   const canSeeCredentials = current ? canViewCredentials(current.appUser.role) : false;
+  const canManageEmailTemplates = current
+    ? canAccessModule(current.appUser, "email_templates")
+    : false;
+
+  // Email templates are managed here as a tab (Schedule Admins and up).
+  const emailTemplates = canManageEmailTemplates
+    ? ((
+        await createAdminClient()
+          .from("email_template")
+          .select("*")
+          .order("category")
+          .order("name")
+      ).data ?? []) as EmailTemplate[]
+    : [];
 
   const [
     goalsRes,
@@ -168,6 +184,8 @@ export default async function MarketingManagementPage({
       people={(peopleRes.data ?? []) as PersonOption[]}
       activity={(activityRes.data ?? []) as MarketingActivity[]}
       crmOrgs={(crmOrgsRes.data ?? []) as CrmOrgRef[]}
+      emailTemplates={emailTemplates}
+      canManageEmailTemplates={canManageEmailTemplates}
       initialTab={initialTab}
     />
   );
