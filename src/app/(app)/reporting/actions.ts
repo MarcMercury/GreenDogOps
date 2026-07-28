@@ -508,11 +508,19 @@ interface DailyAvgRow {
   total_appts: number;
 }
 
+interface DerivedValueRow {
+  location_id: string;
+  appt_type: string;
+  avg_value: number;
+  matched_paid: number;
+}
+
 interface BizDevApptTypeDbRow {
   id: string;
   location_id: string;
   appt_type: string;
   avg_value: number | string;
+  avg_per_day: number | string;
   planned_per_day: number | string;
   included: boolean;
   is_custom: boolean;
@@ -521,10 +529,12 @@ interface BizDevApptTypeDbRow {
 
 /**
  * Load the Business Development planner: for each clinic, its open-days scenario
- * and one editable row per appointment type (average value assumption + planned
- * count per open day). On first load, missing rows are seeded from the realized
- * Agenda mix (value = the clinic's blended average appointment value, planned =
- * the current realized average per day). Returns clinics in a fixed order.
+ * and one editable row per appointment type. Both base numbers come from REAL
+ * data: the average value is recovered by bridging the Agenda to invoices
+ * through the contact record; the average appointments/day is the realized
+ * Agenda average. On first load, missing rows are seeded from that data (value
+ * falls back to the clinic blended average when a type has no matched revenue).
+ * Returns clinics in a fixed order.
  */
 export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   await requireReportingAccess();
@@ -557,12 +567,19 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   const avgByKey = new Map<string, DailyAvgRow>();
   for (const r of dailyAvg) avgByKey.set(`${r.location_id}|${r.appt_type}`, r);
 
+  // REAL average revenue per (clinic, appointment type), derived by bridging
+  // the Agenda to invoices through the contact record.
+  const { data: valueData } = await admin.rpc("bizdev_appt_type_value");
+  const derivedValues = (valueData ?? []) as DerivedValueRow[];
+  const valueByKey = new Map<string, DerivedValueRow>();
+  for (const r of derivedValues) valueByKey.set(`${r.location_id}|${r.appt_type}`, r);
+
   const locationIds = locations.map((l) => l.id);
 
   // Existing planner rows.
   const { data: existingData } = await admin
     .from("bizdev_appt_type")
-    .select("id, location_id, appt_type, avg_value, planned_per_day, included, is_custom, sort_order")
+    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, included, is_custom, sort_order")
     .in("location_id", locationIds);
   const existing = (existingData ?? []) as BizDevApptTypeDbRow[];
   const existingKeys = new Set(existing.map((r) => `${r.location_id}|${r.appt_type}`));
@@ -572,6 +589,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     location_id: string;
     appt_type: string;
     avg_value: number;
+    avg_per_day: number;
     planned_per_day: number;
     sort_order: number;
   }[] = [];
@@ -581,11 +599,17 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     const loc = locations.find((l) => l.id === r.location_id);
     const key = loc ? BIZDEV_NAME_TO_KEY[loc.name] : undefined;
     const blended = key ? (blendedByKey.get(key) ?? 0) : 0;
+    const derived = valueByKey.get(`${r.location_id}|${r.appt_type}`);
+    // Real derived value when we recovered any paid appointment, else the
+    // clinic blended average as a fallback so the field is never blank.
+    const value = derived ? Number(derived.avg_value ?? 0) : blended;
+    const perDay = Math.round(Number(r.avg_per_day ?? 0) * 100) / 100;
     seeds.push({
       location_id: r.location_id,
       appt_type: r.appt_type,
-      avg_value: Math.round(blended * 100) / 100,
-      planned_per_day: Math.round(Number(r.avg_per_day ?? 0)),
+      avg_value: Math.round(value * 100) / 100,
+      avg_per_day: perDay,
+      planned_per_day: Math.round(perDay),
       // Bigger volume types sort first (lower number = earlier).
       sort_order: 1000 - Math.min(999, Number(r.total_appts ?? 0)),
     });
@@ -635,7 +659,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   // Re-read the (now seeded) planner rows.
   const { data: allRowsData } = await admin
     .from("bizdev_appt_type")
-    .select("id, location_id, appt_type, avg_value, planned_per_day, included, is_custom, sort_order")
+    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, included, is_custom, sort_order")
     .in("location_id", locationIds);
   const allRows = (allRowsData ?? []) as BizDevApptTypeDbRow[];
 
@@ -647,16 +671,18 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
       .filter((r) => r.location_id === loc.id)
       .map<BizDevApptTypeRow>((r) => {
         const avg = avgByKey.get(`${r.location_id}|${r.appt_type}`);
+        const derived = valueByKey.get(`${r.location_id}|${r.appt_type}`);
         return {
           id: r.id,
           location_id: r.location_id,
           appt_type: r.appt_type,
           avg_value: Number(r.avg_value ?? 0),
+          avg_per_day: Number(r.avg_per_day ?? 0),
           planned_per_day: Number(r.planned_per_day ?? 0),
           included: r.included,
           is_custom: r.is_custom,
           sort_order: r.sort_order,
-          current_avg_per_day: avg ? Number(avg.avg_per_day ?? 0) : 0,
+          matched_paid: derived ? Number(derived.matched_paid ?? 0) : 0,
           days_observed: avg ? Number(avg.days_observed ?? 0) : 0,
         };
       })
@@ -683,16 +709,19 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   return result;
 }
 
-/** Update one planner row's value / planned count / included flag. */
+/** Update one planner row's base value / avg-per-day / planned count / included. */
 export async function updateBizDevApptType(
   id: string,
-  patch: { avg_value?: number; planned_per_day?: number; included?: boolean },
+  patch: { avg_value?: number; avg_per_day?: number; planned_per_day?: number; included?: boolean },
 ): Promise<ActionResult> {
   await requireReportingEditor();
   if (!UUID_RE.test(id)) return { ok: false, error: "Invalid row." };
   const update: Record<string, number | boolean | string> = { updated_at: new Date().toISOString() };
   if (typeof patch.avg_value === "number" && Number.isFinite(patch.avg_value)) {
     update.avg_value = Math.max(0, Math.round(patch.avg_value * 100) / 100);
+  }
+  if (typeof patch.avg_per_day === "number" && Number.isFinite(patch.avg_per_day)) {
+    update.avg_per_day = Math.max(0, Math.round(patch.avg_per_day * 100) / 100);
   }
   if (typeof patch.planned_per_day === "number" && Number.isFinite(patch.planned_per_day)) {
     update.planned_per_day = Math.max(0, Math.round(patch.planned_per_day * 100) / 100);
@@ -748,12 +777,13 @@ export async function addBizDevApptType(
       location_id: locationId,
       appt_type: name,
       avg_value: value,
+      avg_per_day: 0,
       planned_per_day: 0,
       included: true,
       is_custom: true,
       sort_order: 900,
     })
-    .select("id, location_id, appt_type, avg_value, planned_per_day, included, is_custom, sort_order")
+    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, included, is_custom, sort_order")
     .single();
   if (error) {
     if (error.code === "23505") return { ok: false, error: "That appointment type already exists here." };
@@ -767,11 +797,12 @@ export async function addBizDevApptType(
       location_id: r.location_id,
       appt_type: r.appt_type,
       avg_value: Number(r.avg_value ?? 0),
+      avg_per_day: Number(r.avg_per_day ?? 0),
       planned_per_day: Number(r.planned_per_day ?? 0),
       included: r.included,
       is_custom: r.is_custom,
       sort_order: r.sort_order,
-      current_avg_per_day: 0,
+      matched_paid: 0,
       days_observed: 0,
     },
   };

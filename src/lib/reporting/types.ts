@@ -405,21 +405,24 @@ export interface BizDevOpenDays {
 
 /**
  * One planning row for the Business Development tab: a clinic's appointment
- * type with an editable average dollar value assumption (seeded from the
- * clinic's blended average appointment value) and a scenario count rendered per
- * open day. `current_avg_per_day` is the realized average from the Agenda
- * snapshots (reference only, not editable).
+ * type with an editable average dollar value and an editable average count per
+ * day — both BASE numbers derived from real data (value = revenue recovered by
+ * bridging the Agenda to invoices through the contact record; avg_per_day = the
+ * realized Agenda average). `planned_per_day` is the scenario count the user
+ * models. `matched_paid` / `days_observed` are the sample sizes behind the
+ * derived seeds (reference only).
  */
 export interface BizDevApptTypeRow {
   id: string;
   location_id: string;
   appt_type: string;
   avg_value: number;
+  avg_per_day: number;
   planned_per_day: number;
   included: boolean;
   is_custom: boolean;
   sort_order: number;
-  current_avg_per_day: number;
+  matched_paid: number;
   days_observed: number;
 }
 

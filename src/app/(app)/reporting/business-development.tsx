@@ -56,9 +56,9 @@ function computeTotals(loc: BizDevLocation): LocTotals {
   for (const t of loc.types) {
     if (!t.included) continue;
     plannedApptsPerDay += t.planned_per_day;
-    currentApptsPerDay += t.current_avg_per_day;
+    currentApptsPerDay += t.avg_per_day;
     projDaily += t.planned_per_day * t.avg_value;
-    currentDaily += t.current_avg_per_day * t.avg_value;
+    currentDaily += t.avg_per_day * t.avg_value;
   }
   return {
     plannedApptsPerDay,
@@ -137,7 +137,12 @@ function LocationPlanner({
   canEdit: boolean;
   onPatchType: (
     typeId: string,
-    patch: { avg_value?: number; planned_per_day?: number; included?: boolean },
+    patch: {
+      avg_value?: number;
+      avg_per_day?: number;
+      planned_per_day?: number;
+      included?: boolean;
+    },
   ) => void;
   onToggleDay: (key: keyof BizDevOpenDays) => void;
   onAddType: (name: string, value: number) => void;
@@ -152,9 +157,9 @@ function LocationPlanner({
   return (
     <SectionCard
       title={loc.location_label}
-      description={`Clinic average appointment value ${fmtCurrency(
+      description={`Base numbers from real data — appointment values recovered by matching the Agenda to invoices; avg/day from recent Agenda bookings. Clinic blended average ${fmtCurrency(
         loc.blended_avg_value,
-      )} · seeds new type values. Averages from recent Agenda bookings.`}
+      )} (fallback for types with no matched revenue).`}
       action={
         <div className="flex items-center gap-1.5">
           {DAY_DEFS.map((d) => {
@@ -189,7 +194,7 @@ function LocationPlanner({
             <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-400">
               <th className="w-8 py-2 pr-2 text-center">On</th>
               <th className="py-2 pr-3">Appointment type</th>
-              <th className="py-2 pr-3 text-right">Current avg/day</th>
+              <th className="py-2 pr-3 text-right">Avg/day</th>
               <th className="py-2 pr-3 text-right">Planned/day</th>
               <th className="py-2 pr-3 text-right">Avg value</th>
               <th className="py-2 pr-3 text-right">Proj. $/day</th>
@@ -224,15 +229,22 @@ function LocationPlanner({
                         custom
                       </span>
                     ) : null}
-                  </td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums text-slate-500">
-                    {t.days_observed > 0 ? (
-                      <span title={`${t.days_observed} days observed`}>
-                        {t.current_avg_per_day.toFixed(1)}
+                    {t.matched_paid > 0 ? (
+                      <span
+                        className="ml-1.5 text-[10px] text-slate-400"
+                        title={`Average value from ${t.matched_paid} matched paid appointment${t.matched_paid === 1 ? "" : "s"} (Agenda ↔ invoice)`}
+                      >
+                        n={t.matched_paid}
                       </span>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
+                    ) : null}
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <NumberField
+                      value={t.avg_per_day}
+                      disabled={!canEdit}
+                      step={0.5}
+                      onCommit={(n) => onPatchType(t.id, { avg_per_day: n })}
+                    />
                   </td>
                   <td className="py-1.5 pr-3">
                     <NumberField
@@ -395,7 +407,12 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
   const patchType = (
     locId: string,
     typeId: string,
-    patch: { avg_value?: number; planned_per_day?: number; included?: boolean },
+    patch: {
+      avg_value?: number;
+      avg_per_day?: number;
+      planned_per_day?: number;
+      included?: boolean;
+    },
   ) => {
     setLocations((prev) =>
       prev
@@ -537,10 +554,12 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
 
       <p className="text-xs text-slate-500">
         Model potential revenue by clinic: pick the days open, then set how many
-        of each appointment type you&apos;d render per open day and its average
-        value. Values seed from each clinic&apos;s blended average appointment
-        value — tune them to match what each type is really worth. &quot;Current
-        avg/day&quot; is what you currently average from recent Agenda bookings.
+        of each appointment type you&apos;d render per open day. The{" "}
+        <strong>avg value</strong> and <strong>avg/day</strong> are real base
+        numbers — values are recovered by matching each Agenda appointment to its
+        invoice through the client record, and avg/day is your recent realized
+        booking rate. Both are editable, so tune them and the projection
+        recalculates.
         {canEdit ? " Changes save automatically." : " Read-only — ask an admin to edit."}
       </p>
 
