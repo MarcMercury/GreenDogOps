@@ -574,6 +574,24 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   const valueByKey = new Map<string, DerivedValueRow>();
   for (const r of derivedValues) valueByKey.set(`${r.location_id}|${r.appt_type}`, r);
 
+  // Pooled (all-clinic) average value per appointment type, weighted by matched
+  // sample size. Used as the fallback when a clinic has no matched revenue for a
+  // type — far more meaningful than the clinic's blended average (e.g. give
+  // Sherman Oaks' Advanced Procedure the Van Nuys/Venice value, not $403).
+  const pooledNum = new Map<string, number>();
+  const pooledDen = new Map<string, number>();
+  for (const r of derivedValues) {
+    const n = Number(r.matched_paid ?? 0);
+    if (n <= 0) continue;
+    pooledNum.set(r.appt_type, (pooledNum.get(r.appt_type) ?? 0) + Number(r.avg_value ?? 0) * n);
+    pooledDen.set(r.appt_type, (pooledDen.get(r.appt_type) ?? 0) + n);
+  }
+  const pooledValue = (apptType: string): number | null => {
+    const den = pooledDen.get(apptType);
+    if (!den) return null;
+    return (pooledNum.get(apptType) ?? 0) / den;
+  };
+
   const locationIds = locations.map((l) => l.id);
 
   // Existing planner rows.
@@ -596,13 +614,12 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   for (const r of dailyAvg) {
     if (!locationIds.includes(r.location_id)) continue;
     if (existingKeys.has(`${r.location_id}|${r.appt_type}`)) continue;
-    const loc = locations.find((l) => l.id === r.location_id);
-    const key = loc ? BIZDEV_NAME_TO_KEY[loc.name] : undefined;
-    const blended = key ? (blendedByKey.get(key) ?? 0) : 0;
     const derived = valueByKey.get(`${r.location_id}|${r.appt_type}`);
-    // Real derived value when we recovered any paid appointment, else the
-    // clinic blended average as a fallback so the field is never blank.
-    const value = derived ? Number(derived.avg_value ?? 0) : blended;
+    // Real per-clinic value if we recovered any paid appointment there, else the
+    // pooled all-clinic value for that type, else 0 (a type never yet invoiced).
+    const value = derived
+      ? Number(derived.avg_value ?? 0)
+      : (pooledValue(r.appt_type) ?? 0);
     const perDay = Math.round(Number(r.avg_per_day ?? 0) * 100) / 100;
     seeds.push({
       location_id: r.location_id,
