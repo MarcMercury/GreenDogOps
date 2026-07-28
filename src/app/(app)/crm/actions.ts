@@ -876,6 +876,15 @@ function ceEventPatch(formData: FormData) {
     ce_hours_total: num(formData.get("ce_hours_total")),
     ce_hours_medical: num(formData.get("ce_hours_medical")),
     ce_hours_nonmedical: num(formData.get("ce_hours_nonmedical")),
+    // RACE Standards submission fields
+    race_program_category: str(formData.get("race_program_category")),
+    race_interactivity: str(formData.get("race_interactivity")),
+    race_course_format: str(formData.get("race_course_format")),
+    presenter_qualifications: str(formData.get("presenter_qualifications")),
+    presenter_cv_url: str(formData.get("presenter_cv_url")),
+    has_conflict_of_interest: bool(formData.get("has_conflict_of_interest")),
+    post_test_questions: num(formData.get("post_test_questions")),
+    ada_acknowledged: bool(formData.get("ada_acknowledged")),
     // Presenter & marketing
     presenter_bio: str(formData.get("presenter_bio")),
     website_url: str(formData.get("website_url")),
@@ -981,6 +990,50 @@ export async function setCeEventItinerary(
   const { error } = await supabase
     .from("crm_ce_event")
     .update({ itinerary })
+    .eq("id", eventId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+// Replace a CE event's CE Broker submission document set. The UI owns the full
+// list (add/edit/delete), so we overwrite the stored jsonb array.
+export async function setCeEventDocuments(
+  eventId: string,
+  documents: {
+    id: string;
+    kind: string;
+    label: string;
+    url: string;
+    description: string;
+  }[],
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_event")
+    .update({ submission_documents: documents })
+    .eq("id", eventId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/crm/ce");
+  return { ok: true };
+}
+
+// Mark (or unmark) a CE event as submitted to CE Broker for board distribution.
+export async function setCeEventCebrokerSubmitted(
+  eventId: string,
+  value: boolean,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_ce_event")
+    .update({
+      cebroker_submitted: value,
+      cebroker_submitted_at: value ? new Date().toISOString() : null,
+    })
     .eq("id", eventId);
   if (error) return { ok: false, error: error.message };
   revalidatePath("/crm/ce");

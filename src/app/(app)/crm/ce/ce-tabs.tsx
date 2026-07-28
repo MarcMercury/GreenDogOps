@@ -7,6 +7,7 @@ import type {
   CrmCeAttendance,
   CrmCeEvent,
   CeItineraryLine,
+  CeSubmissionDocument,
 } from "@/lib/crm/types";
 import {
   CE_AUDIENCE_OPTIONS,
@@ -15,6 +16,11 @@ import {
   CE_APPROVAL_STATUS_OPTIONS,
   CE_COURSE_TYPE_OPTIONS,
   CE_DELIVERY_METHOD_OPTIONS,
+  CE_RACE_CATEGORY_OPTIONS,
+  CE_RACE_INTERACTIVITY_OPTIONS,
+  CE_RACE_COURSE_FORMAT_OPTIONS,
+  CE_DOCUMENT_KIND_OPTIONS,
+  CE_REQUIRED_DOCUMENT_KINDS,
   CE_PLANNING_CHECKLIST,
 } from "@/lib/crm/types";
 import { ContactListView } from "../crm-views";
@@ -24,6 +30,8 @@ import {
   assignLeadToCeEvent,
   setCeEventChecklistItem,
   setCeEventItinerary,
+  setCeEventDocuments,
+  setCeEventCebrokerSubmitted,
 } from "../actions";
 import { CeEventForm } from "./ce-event-form";
 
@@ -1284,9 +1292,392 @@ function EventItinerary({
   );
 }
 
+// Documents attached to the CE Broker / board submission package. Mirrors the
+// EventItinerary editing pattern: the UI owns the full list and autosaves
+// (debounced) via setCeEventDocuments.
+function EventDocuments({
+  event,
+  canEdit,
+}: {
+  event: CrmCeEvent;
+  canEdit: boolean;
+}) {
+  const [docs, setDocs] = useState<CeSubmissionDocument[]>(
+    () => event.submission_documents ?? [],
+  );
+  const [, startTransition] = useTransition();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function scheduleSave(next: CeSubmissionDocument[]) {
+    if (!canEdit) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      startTransition(async () => {
+        const res = await setCeEventDocuments(event.id, next);
+        if (!res.ok) alert(`Could not save documents: ${res.error}`);
+      });
+    }, 700);
+  }
+
+  function commit(next: CeSubmissionDocument[]) {
+    setDocs(next);
+    scheduleSave(next);
+  }
+
+  function updateDoc(id: string, patch: Partial<CeSubmissionDocument>) {
+    commit(docs.map((d) => (d.id === id ? { ...d, ...patch } : d)));
+  }
+
+  function addDoc() {
+    commit([
+      ...docs,
+      { id: uid(), kind: "course_summary", label: "", url: "", description: "" },
+    ]);
+  }
+
+  const presentKinds = new Set(docs.filter((d) => d.url.trim()).map((d) => d.kind));
+  const missingRequired = CE_REQUIRED_DOCUMENT_KINDS.filter(
+    (k) => !presentKinds.has(k),
+  );
+
+  return (
+    <div className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Submission documents (CE Broker attachments)
+        </p>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+            missingRequired.length === 0
+              ? "bg-emerald-100 text-emerald-700"
+              : "bg-amber-100 text-amber-700"
+          }`}
+        >
+          {CE_REQUIRED_DOCUMENT_KINDS.length - missingRequired.length}/
+          {CE_REQUIRED_DOCUMENT_KINDS.length} required attached
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-slate-500">
+        Links to the files CE Broker&apos;s Attachments page needs (course
+        summary, RACE approval letter, agenda, presenter CVs). Each becomes a
+        &ldquo;Choose File&rdquo; upload with its description when you submit.
+      </p>
+
+      {docs.length > 0 && (
+        <div className="mt-4 space-y-2">
+          {docs.map((doc) => (
+            <div
+              key={doc.id}
+              className="grid grid-cols-1 gap-2 rounded-lg border border-slate-100 bg-slate-50/50 p-2 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto] sm:items-center"
+            >
+              <select
+                value={doc.kind}
+                disabled={!canEdit}
+                onChange={(e) => updateDoc(doc.id, { kind: e.target.value })}
+                className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 disabled:bg-slate-50"
+              >
+                {CE_DOCUMENT_KIND_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                    {o.required ? " *" : ""}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={doc.label}
+                disabled={!canEdit}
+                placeholder="File name / label"
+                onChange={(e) => updateDoc(doc.id, { label: e.target.value })}
+                className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 disabled:bg-slate-50"
+              />
+              <input
+                type="url"
+                value={doc.url}
+                disabled={!canEdit}
+                placeholder="https://link-to-file"
+                onChange={(e) => updateDoc(doc.id, { url: e.target.value })}
+                className="min-w-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 disabled:bg-slate-50"
+              />
+              <div className="flex items-center gap-1">
+                {doc.url.trim() && (
+                  <a
+                    href={doc.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-50"
+                  >
+                    Open
+                  </a>
+                )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => commit(docs.filter((d) => d.id !== doc.id))}
+                    aria-label="Delete document"
+                    className="shrink-0 rounded-lg border border-slate-200 px-2 py-1.5 text-sm text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canEdit && (
+        <button
+          type="button"
+          onClick={addDoc}
+          className="mt-3 text-xs font-medium text-emerald-700 hover:underline"
+        >
+          + Add document
+        </button>
+      )}
+
+      {missingRequired.length > 0 && (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Still needed:{" "}
+          {missingRequired
+            .map(
+              (k) =>
+                CE_DOCUMENT_KIND_OPTIONS.find((o) => o.value === k)?.label ?? k,
+            )
+            .join(", ")}
+          .
+        </p>
+      )}
+    </div>
+  );
+}
+
+// The "Submit to CE Broker" package: a field-by-field mapping of our record onto
+// CE Broker's New Course wizard (copyable), the required-attachments status, and
+// a submitted toggle. CE Broker distributes the RACE-approved course to boards —
+// it does not approve CE, so this is the hand-off, not the approval.
+function CebrokerSubmissionPanel({
+  event,
+  canEdit,
+}: {
+  event: CrmCeEvent;
+  canEdit: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [submitted, setSubmitted] = useState(event.cebroker_submitted);
+  const [submittedAt, setSubmittedAt] = useState(event.cebroker_submitted_at);
+
+  const cost =
+    event.cost_type === "free"
+      ? "Free"
+      : event.cost_amount != null
+        ? `$${event.cost_amount}`
+        : "Paid";
+
+  const dateRange =
+    event.event_date && event.end_date && event.event_date !== event.end_date
+      ? `${fmtDate(event.event_date)} – ${fmtDate(event.end_date)}`
+      : fmtDate(event.event_date);
+
+  // Map our record onto the CE Broker New Course wizard fields.
+  const fields: { label: string; value: string | null }[] = [
+    { label: "Course name", value: event.name },
+    { label: "Subject area", value: event.subject },
+    {
+      label: "Program category",
+      value: labelFor(CE_RACE_CATEGORY_OPTIONS, event.race_program_category),
+    },
+    {
+      label: "Delivery (interactivity)",
+      value: labelFor(CE_RACE_INTERACTIVITY_OPTIONS, event.race_interactivity),
+    },
+    {
+      label: "Course format",
+      value: labelFor(CE_RACE_COURSE_FORMAT_OPTIONS, event.race_course_format),
+    },
+    {
+      label: "CE hours (total)",
+      value: event.ce_hours_total != null ? String(event.ce_hours_total) : null,
+    },
+    {
+      label: "CE hours (medical / non-medical)",
+      value:
+        event.ce_hours_medical != null || event.ce_hours_nonmedical != null
+          ? `${event.ce_hours_medical ?? 0} / ${event.ce_hours_nonmedical ?? 0}`
+          : null,
+    },
+    { label: "Offering date(s)", value: dateRange },
+    { label: "Price", value: cost },
+    { label: "Location", value: event.location },
+    { label: "RACE tracking #", value: event.tracking_number },
+    {
+      label: "RACE approval status",
+      value: labelFor(CE_APPROVAL_STATUS_OPTIONS, event.approval_status),
+    },
+    { label: "Presenter(s)", value: event.presenters },
+    { label: "Description", value: event.description },
+    { label: "Learning objectives", value: event.learning_objectives },
+  ];
+
+  const presentKinds = new Set(
+    (event.submission_documents ?? [])
+      .filter((d) => d.url.trim())
+      .map((d) => d.kind),
+  );
+  const missingRequired = CE_REQUIRED_DOCUMENT_KINDS.filter(
+    (k) => !presentKinds.has(k),
+  );
+  const missingFields = fields.filter((f) => !f.value).map((f) => f.label);
+  const ready = missingRequired.length === 0 && missingFields.length === 0;
+
+  function copyAll() {
+    const lines = fields.map((f) => `${f.label}: ${f.value ?? "—"}`);
+    const docLines = (event.submission_documents ?? [])
+      .filter((d) => d.url.trim())
+      .map(
+        (d) =>
+          `- ${CE_DOCUMENT_KIND_OPTIONS.find((o) => o.value === d.kind)?.label ?? d.kind}: ${d.label || d.url} (${d.url})`,
+      );
+    const text =
+      `CE BROKER SUBMISSION — ${event.name}\n\n` +
+      lines.join("\n") +
+      (docLines.length ? `\n\nAttachments:\n${docLines.join("\n")}` : "");
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  }
+
+  function toggleSubmitted() {
+    const next = !submitted;
+    startTransition(async () => {
+      const res = await setCeEventCebrokerSubmitted(event.id, next);
+      if (!res.ok) {
+        alert(`Could not update: ${res.error}`);
+        return;
+      }
+      setSubmitted(next);
+      setSubmittedAt(next ? new Date().toISOString() : null);
+    });
+  }
+
+  return (
+    <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50/40 p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Submit to CE Broker
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            CE Broker distributes this RACE-approved course to the state
+            board(s). Copy the mapped fields into the New Course wizard and
+            attach the documents below.
+          </p>
+        </div>
+        <span
+          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+            ready ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"
+          }`}
+        >
+          {ready ? "Ready to submit" : "Incomplete"}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+        {fields.map((f) => (
+          <div key={f.label} className="flex flex-col">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+              {f.label}
+            </dt>
+            <dd
+              className={`text-sm ${f.value ? "text-slate-700" : "italic text-amber-600"}`}
+            >
+              {f.value ?? "missing"}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      {(missingRequired.length > 0 || missingFields.length > 0) && (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {missingFields.length > 0 && (
+            <>Missing fields: {missingFields.join(", ")}. </>
+          )}
+          {missingRequired.length > 0 && (
+            <>
+              Missing attachments:{" "}
+              {missingRequired
+                .map(
+                  (k) =>
+                    CE_DOCUMENT_KIND_OPTIONS.find((o) => o.value === k)?.label ??
+                    k,
+                )
+                .join(", ")}
+              .
+            </>
+          )}
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={copyAll}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50"
+        >
+          {copied ? "Copied ✓" : "Copy all fields"}
+        </button>
+        <a
+          href="https://providers.cebroker.com"
+          target="_blank"
+          rel="noreferrer"
+          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50"
+        >
+          Open CE Broker ↗
+        </a>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={toggleSubmitted}
+            disabled={pending}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition disabled:opacity-50 ${
+              submitted
+                ? "border border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                : "bg-sky-600 text-white hover:bg-sky-700"
+            }`}
+          >
+            {submitted ? "Unmark submitted" : "Mark submitted to CE Broker"}
+          </button>
+        )}
+        {submitted && submittedAt && (
+          <span className="text-xs text-slate-500">
+            Submitted {fmtDate(submittedAt.slice(0, 10))}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Expanded field-by-field detail block for an event (CE Events tab). */
 function EventDetailGrid({ event }: { event: CrmCeEvent }) {
   const rows: { label: string; value: string | null }[] = [
+    {
+      label: "RACE category",
+      value: labelFor(CE_RACE_CATEGORY_OPTIONS, event.race_program_category),
+    },
+    {
+      label: "RACE delivery",
+      value: labelFor(CE_RACE_INTERACTIVITY_OPTIONS, event.race_interactivity),
+    },
+    {
+      label: "RACE course format",
+      value: labelFor(CE_RACE_COURSE_FORMAT_OPTIONS, event.race_course_format),
+    },
     {
       label: "Course type",
       value: labelFor(CE_COURSE_TYPE_OPTIONS, event.course_type),
@@ -1313,11 +1704,25 @@ function EventDetailGrid({ event }: { event: CrmCeEvent }) {
               : "")
           : null,
     },
+    {
+      label: "Post-test questions",
+      value: event.post_test_questions != null ? String(event.post_test_questions) : null,
+    },
+    {
+      label: "Conflict of interest",
+      value: event.has_conflict_of_interest ? "Yes — disclosure required" : null,
+    },
+    { label: "ADA compliant", value: event.ada_acknowledged ? "Yes" : null },
+    { label: "Presenter CV", value: event.presenter_cv_url },
     { label: "Website", value: event.website_url },
   ].filter((r) => r.value);
 
   const blocks: { label: string; value: string | null }[] = [
     { label: "Learning objectives", value: event.learning_objectives },
+    {
+      label: "Presenter qualifications (RACE SME)",
+      value: event.presenter_qualifications,
+    },
     { label: "Disclosure statements", value: event.disclosure_statements },
     { label: "Presenter bio", value: event.presenter_bio },
     { label: "What's included", value: event.whats_included },
@@ -1498,6 +1903,12 @@ function CeEventsManageView({
             canEdit={canEdit}
           />
           <EventItinerary key={`itin-${active.id}`} event={active} canEdit={canEdit} />
+          <EventDocuments key={`docs-${active.id}`} event={active} canEdit={canEdit} />
+          <CebrokerSubmissionPanel
+            key={`ceb-${active.id}`}
+            event={active}
+            canEdit={canEdit}
+          />
         </div>
       )}
     </div>

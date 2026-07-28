@@ -4,25 +4,111 @@ import { useFormStatus } from "react-dom";
 import { useState, useTransition } from "react";
 import { addProgramName } from "./actions";
 
+/**
+ * Small "i" info button that reveals a short help/guidance popover on click.
+ * Used to surface RACE Standards guidance inline next to a field label without
+ * cluttering the form. Click-toggle (not hover) so it works on touch too.
+ */
+export function InfoHint({ text, title }: { text: string; title?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-flex">
+      <button
+        type="button"
+        aria-label={title ?? "More information"}
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        onBlur={() => setOpen(false)}
+        className="flex h-4 w-4 items-center justify-center rounded-full border border-slate-300 bg-white text-[10px] font-bold leading-none text-slate-500 hover:border-emerald-400 hover:text-emerald-600"
+      >
+        i
+      </button>
+      {open && (
+        <span className="absolute left-1/2 top-6 z-20 w-64 -translate-x-1/2 rounded-lg border border-slate-200 bg-white p-3 text-xs font-normal leading-relaxed text-slate-600 shadow-lg">
+          {title && (
+            <span className="mb-1 block text-[11px] font-semibold text-slate-700">
+              {title}
+            </span>
+          )}
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Label row that optionally renders an inline {@link InfoHint}. */
+function FieldLabel({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+      {label}
+      {hint && <InfoHint text={hint} title={label} />}
+    </span>
+  );
+}
+
+type CalloutTone = "info" | "warn" | "success";
+
+const CALLOUT_STYLES: Record<CalloutTone, string> = {
+  info: "border-sky-200 bg-sky-50 text-sky-800",
+  warn: "border-amber-300 bg-amber-50 text-amber-800",
+  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
+};
+
+/** Inline banner for RACE guidance, warnings and readiness notes. */
+export function Callout({
+  tone = "info",
+  title,
+  children,
+  className,
+}: {
+  tone?: CalloutTone;
+  title?: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  const icon = tone === "warn" ? "⚠" : tone === "success" ? "✓" : "ℹ";
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 text-xs leading-relaxed ${CALLOUT_STYLES[tone]} ${className ?? ""}`}
+    >
+      <div className="flex gap-2">
+        <span aria-hidden className="select-none">
+          {icon}
+        </span>
+        <div className="min-w-0">
+          {title && <p className="font-semibold">{title}</p>}
+          <div className={title ? "mt-0.5" : undefined}>{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Field({
   label,
   name,
   defaultValue,
   type = "text",
+  hint,
+  onChange,
 }: {
   label: string;
   name: string;
   defaultValue?: string | number | null;
   type?: string;
+  hint?: string;
+  onChange?: (value: string) => void;
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <FieldLabel label={label} hint={hint} />
       <input
         name={name}
         type={type}
         defaultValue={defaultValue ?? ""}
         step={type === "number" ? "any" : undefined}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
       />
     </label>
@@ -45,21 +131,26 @@ export function Select({
   defaultValue,
   options,
   className,
+  hint,
+  onChange,
 }: {
   label: string;
   name: string;
   defaultValue?: string | number | null;
   options: ReadonlyArray<SelectOption>;
   className?: string;
+  hint?: string;
+  onChange?: (value: string) => void;
 }) {
   const current = defaultValue == null ? "" : String(defaultValue);
   const known = current === "" || options.some((o) => o.value === current);
   return (
     <label className={`flex flex-col gap-1 ${className ?? ""}`}>
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <FieldLabel label={label} hint={hint} />
       <select
         name={name}
         defaultValue={current}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
       >
         <option value="">—</option>
@@ -86,17 +177,19 @@ export function ComboField({
   defaultValue,
   options,
   placeholder,
+  hint,
 }: {
   label: string;
   name: string;
   defaultValue?: string | null;
   options: ReadonlyArray<string | SelectOption>;
   placeholder?: string;
+  hint?: string;
 }) {
   const listId = `dl-${name}`;
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <FieldLabel label={label} hint={hint} />
       <input
         name={name}
         list={listId}
@@ -119,18 +212,23 @@ export function TextArea({
   label,
   name,
   defaultValue,
+  hint,
+  onChange,
 }: {
   label: string;
   name: string;
   defaultValue?: string | null;
+  hint?: string;
+  onChange?: (value: string) => void;
 }) {
   return (
     <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-3">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <FieldLabel label={label} hint={hint} />
       <textarea
         name={name}
         rows={3}
         defaultValue={defaultValue ?? ""}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
       />
     </label>
@@ -141,10 +239,14 @@ export function Checkbox({
   label,
   name,
   defaultChecked,
+  hint,
+  onChange,
 }: {
   label: string;
   name: string;
   defaultChecked?: boolean | null;
+  hint?: string;
+  onChange?: (checked: boolean) => void;
 }) {
   return (
     <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -152,9 +254,11 @@ export function Checkbox({
         name={name}
         type="checkbox"
         defaultChecked={defaultChecked ?? false}
+        onChange={onChange ? (e) => onChange(e.target.checked) : undefined}
         className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
       />
       {label}
+      {hint && <InfoHint text={hint} title={label} />}
     </label>
   );
 }

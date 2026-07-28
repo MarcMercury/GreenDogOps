@@ -851,6 +851,15 @@ export interface CrmCeEvent {
   effective_end: string | null;
   projected_offering_date: string | null;
   rosters_allowed_date: string | null;
+  // RACE Standards submission fields (see migration 0144 / AAVSB RACE Standards)
+  race_program_category: string | null; // medical | nonmedical | both (Sec 3)
+  race_interactivity: string | null; // interactive | noninteractive (Sec 5)
+  race_course_format: string | null; // single | conference | series_modular (Sec 7)
+  presenter_qualifications: string | null; // SME qualifications (Sec 7.04)
+  presenter_cv_url: string | null; // CV / RACE template link (Sec 7.04)
+  has_conflict_of_interest: boolean; // product/service program (Sec 6)
+  post_test_questions: number | null; // >=5 per credit for non-interactive (Sec 5.02)
+  ada_acknowledged: boolean; // ADA compliance ack (Sec 5.03)
   // Presenter & marketing
   presenter_bio: string | null;
   website_url: string | null;
@@ -862,6 +871,10 @@ export interface CrmCeEvent {
   planning_checklist: Record<string, boolean>;
   // Editable run-of-show itinerary (list of timed lines)
   itinerary: CeItineraryLine[];
+  // CE Broker submission package (see migration 0146)
+  submission_documents: CeSubmissionDocument[];
+  cebroker_submitted: boolean;
+  cebroker_submitted_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -872,6 +885,17 @@ export interface CeItineraryLine {
   id: string;
   day: string;
   time: string;
+  description: string;
+}
+
+// A document attached to the CE Broker / board submission package. `kind` maps
+// to CE_DOCUMENT_KIND_OPTIONS; `url` links to the file (Drive, Supabase storage,
+// etc.); `description` is what CE Broker asks for on the Attachments page.
+export interface CeSubmissionDocument {
+  id: string;
+  kind: string;
+  label: string;
+  url: string;
   description: string;
 }
 
@@ -930,6 +954,79 @@ export const CE_APPROVAL_BOARD_SUGGESTIONS = [
   "California Veterinary Medical Board",
   "Alabama State Board of Veterinary Medical Examiners",
 ] as const;
+
+// RACE program category (RACE Standards Sec 3). Drives the medical vs
+// non-medical CE hour split RACE requires on the roster upload.
+export const CE_RACE_CATEGORY_OPTIONS = [
+  { value: "medical", label: "Medical (clinical / scientific)" },
+  {
+    value: "nonmedical",
+    label: "Non-medical (practice mgmt / wellness / professional dev.)",
+  },
+  { value: "both", label: "Both (multi-session, medical + non-medical)" },
+] as const;
+
+// RACE method of delivery (RACE Standards Sec 5). Interactive programs allow
+// live interaction with the presenter; non-interactive / on-demand programs
+// require a post-course test (>=5 questions per credit, 70% pass).
+export const CE_RACE_INTERACTIVITY_OPTIONS = [
+  {
+    value: "interactive",
+    label: "Interactive (live — can interact with presenter)",
+  },
+  {
+    value: "noninteractive",
+    label: "Non-interactive (on-demand / recorded / home study)",
+  },
+] as const;
+
+// RACE course type (RACE Standards Sec 7). Determines the roster template.
+export const CE_RACE_COURSE_FORMAT_OPTIONS = [
+  { value: "single", label: "Single Course (full program roster)" },
+  {
+    value: "conference",
+    label: "Conference (concurrent sessions — multi-session roster)",
+  },
+  {
+    value: "series_modular",
+    label: "Series / Modular (all courses required before credit)",
+  },
+] as const;
+
+// Programs RACE will NOT accept (RACE Standards Sec 6). Surfaced as guardrails
+// in the CE event builder so events are submitted right the first time.
+export const CE_RACE_REJECTION_REASONS = [
+  "Primarily used to market a product or service",
+  "Not truthful, or detrimental to the integrity of the profession",
+  "Entirely in a question-and-answer format",
+  "Solely exhibit-hall attendance or poster sessions",
+  "Message boards",
+  "Panel/roundtable discussions without clear written goals & objectives",
+  "Based solely on test completion",
+  "Does not meet the stated program objectives",
+  "Does not ensure animals are used humanely (min. fear/pain/stress)",
+] as const;
+
+// Document kinds attached to the CE Broker / board submission (Attachments page
+// on CE Broker's New Course wizard). `required` marks the documents CE Broker /
+// boards typically require for a RACE-approved veterinary course.
+export const CE_DOCUMENT_KIND_OPTIONS = [
+  { value: "course_summary", label: "Course summary / description", required: true },
+  { value: "race_approval", label: "RACE approval letter / certificate", required: true },
+  { value: "agenda", label: "Program agenda / timed outline", required: true },
+  { value: "presenter_cv", label: "Presenter CV / RACE template page", required: true },
+  { value: "learning_objectives", label: "Learning objectives", required: false },
+  { value: "disclosure", label: "Conflict-of-interest disclosure", required: false },
+  { value: "marketing", label: "Flyer / marketing material", required: false },
+  { value: "handout", label: "Handouts / slides", required: false },
+  { value: "other", label: "Other supporting document", required: false },
+] as const;
+
+// The document kinds that should be present before a course is considered ready
+// to submit to CE Broker.
+export const CE_REQUIRED_DOCUMENT_KINDS = CE_DOCUMENT_KIND_OPTIONS.filter(
+  (d) => d.required,
+).map((d) => d.value);
 
 // Per-event planning/resources checklist. Item keys are stable and stored in
 // crm_ce_event.planning_checklist ({ key: boolean }); labels come from the GDD
@@ -990,6 +1087,35 @@ export const CE_PLANNING_CHECKLIST: {
       { key: "filming", label: "Photographer/videographer scheduled both days" },
       { key: "testimonials", label: "Collect ≥3 DVM testimonials" },
       { key: "social_dinner_rsvp", label: "RSVP for social dinner" },
+    ],
+  },
+  {
+    group: "RACE compliance",
+    items: [
+      {
+        key: "race_presenter_cv",
+        label: "Attach presenter CV / RACE template page for every presenter",
+      },
+      {
+        key: "race_coi_disclosure",
+        label: "Conflict-of-interest disclosure slide prepared (if applicable)",
+      },
+      {
+        key: "race_advertising_language",
+        label: "Use RACE-compliant advertising language (only after approval)",
+      },
+      {
+        key: "race_roster_upload",
+        label: "Upload attendee roster to RACEtrack within 30 days",
+      },
+      {
+        key: "race_certificate",
+        label: "RACE Certificate of Attendance available on request",
+      },
+      {
+        key: "race_records_4yr",
+        label: "Retain program records for 4 years",
+      },
     ],
   },
 ];
