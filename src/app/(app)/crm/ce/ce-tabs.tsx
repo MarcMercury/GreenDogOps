@@ -1565,6 +1565,43 @@ function CebrokerSubmissionPanel({
     });
   }
 
+  // Export the package in the shape agent/cebroker/prefill-course.mjs consumes.
+  function downloadPackage() {
+    const pkg = {
+      name: event.name,
+      subject: event.subject,
+      category: event.race_program_category,
+      interactivity: event.race_interactivity,
+      courseFormat: event.race_course_format,
+      ceHoursTotal: event.ce_hours_total,
+      ceHoursMedical: event.ce_hours_medical,
+      ceHoursNonmedical: event.ce_hours_nonmedical,
+      startDate: event.event_date,
+      endDate: event.end_date,
+      price: cost,
+      location: event.location,
+      trackingNumber: event.tracking_number,
+      approvalStatus: event.approval_status,
+      presenters: event.presenters,
+      description: event.description,
+      objectives: event.learning_objectives,
+      documents: (event.submission_documents ?? [])
+        .filter((d) => d.url.trim())
+        .map((d) => ({ kind: d.kind, label: d.label, url: d.url })),
+    };
+    const blob = new Blob([JSON.stringify(pkg, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${event.name.replace(/[^\w-]+/g, "_")}-cebroker-package.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50/40 p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1630,6 +1667,13 @@ function CebrokerSubmissionPanel({
           className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50"
         >
           {copied ? "Copied ✓" : "Copy all fields"}
+        </button>
+        <button
+          type="button"
+          onClick={downloadPackage}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm hover:bg-slate-50"
+        >
+          Download package (JSON)
         </button>
         <a
           href="https://providers.cebroker.com"
