@@ -164,6 +164,21 @@ export interface SchedShiftTemplate {
   is_active: boolean;
 }
 
+/**
+ * Maps an ezyVet appointment type (e.g. "GDD (New)") to the schedule department
+ * that renders it (e.g. NAD/VE/UC). Drives how booked-appointment demand is
+ * attributed on the grid, Daily Capacity, and Planning Guides. `department_id`
+ * null = unassigned (falls back to the resource-calendar mapping at ingest).
+ */
+export interface ApptTypeDeptMapping {
+  appt_type: string;
+  department_id: string | null;
+  is_ignored: boolean;
+  /** Times this type appears in the booked-appointment snapshot (popularity). */
+  observed_count: number;
+}
+
+
 export interface SchedWeek {
   id: string;
   week_start: string;
@@ -229,6 +244,7 @@ export interface SchedAssignment {
   attendance_note: string | null;
   added_post_publish: boolean;
   removed_post_publish: boolean;
+  changed_after_approval: boolean;
   auto_absent: boolean;
 }
 

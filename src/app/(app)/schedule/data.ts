@@ -25,6 +25,7 @@ import type {
   SchedWeek,
   SchedWeekLine,
   SchedWeekLocation,
+  ApptTypeDeptMapping,
 } from "@/lib/schedule/types";
 import type { GuideWithCapacity } from "@/lib/planning/resolve";
 import type { PlanningGuide, PlanningCapacityRule } from "@/lib/planning/types";
@@ -184,6 +185,61 @@ export async function getSetupData(): Promise<SetupData> {
     people,
     locations,
   };
+}
+
+/**
+ * Appointment type → department catalog for the Planning Guide Setup tab.
+ * Merges the persisted map rows with every appointment type observed in the
+ * booked-appointment snapshot (so newly-seen types surface even before they are
+ * assigned), ordered by real booking popularity.
+ */
+export async function getApptTypeMappings(): Promise<ApptTypeDeptMapping[]> {
+  const supabase = await createClient();
+  const [mapRes, countRes] = await Promise.all([
+    supabase
+      .from("ezyvet_appt_type_dept_map")
+      .select("appt_type, department_id, is_ignored"),
+    supabase.rpc("appt_type_observed_counts"),
+  ]);
+
+  const counts = new Map<string, number>();
+  for (const r of (countRes.data ?? []) as {
+    appt_type: string;
+    observed_count: number;
+  }[]) {
+    counts.set(r.appt_type, Number(r.observed_count) || 0);
+  }
+
+  const byType = new Map<string, ApptTypeDeptMapping>();
+  for (const r of (mapRes.data ?? []) as {
+    appt_type: string;
+    department_id: string | null;
+    is_ignored: boolean;
+  }[]) {
+    byType.set(r.appt_type, {
+      appt_type: r.appt_type,
+      department_id: r.department_id,
+      is_ignored: r.is_ignored,
+      observed_count: counts.get(r.appt_type) ?? 0,
+    });
+  }
+  // Include observed types that don't yet have a persisted mapping row.
+  for (const [appt_type, observed_count] of counts) {
+    if (!byType.has(appt_type)) {
+      byType.set(appt_type, {
+        appt_type,
+        department_id: null,
+        is_ignored: false,
+        observed_count,
+      });
+    }
+  }
+
+  return [...byType.values()].sort(
+    (a, b) =>
+      b.observed_count - a.observed_count ||
+      a.appt_type.localeCompare(b.appt_type),
+  );
 }
 
 /** Weeks list (most recent first). */

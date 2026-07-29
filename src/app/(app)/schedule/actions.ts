@@ -83,6 +83,38 @@ export async function deleteDepartment(id: string): Promise<ActionResult> {
 }
 
 // ===========================================================================
+// SETUP — appointment type → department map (Planning Guide Setup)
+// ===========================================================================
+
+/**
+ * Assign an ezyVet appointment type to a schedule department (or ignore it).
+ * Upserts by appt_type so newly-observed types create a row on first save.
+ */
+export async function saveApptTypeDept(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const apptType = str(formData.get("appt_type"));
+  if (!apptType) return { ok: false, error: "Appointment type is required." };
+  const departmentId = str(formData.get("department_id"));
+  const isIgnored = bool(formData.get("is_ignored"));
+
+  const { error } = await supabase
+    .from("ezyvet_appt_type_dept_map")
+    .upsert(
+      {
+        appt_type: apptType,
+        department_id: isIgnored ? null : departmentId,
+        is_ignored: isIgnored,
+      },
+      { onConflict: "appt_type" },
+    );
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  return { ok: true };
+}
+
+// ===========================================================================
 // SETUP — roles
 // ===========================================================================
 
@@ -1080,7 +1112,9 @@ export async function assignPerson(
     .eq("id", weekId)
     .single();
   if (!week) return { ok: false, error: "Week not found." };
-  const isPublished = (week as { status: ScheduleStatus }).status === "published";
+  const weekStatus = (week as { status: ScheduleStatus }).status;
+  const isPublished = weekStatus === "published";
+  const isPendingApproval = weekStatus === "pending_approval";
   const workDate = dateForDay(
     (week as { week_start: string }).week_start,
     dayOfWeek,
@@ -1108,6 +1142,7 @@ export async function assignPerson(
       day_of_week: dayOfWeek,
       work_date: workDate,
       added_post_publish: isPublished,
+      changed_after_approval: isPendingApproval,
       created_by: me.id,
     })
     .select("id")
@@ -1300,6 +1335,7 @@ export async function moveAssignment(
   if (!week) return { ok: false, error: "Week not found." };
   const w = week as { week_start: string; status: ScheduleStatus };
   const isPublished = w.status === "published";
+  const isPendingApproval = w.status === "pending_approval";
 
   // Validate the target line + location actually belong to this week so a
   // crafted request can't relocate someone onto an unrelated week/shift.
@@ -1344,6 +1380,7 @@ export async function moveAssignment(
           location_id: targetLocationId,
           day_of_week: targetDay,
           work_date: targetDate,
+          ...(isPendingApproval ? { changed_after_approval: true } : {}),
         })
         .eq("id", a.id);
       if (error) return { ok: false, error: error.message };
@@ -1445,6 +1482,15 @@ export async function setWeekStatus(
     .update(patch)
     .eq("id", weekId);
   if (error) return { ok: false, error: error.message };
+
+  // Each workflow transition starts a clean baseline: only edits made while the
+  // week sits in "Pending Approval" get the light-blue "changed" cue.
+  await supabase
+    .from("sched_assignment")
+    .update({ changed_after_approval: false })
+    .eq("week_id", weekId)
+    .eq("changed_after_approval", true);
+
   revalidateAll();
   return { ok: true };
 }
@@ -1718,7 +1764,7 @@ export async function generateGuideFromCapacity(
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
-  const [roleRes, lineRes, asgRes, locRes, deptRes] = await Promise.all([
+  const [roleRes, lineRes, asgRes, locRes, deptRes, weekRes] = await Promise.all([
     supabase.from("sched_role").select("id, name"),
     supabase
       .from("sched_week_line")
@@ -1739,6 +1785,11 @@ export async function generateGuideFromCapacity(
       .from("sched_department")
       .select("name")
       .eq("id", departmentId)
+      .maybeSingle(),
+    supabase
+      .from("sched_week")
+      .select("week_start")
+      .eq("id", weekId)
       .maybeSingle(),
   ]);
 
@@ -1792,6 +1843,16 @@ export async function generateGuideFromCapacity(
   const locLabel = loc?.short_code || loc?.name || "Location";
   const deptLabel = dept?.name || "Service";
 
+  // The specific calendar date this guide is for, so the schedule admin knows
+  // exactly which day to enter it into ezyVet.
+  const week = (weekRes.data as { week_start: string | null } | null) ?? null;
+  const dateLabel = week?.week_start
+    ? new Date(`${dateForDay(week.week_start, day)}T00:00:00`).toLocaleDateString(
+        "en-US",
+        { weekday: "short", month: "short", day: "numeric" },
+      )
+    : null;
+
   const target = Number.isFinite(targetAppointments)
     ? Math.max(0, Math.trunc(targetAppointments))
     : 0;
@@ -1838,10 +1899,10 @@ export async function generateGuideFromCapacity(
   const { data: guideRow, error: gErr } = await supabase
     .from("planning_guide")
     .insert({
-      name: `${locLabel} — ${deptLabel} · ${fillCount} appt`,
+      name: `${locLabel} — ${deptLabel} · ${dateLabel ? `${dateLabel} · ` : ""}${fillCount} appt`,
       location_id: locationId,
       department_id: departmentId,
-      day_model: `${dvmCount}-DVM day · ${fillCount} appts (from capacity)`,
+      day_model: `${dvmCount}-DVM day · ${fillCount} appts${dateLabel ? ` · ${dateLabel}` : ""} (from capacity)`,
       weekdays: [day],
       dvm_count: dvmCount,
       tech_count: staffing.tech || null,
@@ -1856,7 +1917,7 @@ export async function generateGuideFromCapacity(
       auto_generated: true,
       target_appointments: target > 0 ? target : null,
       notes:
-        "Auto-generated from the Daily Capacity tile for this week. The bookable slots match the tile's appointment number — edit the grid to shape the day.",
+        `Auto-generated from the Daily Capacity tile${dateLabel ? ` for ${dateLabel}` : ""}. The bookable slots match the tile's appointment number — edit the grid to shape the day.`,
       created_by: gate.current.authId,
     })
     .select("id")

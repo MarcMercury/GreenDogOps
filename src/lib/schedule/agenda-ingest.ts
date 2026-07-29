@@ -175,6 +175,24 @@ export async function ingestAgendaCsvText(
   }
   const fallback = deptMap.get("*");
 
+  // ezyVet appointment TYPE → department. Takes precedence over the resource
+  // mapping (a type is the truer signal of which team renders the appointment,
+  // e.g. "GDD (New)" → NAD/VE/UC regardless of which calendar it sits on). A
+  // type with no explicit department falls back to the resource mapping.
+  const { data: typeMaps, error: typeErr } = await admin
+    .from("ezyvet_appt_type_dept_map")
+    .select("appt_type, department_id, is_ignored");
+  if (typeErr) {
+    return { ok: false, error: typeErr.message, parsed: table.length - 1, counted: 0, inserted: 0 };
+  }
+  const typeDeptMap = new Map<string, { department_id: string | null; is_ignored: boolean }>();
+  for (const m of typeMaps ?? []) {
+    typeDeptMap.set(String(m.appt_type).trim(), {
+      department_id: (m.department_id as string | null) ?? null,
+      is_ignored: Boolean(m.is_ignored),
+    });
+  }
+
   // Aggregate booked appointments per (location, date, department).
   const counts = new Map<string, { location_id: string; appt_date: string; department_id: string; appt_count: number }>();
   // Per-appointment detail for the drill-down (same rows that are counted).
@@ -212,13 +230,29 @@ export async function ingestAgendaCsvText(
     if (targetLocationId && locationId !== targetLocationId) continue;
 
     const label = extractDeptLabel(row[iResource] ?? "");
-    const mapped = deptMap.get(label) ?? fallback;
-    if (!mapped || mapped.is_ignored || !mapped.department_id) continue;
+    const resMapped = deptMap.get(label) ?? fallback;
+    const apptType = iType >= 0 ? (row[iType] ?? "").trim() : "";
+    const typeMapped = apptType ? typeDeptMap.get(apptType) : undefined;
 
-    const key = `${locationId}|${isoDate}|${mapped.department_id}`;
+    // Resolve the effective department: an appointment type with an explicit
+    // department wins; a type with no department (or no mapping) defers to the
+    // resource-calendar mapping; either an ignored type or an ignored resource
+    // drops the appointment from the counts.
+    let deptId: string | null;
+    let ignored: boolean;
+    if (typeMapped && (typeMapped.is_ignored || typeMapped.department_id)) {
+      ignored = typeMapped.is_ignored;
+      deptId = typeMapped.department_id;
+    } else {
+      ignored = resMapped?.is_ignored ?? false;
+      deptId = resMapped?.department_id ?? null;
+    }
+    if (ignored || !deptId) continue;
+
+    const key = `${locationId}|${isoDate}|${deptId}`;
     const entry = counts.get(key);
     if (entry) entry.appt_count += 1;
-    else counts.set(key, { location_id: locationId, appt_date: isoDate, department_id: mapped.department_id, appt_count: 1 });
+    else counts.set(key, { location_id: locationId, appt_date: isoDate, department_id: deptId, appt_count: 1 });
     counted += 1;
     if (!minDate || isoDate < minDate) minDate = isoDate;
     if (!maxDate || isoDate > maxDate) maxDate = isoDate;
@@ -228,7 +262,6 @@ export async function ingestAgendaCsvText(
     const cell = (i: number) => (i >= 0 ? (row[i] ?? "").trim() : "");
     const patient = cell(iPatient);
     const time = cell(iTime);
-    const apptType = cell(iType);
     const status = cell(iStatus);
     const resource = cell(iResource);
     const details: Record<string, string> = {};
@@ -247,7 +280,7 @@ export async function ingestAgendaCsvText(
     detailRows.push({
       location_id: locationId,
       appt_date: isoDate,
-      department_id: mapped.department_id,
+      department_id: deptId,
       appt_key: apptKey,
       client_name: client || null,
       patient_name: patient || null,

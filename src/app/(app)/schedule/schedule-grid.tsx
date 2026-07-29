@@ -1470,6 +1470,11 @@ function Cell({
           const timeOffTitle = hasTimeOff
             ? `Time off ${off === "approved" ? "approved" : "requested"} for this day`
             : undefined;
+          // Edited while the week sits in "Pending Approval": light-blue cue so
+          // the schedule maker can spot the approver's requested changes.
+          const changedTitle = a.changed_after_approval
+            ? "Changed since submitted for approval"
+            : undefined;
           return (
             <div
               key={a.id}
@@ -1487,15 +1492,18 @@ function Cell({
                   ? "bg-red-100 text-red-700 ring-1 ring-red-500"
                   : hasTimeOff
                     ? "bg-violet-100 text-violet-700 ring-1 ring-violet-500"
-                    : marked
-                      ? ATTENDANCE_TONE[att]
-                      : "bg-slate-100 text-slate-700"
-              } ${a.added_post_publish ? "ring-1 ring-sky-400" : ""} ${
+                    : a.changed_after_approval
+                      ? "bg-sky-100 text-sky-800"
+                      : marked
+                        ? ATTENDANCE_TONE[att]
+                        : "bg-slate-100 text-slate-700"
+              } ${a.added_post_publish || a.changed_after_approval ? "ring-1 ring-sky-400" : ""} ${
                 canEdit ? "cursor-grab active:cursor-grabbing" : ""
               }`}
               title={
                 conflictTitle ??
                 timeOffTitle ??
+                changedTitle ??
                 (canEdit
                   ? `${p ? gridName(p) : ""} — drag to move`
                   : p
@@ -1566,6 +1574,10 @@ function Legend() {
       <span className="flex items-center gap-1">
         <span className="h-3 w-3 rounded ring-1 ring-sky-400" />
         Added after publish
+      </span>
+      <span className="flex items-center gap-1">
+        <span className="h-3 w-3 rounded bg-sky-100 ring-1 ring-sky-400" />
+        Changed since submitted
       </span>
       <span className="flex items-center gap-1">
         <span className="h-3 w-3 rounded bg-amber-100" /> Late

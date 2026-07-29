@@ -4,6 +4,7 @@ import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Location } from "@/lib/shared/locations";
 import type { SchedDepartment, SchedWeek } from "@/lib/schedule/types";
+import { dateForDay } from "@/lib/schedule/types";
 import {
   APPOINTMENT_TYPES,
   COLUMN_PRESETS,
@@ -72,6 +73,28 @@ function staffingKeyLabel(guide: PlanningGuide): string {
   return parts.length ? `${parts.join(" · ")} staffing key` : "Manual only";
 }
 
+/**
+ * The specific calendar date a guide is for, when it belongs to a schedule
+ * week and targets a single weekday (e.g. auto-generated from a Daily Capacity
+ * tile). Returns e.g. "Mon, Aug 3, 2026" so the schedule admin knows exactly
+ * which day to enter it into ezyVet. Reusable templates return null.
+ */
+function guideDateLabel(
+  guide: PlanningGuide,
+  weekStartById: Map<string, string>,
+): string | null {
+  if (!guide.source_week_id || guide.weekdays.length !== 1) return null;
+  const weekStart = weekStartById.get(guide.source_week_id);
+  if (!weekStart) return null;
+  const iso = dateForDay(weekStart, guide.weekdays[0]);
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Workspace shell
 // ---------------------------------------------------------------------------
@@ -133,6 +156,11 @@ export function PlanningWorkspace({
     return (id: string | null) => (id ? m.get(id) ?? null : null);
   }, [setup.departments]);
 
+  const weekStartById = useMemo(
+    () => new Map(weeks.map((w) => [w.id, w.week_start])),
+    [weeks],
+  );
+
   // Reusable templates (no source week) show on every week; auto-generated
   // guides only appear on the week they were built for. The currently open
   // guide is always kept visible so deep links from Daily Capacity resolve.
@@ -186,6 +214,7 @@ export function PlanningWorkspace({
           onSelect={selectGuide}
           locName={locName}
           deptName={deptName}
+          weekStartById={weekStartById}
         />
 
         <div className="min-w-0">
@@ -198,6 +227,7 @@ export function PlanningWorkspace({
               run={run}
               locName={locName}
               deptName={deptName}
+              weekStartById={weekStartById}
               onEditGuide={() => setGuideForm(guideData.guide)}
             />
           ) : (
@@ -246,12 +276,14 @@ function GuideList({
   onSelect,
   locName,
   deptName,
+  weekStartById,
 }: {
   guides: PlanningGuide[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   locName: (id: string | null) => string | null;
   deptName: (id: string | null) => string | null;
+  weekStartById: Map<string, string>;
 }) {
   const groups = useMemo(() => {
     const byLoc = new Map<string, PlanningGuide[]>();
@@ -328,6 +360,7 @@ function GuideList({
               const sub = [deptName(g.department_id) ?? g.service_label, g.day_model]
                 .filter(Boolean)
                 .join(" · ");
+              const dateLabel = guideDateLabel(g, weekStartById);
               return (
                 <button
                   key={g.id}
@@ -356,6 +389,11 @@ function GuideList({
                       </span>
                     ) : null}
                   </div>
+                  {dateLabel ? (
+                    <p className="mt-1 inline-flex items-center gap-1 rounded bg-sky-100 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700">
+                      {dateLabel}
+                    </p>
+                  ) : null}
                   {sub ? (
                     <p className="mt-0.5 truncate text-xs text-slate-500">{sub}</p>
                   ) : null}
@@ -391,6 +429,7 @@ function GuideEditor({
   run,
   locName,
   deptName,
+  weekStartById,
   onEditGuide,
 }: {
   data: GuideData;
@@ -403,6 +442,7 @@ function GuideEditor({
   ) => void;
   locName: (id: string | null) => string | null;
   deptName: (id: string | null) => string | null;
+  weekStartById: Map<string, string>;
   onEditGuide: () => void;
 }) {
   const { guide, columns, slots } = data;
@@ -454,6 +494,8 @@ function GuideEditor({
     .filter(Boolean)
     .join(" · ");
 
+  const guideDate = guideDateLabel(guide, weekStartById);
+
   // Tally of appointment types on this day (excludes empty "open" slots),
   // ordered by the canonical appointment-type palette.
   const typeCounts = useMemo(() => {
@@ -476,6 +518,23 @@ function GuideEditor({
           <h2 className="text-lg font-bold tracking-tight text-slate-900">
             {guide.name}
           </h2>
+          {guideDate ? (
+            <p className="mt-1 inline-flex items-center gap-1.5 rounded-md bg-sky-100 px-2 py-1 text-sm font-semibold text-sky-800">
+              <svg
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                aria-hidden="true"
+                className="h-4 w-4"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M5.75 2a.75.75 0 0 1 .75.75V4h7V2.75a.75.75 0 0 1 1.5 0V4h.25A2.75 2.75 0 0 1 18 6.75v8.5A2.75 2.75 0 0 1 15.25 18H4.75A2.75 2.75 0 0 1 2 15.25v-8.5A2.75 2.75 0 0 1 4.75 4H5V2.75A.75.75 0 0 1 5.75 2zM4.5 8v7.25c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25V8h-11z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              Guide for {guideDate}
+            </p>
+          ) : null}
           {subtitle ? (
             <p className="mt-0.5 text-sm text-slate-500">{subtitle}</p>
           ) : null}

@@ -9,6 +9,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/agents/wheniwork/timeoff",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/admin/users/roster-sync",
       "schedule": "15 5 * * *"
     },
