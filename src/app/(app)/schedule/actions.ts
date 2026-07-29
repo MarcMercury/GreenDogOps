@@ -241,16 +241,31 @@ export async function saveShiftTemplate(
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("id"));
+  const departmentId = str(formData.get("department_id"));
+  if (!departmentId) return { ok: false, error: "Pick a department." };
+
+  // Every shift type is identified by its role name, so a template line with a
+  // typed "+ New role…" name (or an existing role) always resolves to a single
+  // `sched_role`. That role is what drives the eligibility checkbox shown in
+  // Schedule → Setup → Roles & Eligibility and the HR profile — one checkbox per
+  // role name regardless of how many time slots reuse it. "— any —" stays null.
+  const role = await resolveRoleId(
+    supabase,
+    departmentId,
+    str(formData.get("role_id")),
+    str(formData.get("new_role_name")),
+  );
+  if ("error" in role) return { ok: false, error: role.error };
+
   const patch = {
-    department_id: str(formData.get("department_id")),
-    role_id: str(formData.get("role_id")),
+    department_id: departmentId,
+    role_id: role.id,
     label: str(formData.get("label")),
     start_time: str(formData.get("start_time")),
     end_time: str(formData.get("end_time")),
     sort_order: int(formData.get("sort_order")),
     is_active: formData.has("is_active") ? bool(formData.get("is_active")) : true,
   };
-  if (!patch.department_id) return { ok: false, error: "Pick a department." };
 
   const { error } = id
     ? await supabase.from("sched_shift_template").update(patch).eq("id", id)
@@ -642,8 +657,11 @@ export async function setWeekLocations(
 }
 
 /**
- * Resolve the role id for a week line: use an existing role id when provided,
- * otherwise create a new role in the department from a typed name.
+ * Resolve the role id for a shift line: use an existing role id when provided,
+ * otherwise find-or-create a role in the department from a typed name. Matching
+ * is by case-insensitive name within the department so the same shift/role name
+ * (e.g. "Clinic Tech" used at 8a, 9a and 10a) always maps to a single role — and
+ * therefore a single eligibility checkbox — instead of spawning duplicates.
  */
 async function resolveRoleId(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -652,10 +670,22 @@ async function resolveRoleId(
   newRoleName: string | null,
 ): Promise<{ id: string | null } | { error: string }> {
   if (roleId) return { id: roleId };
-  if (!newRoleName) return { id: null };
+  const name = newRoleName?.trim();
+  if (!name) return { id: null };
+
+  const { data: existing, error: findErr } = await supabase
+    .from("sched_role")
+    .select("id")
+    .eq("department_id", departmentId)
+    .ilike("name", name)
+    .limit(1)
+    .maybeSingle();
+  if (findErr) return { error: findErr.message };
+  if (existing) return { id: (existing as { id: string }).id };
+
   const { data, error } = await supabase
     .from("sched_role")
-    .insert({ department_id: departmentId, name: newRoleName, sort_order: 9999 })
+    .insert({ department_id: departmentId, name, sort_order: 9999 })
     .select("id")
     .single();
   if (error) return { error: error.message };

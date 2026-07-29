@@ -704,20 +704,30 @@ function Shifts({ data }: { data: SetupData }) {
   const roleName = (id: string | null) =>
     id ? data.roles.find((r) => r.id === id)?.name ?? "—" : "—";
 
+  const [formDept, setFormDept] = useState<string>(editing?.department_id ?? "");
+  // "" = any · "__new__" = create role inline · otherwise an existing role id.
+  const [roleSel, setRoleSel] = useState<string>(editing?.role_id ?? "");
+  const formRoles = rolesByDept.get(formDept) ?? [];
+
   function submit(fd: FormData) {
     setError(null);
+    if (roleSel === "__new__") {
+      fd.set("role_id", "");
+    } else {
+      fd.set("role_id", roleSel);
+      fd.delete("new_role_name");
+    }
     start(async () => {
       const res = await saveShiftTemplate(fd);
       if (!res.ok) setError(res.error);
       else {
         setEditing(null);
+        setFormDept("");
+        setRoleSel("");
         router.refresh();
       }
     });
   }
-
-  const [formDept, setFormDept] = useState<string>(editing?.department_id ?? "");
-  const formRoles = rolesByDept.get(formDept) ?? [];
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -751,6 +761,7 @@ function Shifts({ data }: { data: SetupData }) {
                         onClick={() => {
                           setEditing(t);
                           setFormDept(t.department_id);
+                          setRoleSel(t.role_id ?? "");
                         }}
                         className="text-xs font-medium text-slate-500 hover:underline"
                       >
@@ -792,7 +803,10 @@ function Shifts({ data }: { data: SetupData }) {
             <select
               name="department_id"
               value={formDept}
-              onChange={(e) => setFormDept(e.target.value)}
+              onChange={(e) => {
+                setFormDept(e.target.value);
+                setRoleSel("");
+              }}
               required
               className={`mt-1 w-full ${inputCls}`}
             >
@@ -807,9 +821,10 @@ function Shifts({ data }: { data: SetupData }) {
           <label className="block text-xs font-medium text-slate-500">
             Role (eligibility)
             <select
-              name="role_id"
-              defaultValue={editing?.role_id ?? ""}
-              className={`mt-1 w-full ${inputCls}`}
+              value={roleSel}
+              onChange={(e) => setRoleSel(e.target.value)}
+              disabled={!formDept}
+              className={`mt-1 w-full ${inputCls} disabled:bg-slate-50`}
             >
               <option value="">— any —</option>
               {formRoles.map((r) => (
@@ -817,8 +832,24 @@ function Shifts({ data }: { data: SetupData }) {
                   {r.name}
                 </option>
               ))}
+              <option value="__new__">+ New role…</option>
             </select>
           </label>
+          {roleSel === "__new__" && (
+            <label className="block text-xs font-medium text-slate-500">
+              New role name
+              <input
+                name="new_role_name"
+                required
+                placeholder="e.g. Clinic Tech"
+                className={`mt-1 w-full ${inputCls}`}
+              />
+              <span className="mt-1 block text-[10px] text-slate-400">
+                Adds one eligibility checkbox for this role — reuse it for every
+                shift time. Set who's eligible in Roles &amp; Eligibility.
+              </span>
+            </label>
+          )}
           <label className="block text-xs font-medium text-slate-500">
             Label (optional)
             <input
@@ -868,6 +899,7 @@ function Shifts({ data }: { data: SetupData }) {
                 onClick={() => {
                   setEditing(null);
                   setFormDept("");
+                  setRoleSel("");
                 }}
                 className={btnGhost}
               >
