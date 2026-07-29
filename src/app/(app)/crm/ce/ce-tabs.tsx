@@ -178,9 +178,14 @@ function CeAttendeesView({
   }, [contacts]);
 
   // Local copy of attendance so check-in toggles update the grid instantly.
-  // Re-sync whenever the server sends fresh data (after revalidation).
+  // Re-sync whenever the server sends fresh data (after revalidation) using a
+  // render-phase comparison instead of a cascading effect.
   const [rows, setRows] = useState<CrmCeAttendance[]>(attendance);
-  useEffect(() => setRows(attendance), [attendance]);
+  const [syncedAttendance, setSyncedAttendance] = useState(attendance);
+  if (syncedAttendance !== attendance) {
+    setSyncedAttendance(attendance);
+    setRows(attendance);
+  }
 
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [, startTransition] = useTransition();
@@ -207,7 +212,8 @@ function CeAttendeesView({
     startTransition(async () => {
       const res = await setCeAttendanceField(row.id, field, next);
       setPending((p) => {
-        const { [key]: _omit, ...rest } = p;
+        const rest = { ...p };
+        delete rest[key];
         return rest;
       });
       if (!res.ok) {
@@ -616,6 +622,8 @@ function EventSignupShare({ event }: { event: CrmCeEvent }) {
   const qrWrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Reads a browser-only value on mount to avoid an SSR hydration mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOrigin(window.location.origin);
   }, []);
 
@@ -910,7 +918,8 @@ function EventPlanningChecklist({
     startTransition(async () => {
       const res = await setCeEventChecklistItem(event.id, key, next);
       setPending((p) => {
-        const { [key]: _omit, ...rest } = p;
+        const rest = { ...p };
+        delete rest[key];
         return rest;
       });
       if (!res.ok) {

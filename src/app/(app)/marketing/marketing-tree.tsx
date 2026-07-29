@@ -451,7 +451,7 @@ export function MarketingTree({
       node.scrollLeft = Math.max(0, centerX * z - node.clientWidth / 2);
       node.scrollTop = 0;
     });
-  }, [width, centerX]);
+  }, [centerX]);
 
   // Set the readable default once on mount (users can Fit / zoom from there).
   const didInit = useRef(false);

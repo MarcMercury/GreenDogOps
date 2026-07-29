@@ -1168,74 +1168,82 @@ function StaffTable({
       <table className="w-full min-w-[520px] border-collapse text-sm">
         <thead>
           <tr className="border-b border-slate-200 text-left">
-            <th className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <th
+              className="py-2 pr-3 text-xs font-semibold uppercase tracking-wider text-slate-400"
+              aria-sort={
+                sortKey === "staff_member"
+                  ? sortDir === "asc"
+                    ? "ascending"
+                    : "descending"
+                  : "none"
+              }
+            >
               <button
                 type="button"
                 onClick={() => toggleSort("staff_member")}
                 className={`transition hover:text-slate-600 ${
                   sortKey === "staff_member" ? "text-slate-600" : ""
                 }`}
-                aria-sort={
-                  sortKey === "staff_member"
-                    ? sortDir === "asc"
-                      ? "ascending"
-                      : "descending"
-                    : "none"
-                }
               >
                 Provider{arrow("staff_member")}
               </button>
             </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
+            <th
+              className="px-2 py-2 text-right text-xs font-semibold text-slate-500"
+              aria-sort={
+                sortKey === "appointments"
+                  ? sortDir === "asc"
+                    ? "ascending"
+                    : "descending"
+                  : "none"
+              }
+            >
               <button
                 type="button"
                 onClick={() => toggleSort("appointments")}
                 className={`transition hover:text-slate-700 ${
                   sortKey === "appointments" ? "text-slate-700" : ""
                 }`}
-                aria-sort={
-                  sortKey === "appointments"
-                    ? sortDir === "asc"
-                      ? "ascending"
-                      : "descending"
-                    : "none"
-                }
               >
                 Appts{arrow("appointments")}
               </button>
             </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
+            <th
+              className="px-2 py-2 text-right text-xs font-semibold text-slate-500"
+              aria-sort={
+                sortKey === "line_count"
+                  ? sortDir === "asc"
+                    ? "ascending"
+                    : "descending"
+                  : "none"
+              }
+            >
               <button
                 type="button"
                 onClick={() => toggleSort("line_count")}
                 className={`transition hover:text-slate-700 ${
                   sortKey === "line_count" ? "text-slate-700" : ""
                 }`}
-                aria-sort={
-                  sortKey === "line_count"
-                    ? sortDir === "asc"
-                      ? "ascending"
-                      : "descending"
-                    : "none"
-                }
               >
                 Lines{arrow("line_count")}
               </button>
             </th>
-            <th className="px-2 py-2 text-right text-xs font-semibold text-slate-500">
+            <th
+              className="px-2 py-2 text-right text-xs font-semibold text-slate-500"
+              aria-sort={
+                sortKey === "revenue"
+                  ? sortDir === "asc"
+                    ? "ascending"
+                    : "descending"
+                  : "none"
+              }
+            >
               <button
                 type="button"
                 onClick={() => toggleSort("revenue")}
                 className={`transition hover:text-slate-700 ${
                   sortKey === "revenue" ? "text-slate-700" : ""
                 }`}
-                aria-sort={
-                  sortKey === "revenue"
-                    ? sortDir === "asc"
-                      ? "ascending"
-                      : "descending"
-                    : "none"
-                }
               >
                 Revenue{arrow("revenue")}
               </button>

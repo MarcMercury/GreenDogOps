@@ -305,6 +305,7 @@ function UploadPanel({ categories }: { categories: ResourceCategory[] }) {
   useEffect(() => {
     if (result?.ok) {
       formRef.current?.reset();
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOpen(false);
     }
   }, [result]);
