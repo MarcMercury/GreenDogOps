@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DAY_LABELS, dateForDay } from "@/lib/schedule/types";
@@ -40,6 +40,11 @@ export function CapacityView({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // Keys (`day|location|department`) the user has generated a guide for this
+  // session, so the button turns red / reads "Guide Generated" without leaving
+  // the page. Tracks the single in-flight generation separately for its label.
+  const [generatedKeys, setGeneratedKeys] = useState<Set<string>>(new Set());
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
   const byKey = useMemo(
     () => new Map(cells.map((c) => [`${c.day}|${c.locationId}`, c])),
     [cells],
@@ -63,6 +68,8 @@ export function CapacityView({
     departmentId: string,
     target: number,
   ) {
+    const key = `${day}|${locationId}|${departmentId}`;
+    setGeneratingKey(key);
     startTransition(async () => {
       const res = await generateGuideFromCapacity(
         weekId,
@@ -71,8 +78,11 @@ export function CapacityView({
         departmentId,
         target,
       );
+      setGeneratingKey(null);
       if (res.ok && res.data) {
-        router.push(`/planning?guide=${res.data.id}&week=${weekId}`);
+        setGeneratedKeys((prev) => new Set(prev).add(key));
+        // Stay on Daily Capacity; refresh surfaces the new guide link inline.
+        router.refresh();
       }
     });
   }
@@ -197,30 +207,45 @@ export function CapacityView({
                             </Link>
                           ) : null}
                           {canEdit ? (
-                            <button
-                              type="button"
-                              disabled={pending}
-                              onClick={() =>
-                                generate(
-                                  d,
-                                  loc.id,
-                                  e.departmentId,
-                                  e.capacity,
-                                )
-                              }
-                              title={
-                                e.guide
-                                  ? `Regenerate an editable ${e.capacity}-appt guide for this day from the capacity number`
-                                  : `Auto-generate an editable ${e.capacity}-appt guide for this day from the capacity number`
-                              }
-                              className="mt-1 w-full rounded border border-dashed border-emerald-300 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
-                            >
-                              {pending
-                                ? "Generating…"
-                                : e.guide
-                                  ? "↻ Regenerate guide"
-                                  : "+ Generate guide"}
-                            </button>
+                            (() => {
+                              const genKey = `${d}|${loc.id}|${e.departmentId}`;
+                              const isGenerating = generatingKey === genKey;
+                              const isGenerated = generatedKeys.has(genKey);
+                              return (
+                                <button
+                                  type="button"
+                                  disabled={pending}
+                                  onClick={() =>
+                                    generate(
+                                      d,
+                                      loc.id,
+                                      e.departmentId,
+                                      e.capacity,
+                                    )
+                                  }
+                                  title={
+                                    isGenerated
+                                      ? `Guide generated — click to regenerate the ${e.capacity}-appt guide for this day`
+                                      : e.guide
+                                        ? `Regenerate an editable ${e.capacity}-appt guide for this day from the capacity number`
+                                        : `Auto-generate an editable ${e.capacity}-appt guide for this day from the capacity number`
+                                  }
+                                  className={`mt-1 w-full rounded border border-dashed px-1.5 py-0.5 text-[10px] font-semibold transition disabled:opacity-50 ${
+                                    isGenerated
+                                      ? "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                                      : "border-emerald-300 text-emerald-700 hover:bg-emerald-50"
+                                  }`}
+                                >
+                                  {isGenerating
+                                    ? "Generating…"
+                                    : isGenerated
+                                      ? "✓ Guide Generated"
+                                      : e.guide
+                                        ? "↻ Regenerate guide"
+                                        : "+ Generate guide"}
+                                </button>
+                              );
+                            })()
                           ) : null}
                         </div>
                       );
