@@ -118,6 +118,7 @@ export function PlanningWorkspace({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [guideForm, setGuideForm] = useState<PlanningGuide | "new" | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
 
   const run = useCallback(
     (
@@ -161,19 +162,24 @@ export function PlanningWorkspace({
     [weeks],
   );
 
-  // Reusable templates (no source week) show on every week; auto-generated
-  // guides only appear on the week they were built for. The currently open
-  // guide is always kept visible so deep links from Daily Capacity resolve.
+  // By default the list shows only the guides auto-generated from Daily Capacity
+  // for the selected week, so the admin sees just the recommended guide per the
+  // grid's capacity. Reusable templates (no source week) are hidden behind the
+  // "Show templates" toggle to cut clutter; the currently open guide is always
+  // kept visible so deep links and template selections resolve.
   const selectedGuideId = guideData?.guide.id ?? null;
+  const templates = useMemo(
+    () => guides.filter((g) => g.source_week_id == null),
+    [guides],
+  );
   const visibleGuides = useMemo(
     () =>
-      guides.filter(
-        (g) =>
-          g.source_week_id == null ||
-          g.source_week_id === selectedWeekId ||
-          g.id === selectedGuideId,
-      ),
-    [guides, selectedWeekId, selectedGuideId],
+      guides.filter((g) => {
+        if (g.id === selectedGuideId) return true;
+        if (g.source_week_id == null) return showTemplates;
+        return g.source_week_id === selectedWeekId;
+      }),
+    [guides, selectedWeekId, selectedGuideId, showTemplates],
   );
 
   return (
@@ -208,14 +214,37 @@ export function PlanningWorkspace({
       ) : null}
 
       <div className="grid gap-5 lg:grid-cols-[300px_1fr]">
-        <GuideList
-          guides={visibleGuides}
-          selectedId={guideData?.guide.id ?? null}
-          onSelect={selectGuide}
-          locName={locName}
-          deptName={deptName}
-          weekStartById={weekStartById}
-        />
+        <div className="space-y-2">
+          {templates.length ? (
+            <button
+              type="button"
+              onClick={() => setShowTemplates((v) => !v)}
+              className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-xs font-medium transition ${
+                showTemplates
+                  ? "border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100"
+                  : "border-dashed border-slate-300 bg-white text-slate-500 hover:bg-slate-50"
+              }`}
+              title="Templates are reusable guides not tied to a week. Show them to pick one for this week."
+            >
+              <span>
+                {showTemplates
+                  ? "Hide templates"
+                  : `Show templates (${templates.length})`}
+              </span>
+              <span className="text-slate-400">
+                {showTemplates ? "▾" : "▸"}
+              </span>
+            </button>
+          ) : null}
+          <GuideList
+            guides={visibleGuides}
+            selectedId={guideData?.guide.id ?? null}
+            onSelect={selectGuide}
+            locName={locName}
+            deptName={deptName}
+            weekStartById={weekStartById}
+          />
+        </div>
 
         <div className="min-w-0">
           {guideData ? (
@@ -319,7 +348,8 @@ function GuideList({
   if (!guides.length) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white p-5 text-sm text-slate-500">
-        No planning guides yet.
+        No generated guides for this week. Generate them from Daily Capacity, or
+        show templates above to pick one.
       </div>
     );
   }
