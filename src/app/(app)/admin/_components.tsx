@@ -99,6 +99,7 @@ const ROLE_BADGE: Record<string, string> = {
   executive: "bg-indigo-50 text-indigo-700 ring-indigo-200",
   manager: "bg-blue-50 text-blue-700 ring-blue-200",
   schedule_admin: "bg-amber-50 text-amber-700 ring-amber-200",
+  marketing_admin: "bg-pink-50 text-pink-700 ring-pink-200",
   staff: "bg-slate-100 text-slate-700 ring-slate-200",
 };
 

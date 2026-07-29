@@ -4,7 +4,12 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { AppUser, ModuleKey } from "./permissions";
-import { isAdminRole, canEditModule, canEditGeneral } from "./permissions";
+import {
+  isAdminRole,
+  canAccessModule,
+  canEditModule,
+  canEditGeneral,
+} from "./permissions";
 
 export interface CurrentUser {
   authId: string;
@@ -48,6 +53,18 @@ export async function requireUser(): Promise<CurrentUser> {
 export async function requireAdmin(): Promise<CurrentUser> {
   const current = await requireUser();
   if (!isAdminRole(current.appUser.role)) redirect("/");
+  return current;
+}
+
+/**
+ * Require a user who can *view* the Admin panel, else redirect to the
+ * dashboard. Owners and admins can edit; executives (and anyone granted the
+ * `admin` module via a per-user override) may view it read-only. Actual
+ * mutations stay gated by requireAdmin(), so viewers cannot make changes.
+ */
+export async function requireAdminView(): Promise<CurrentUser> {
+  const current = await requireUser();
+  if (!canAccessModule(current.appUser, "admin")) redirect("/");
   return current;
 }
 

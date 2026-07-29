@@ -48,7 +48,12 @@ export default async function EmployeeDetailPage({
     ? canEditModule(current.appUser, "schedule")
     : false;
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
-  const isScheduleAdmin = current?.appUser.role === "schedule_admin";
+  // Schedule Admins and Marketing Admins share the same restricted HR view:
+  // the sensitive tabs (reviews, disciplinary, documents, assets, history) are
+  // hidden from both.
+  const isScheduleAdmin =
+    current?.appUser.role === "schedule_admin" ||
+    current?.appUser.role === "marketing_admin";
 
   const { data, error } = await supabase
     .from("person")

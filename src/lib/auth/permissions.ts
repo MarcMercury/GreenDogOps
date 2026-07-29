@@ -7,6 +7,7 @@ export type AppRole =
   | "executive"
   | "manager"
   | "schedule_admin"
+  | "marketing_admin"
   | "staff";
 
 export const APP_ROLES: AppRole[] = [
@@ -15,6 +16,7 @@ export const APP_ROLES: AppRole[] = [
   "executive",
   "manager",
   "schedule_admin",
+  "marketing_admin",
   "staff",
 ];
 
@@ -22,8 +24,9 @@ export const ROLE_LABELS: Record<AppRole, string> = {
   owner: "Owner",
   admin: "Admin",
   executive: "Executive",
-  manager: "Manager/HR",
+  manager: "HR / Manager",
   schedule_admin: "Schedule Admin",
+  marketing_admin: "Marketing Admin",
   staff: "Staff",
 };
 
@@ -31,11 +34,13 @@ export const ROLE_DESCRIPTIONS: Record<AppRole, string> = {
   owner: "Full control, including billing, other owners, and the Admin panel.",
   admin: "Full control of users, settings, and every module.",
   executive:
-    "View and edit every module except the Admin panel; can view all compensation.",
+    "View every module including the Admin panel, and edit everything except the Admin panel (Admin is read-only); can view all compensation.",
   manager:
-    "Manage and edit everything except the Admin panel; can view all compensation.",
+    "Manage and edit everything except the Admin panel, Reporting, and Emp Reporting; can view all compensation.",
   schedule_admin:
     "Edit every module they can see (Schedule, CRM, HR, ATS, Resources, etc.); no Admin panel and cannot view all compensation.",
+  marketing_admin:
+    "Same pages as Schedule Admin, and can edit them all except the Operations section (Calendar, Scheduling, Planning), which is view-only; no Admin panel and cannot view all compensation.",
   staff:
     "Read-only access to everything except the Admin panel; sees only their own compensation.",
 };
@@ -113,15 +118,23 @@ const NON_ADMIN_MODULES = ALL_MODULES.filter(
 );
 // Email Templates management is open to Schedule Admins and up, but not Staff.
 const STAFF_MODULES = NON_ADMIN_MODULES.filter((m) => m !== "email_templates");
-// Executives see and edit everything except the Admin panel — including the
-// admin-only Reporting / Emp Reporting pages that other non-admins can't see.
-const EXECUTIVE_MODULES = ALL_MODULES.filter((m) => m !== "admin");
+// Operations-section modules (Calendar, Scheduling, Planning). Marketing Admins
+// can see these but only with view rights — they cannot edit them.
+export const OPERATIONS_MODULES: ModuleKey[] = [
+  "calendar",
+  "schedule",
+  "planning",
+];
+// Executives see every module — including the Admin panel — but the Admin panel
+// is view-only for them (see canEditModule). They edit everything else.
+const EXECUTIVE_MODULES = ALL_MODULES;
 const ROLE_DEFAULT_MODULES: Record<AppRole, ModuleKey[]> = {
   owner: ALL_MODULES,
   admin: ALL_MODULES,
   executive: EXECUTIVE_MODULES,
   manager: NON_ADMIN_MODULES,
   schedule_admin: NON_ADMIN_MODULES,
+  marketing_admin: NON_ADMIN_MODULES,
   staff: STAFF_MODULES,
 };
 
@@ -159,17 +172,24 @@ export function isEditorRole(role: AppRole): boolean {
 
 /**
  * Can this user make edits within the given module?
- * - owner/admin/executive/manager: edit any module they can access.
+ * - owner/admin: edit any module they can access, including the Admin panel.
+ * - executive/manager: edit any module they can access EXCEPT the Admin panel
+ *   (executives can view the Admin panel but not edit it).
  * - schedule_admin: edit any module they can access (i.e. every non-admin
  *   module, including all CRM pages) — they have write access everywhere they
  *   have a view. They still cannot reach the Admin panel or view all
  *   compensation (that remains gated by isEditorRole).
+ * - marketing_admin: like schedule_admin, but the Operations-section modules
+ *   (Calendar, Scheduling, Planning) are view-only.
  * - staff: read-only everywhere.
  */
 export function canEditModule(user: AppUser, key: ModuleKey): boolean {
   if (!canAccessModule(user, key)) return false;
+  // Only owners/admins may edit the Admin panel itself.
+  if (key === "admin") return isAdminRole(user.role);
   if (isEditorRole(user.role)) return true;
   if (user.role === "schedule_admin") return true;
+  if (user.role === "marketing_admin") return !OPERATIONS_MODULES.includes(key);
   return false;
 }
 
@@ -177,11 +197,16 @@ export function canEditModule(user: AppUser, key: ModuleKey): boolean {
  * Can this user edit "general" (non-admin) modules that don't gate on a single
  * fixed module key — e.g. the shared CRM and Resources surfaces? This is the
  * write-side counterpart to isEditorRole, additionally including Schedule
- * Admins (who now have write access to every module they can view). Kept
- * separate from isEditorRole so it does NOT grant compensation visibility.
+ * Admins and Marketing Admins (who have write access to the modules they can
+ * view). Kept separate from isEditorRole so it does NOT grant compensation
+ * visibility.
  */
 export function canEditGeneral(user: AppUser): boolean {
-  return isEditorRole(user.role) || user.role === "schedule_admin";
+  return (
+    isEditorRole(user.role) ||
+    user.role === "schedule_admin" ||
+    user.role === "marketing_admin"
+  );
 }
 
 /** Roles allowed to view every employee's compensation/benefits data. */
