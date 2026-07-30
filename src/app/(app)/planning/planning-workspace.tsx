@@ -143,9 +143,12 @@ export function PlanningWorkspace({
 
   const selectGuide = useCallback(
     (id: string) => {
-      router.push(`/planning?guide=${id}`, { scroll: false });
+      // Keep the selected week in the URL so opening a guide doesn't reset the
+      // page back to the current week.
+      const wk = selectedWeekId ? `&week=${selectedWeekId}` : "";
+      router.push(`/planning?guide=${id}${wk}`, { scroll: false });
     },
-    [router],
+    [router, selectedWeekId],
   );
 
   const locName = useMemo(() => {
@@ -257,6 +260,7 @@ export function PlanningWorkspace({
               locName={locName}
               deptName={deptName}
               weekStartById={weekStartById}
+              weekId={selectedWeekId}
               onEditGuide={() => setGuideForm(guideData.guide)}
             />
           ) : (
@@ -460,6 +464,7 @@ function GuideEditor({
   locName,
   deptName,
   weekStartById,
+  weekId,
   onEditGuide,
 }: {
   data: GuideData;
@@ -473,6 +478,7 @@ function GuideEditor({
   locName: (id: string | null) => string | null;
   deptName: (id: string | null) => string | null;
   weekStartById: Map<string, string>;
+  weekId: string | null;
   onEditGuide: () => void;
 }) {
   const { guide, columns, slots } = data;
@@ -614,7 +620,11 @@ function GuideEditor({
               type="button"
               onClick={() =>
                 run(duplicateGuide, { id: guide.id }, (d) => {
-                  if (d?.id) router.push(`/planning?guide=${d.id}`, { scroll: false });
+                  if (d?.id)
+                    router.push(
+                      `/planning?guide=${d.id}${weekId ? `&week=${weekId}` : ""}`,
+                      { scroll: false },
+                    );
                 })
               }
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
