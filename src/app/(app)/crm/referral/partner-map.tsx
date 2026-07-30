@@ -70,10 +70,15 @@ function heatFor(p: ReferralPartner) {
 }
 
 function lastVisitLabel(p: ReferralPartner): string {
-  const days = p.days_since_last_visit;
   if (!p.last_visit_date) return "No visit on record";
   const when = new Date(p.last_visit_date).toLocaleDateString();
-  if (typeof days === "number") return `Last visit ${when} · ${days}d ago`;
+  // Derive "days ago" from the actual last-visit date so a freshly logged visit
+  // reads correctly even before the cached days_since_last_visit metric updates.
+  const t = Date.parse(p.last_visit_date);
+  if (!Number.isNaN(t)) {
+    const days = Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
+    return `Last visit ${when} · ${days}d ago`;
+  }
   return `Last visit ${when}`;
 }
 

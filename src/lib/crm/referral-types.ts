@@ -353,12 +353,16 @@ export function visitHeat(input: VisitHeatInput): VisitHeatLevel & { score: numb
       ? input.expectedFrequencyDays
       : 90;
 
-  // Days since last visit — derive from the date when not pre-computed.
-  let days = input.daysSinceLastVisit ?? null;
-  if (days == null && input.lastVisitDate) {
+  // Days since last visit — prefer deriving from the actual last-visit date so a
+  // freshly logged visit recolors the dot immediately. The cached
+  // daysSinceLastVisit metric can lag until partner metrics are recalculated, so
+  // it's only a fallback for partners with no visit date on record.
+  let days: number | null = null;
+  if (input.lastVisitDate) {
     const t = Date.parse(input.lastVisitDate);
     if (!Number.isNaN(t)) days = Math.max(0, Math.floor((Date.now() - t) / 86_400_000));
   }
+  if (days == null) days = input.daysSinceLastVisit ?? null;
 
   // Recency urgency: 0 when freshly visited, 1 at 2× the expected cadence.
   // A partner with no visit on record counts as maximum recency urgency.
