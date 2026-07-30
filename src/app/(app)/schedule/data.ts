@@ -242,14 +242,28 @@ export async function getApptTypeMappings(): Promise<ApptTypeDeptMapping[]> {
   );
 }
 
-/** Weeks list (most recent first). */
+/** Weeks list (most recent first). Excludes the reusable Week Template. */
 export async function getWeeks(): Promise<SchedWeek[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("sched_week")
     .select("*")
+    .eq("is_template", false)
     .order("week_start", { ascending: false });
   return (data ?? []) as SchedWeek[];
+}
+
+/** Full grid payload for the saved Week Template, or null if none exists yet. */
+export async function getTemplateWeekData(): Promise<WeekData | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("sched_week")
+    .select("id")
+    .eq("is_template", true)
+    .maybeSingle();
+  const id = (data as { id: string } | null)?.id;
+  if (!id) return null;
+  return getWeekData(id);
 }
 
 export async function getWeek(weekId: string): Promise<SchedWeek | null> {

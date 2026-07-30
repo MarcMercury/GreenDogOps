@@ -9,7 +9,7 @@ import {
   SCHEDULE_STATUS_TONE,
   type SchedWeek,
 } from "@/lib/schedule/types";
-import { copyPreviousWeek, createWeek } from "./actions";
+import { copyPreviousWeek, createWeek, applyWeekTemplate } from "./actions";
 
 export function WeekPicker({
   weeks,
@@ -52,6 +52,28 @@ export function WeekPicker({
         router.push(`/schedule?week=${res.data}`);
         router.refresh();
       } else if (!res.ok) {
+        setError(res.error);
+      }
+    });
+  }
+
+  function useTemplate() {
+    if (!selectedId) {
+      setError("Open a week first, then apply the template to it.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Replace this week's shifts and staffing with the saved Week Template? Existing entries for this week will be overwritten.",
+      )
+    )
+      return;
+    setError(null);
+    start(async () => {
+      const res = await applyWeekTemplate(selectedId);
+      if (res.ok) {
+        router.refresh();
+      } else {
         setError(res.error);
       }
     });
@@ -104,6 +126,16 @@ export function WeekPicker({
         >
           Copy previous week
         </button>
+        {basePath === "/schedule" && (
+          <button
+            onClick={useTemplate}
+            disabled={pending || !selectedId}
+            title="Replace the open week's shifts and staffing with the saved Week Template"
+            className="rounded-lg border border-sky-600 px-3 py-1.5 text-sm font-medium text-sky-700 transition hover:bg-sky-50 disabled:opacity-50"
+          >
+            Use template
+          </button>
+        )}
         <button
           onClick={create}
           disabled={pending}

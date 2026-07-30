@@ -538,11 +538,34 @@ export async function copyPreviousWeek(
     weekId = (weekRow as { id: string }).id;
   }
 
+  const cloned = await cloneWeekContents(supabase, prevId, weekId, weekStart, me.id);
+  if (!cloned.ok) return cloned;
+
+  revalidateAll();
+  return { ok: true, data: weekId };
+}
+
+/** Sentinel week-start for the reusable Week Template (a Sunday). */
+const TEMPLATE_WEEK_START = "2000-01-02";
+
+/**
+ * Copy a source week's shift lines, locations, closures, and staffed
+ * assignments into an (already-emptied) target week. Work dates are recomputed
+ * for the target week and attendance resets to "scheduled". Shared by
+ * copyPreviousWeek and applyWeekTemplate.
+ */
+async function cloneWeekContents(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  sourceId: string,
+  targetId: string,
+  targetWeekStart: string,
+  meId: string | null,
+): Promise<ActionResult> {
   // Copy shift lines, mapping each old line id to its new one.
   const { data: prevLines } = await supabase
     .from("sched_week_line")
     .select("*")
-    .eq("week_id", prevId)
+    .eq("week_id", sourceId)
     .order("sort_order");
   const lineRows = (prevLines ?? []) as Record<string, unknown>[];
   const lineIdMap = new Map<string, string>();
@@ -551,7 +574,7 @@ export async function copyPreviousWeek(
       .from("sched_week_line")
       .insert(
         lineRows.map((l) => ({
-          week_id: weekId,
+          week_id: targetId,
           template_id: l.template_id,
           department_id: l.department_id,
           role_id: l.role_id,
@@ -574,7 +597,7 @@ export async function copyPreviousWeek(
   const { data: prevLocs } = await supabase
     .from("sched_week_location")
     .select("location_id, sort_order")
-    .eq("week_id", prevId);
+    .eq("week_id", sourceId);
   const locRows = (prevLocs ?? []) as {
     location_id: string;
     sort_order: number;
@@ -582,7 +605,7 @@ export async function copyPreviousWeek(
   if (locRows.length > 0)
     await supabase.from("sched_week_location").insert(
       locRows.map((l) => ({
-        week_id: weekId,
+        week_id: targetId,
         location_id: l.location_id,
         sort_order: l.sort_order,
       })),
@@ -592,7 +615,7 @@ export async function copyPreviousWeek(
   const { data: prevClosures } = await supabase
     .from("sched_closure")
     .select("location_id, day_of_week, reason")
-    .eq("week_id", prevId);
+    .eq("week_id", sourceId);
   const closureRows = (prevClosures ?? []) as {
     location_id: string;
     day_of_week: number;
@@ -601,7 +624,7 @@ export async function copyPreviousWeek(
   if (closureRows.length > 0)
     await supabase.from("sched_closure").insert(
       closureRows.map((c) => ({
-        week_id: weekId,
+        week_id: targetId,
         location_id: c.location_id,
         day_of_week: c.day_of_week,
         reason: c.reason,
@@ -616,7 +639,7 @@ export async function copyPreviousWeek(
     .select("id")
     .eq("is_active", true);
   const sundayClosures = ((activeLocs ?? []) as { id: string }[]).map((l) => ({
-    week_id: weekId,
+    week_id: targetId,
     location_id: l.id,
     day_of_week: 0,
     reason: null,
@@ -630,11 +653,11 @@ export async function copyPreviousWeek(
       });
 
   // Copy staffed assignments — same people, days, and times — onto the new
-  // lines, with work dates recomputed for the new week and attendance reset.
+  // lines, with work dates recomputed for the target week and attendance reset.
   const { data: prevAsg } = await supabase
     .from("sched_assignment")
     .select("line_id, location_id, person_id, day_of_week")
-    .eq("week_id", prevId)
+    .eq("week_id", sourceId)
     .eq("removed_post_publish", false);
   const asgInserts = ((prevAsg ?? []) as {
     line_id: string;
@@ -646,13 +669,13 @@ export async function copyPreviousWeek(
       const newLineId = lineIdMap.get(a.line_id);
       if (!newLineId) return null;
       return {
-        week_id: weekId,
+        week_id: targetId,
         line_id: newLineId,
         location_id: a.location_id,
         person_id: a.person_id,
         day_of_week: a.day_of_week,
-        work_date: dateForDay(weekStart, a.day_of_week),
-        created_by: me.id,
+        work_date: dateForDay(targetWeekStart, a.day_of_week),
+        created_by: meId,
       };
     })
     .filter(Boolean) as Record<string, unknown>[];
@@ -662,6 +685,141 @@ export async function copyPreviousWeek(
       .insert(asgInserts);
     if (error) return { ok: false, error: error.message };
   }
+
+  return { ok: true };
+}
+
+/**
+ * Find (or lazily create) the single reusable Week Template. The template is a
+ * normal sched_week flagged is_template=true so the admin can populate it with
+ * shift lines and staffed assignments on the grid, then apply it to any week.
+ */
+export async function ensureTemplateWeek(): Promise<ActionResult<string>> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const me = await actor();
+
+  const { data: existing } = await supabase
+    .from("sched_week")
+    .select("id")
+    .eq("is_template", true)
+    .maybeSingle();
+  if (existing) return { ok: true, data: (existing as { id: string }).id };
+
+  const { data: weekRow, error: weekErr } = await supabase
+    .from("sched_week")
+    .insert({
+      week_start: TEMPLATE_WEEK_START,
+      status: "draft",
+      is_template: true,
+      created_by: me.id,
+    })
+    .select("id")
+    .single();
+  if (weekErr) return { ok: false, error: weekErr.message };
+  const weekId = (weekRow as { id: string }).id;
+
+  // Snapshot active dept/shift templates -> week lines.
+  const { data: templates } = await supabase
+    .from("sched_shift_template")
+    .select("*")
+    .eq("is_active", true)
+    .order("sort_order");
+  const lines = (templates ?? []).map(
+    (t: Record<string, unknown>, i: number) => ({
+      week_id: weekId,
+      template_id: t.id,
+      department_id: t.department_id,
+      role_id: t.role_id,
+      label: t.label,
+      start_time: t.start_time,
+      end_time: t.end_time,
+      sort_order: (t.sort_order as number) ?? i,
+    }),
+  );
+  if (lines.length > 0) await supabase.from("sched_week_line").insert(lines);
+
+  // Snapshot active locations -> week locations.
+  const { data: locs } = await supabase
+    .from("location")
+    .select("id, short_code, sort_order")
+    .eq("is_active", true)
+    .order("sort_order");
+  const weekLocs = (locs ?? []).map((l: Record<string, unknown>) => ({
+    week_id: weekId,
+    location_id: l.id,
+    sort_order: (l.sort_order as number) ?? 0,
+  }));
+  if (weekLocs.length > 0)
+    await supabase.from("sched_week_location").insert(weekLocs);
+
+  // Default closures: Sundays everywhere; Sherman Oaks also Tue/Wed.
+  const defaultClosures = (locs ?? []).flatMap((l: Record<string, unknown>) => {
+    const days = [0];
+    if ((l.short_code as string | null) === "SO") days.push(2, 3);
+    return days.map((day_of_week) => ({
+      week_id: weekId,
+      location_id: l.id,
+      day_of_week,
+      reason: null,
+    }));
+  });
+  if (defaultClosures.length > 0)
+    await supabase.from("sched_closure").insert(defaultClosures);
+
+  revalidateAll();
+  return { ok: true, data: weekId };
+}
+
+/**
+ * Insert the saved Week Template into an existing week: wipes that week's lines,
+ * locations, closures, and assignments, then clones the template into it (work
+ * dates recomputed for the target week, attendance reset).
+ */
+export async function applyWeekTemplate(
+  weekId: string,
+): Promise<ActionResult<string>> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const me = await actor();
+
+  const { data: template } = await supabase
+    .from("sched_week")
+    .select("id")
+    .eq("is_template", true)
+    .maybeSingle();
+  const templateId = (template as { id: string } | null)?.id;
+  if (!templateId)
+    return { ok: false, error: "No Week Template has been saved yet." };
+
+  const { data: target } = await supabase
+    .from("sched_week")
+    .select("id, week_start, is_template")
+    .eq("id", weekId)
+    .maybeSingle();
+  const targetRow = target as
+    | { id: string; week_start: string; is_template: boolean }
+    | null;
+  if (!targetRow) return { ok: false, error: "That week no longer exists." };
+  if (targetRow.is_template)
+    return { ok: false, error: "Cannot apply the template onto itself." };
+
+  // Wipe the target week so the template lands cleanly.
+  await supabase.from("sched_assignment").delete().eq("week_id", weekId);
+  await supabase.from("sched_closure").delete().eq("week_id", weekId);
+  await supabase.from("sched_week_location").delete().eq("week_id", weekId);
+  await supabase.from("sched_week_line").delete().eq("week_id", weekId);
+
+  const cloned = await cloneWeekContents(
+    supabase,
+    templateId,
+    weekId,
+    targetRow.week_start,
+    me.id,
+  );
+  if (!cloned.ok) return cloned;
 
   revalidateAll();
   return { ok: true, data: weekId };

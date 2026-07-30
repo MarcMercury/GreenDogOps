@@ -121,6 +121,7 @@ export function ScheduleGrid({
   timeOff,
   agendaCounts = [],
   canEdit = false,
+  templateMode = false,
 }: {
   weeks: SchedWeek[];
   weekData: WeekData;
@@ -128,6 +129,7 @@ export function ScheduleGrid({
   timeOff: { person_id: string; status: string; start_date: string; end_date: string }[];
   agendaCounts?: AgendaCount[];
   canEdit?: boolean;
+  templateMode?: boolean;
 }) {
   const router = useRouter();
   const [, start] = useTransition();
@@ -536,6 +538,7 @@ export function ScheduleGrid({
         availableLocations={availableLocations}
         enabled={enabled}
         setEnabled={setEnabled}
+        templateMode={templateMode}
         onPrintGrid={() => setPrintMode("grid")}
         onPrintEmployee={() => setPrintMode("employee")}
         onExportCsv={downloadWiwCsv}
@@ -580,11 +583,13 @@ export function ScheduleGrid({
                   className="border-b border-l-2 border-b-slate-300 border-l-slate-400 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600"
                 >
                   {DAY_SHORT[d]}{" "}
-                  <span className="font-normal text-slate-400">
-                    {new Date(
-                      `${dateForDay(week.week_start, d)}T00:00:00`,
-                    ).getDate()}
-                  </span>
+                  {!templateMode && (
+                    <span className="font-normal text-slate-400">
+                      {new Date(
+                        `${dateForDay(week.week_start, d)}T00:00:00`,
+                      ).getDate()}
+                    </span>
+                  )}
                 </th>
               ))}
             </tr>
@@ -997,6 +1002,7 @@ function Toolbar({
   availableLocations,
   enabled,
   setEnabled,
+  templateMode = false,
   onPrintGrid,
   onPrintEmployee,
   onExportCsv,
@@ -1007,6 +1013,7 @@ function Toolbar({
   availableLocations: ScheduleLocation[];
   enabled: Set<string>;
   setEnabled: (s: Set<string>) => void;
+  templateMode?: boolean;
   onPrintGrid: () => void;
   onPrintEmployee: () => void;
   onExportCsv: () => void;
@@ -1024,24 +1031,33 @@ function Toolbar({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            {formatWeekRange(week.week_start)}
+            {templateMode ? "Week Template" : formatWeekRange(week.week_start)}
           </h1>
-          <span
-            className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${SCHEDULE_STATUS_TONE[week.status]}`}
-          >
-            {SCHEDULE_STATUS_LABELS[week.status]}
-          </span>
+          {templateMode ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Populate this reusable template with shifts and staffing, then apply
+              it to any week from the Grid tab.
+            </p>
+          ) : (
+            <span
+              className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${SCHEDULE_STATUS_TONE[week.status]}`}
+            >
+              {SCHEDULE_STATUS_LABELS[week.status]}
+            </span>
+          )}
         </div>
-        <WorkflowButtons
-          status={week.status}
-          onStatus={onStatus}
-          onPrintGrid={onPrintGrid}
-          onPrintEmployee={onPrintEmployee}
-          onExportCsv={onExportCsv}
-        />
+        {!templateMode && (
+          <WorkflowButtons
+            status={week.status}
+            onStatus={onStatus}
+            onPrintGrid={onPrintGrid}
+            onPrintEmployee={onPrintEmployee}
+            onExportCsv={onExportCsv}
+          />
+        )}
       </div>
 
-      <WeekPicker weeks={weeks} selectedId={week.id} />
+      {!templateMode && <WeekPicker weeks={weeks} selectedId={week.id} />}
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">

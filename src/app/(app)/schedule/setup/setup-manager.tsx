@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { SetupData } from "../data";
+import type { SetupData, WeekData } from "../data";
 import {
   gridName,
   timeRange,
@@ -11,6 +11,7 @@ import {
   type SchedDepartment,
   type SchedRole,
   type SchedShiftTemplate,
+  type SchedWeek,
   type ApptTypeDeptMapping,
 } from "@/lib/schedule/types";
 import { formatAddress } from "@/lib/shared/locations";
@@ -26,13 +27,16 @@ import {
   savePreferredLocation,
   setStudentRoleFlags,
   saveApptTypeDept,
+  ensureTemplateWeek,
 } from "../actions";
+import { ScheduleGrid } from "../schedule-grid";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
 type SubTab =
   | "departments"
   | "roles"
   | "shifts"
+  | "week-template"
   | "planning-guide"
   | "employees"
   | "locations";
@@ -40,7 +44,8 @@ type SubTab =
 const SUB_TABS: { key: SubTab; label: string }[] = [
   { key: "departments", label: "Departments" },
   { key: "roles", label: "Roles & Eligibility" },
-  { key: "shifts", label: "Week Template" },
+  { key: "shifts", label: "Dept/Shift Template" },
+  { key: "week-template", label: "Week Template" },
   { key: "planning-guide", label: "Planning Guide Setup" },
   { key: "employees", label: "Employees" },
   { key: "locations", label: "Locations" },
@@ -66,9 +71,15 @@ const btnGhost =
 export function SetupManager({
   data,
   apptTypeMappings,
+  templateWeek,
+  weeks,
+  canEdit,
 }: {
   data: SetupData;
   apptTypeMappings: ApptTypeDeptMapping[];
+  templateWeek: WeekData | null;
+  weeks: SchedWeek[];
+  canEdit: boolean;
 }) {
   const [tab, setTab] = useState<SubTab>("departments");
 
@@ -93,12 +104,79 @@ export function SetupManager({
       {tab === "departments" && <Departments data={data} />}
       {tab === "roles" && <Roles data={data} />}
       {tab === "shifts" && <Shifts data={data} />}
+      {tab === "week-template" && (
+        <WeekTemplate
+          data={data}
+          templateWeek={templateWeek}
+          weeks={weeks}
+          canEdit={canEdit}
+        />
+      )}
       {tab === "planning-guide" && (
         <PlanningGuideSetup data={data} mappings={apptTypeMappings} />
       )}
       {tab === "employees" && <Employees data={data} />}
       {tab === "locations" && <Locations data={data} />}
     </div>
+  );
+}
+
+// ===========================================================================
+// Week Template — a full, populated schedule grid the admin keeps as a template
+// ===========================================================================
+
+function WeekTemplate({
+  data,
+  templateWeek,
+  weeks,
+  canEdit,
+}: {
+  data: SetupData;
+  templateWeek: WeekData | null;
+  weeks: SchedWeek[];
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  if (templateWeek) {
+    return (
+      <ScheduleGrid
+        weeks={weeks}
+        weekData={templateWeek}
+        setup={data}
+        timeOff={[]}
+        canEdit={canEdit}
+        templateMode
+      />
+    );
+  }
+
+  return (
+    <Card>
+      <h2 className="text-base font-semibold text-slate-800">Week Template</h2>
+      <p className="mt-1 max-w-2xl text-sm text-slate-500">
+        Build a reusable copy of the full weekly schedule — shift lines with
+        employees assigned to each shift — and keep it as a template. From the
+        Grid tab you can then apply it to any week with a single click.
+      </p>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      <button
+        disabled={pending || !canEdit}
+        onClick={() =>
+          start(async () => {
+            setError(null);
+            const res = await ensureTemplateWeek();
+            if (res.ok) router.refresh();
+            else setError(res.error);
+          })
+        }
+        className={`${btnPrimary} mt-4`}
+      >
+        {pending ? "Creating…" : "Create Week Template"}
+      </button>
+    </Card>
   );
 }
 

@@ -184,6 +184,7 @@ export interface SchedWeek {
   week_start: string;
   title: string | null;
   status: ScheduleStatus;
+  is_template: boolean;
   notes: string | null;
   created_by: string | null;
   submitted_by: string | null;
