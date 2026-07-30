@@ -40,6 +40,9 @@ export async function updateSession(request: NextRequest) {
     pathname === "/login" ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/ce/signup") ||
+    // Public legal pages (linked from the Google OAuth consent screen).
+    pathname === "/privacy" ||
+    pathname === "/terms" ||
     // Cron endpoint: self-authenticates via the CRON_SECRET bearer token.
     pathname.startsWith("/api/calendar/sync") ||
     // Admin user-roster sync cron endpoint self-authenticates via CRON_SECRET.

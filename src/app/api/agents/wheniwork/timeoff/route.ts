@@ -14,8 +14,9 @@ function authorized(req: NextRequest): boolean {
 }
 
 /**
- * Pull employee time-off requests from the When I Work API and mirror them into
- * person_time_off. Runs on the Vercel cron schedule in vercel.json; can also be
+ * Parse When I Work time-off notification emails (from noreply@wheniwork.com in
+ * the greendogmarcm@gmail.com inbox) and mirror them into person_time_off as
+ * pending requests. Runs on the Vercel cron schedule in vercel.json; can also be
  * triggered manually with the cron secret.
  */
 export async function GET(req: NextRequest) {

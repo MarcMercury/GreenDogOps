@@ -188,6 +188,28 @@ export function ScheduleGrid({
     [timeOff, week.week_start],
   );
 
+  // Who is off each day (0-6), for the collapsible PTO section at the top of
+  // the grid. Pending vs approved drives the chip color so the schedule admin
+  // sees at a glance who has already been approved to be off.
+  const ptoByDay = useMemo(() => {
+    const m = new Map<
+      number,
+      { person: SchedPerson; status: "requested" | "approved" }[]
+    >();
+    for (const p of setup.people) {
+      const byDay = weekTimeOff.get(p.id);
+      if (!byDay) continue;
+      for (const [day, status] of byDay) {
+        const list = m.get(day) ?? [];
+        list.push({ person: p, status });
+        m.set(day, list);
+      }
+    }
+    for (const list of m.values())
+      list.sort((a, b) => gridName(a.person).localeCompare(gridName(b.person)));
+    return m;
+  }, [setup.people, weekTimeOff]);
+
   const weeklyCount = useMemo(() => {
     const m = new Map<string, number>();
     for (const a of activeAssignments)
@@ -471,6 +493,9 @@ export function ScheduleGrid({
     () => new Set(setup.departments.map((d) => d.id)),
   );
 
+  // The PTO overview section sits at the top of the grid, expanded by default.
+  const [ptoCollapsed, setPtoCollapsed] = useState(false);
+
   // Printing: `null` = nothing pending; "grid" prints the schedule as-is,
   // "employee" swaps in the per-employee pages. The effect fires the browser
   // print dialog once the DOM reflects the chosen mode, then resets.
@@ -703,6 +728,16 @@ export function ScheduleGrid({
             </tr>
           </thead>
           <tbody>
+            {!templateMode && (
+              <PtoSection
+                colCount={colCount}
+                span={1 + DAYS.length * Math.max(colCount, 1)}
+                collapsed={ptoCollapsed}
+                ptoByDay={ptoByDay}
+                weekCount={weekTimeOff.size}
+                onToggle={() => setPtoCollapsed((v) => !v)}
+              />
+            )}
             {grouped.map(({ dept, lines: deptLines }) => (
               <DeptSection
                 key={dept.id}
@@ -1381,6 +1416,127 @@ function DeptSection({
 }
 
 // ---------------------------------------------------------------------------
+// Time-off overview — a collapsible "PTO" section pinned to the top of the
+// grid. Per day it lists everyone off, colored amber (pending) or emerald
+// (approved) so the schedule admin sees who is already cleared to be off.
+// ---------------------------------------------------------------------------
+
+function PtoSection({
+  colCount,
+  span,
+  collapsed,
+  ptoByDay,
+  weekCount,
+  onToggle,
+}: {
+  colCount: number;
+  span: number;
+  collapsed: boolean;
+  ptoByDay: Map<number, { person: SchedPerson; status: "requested" | "approved" }[]>;
+  weekCount: number;
+  onToggle: () => void;
+}) {
+  const showCols = colCount > 0;
+  const BG = "#6d28d9"; // violet-700 — distinct from department colors.
+  return (
+    <>
+      <tr>
+        <td
+          colSpan={showCols ? 1 : span}
+          className="sticky left-0 z-10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white"
+          style={{ background: BG }}
+        >
+          <button
+            onClick={onToggle}
+            title={collapsed ? "Expand time off" : "Collapse time off"}
+            aria-expanded={!collapsed}
+            className="flex w-full items-center gap-1.5 text-left hover:text-white/90"
+          >
+            <span
+              className={`inline-block text-[9px] transition-transform ${
+                collapsed ? "-rotate-90" : ""
+              }`}
+            >
+              ▼
+            </span>
+            <span>PTO</span>
+            {weekCount > 0 && (
+              <span className="rounded bg-white/20 px-1.5 text-[9px] font-semibold">
+                {weekCount}
+              </span>
+            )}
+          </button>
+        </td>
+        {showCols &&
+          DAYS.map((d) => {
+            const n = ptoByDay.get(d)?.length ?? 0;
+            return (
+              <td
+                key={`pto-h-${d}`}
+                colSpan={colCount}
+                className="border-l-2 border-l-white/40 px-1 py-1 text-center text-[11px] font-bold tabular-nums text-white/95"
+                style={{ background: BG }}
+                title={n > 0 ? `${n} off ${DAY_LABELS[d]}` : undefined}
+              >
+                {n > 0 ? n : ""}
+              </td>
+            );
+          })}
+      </tr>
+      {!collapsed && (
+        <tr className="bg-violet-50/60">
+          <th
+            scope="row"
+            className="sticky left-0 z-10 border-b border-r border-slate-300 bg-violet-50 px-3 py-1.5 text-left align-top text-[11px] font-semibold text-violet-700"
+            style={{ borderLeft: `3px solid ${BG}` }}
+          >
+            Time off
+          </th>
+          {showCols ? (
+            DAYS.map((d) => {
+              const list = ptoByDay.get(d) ?? [];
+              return (
+                <td
+                  key={`pto-b-${d}`}
+                  colSpan={colCount}
+                  className="border-b border-l-2 border-b-slate-200 border-l-slate-400 p-1 align-top"
+                >
+                  {list.length === 0 ? (
+                    <span className="text-[11px] text-slate-300">—</span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1">
+                      {list.map(({ person, status }) => (
+                        <span
+                          key={person.id}
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                            status === "approved"
+                              ? "bg-emerald-100 text-emerald-700"
+                              : "bg-amber-100 text-amber-700"
+                          }`}
+                          title={
+                            status === "approved"
+                              ? "Approved time off"
+                              : "Pending time-off request"
+                          }
+                        >
+                          {gridName(person)}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </td>
+              );
+            })
+          ) : (
+            <td className="border-b border-l-2 border-b-slate-200 border-l-slate-400 bg-slate-50/40" />
+          )}
+        </tr>
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // A single grid cell
 // ---------------------------------------------------------------------------
 
@@ -1743,24 +1899,20 @@ function EligiblePicker({
       );
   }, [baseEligible, roleNamesByPerson, roles]);
 
+  // People pickable for this shift. Anyone with time off this day (pending or
+  // approved) is excluded — they are shown separately below, read-only, so the
+  // admin sees why they are unavailable rather than just missing.
   const eligible = useMemo(() => {
     const term = q.trim().toLowerCase();
-    const offRank = (id: string) => {
-      const off = weekTimeOff.get(id)?.get(cell.day);
-      // Available first, then pending time-off, then approved time-off.
-      return off === "approved" ? 2 : off === "requested" ? 1 : 0;
-    };
     return baseEligible
       .filter((p) => {
+        if (weekTimeOff.get(p.id)?.get(cell.day)) return false; // off this day
         if (roleFilter && !roleNamesByPerson.get(p.id)?.has(roleFilter))
           return false;
         if (term && !gridName(p).toLowerCase().includes(term)) return false;
         return true;
       })
       .sort((a, b) => {
-        const oa = offRank(a.id);
-        const ob = offRank(b.id);
-        if (oa !== ob) return oa - ob; // available before time-off
         const ca = weeklyCount.get(a.id) ?? 0;
         const cb = weeklyCount.get(b.id) ?? 0;
         if (ca !== cb) return ca - cb; // least-loaded first
@@ -1775,6 +1927,19 @@ function EligiblePicker({
     weekTimeOff,
     cell.day,
   ]);
+
+  // Role-eligible people who are off this day, shown read-only below the list.
+  const offToday = useMemo(
+    () =>
+      baseEligible
+        .filter((p) => !!weekTimeOff.get(p.id)?.get(cell.day))
+        .map((p) => ({
+          person: p,
+          status: weekTimeOff.get(p.id)!.get(cell.day)!,
+        }))
+        .sort((a, b) => gridName(a.person).localeCompare(gridName(b.person))),
+    [baseEligible, weekTimeOff, cell.day],
+  );
 
   const dayScheduled = scheduledByDay.get(cell.day) ?? new Set<string>();
 
@@ -1844,7 +2009,6 @@ function EligiblePicker({
             const here = assignedHere.has(p.id);
             const elsewhere = !here && dayScheduled.has(p.id);
             const atTarget = count >= target;
-            const off = weekTimeOff.get(p.id)?.get(cell.day);
             return (
               <li key={p.id}>
                 <button
@@ -1858,22 +2022,6 @@ function EligiblePicker({
                 >
                   <span className="flex-1 truncate text-slate-700">
                     {gridName(p)}
-                    {off && (
-                      <span
-                        className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                          off === "approved"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-amber-100 text-amber-700"
-                        }`}
-                        title={
-                          off === "approved"
-                            ? "Approved time off"
-                            : "Pending time-off request"
-                        }
-                      >
-                        {off === "approved" ? "Off" : "Off?"}
-                      </span>
-                    )}
                     {elsewhere && (
                       <span
                         className="ml-1.5 text-[10px] font-medium text-amber-600"
@@ -1901,10 +2049,42 @@ function EligiblePicker({
               </li>
             );
           })}
-          {eligible.length === 0 && (
+          {eligible.length === 0 && offToday.length === 0 && (
             <li className="px-2 py-6 text-center text-xs text-slate-400">
               No eligible employees. Assign people to this role in Set Up →
               Roles & Eligibility.
+            </li>
+          )}
+          {offToday.length > 0 && (
+            <li className="mt-1 border-t border-slate-100 pt-1">
+              <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+                Off this day — not schedulable
+              </p>
+              <ul>
+                {offToday.map(({ person, status }) => (
+                  <li key={person.id}>
+                    <div className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm opacity-70">
+                      <span className="flex-1 truncate text-slate-500 line-through">
+                        {gridName(person)}
+                      </span>
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                          status === "approved"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-amber-100 text-amber-700"
+                        }`}
+                        title={
+                          status === "approved"
+                            ? "Approved time off"
+                            : "Pending time-off request"
+                        }
+                      >
+                        {status === "approved" ? "Approved off" : "Pending off"}
+                      </span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </li>
           )}
         </ul>

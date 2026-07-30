@@ -446,6 +446,16 @@ export default async function DashboardPage() {
           <ActivityLog days={activityDays} />
         </section>
       ) : null}
+
+      <footer className="mt-12 border-t border-slate-200 pt-4 text-center text-xs text-slate-400">
+        <Link href="/privacy" className="hover:text-slate-600">
+          Privacy Policy
+        </Link>
+        <span className="mx-2">·</span>
+        <Link href="/terms" className="hover:text-slate-600">
+          Terms of Service
+        </Link>
+      </footer>
     </div>
   );
 }
