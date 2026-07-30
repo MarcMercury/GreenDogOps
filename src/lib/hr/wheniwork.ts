@@ -134,22 +134,37 @@ const MONTHS: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
   jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
 };
+// "Mon D" with an OPTIONAL ", YYYY". Single-day notices include the year
+// ("Sep 26, 2026"); multi-day ranges omit it ("Nov 5 – Nov 9"), so the year is
+// inferred from the email's received date in extractDates().
 const DATE_RE =
-  /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})\b/gi;
+  /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?/gi;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** All full "Mon D, YYYY" dates in the text as sorted ISO strings. */
-function extractDates(text: string): string[] {
+/**
+ * All "Mon D[, YYYY]" dates in the text as sorted ISO strings. When a match has
+ * no year (multi-day ranges), infer it from `ref` (the email's received date):
+ * pick the year that puts the date on/after the request, since time off is for
+ * upcoming days.
+ */
+function extractDates(text: string, ref: Date): string[] {
+  const refY = ref.getUTCFullYear();
+  const refM = ref.getUTCMonth() + 1;
+  const refD = ref.getUTCDate();
   const out: string[] = [];
   for (const m of text.matchAll(DATE_RE)) {
     const month = MONTHS[m[1].slice(0, 3).toLowerCase()];
     const day = Number(m[2]);
-    const year = Number(m[3]);
-    if (!month || !day || !year) continue;
+    if (!month || day < 1 || day > 31) continue;
+    const year = m[3]
+      ? Number(m[3])
+      : month < refM || (month === refM && day < refD)
+        ? refY + 1
+        : refY;
     out.push(`${year}-${pad(month)}-${pad(day)}`);
   }
-  return out.sort();
+  return [...new Set(out)].sort();
 }
 
 /** Strip a leading honorific ("Dr.", "Mr", …) from a person name. */
@@ -179,10 +194,14 @@ function extractKind(body: string): TimeOffKind {
 function extractNote(body: string): string | null {
   const m = body.match(/message:\s*([\s\S]+)/i);
   if (!m) return null;
-  // Cut at the first footer marker When I Work appends after the message.
+  // Cut at the first footer marker When I Work appends after the message — a
+  // rule of asterisks/dashes, a link, or a boilerplate heading — then strip the
+  // markdown asterisks the plain-text email uses for bold.
   const note = m[1]
-    .trim()
-    .split(/\b(Times shown|View Request|Manage|Unsubscribe|When I Work|©|http)/i)[0]
+    .split(
+      /\*{4,}|-{4,}|https?:\/\/|\b(?:Times shown|Moderate this request|View Request|Manage|Unsubscribe|Get the latest|When I Work|\u00a9)\b/i,
+    )[0]
+    .replace(/[*\s]+/g, " ")
     .trim();
   return note ? note.slice(0, 500) : null;
 }
@@ -195,9 +214,9 @@ interface ParsedRequest {
   note: string | null;
 }
 
-function parseMessage(subject: string, body: string): ParsedRequest | null {
+function parseMessage(subject: string, body: string, ref: Date): ParsedRequest | null {
   const name = extractName(subject, body);
-  const dates = extractDates(body);
+  const dates = extractDates(body, ref);
   if (!name || dates.length === 0) return null;
   return {
     name,
@@ -274,11 +293,14 @@ export async function syncWhenIWorkTimeOff(): Promise<WhenIWorkSyncResult> {
   result.scanned = messages.length;
   if (messages.length === 0) return result;
 
-  // Load people once and build the name index.
+  // Load current staff and build the name index. Filtering to employees keeps
+  // the set well under the 1000-row default cap (the person table also holds
+  // prospects/applicants/students) and avoids matching a same-named applicant.
   const db = createAdminClient();
   const { data: people, error: peopleErr } = await db
     .from("person")
-    .select("id, first_name, last_name, full_name, grid_name");
+    .select("id, first_name, last_name, full_name, grid_name")
+    .in("status", ["employee", "contractor"]);
   if (peopleErr) throw new Error(`Failed to load people: ${peopleErr.message}`);
   const nameIndex = buildNameIndex((people ?? []) as PersonRow[]);
 
@@ -291,7 +313,8 @@ export async function syncWhenIWorkTimeOff(): Promise<WhenIWorkSyncResult> {
         format: "full",
       });
       const subject = header(full.payload, "Subject");
-      const parsed = parseMessage(subject, bodyText(full.payload));
+      const ref = full.internalDate ? new Date(Number(full.internalDate)) : new Date();
+      const parsed = parseMessage(subject, bodyText(full.payload), ref);
       if (!parsed) {
         result.skipped += 1;
         continue;
