@@ -1607,6 +1607,36 @@ export async function markAttendance(
 }
 
 // ===========================================================================
+// TIME OFF — approve / deny a PTO request from the schedule grid
+// ===========================================================================
+
+/**
+ * Approve or deny a pending PTO request straight from the grid's PTO section.
+ * Denied requests drop out of the time-off overlay (getWeekTimeOff only pulls
+ * requested/approved), so the person becomes schedulable again for that day.
+ */
+export async function setTimeOffStatus(
+  id: string,
+  status: "approved" | "denied",
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const me = await actor();
+  const { error } = await supabase
+    .from("person_time_off")
+    .update({
+      status,
+      reviewed_by: me.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  return { ok: true };
+}
+
+// ===========================================================================
 // WORKFLOW — submit / approve / publish
 // ===========================================================================
 

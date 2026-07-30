@@ -42,6 +42,7 @@ import { WeekPicker } from "./week-picker";import {
   saveDepartment,
   deleteDepartment,
   applyDefaultTemplate,
+  setTimeOffStatus,
 } from "./actions";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -50,6 +51,15 @@ interface CellKey {
   lineId: string;
   locationId: string;
   day: number;
+}
+
+/** One clickable PTO chip in the grid's time-off section. */
+interface PtoChip {
+  person: SchedPerson;
+  status: "requested" | "approved";
+  requestId: string;
+  startDate: string;
+  endDate: string;
 }
 
 /** Parse an "HH:MM[:SS]" time into minutes since midnight, or null. */
@@ -126,7 +136,7 @@ export function ScheduleGrid({
   weeks: SchedWeek[];
   weekData: WeekData;
   setup: SetupData;
-  timeOff: { person_id: string; status: string; start_date: string; end_date: string }[];
+  timeOff: { id: string; person_id: string; status: string; start_date: string; end_date: string }[];
   agendaCounts?: AgendaCount[];
   canEdit?: boolean;
   templateMode?: boolean;
@@ -190,25 +200,32 @@ export function ScheduleGrid({
 
   // Who is off each day (0-6), for the collapsible PTO section at the top of
   // the grid. Pending vs approved drives the chip color so the schedule admin
-  // sees at a glance who has already been approved to be off.
+  // sees at a glance who has already been approved to be off. Built from the
+  // raw rows (not weekTimeOff) so each chip keeps its request id for approve/deny.
   const ptoByDay = useMemo(() => {
-    const m = new Map<
-      number,
-      { person: SchedPerson; status: "requested" | "approved" }[]
-    >();
-    for (const p of setup.people) {
-      const byDay = weekTimeOff.get(p.id);
-      if (!byDay) continue;
-      for (const [day, status] of byDay) {
+    const m = new Map<number, PtoChip[]>();
+    for (const r of timeOff) {
+      if (r.status !== "requested" && r.status !== "approved") continue;
+      const person = personById.get(r.person_id);
+      if (!person) continue;
+      for (let day = 0; day < 7; day++) {
+        const date = dateForDay(week.week_start, day);
+        if (date < r.start_date || date > r.end_date) continue;
         const list = m.get(day) ?? [];
-        list.push({ person: p, status });
+        list.push({
+          person,
+          status: r.status,
+          requestId: r.id,
+          startDate: r.start_date,
+          endDate: r.end_date,
+        });
         m.set(day, list);
       }
     }
     for (const list of m.values())
       list.sort((a, b) => gridName(a.person).localeCompare(gridName(b.person)));
     return m;
-  }, [setup.people, weekTimeOff]);
+  }, [timeOff, personById, week.week_start]);
 
   const weeklyCount = useMemo(() => {
     const m = new Map<string, number>();
@@ -475,6 +492,9 @@ export function ScheduleGrid({
   // UI state
   const [picker, setPicker] = useState<CellKey | null>(null);
   const [attMenu, setAttMenu] = useState<string | null>(null);
+  const [ptoMenu, setPtoMenu] = useState<{ chip: PtoChip; day: number } | null>(
+    null,
+  );
   const [lineModal, setLineModal] = useState<{
     line: SchedWeekLine | null;
     deptId?: string;
@@ -735,7 +755,9 @@ export function ScheduleGrid({
                 collapsed={ptoCollapsed}
                 ptoByDay={ptoByDay}
                 weekCount={weekTimeOff.size}
+                canEdit={canEdit}
                 onToggle={() => setPtoCollapsed((v) => !v)}
+                onDecide={(chip, day) => setPtoMenu({ chip, day })}
               />
             )}
             {grouped.map(({ dept, lines: deptLines }) => (
@@ -1018,6 +1040,21 @@ export function ScheduleGrid({
             start(async () => {
               await markAttendance(attMenu, status, note);
               setAttMenu(null);
+              router.refresh();
+            })
+          }
+        />
+      )}
+
+      {ptoMenu && (
+        <PtoDecisionMenu
+          chip={ptoMenu.chip}
+          day={ptoMenu.day}
+          onClose={() => setPtoMenu(null)}
+          onDecide={(status) =>
+            start(async () => {
+              await setTimeOffStatus(ptoMenu.chip.requestId, status);
+              setPtoMenu(null);
               router.refresh();
             })
           }
@@ -1427,14 +1464,18 @@ function PtoSection({
   collapsed,
   ptoByDay,
   weekCount,
+  canEdit,
   onToggle,
+  onDecide,
 }: {
   colCount: number;
   span: number;
   collapsed: boolean;
-  ptoByDay: Map<number, { person: SchedPerson; status: "requested" | "approved" }[]>;
+  ptoByDay: Map<number, PtoChip[]>;
   weekCount: number;
+  canEdit: boolean;
   onToggle: () => void;
+  onDecide: (chip: PtoChip, day: number) => void;
 }) {
   const showCols = colCount > 0;
   const BG = "#6d28d9"; // violet-700 — distinct from department colors.
@@ -1505,23 +1546,52 @@ function PtoSection({
                     <span className="text-[11px] text-slate-300">—</span>
                   ) : (
                     <div className="flex flex-wrap gap-1">
-                      {list.map(({ person, status }) => (
-                        <span
-                          key={person.id}
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                            status === "approved"
-                              ? "bg-emerald-100 text-emerald-700"
-                              : "bg-amber-100 text-amber-700"
-                          }`}
-                          title={
-                            status === "approved"
-                              ? "Approved time off"
-                              : "Pending time-off request"
-                          }
-                        >
-                          {gridName(person)}
-                        </span>
-                      ))}
+                      {list.map((chip) => {
+                        const { person, status, requestId } = chip;
+                        const tone =
+                          status === "approved"
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-amber-100 text-amber-700";
+                        const label = gridName(person);
+                        if (!canEdit) {
+                          return (
+                            <span
+                              key={requestId}
+                              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${tone}`}
+                              title={
+                                status === "approved"
+                                  ? "Approved time off"
+                                  : "Pending time-off request"
+                              }
+                            >
+                              {label}
+                            </span>
+                          );
+                        }
+                        return (
+                          <button
+                            key={requestId}
+                            onClick={() => onDecide(chip, d)}
+                            className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-inset ring-black/5 transition hover:opacity-80 ${tone} ${
+                              status === "requested"
+                                ? "ring-amber-400"
+                                : ""
+                            }`}
+                            title={
+                              status === "approved"
+                                ? "Approved — click to review or deny"
+                                : "Pending request — click to approve or deny"
+                            }
+                          >
+                            {label}
+                            {status === "requested" && (
+                              <span aria-hidden className="ml-0.5 opacity-70">
+                                •
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </td>
@@ -2161,6 +2231,87 @@ function AttendanceMenu({
           >
             Clear marking (assume Present)
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Approve / deny a PTO request from the grid's time-off section
+// ---------------------------------------------------------------------------
+
+function PtoDecisionMenu({
+  chip,
+  day,
+  onClose,
+  onDecide,
+}: {
+  chip: PtoChip;
+  day: number;
+  onClose: () => void;
+  onDecide: (status: "approved" | "denied") => void;
+}) {
+  const fmt = (d: string) =>
+    new Date(`${d}T00:00:00`).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  const range =
+    chip.startDate === chip.endDate
+      ? fmt(chip.startDate)
+      : `${fmt(chip.startDate)} – ${fmt(chip.endDate)}`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+      <div className="w-full max-w-sm rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-200 p-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">
+              {gridName(chip.person)}
+            </h3>
+            <p className="text-xs text-slate-500">
+              Time-off request · {range} ·{" "}
+              <span
+                className={`font-medium ${
+                  chip.status === "approved"
+                    ? "text-emerald-600"
+                    : "text-amber-600"
+                }`}
+              >
+                {chip.status === "approved" ? "Approved" : "Pending"}
+              </span>
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="space-y-2 p-4">
+          <p className="text-xs text-slate-500">
+            Affects the whole request ({range}), not just {DAY_LABELS[day]}.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onDecide("approved")}
+              disabled={chip.status === "approved"}
+              className="rounded-lg bg-emerald-100 px-2 py-2 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200 hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Approve
+            </button>
+            <button
+              onClick={() => onDecide("denied")}
+              className="rounded-lg bg-red-100 px-2 py-2 text-xs font-semibold text-red-700 ring-1 ring-inset ring-red-200 hover:opacity-80"
+            >
+              Deny
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Denying removes the time off and frees {gridName(chip.person)} to be
+            scheduled those days.
+          </p>
         </div>
       </div>
     </div>
