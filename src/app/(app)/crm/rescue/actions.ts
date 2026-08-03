@@ -54,9 +54,22 @@ export async function logRescueVisit(formData: FormData): Promise<ActionResult> 
   });
   if (insErr) return { ok: false, error: insErr.message };
 
+  // Only move the roll-up dates forward — a backdated visit must never lower a
+  // more recent last_visit_date / last_contact_date.
+  const { data: existing } = await supabase
+    .from("crm_organization")
+    .select("last_visit_date, last_contact_date")
+    .eq("id", orgId)
+    .maybeSingle();
+  const curVisit = existing?.last_visit_date ? String(existing.last_visit_date).slice(0, 10) : null;
+  const curContact = existing?.last_contact_date ? String(existing.last_contact_date).slice(0, 10) : null;
+
   const { error: updErr } = await supabase
     .from("crm_organization")
-    .update({ last_visit_date: visitDate, last_contact_date: visitDate })
+    .update({
+      last_visit_date: !curVisit || visitDate > curVisit ? visitDate : curVisit,
+      last_contact_date: !curContact || visitDate > curContact ? visitDate : curContact,
+    })
     .eq("id", orgId);
   if (updErr) return { ok: false, error: updErr.message };
 

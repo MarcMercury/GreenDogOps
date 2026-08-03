@@ -180,11 +180,21 @@ export async function logQuickVisit(formData: FormData): Promise<ActionResult> {
   if (error) return { ok: false, error: error.message };
 
   if (resolvedPartnerId) {
+    // Only move the roll-up dates forward — a backdated visit must never lower
+    // a partner's last_visit_date / last_contact_date below a more recent one.
+    const { data: existing } = await supabase
+      .from("referral_partners")
+      .select("last_visit_date, last_contact_date")
+      .eq("id", resolvedPartnerId)
+      .maybeSingle();
+    const curVisit = existing?.last_visit_date ? String(existing.last_visit_date).slice(0, 10) : null;
+    const curContact = existing?.last_contact_date ? String(existing.last_contact_date).slice(0, 10) : null;
+
     await supabase
       .from("referral_partners")
       .update({
-        last_visit_date: visitDate,
-        last_contact_date: visitDate,
+        last_visit_date: !curVisit || visitDate > curVisit ? visitDate : curVisit,
+        last_contact_date: !curContact || visitDate > curContact ? visitDate : curContact,
         needs_followup: false,
         next_followup_date: str(formData.get("next_visit_date")),
         updated_at: new Date().toISOString(),
@@ -1078,7 +1088,7 @@ function extractKeywords(name: string): string[] {
   return name.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter((w) => w.length > 1 && !GENERIC_WORDS.has(w));
 }
 
-interface MatchPartner { id: string; name: string; referral_divisions: string[] | null; last_referral_date: string | null }
+interface MatchPartner { id: string; name: string; referral_divisions: string[] | null; last_referral_date: string | null; last_contact_date: string | null }
 function findBestMatch(clinicName: string, partners: MatchPartner[]): MatchPartner | null {
   const normalizedInput = normalizeNameForComparison(clinicName);
   let match = partners.find((p) => (p.name || "").toLowerCase().trim() === clinicName.toLowerCase().trim());
@@ -1254,9 +1264,12 @@ export async function parseReferralUpload(formData: FormData): Promise<UploadRes
           referrals_last_12_months: entry.totalReferrals12Months, last_sync_date: syncDate, last_data_source: "csv_upload",
         };
         if (entry.lastReferralDate) {
-          updateData.last_contact_date = entry.lastReferralDate;
-          const existing = m.last_referral_date ? String(m.last_referral_date).split("T")[0] : null;
-          if (!existing || entry.lastReferralDate > existing) updateData.last_referral_date = entry.lastReferralDate;
+          const existingRef = m.last_referral_date ? String(m.last_referral_date).split("T")[0] : null;
+          if (!existingRef || entry.lastReferralDate > existingRef) updateData.last_referral_date = entry.lastReferralDate;
+          // Only advance last_contact_date — an older referral batch must not
+          // regress a partner's most-recent-contact stamp.
+          const existingContact = m.last_contact_date ? String(m.last_contact_date).split("T")[0] : null;
+          if (!existingContact || entry.lastReferralDate > existingContact) updateData.last_contact_date = entry.lastReferralDate;
         }
         partnerUpdates.set(m.id, updateData);
         updated++;
