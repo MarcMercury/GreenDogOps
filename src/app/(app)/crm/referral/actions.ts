@@ -151,10 +151,24 @@ export async function logQuickVisit(formData: FormData): Promise<ActionResult> {
   const clinicName = str(formData.get("clinic_name"));
   if (!clinicName) return { ok: false, error: "Clinic name is required." };
 
+  // A visit logged as a "Custom clinic" carries no partner_id, so it would
+  // never bump any partner's last_visit_date. If the typed clinic name exactly
+  // matches an existing partner, link the visit so the profile/map still update.
+  let resolvedPartnerId = partnerId;
+  if (!resolvedPartnerId) {
+    const { data: match } = await supabase
+      .from("referral_partners")
+      .select("id")
+      .ilike("name", clinicName)
+      .limit(1)
+      .maybeSingle();
+    if (match) resolvedPartnerId = match.id;
+  }
+
   const visitDate = str(formData.get("visit_date")) ?? new Date().toISOString().slice(0, 10);
   const { error } = await supabase.from("clinic_visits").insert({
     user_id: current.authId,
-    partner_id: partnerId,
+    partner_id: resolvedPartnerId,
     clinic_name: clinicName,
     visit_date: visitDate,
     spoke_to: str(formData.get("spoke_to")),
@@ -165,7 +179,7 @@ export async function logQuickVisit(formData: FormData): Promise<ActionResult> {
   });
   if (error) return { ok: false, error: error.message };
 
-  if (partnerId) {
+  if (resolvedPartnerId) {
     await supabase
       .from("referral_partners")
       .update({
@@ -175,7 +189,7 @@ export async function logQuickVisit(formData: FormData): Promise<ActionResult> {
         next_followup_date: str(formData.get("next_visit_date")),
         updated_at: new Date().toISOString(),
       })
-      .eq("id", partnerId);
+      .eq("id", resolvedPartnerId);
 
     // Refresh derived metrics (days-since-visit, overdue flag, relationship
     // health/status) immediately so the new visit is reflected without
@@ -185,7 +199,7 @@ export async function logQuickVisit(formData: FormData): Promise<ActionResult> {
 
   await recordAudit({
     actorId: current.authId, actorEmail: current.email,
-    action: "referral.visit.log", entity: "referral_partner", entityId: partnerId ?? undefined,
+    action: "referral.visit.log", entity: "referral_partner", entityId: resolvedPartnerId ?? undefined,
     summary: `Logged visit to ${clinicName}`,
   });
 
