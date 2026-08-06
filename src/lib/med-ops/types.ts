@@ -266,3 +266,44 @@ export function statusTone(value: string | null): string {
   return "bg-slate-50 text-slate-600";
 }
 
+export interface CardStatusStyle {
+  /** Filled pill on the tile header. */
+  chip: string;
+  /** Solid accent stripe and progress fill. */
+  bar: string;
+  /** Tint behind the tile header. */
+  header: string;
+}
+
+/**
+ * Colours for a card-board workflow stage. Tiles are read from across a
+ * treatment room, so every stage gets its own hue rather than a shared grey.
+ */
+export function cardStatusStyle(value: string | null): CardStatusStyle {
+  const v = (value ?? "").toUpperCase();
+  if (/DISCHARG/.test(v))
+    return { chip: "bg-slate-500 text-white", bar: "bg-slate-400", header: "bg-slate-100" };
+  if (/READY|PICKUP|DONE/.test(v))
+    return { chip: "bg-emerald-600 text-white", bar: "bg-emerald-500", header: "bg-emerald-50" };
+  if (/RECOVER/.test(v))
+    return { chip: "bg-teal-600 text-white", bar: "bg-teal-500", header: "bg-teal-50" };
+  if (/PROCEDURE|SURGERY|TREATMENT|ROOM|DVM/.test(v))
+    return { chip: "bg-sky-600 text-white", bar: "bg-sky-500", header: "bg-sky-50" };
+  if (/INDUC/.test(v))
+    return { chip: "bg-amber-500 text-white", bar: "bg-amber-500", header: "bg-amber-50" };
+  if (/PRE-?\s?MED|SEDAT/.test(v))
+    return { chip: "bg-violet-600 text-white", bar: "bg-violet-500", header: "bg-violet-50" };
+  if (/ADMIT|CHECKED/.test(v))
+    return { chip: "bg-indigo-600 text-white", bar: "bg-indigo-500", header: "bg-indigo-50" };
+  return { chip: "bg-slate-200 text-slate-700", bar: "bg-slate-200", header: "bg-slate-50" };
+}
+
+/** Tone classes for one temperament / caution chip on a patient tile. */
+export function alertTone(value: string): string {
+  const v = value.toUpperCase();
+  if (/UNFRIENDLY|AGGRESS|BITE|MUZZLE|CAUTION|DANGER|FRACTIOUS/.test(v))
+    return "bg-rose-100 text-rose-800 ring-rose-300";
+  if (/FRIENDLY|FEAR FREE/.test(v)) return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  return "bg-amber-50 text-amber-800 ring-amber-300";
+}
+

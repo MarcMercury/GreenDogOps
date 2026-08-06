@@ -8,7 +8,7 @@ import {
   type CardMedRow,
   type CardTemplate,
 } from "@/lib/med-ops/templates";
-import { statusTone, type MedicalBoardRow } from "@/lib/med-ops/types";
+import { cardStatusStyle, type MedicalBoardRow } from "@/lib/med-ops/types";
 
 type Patch = Record<string, unknown>;
 
@@ -79,11 +79,13 @@ export function PatientCard({
         <select
           value={card.status ?? ""}
           onChange={(e) => patch({ status: e.target.value })}
-          className={`ml-auto rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium ${statusTone(card.status ?? null)}`}
+          className={`ml-auto rounded-lg border-0 px-2 py-1 text-xs font-semibold shadow-sm outline-none ${cardStatusStyle(card.status ?? null).chip}`}
         >
-          <option value="">Status…</option>
+          <option value="" className="bg-white text-slate-700">
+            Status…
+          </option>
           {tpl.statusOptions.map((s) => (
-            <option key={s} value={s}>
+            <option key={s} value={s} className="bg-white text-slate-700">
               {s}
             </option>
           ))}

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DB_SCHEMA } from "@/lib/supabase/config";
@@ -10,6 +10,8 @@ import {
   GRID_FLAG_COLUMNS,
   GRID_FLAG_WIDTH,
   GRID_TEXT_COLUMNS,
+  alertTone,
+  cardStatusStyle,
   fasTone,
   statusTone,
   withCurrent,
@@ -22,7 +24,6 @@ import {
   getTemplate,
   type CardDoc,
   type CardTemplate,
-  type SummaryField,
 } from "@/lib/med-ops/templates";
 import { PatientCard } from "./patient-card";
 import {
@@ -352,8 +353,9 @@ export function launchPatient(rowId: string) {
 }
 
 /**
- * Card boards (AP, Surgery) show a compact summary of the day; the full record
- * lives in the launched patient window.
+ * Card boards (AP, Surgery) show the day as a grid of patient tiles. Each tile
+ * carries enough of the record to run the room at a glance; the full card
+ * opens in place, or in its own window for the treatment-room screen.
  */
 function CardSummary({
   rows,
@@ -368,111 +370,316 @@ function CardSummary({
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const valueOf = (row: MedicalBoardRow, f: SummaryField): string => {
-    const card = (row.card as CardDoc | null) ?? {};
-    if (f.from === "row") return String(row[f.key as keyof MedicalBoardRow] ?? "");
-    if (f.from === "fields") return card.fields?.[f.key] ?? "";
-    if (f.from === "list") {
-      return (card.list ?? [])
-        .map((l) => l.text)
-        .filter(Boolean)
-        .join(", ");
-    }
-    const v = card[f.key as keyof CardDoc];
-    return typeof v === "string" ? v : "";
+  return (
+    <div className="grid items-start gap-3 md:grid-cols-2 2xl:grid-cols-3">
+      {rows.map((row) => (
+        <PatientTile
+          key={row.id}
+          row={row}
+          tpl={tpl}
+          open={expanded === row.id}
+          onToggle={() =>
+            setExpanded((cur) => (cur === row.id ? null : row.id))
+          }
+          onPatch={onPatch}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** "Pepper" Cooper, K9, 6Y, FS, Jack Russell Terrier → name + trait chips. */
+function splitSignalment(
+  row: MedicalBoardRow,
+  card: CardDoc,
+): { name: string; traits: string[] } {
+  const raw = card.signalment?.trim();
+  if (raw) {
+    const parts = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    return { name: parts[0] ?? raw, traits: parts.slice(1) };
+  }
+  return {
+    name:
+      [row.patient, row.client_name].filter(Boolean).join(" · ") ||
+      "New patient",
+    traits: [row.species, row.age, row.sex, row.breed].filter(
+      (v): v is string => Boolean(v),
+    ),
   };
+}
+
+/** "Friendly · *CARDIO,*AP REQUIRED" → one chip per caution. */
+function alertChips(text: string): string[] {
+  return text
+    .split(/[·,;|]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function PatientTile({
+  row,
+  tpl,
+  open,
+  onToggle,
+  onPatch,
+  onDelete,
+}: {
+  row: MedicalBoardRow;
+  tpl: CardTemplate;
+  open: boolean;
+  onToggle: () => void;
+  onPatch: (rowId: string, patch: Record<string, unknown>) => void;
+  onDelete: (rowId: string) => void;
+}) {
+  const card = (row.card as CardDoc | null) ?? {};
+  const status = card.status ?? "";
+  const tone = cardStatusStyle(status);
+  const step = tpl.statusOptions.indexOf(status);
+  const { name, traits } = splitSignalment(row, card);
+  const alerts = alertChips(card.alerts ?? row.cautions ?? "");
+  const listItems = (card.list ?? []).filter((l) => l.text.trim());
+  const meds = (card.meds ?? []).filter((m) => m.drug.trim());
+  const medsGiven = meds.filter((m) => m.given || m.given2).length;
+  const prepDone = tpl.checklist.filter((c) => card.checklist?.[c.key]).length;
+  const noteText = tpl.notes
+    .map((n) => card.notes?.[n.key]?.trim())
+    .find(Boolean);
+  const weight = card.weight_kg?.trim() || row.weight_kg?.trim() || "";
 
   return (
-    <div className="space-y-2">
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full border-collapse text-xs">
-          <thead className="bg-slate-50">
-            <tr>
-              <th className="w-8 border-b border-slate-200" />
-              {tpl.summary.map((f) => (
-                <th
-                  key={f.key}
-                  className={`${f.width ?? ""} whitespace-nowrap border-b border-slate-200 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500`}
+    <article
+      className={`relative flex flex-col overflow-hidden rounded-xl border bg-white shadow-sm transition ${
+        open
+          ? "border-emerald-300 ring-1 ring-emerald-200 md:col-span-2 2xl:col-span-3"
+          : "border-slate-200 hover:shadow-md"
+      } ${/discharg/i.test(status) ? "opacity-70" : ""}`}
+    >
+      <span
+        aria-hidden
+        className={`absolute inset-y-0 left-0 w-1.5 ${tone.bar}`}
+      />
+
+      <header
+        className={`flex items-start gap-2 border-b border-slate-100 py-2.5 pl-4 pr-2.5 ${tone.header}`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-700 ring-1 ring-slate-200">
+              {row.appt_time || "—:—"}
+            </span>
+            <h3 className="truncate text-sm font-bold text-slate-900">{name}</h3>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {traits.length ? (
+              traits.map((t, i) => (
+                <span
+                  key={`${t}-${i}`}
+                  className="rounded bg-white/80 px-1.5 py-px text-[10px] font-medium text-slate-600 ring-1 ring-slate-200"
                 >
-                  {f.label}
-                </th>
-              ))}
-              <th className="w-32 border-b border-slate-200 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                Status
-              </th>
-              <th className="w-28 border-b border-slate-200" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const card = (row.card as CardDoc | null) ?? {};
-              const open = expanded === row.id;
-              return (
-                <Fragment key={row.id}>
-                  <tr className="border-b border-slate-100 align-top hover:bg-slate-50/60">
-                    <td className="px-1 py-2">
-                      <button
-                        type="button"
-                        onClick={() => setExpanded(open ? null : row.id)}
-                        aria-label={open ? "Collapse patient" : "Expand patient"}
-                        className="text-slate-400 transition hover:text-slate-600"
-                      >
-                        <span className={`inline-block transition-transform ${open ? "" : "-rotate-90"}`}>
-                          ⌄
-                        </span>
-                      </button>
-                    </td>
-                    {tpl.summary.map((f) => (
-                      <td key={f.key} className="px-2 py-2 text-slate-700">
-                        <span className={f.key === "alerts" ? "text-amber-700" : ""}>
-                          {valueOf(row, f) || "—"}
-                        </span>
-                      </td>
-                    ))}
-                    <td className="px-2 py-1.5">
-                      <select
-                        value={card.status ?? ""}
-                        onChange={(e) => onPatch(row.id, { status: e.target.value })}
-                        className={`w-full rounded border border-slate-200 px-1.5 py-1 text-[11px] font-medium ${statusTone(card.status ?? null)}`}
-                      >
-                        <option value="">Status…</option>
-                        {tpl.statusOptions.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-2 py-1.5">
-                      <button
-                        type="button"
-                        onClick={() => launchPatient(row.id)}
-                        title="Open this patient in its own window for the treatment-room screen"
-                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
-                      >
-                        Launch ↗
-                      </button>
-                    </td>
-                  </tr>
-                  {open ? (
-                    <tr>
-                      <td colSpan={tpl.summary.length + 3} className="bg-slate-50/60 p-2">
-                        <PatientCard
-                          row={row}
-                          tpl={tpl}
-                          onPatch={onPatch}
-                          onDelete={onDelete}
-                        />
-                      </td>
-                    </tr>
-                  ) : null}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+                  {t}
+                </span>
+              ))
+            ) : (
+              <span className="text-[10px] text-slate-400">No signalment</span>
+            )}
+          </div>
+        </div>
+        <select
+          value={status}
+          onChange={(e) => onPatch(row.id, { status: e.target.value })}
+          aria-label="Patient status"
+          className={`shrink-0 rounded-lg border-0 px-2 py-1 text-[11px] font-semibold shadow-sm outline-none ${tone.chip}`}
+        >
+          <option value="" className="bg-white text-slate-700">
+            Status…
+          </option>
+          {tpl.statusOptions.map((s) => (
+            <option key={s} value={s} className="bg-white text-slate-700">
+              {s}
+            </option>
+          ))}
+        </select>
+      </header>
+
+      {alerts.length ? (
+        <div className="flex flex-wrap items-center gap-1 border-b border-slate-100 py-1.5 pl-4 pr-2.5">
+          {alerts.map((a, i) => (
+            <span
+              key={`${a}-${i}`}
+              className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ring-1 ${alertTone(a)}`}
+            >
+              {a}
+            </span>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="grid grid-cols-3 gap-x-3 gap-y-2 py-2.5 pl-4 pr-2.5">
+        <Metric label="WT (kg)" value={weight} />
+        <Metric
+          label="Bloodwork"
+          value={card.bw_type ?? ""}
+          tone={card.bw_done ? "text-emerald-700" : undefined}
+          suffix={card.bw_done ? "✓" : undefined}
+        />
+        <Metric label="IVC" value={card.ivc ?? ""} />
+        {tpl.statusFields.map((f) => (
+          <Metric
+            key={f.key}
+            label={f.label}
+            value={card.fields?.[f.key] ?? ""}
+          />
+        ))}
+      </div>
+
+      <div className="border-t border-slate-100 py-2 pl-4 pr-2.5">
+        <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+          {tpl.listLabel}
+        </div>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {listItems.length ? (
+            listItems.map((item, i) => (
+              <span
+                key={i}
+                className={`rounded px-1.5 py-0.5 text-[11px] font-medium ring-1 ${
+                  item.done
+                    ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                    : "bg-slate-50 text-slate-700 ring-slate-200"
+                }`}
+              >
+                {item.done ? "✓ " : ""}
+                {item.text}
+              </span>
+            ))
+          ) : (
+            <span className="text-[11px] text-slate-300">None recorded</span>
+          )}
+        </div>
+      </div>
+
+      {noteText ? (
+        <p className="line-clamp-2 border-t border-slate-100 py-2 pl-4 pr-2.5 text-[11px] leading-snug text-slate-500">
+          <span className="font-semibold uppercase tracking-wider text-slate-400">
+            Notes ·{" "}
+          </span>
+          {noteText}
+        </p>
+      ) : null}
+
+      <div className="mt-auto space-y-2 border-t border-slate-100 pb-2.5 pt-2 pl-4 pr-2.5">
+        <div
+          className="flex gap-0.5"
+          role="img"
+          aria-label={`Stage: ${status || "not started"}`}
+        >
+          {tpl.statusOptions.map((s, i) => (
+            <span
+              key={s}
+              title={s}
+              className={`h-1.5 flex-1 rounded-full transition ${
+                i <= step ? tone.bar : "bg-slate-200"
+              }`}
+            />
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Counter label="Prep" done={prepDone} total={tpl.checklist.length} />
+          <Counter label="Meds" done={medsGiven} total={meds.length} />
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={open}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              {open ? "Hide details" : "Details"}
+              <span
+                className={`ml-1 inline-block transition-transform ${open ? "" : "-rotate-90"}`}
+              >
+                ⌄
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => launchPatient(row.id)}
+              title="Open this patient in its own window for the treatment-room screen"
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+            >
+              Launch ↗
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {open ? (
+        <div className="border-t border-slate-200 bg-slate-50/70 p-2">
+          <PatientCard
+            row={row}
+            tpl={tpl}
+            onPatch={onPatch}
+            onDelete={onDelete}
+          />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+/** One labelled value in a tile's stat strip. */
+function Metric({
+  label,
+  value,
+  tone,
+  suffix,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  suffix?: string;
+}) {
+  const text = value.trim();
+  return (
+    <div className="min-w-0">
+      <div className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+        {label}
+      </div>
+      <div
+        className={`truncate text-[13px] font-semibold ${
+          text ? (tone ?? "text-slate-800") : "text-slate-300"
+        }`}
+        title={text || undefined}
+      >
+        {text || "—"}
+        {text && suffix ? ` ${suffix}` : ""}
       </div>
     </div>
+  );
+}
+
+/** Progress chip — grey untouched, blue in flight, green complete. */
+function Counter({
+  label,
+  done,
+  total,
+}: {
+  label: string;
+  done: number;
+  total: number;
+}) {
+  if (!total) return null;
+  return (
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+        done === total
+          ? "bg-emerald-50 text-emerald-700"
+          : done
+            ? "bg-sky-50 text-sky-700"
+            : "bg-slate-100 text-slate-500"
+      }`}
+    >
+      {label} {done}/{total}
+    </span>
   );
 }
 

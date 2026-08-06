@@ -36,33 +36,12 @@ export interface CardField {
   placeholder?: string;
 }
 
-/** A column on a card board's summary table. */
-export interface SummaryField {
-  key: string;
-  label: string;
-  /** Where the value comes from: a card field, or the row itself. */
-  from: "card" | "row" | "fields" | "list";
-  width?: string;
-}
-
-const COMMON_SUMMARY: SummaryField[] = [
-  { key: "appt_time", label: "Time", from: "row", width: "w-16" },
-  { key: "signalment", label: "Patient", from: "card", width: "w-64" },
-  { key: "weight_kg", label: "WT (kg)", from: "card", width: "w-20" },
-  { key: "alerts", label: "Alerts", from: "card", width: "w-56" },
-];
-
 export interface CardTemplate {
   /** Right-hand numbered panel (AP: extractions, Surgery: procedures). */
   listLabel: string;
   listRows: number;
   /** Each numbered line carries a done checkbox. */
   listHasCheck: boolean;
-  /**
-   * Fields shown on the board's summary table. The full card is reserved for
-   * the launched patient window, so the summary stays readable at a glance.
-   */
-  summary: SummaryField[];
   /** Column-group headers over the drug table. */
   medGroups: [string, string];
   meds: MedTemplate[];
@@ -86,13 +65,6 @@ const AP_CARD: CardTemplate = {
   listLabel: "Extractions",
   listRows: 4,
   listHasCheck: false,
-  summary: [
-    ...COMMON_SUMMARY,
-    { key: "list", label: "Extractions", from: "list", width: "w-40" },
-    { key: "estimate", label: "Estimate", from: "fields", width: "w-24" },
-    { key: "surgeon", label: "SX", from: "fields", width: "w-16" },
-    { key: "pickup", label: "PU", from: "fields", width: "w-16" },
-  ],
   medGroups: ["Pre-medication", "Titrated / additional"],
   meds: [
     { drug: "Torb (10mg/mL)", route: "IV", route2: "IV" },
@@ -137,13 +109,6 @@ const SURGERY_CARD: CardTemplate = {
   listLabel: "Surgical procedures (add location)",
   listRows: 4,
   listHasCheck: true,
-  summary: [
-    ...COMMON_SUMMARY,
-    { key: "list", label: "Procedures", from: "list", width: "w-48" },
-    { key: "invoice_status", label: "Invoice", from: "fields", width: "w-28" },
-    { key: "surgeon", label: "SX", from: "fields", width: "w-16" },
-    { key: "pickup", label: "PU", from: "fields", width: "w-16" },
-  ],
   medGroups: ["Pre-medication", "Induction"],
   meds: [
     { drug: "Bup 0.5mg/ml", route: "IV", route2: "IV" },
