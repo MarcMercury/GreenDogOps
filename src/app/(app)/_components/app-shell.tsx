@@ -74,6 +74,11 @@ const MODULES_BOTTOM: NavItem[] = [
   { key: "schedule", href: "/schedule-search", label: "Schedule Search", icon: "🔍" },
 ];
 
+/** Med Ops — clinical workflow boards. */
+const MED_OPS: NavItem[] = [
+  { key: "med_boards", href: "/med-ops/medical-boards", label: "Medical Boards", icon: "🩺" },
+];
+
 /** Business development modules, after Operations. */
 const BIZ_DEV: NavItem[] = [
   { key: "ezyvet", href: "/ezyvet", label: "ezyVet CRM", icon: "🐾" },
@@ -88,6 +93,7 @@ const ALL_NAV: Array<{ href: string; label: string; icon: string }> = [
   { href: "/crm", label: "CRM", icon: "🏢" },
   ...MARKETING,
   ...MODULES_BOTTOM,
+  ...MED_OPS,
   ...BIZ_DEV,
 ];
 
@@ -230,6 +236,12 @@ function NavLinks({
       <NavSection
         title="Operations"
         items={MODULES_BOTTOM.filter((m) => allowed.has(m.key))}
+        onNavigate={onNavigate}
+        collapsed={collapsed}
+      />
+      <NavSection
+        title="Med Ops"
+        items={MED_OPS.filter((m) => allowed.has(m.key))}
         onNavigate={onNavigate}
         collapsed={collapsed}
       />

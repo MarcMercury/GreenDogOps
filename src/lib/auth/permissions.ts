@@ -65,6 +65,7 @@ export type ModuleKey =
   | "planning"
   | "schedule"
   | "calendar"
+  | "med_boards"
   | "resources"
   | "admin";
 
@@ -93,6 +94,7 @@ export const MODULES: ModuleDef[] = [
   { key: "planning", label: "Planning Guides", href: "/planning" },
   { key: "schedule", label: "Scheduling", href: "/schedule" },
   { key: "calendar", label: "Calendar", href: "/calendar" },
+  { key: "med_boards", label: "Medical Boards", href: "/med-ops/medical-boards" },
   { key: "resources", label: "Resources", href: "/resources" },
   { key: "admin", label: "Admin", href: "/admin" },
 ];

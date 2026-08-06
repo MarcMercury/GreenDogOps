@@ -231,6 +231,7 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
   planning: "🧭",
   schedule: "🗓️",
   calendar: "📅",
+  med_boards: "🩺",
   resources: "📚",
   admin: "⚙️",
 };
