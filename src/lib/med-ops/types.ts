@@ -86,8 +86,26 @@ export interface MedicalBoardRow {
   ds: boolean;
   notes: string | null;
   card: Record<string, unknown> | null;
+  // Prefilled from the ezyVet Animals + Contacts reports at seed time.
+  patient_code: string | null;
+  species: string | null;
+  breed: string | null;
+  sex: string | null;
+  age: string | null;
+  owner_phone: string | null;
+  owner_email: string | null;
+  owner_contact_method: string | null;
+  cautions: string | null;
+  master_problems: string | null;
+  insurance: string | null;
+  last_visit: string | null;
   updated_by: string | null;
   updated_at: string;
+}
+
+/** One-line signalment for a row, e.g. K9 · MN · 13Y · Fox Terrier Mix. */
+export function signalmentOf(row: MedicalBoardRow): string {
+  return [row.species, row.sex, row.age, row.breed].filter(Boolean).join(" · ");
 }
 
 /** Columns a user may edit on the board. */

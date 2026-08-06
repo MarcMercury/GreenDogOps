@@ -164,3 +164,19 @@ export async function patchBoardCard(
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
+
+/** A single row — powers the launched patient window and its live refresh. */
+export async function fetchBoardRow(
+  rowId: string,
+): Promise<MedicalBoardRow | null> {
+  const current = await ensureBoardUser();
+  if (!current) return null;
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("medical_board_row")
+    .select("*")
+    .eq("id", rowId)
+    .maybeSingle();
+  return (data as MedicalBoardRow | null) ?? null;
+}

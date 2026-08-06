@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DB_SCHEMA } from "@/lib/supabase/config";
@@ -13,7 +13,12 @@ import {
   type EditableField,
   type MedicalBoardRow,
 } from "@/lib/med-ops/types";
-import { BOARD_TEMPLATES, type CardDoc } from "@/lib/med-ops/templates";
+import {
+  BOARD_TEMPLATES,
+  type CardDoc,
+  type CardTemplate,
+  type SummaryField,
+} from "@/lib/med-ops/templates";
 import { PatientCard } from "./patient-card";
 import {
   addBoardRow,
@@ -245,17 +250,12 @@ export function MedicalBoard({
           </p>
         </div>
       ) : template.layout === "card" && template.card ? (
-        <div className="grid gap-3 2xl:grid-cols-2">
-          {rows.map((row) => (
-            <PatientCard
-              key={row.id}
-              row={row}
-              tpl={template.card!}
-              onPatch={patchCard}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
+        <CardSummary
+          rows={rows}
+          tpl={template.card}
+          onPatch={patchCard}
+          onDelete={onDelete}
+        />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="min-w-full border-collapse text-xs">
@@ -270,6 +270,7 @@ export function MedicalBoard({
                     {col.label}
                   </th>
                 ))}
+                <th className="w-24 border-b border-slate-200" />
                 <th className="w-10 border-b border-slate-200" />
               </tr>
             </thead>
@@ -294,6 +295,16 @@ export function MedicalBoard({
                   <td className="px-1 py-1 align-top">
                     <button
                       type="button"
+                      onClick={() => launchPatient(row.id)}
+                      title="Open this patient in its own window"
+                      className="whitespace-nowrap rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+                    >
+                      Launch ↗
+                    </button>
+                  </td>
+                  <td className="px-1 py-1 align-top">
+                    <button
+                      type="button"
                       onClick={() => onDelete(row.id)}
                       title="Remove from board"
                       className="rounded px-1.5 py-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600"
@@ -311,13 +322,149 @@ export function MedicalBoard({
   );
 }
 
+/**
+ * Open a patient in its own window. These get dragged onto the treatment-room
+ * TVs, so they are sized generously and open without the app chrome.
+ */
+export function launchPatient(rowId: string) {
+  window.open(
+    `/patient/${rowId}`,
+    `gdo-patient-${rowId}`,
+    "noopener,noreferrer,width=1400,height=1000",
+  );
+}
+
+/**
+ * Card boards (AP, Surgery) show a compact summary of the day; the full record
+ * lives in the launched patient window.
+ */
+function CardSummary({
+  rows,
+  tpl,
+  onPatch,
+  onDelete,
+}: {
+  rows: MedicalBoardRow[];
+  tpl: CardTemplate;
+  onPatch: (rowId: string, patch: Record<string, unknown>) => void;
+  onDelete: (rowId: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const valueOf = (row: MedicalBoardRow, f: SummaryField): string => {
+    const card = (row.card as CardDoc | null) ?? {};
+    if (f.from === "row") return String(row[f.key as keyof MedicalBoardRow] ?? "");
+    if (f.from === "fields") return card.fields?.[f.key] ?? "";
+    if (f.from === "list") {
+      return (card.list ?? [])
+        .map((l) => l.text)
+        .filter(Boolean)
+        .join(", ");
+    }
+    const v = card[f.key as keyof CardDoc];
+    return typeof v === "string" ? v : "";
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <table className="min-w-full border-collapse text-xs">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="w-8 border-b border-slate-200" />
+              {tpl.summary.map((f) => (
+                <th
+                  key={f.key}
+                  className={`${f.width ?? ""} whitespace-nowrap border-b border-slate-200 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500`}
+                >
+                  {f.label}
+                </th>
+              ))}
+              <th className="w-32 border-b border-slate-200 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Status
+              </th>
+              <th className="w-28 border-b border-slate-200" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const card = (row.card as CardDoc | null) ?? {};
+              const open = expanded === row.id;
+              return (
+                <Fragment key={row.id}>
+                  <tr className="border-b border-slate-100 align-top hover:bg-slate-50/60">
+                    <td className="px-1 py-2">
+                      <button
+                        type="button"
+                        onClick={() => setExpanded(open ? null : row.id)}
+                        aria-label={open ? "Collapse patient" : "Expand patient"}
+                        className="text-slate-400 transition hover:text-slate-600"
+                      >
+                        <span className={`inline-block transition-transform ${open ? "" : "-rotate-90"}`}>
+                          ⌄
+                        </span>
+                      </button>
+                    </td>
+                    {tpl.summary.map((f) => (
+                      <td key={f.key} className="px-2 py-2 text-slate-700">
+                        <span className={f.key === "alerts" ? "text-amber-700" : ""}>
+                          {valueOf(row, f) || "—"}
+                        </span>
+                      </td>
+                    ))}
+                    <td className="px-2 py-1.5">
+                      <select
+                        value={card.status ?? ""}
+                        onChange={(e) => onPatch(row.id, { status: e.target.value })}
+                        className={`w-full rounded border border-slate-200 px-1.5 py-1 text-[11px] font-medium ${statusTone(card.status ?? null)}`}
+                      >
+                        <option value="">Status…</option>
+                        {tpl.statusOptions.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-2 py-1.5">
+                      <button
+                        type="button"
+                        onClick={() => launchPatient(row.id)}
+                        title="Open this patient in its own window for the treatment-room screen"
+                        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+                      >
+                        Launch ↗
+                      </button>
+                    </td>
+                  </tr>
+                  {open ? (
+                    <tr>
+                      <td colSpan={tpl.summary.length + 3} className="bg-slate-50/60 p-2">
+                        <PatientCard
+                          row={row}
+                          tpl={tpl}
+                          onPatch={onPatch}
+                          onDelete={onDelete}
+                        />
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function Cell({
   row,
   col,
   onCommit,
   editingRef,
-}: {
-  row: MedicalBoardRow;
+}: {  row: MedicalBoardRow;
   col: BoardColumn;
   onCommit: (rowId: string, field: EditableField, value: CellValue) => void;
   editingRef: React.RefObject<{ rowId: string; field: EditableField } | null>;
