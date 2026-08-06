@@ -1,11 +1,12 @@
 import { PageHeader } from "../../_components/ui";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
-import { BOARD_TYPES, boardType, locationSlug } from "@/lib/med-ops/types";
+import { boardType, locationSlug } from "@/lib/med-ops/types";
 import {
   getBoardDay,
   getBoardLocations,
   getBoardRows,
+  getBoardTypes,
 } from "../medical-boards/data";
 import { ArchivePicker } from "./archive-picker";
 import { ArchivedBoard } from "./archived-board";
@@ -32,12 +33,15 @@ export default async function BoardArchivePage({
   }
 
   const { date, location: locParam, board: boardParam } = await searchParams;
-  const locations = await getBoardLocations();
+  const [locations, boardTypes] = await Promise.all([
+    getBoardLocations(),
+    getBoardTypes(),
+  ]);
 
   const selectedDate = date && ISO_DATE.test(date) ? date : null;
   const location =
     locations.find((l) => locationSlug(l) === locParam?.toLowerCase()) ?? null;
-  const board = boardType(boardParam);
+  const board = boardType(boardParam, boardTypes);
 
   const ready = Boolean(selectedDate && location && board);
   const [rows, day] = ready
@@ -60,7 +64,7 @@ export default async function BoardArchivePage({
           slug: locationSlug(l),
           label: l.display_name ?? l.name,
         }))}
-        boards={BOARD_TYPES.map((b) => ({ key: b.key, label: b.label }))}
+        boards={boardTypes.map((b) => ({ key: b.key, label: b.label }))}
         date={selectedDate ?? ""}
         location={location ? locationSlug(location) : ""}
         board={board?.key ?? ""}

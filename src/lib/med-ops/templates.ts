@@ -8,7 +8,7 @@
 // Card values are stored in medical_board_row.card (jsonb), so a template can
 // gain or drop fields without a migration.
 
-import { BOARD_COLUMNS, type BoardColumn, type BoardTypeKey } from "./types";
+import { BOARD_COLUMNS, type BoardColumn } from "./types";
 
 export type BoardLayout = "grid" | "card";
 
@@ -191,16 +191,23 @@ const SURGERY_CARD: CardTemplate = {
 const GRID: BoardTemplate = { layout: "grid", columns: BOARD_COLUMNS };
 
 /**
- * Exotics and IM keep the Clinic grid until those teams supply their own board;
- * AP and Surgery use the card layout from their Digital Board workbooks.
+ * AP and Surgery use the card layout from their Digital Board workbooks; every
+ * other department uses the Clinic grid until its team supplies a layout. Board
+ * types can be auto-registered, so unknown keys must resolve to the grid.
  */
-export const BOARD_TEMPLATES: Record<BoardTypeKey, BoardTemplate> = {
+export const BOARD_TEMPLATES: Record<string, BoardTemplate> = {
   clinic: GRID,
   exotics: GRID,
   im: GRID,
+  cardio: GRID,
+  mpmv: GRID,
   ap: { layout: "card", card: AP_CARD },
   surgery: { layout: "card", card: SURGERY_CARD },
 };
+
+export function getTemplate(key: string): BoardTemplate {
+  return BOARD_TEMPLATES[key] ?? GRID;
+}
 
 // ---------------------------------------------------------------------------
 // Card document

@@ -5,36 +5,47 @@
 // to a sched_department by its stable CODE, so board types survive department
 // renames (e.g. "NAD" was renamed "NAD/VE/UC" but its code stayed "NAD").
 
-export type BoardTypeKey = "ap" | "clinic" | "exotics" | "im" | "surgery";
+/**
+ * Board type keys are open-ended: the catalog table `medical_board_type` is the
+ * source of truth, and the daily rollover auto-registers a board for any
+ * department that starts taking appointments. The list below is only a fallback
+ * for rendering before the catalog is read.
+ */
+export type BoardTypeKey = string;
 
 export interface BoardTypeDef {
   key: BoardTypeKey;
   /** Tile label and board page title. */
   label: string;
-  /** Compact label for chips/badges. */
-  short: string;
   /** sched_department.code this board draws its appointments from. */
   deptCode: string;
   icon: string;
   /** Accent color for the tile (hex). */
   accent: string;
+  layout?: "grid" | "card";
 }
 
 export const BOARD_TYPES: BoardTypeDef[] = [
-  { key: "ap", label: "AP Board", short: "AP", deptCode: "AP", icon: "🩺", accent: "#0d9488" },
-  { key: "clinic", label: "Clinic Board", short: "Clinic", deptCode: "NAD", icon: "🏥", accent: "#2563eb" },
-  { key: "exotics", label: "Exotics Board", short: "Exotics", deptCode: "EXO", icon: "🦎", accent: "#16a34a" },
-  { key: "im", label: "IM Board", short: "IM", deptCode: "IM", icon: "🔬", accent: "#7c3aed" },
-  { key: "surgery", label: "Surgery Board", short: "Surgery", deptCode: "SURG", icon: "🔪", accent: "#e11d48" },
+  { key: "ap", label: "AP Board", deptCode: "AP", icon: "🩺", accent: "#0d9488", layout: "card" },
+  { key: "clinic", label: "Clinic Board", deptCode: "NAD", icon: "🏥", accent: "#2563eb", layout: "grid" },
+  { key: "exotics", label: "Exotics Board", deptCode: "EXO", icon: "🦎", accent: "#16a34a", layout: "grid" },
+  { key: "im", label: "IM Board", deptCode: "IM", icon: "🔬", accent: "#7c3aed", layout: "grid" },
+  { key: "surgery", label: "Surgery Board", deptCode: "SURG", icon: "🔪", accent: "#e11d48", layout: "card" },
+  { key: "cardio", label: "Cardio Board", deptCode: "CARD", icon: "❤️", accent: "#db2777", layout: "grid" },
+  { key: "mpmv", label: "MPMV Board", deptCode: "MPMV", icon: "🚐", accent: "#ea580c", layout: "grid" },
 ];
 
-export const BOARD_TYPE_MAP: Record<BoardTypeKey, BoardTypeDef> = Object.fromEntries(
-  BOARD_TYPES.map((b) => [b.key, b]),
-) as Record<BoardTypeKey, BoardTypeDef>;
-
-export function boardType(key: string | undefined): BoardTypeDef | null {
+/** Resolve a board type from a catalog list, falling back to the built-ins. */
+export function boardType(
+  key: string | undefined,
+  catalog: BoardTypeDef[] = BOARD_TYPES,
+): BoardTypeDef | null {
   if (!key) return null;
-  return BOARD_TYPE_MAP[key as BoardTypeKey] ?? null;
+  return (
+    catalog.find((b) => b.key === key) ??
+    BOARD_TYPES.find((b) => b.key === key) ??
+    null
+  );
 }
 
 /** URL slug for a location — its short_code when present, else its id. */

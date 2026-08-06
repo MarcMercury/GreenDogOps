@@ -1,6 +1,11 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { BoardTypeKey, MedicalBoardRow } from "@/lib/med-ops/types";
+import {
+  BOARD_TYPES,
+  type BoardTypeDef,
+  type BoardTypeKey,
+  type MedicalBoardRow,
+} from "@/lib/med-ops/types";
 
 export interface BoardLocation {
   id: string;
@@ -110,5 +115,55 @@ export async function getArchivedDates(limit = 180): Promise<string[]> {
   const seen = new Set<string>();
   for (const r of (data ?? []) as { board_date: string }[]) seen.add(r.board_date);
   return [...seen].slice(0, limit);
+}
+
+/**
+ * The board-type catalog. This is the source of truth (the rollover
+ * auto-registers a board for any department that starts taking appointments),
+ * so the UI must read it rather than a hard-coded list.
+ */
+export async function getBoardTypes(): Promise<BoardTypeDef[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("medical_board_type")
+    .select("key, label, dept_code, layout, icon, accent")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true })
+    .order("key", { ascending: true });
+  const rows = (data ?? []) as {
+    key: string;
+    label: string;
+    dept_code: string;
+    layout: "grid" | "card";
+    icon: string;
+    accent: string;
+  }[];
+  if (rows.length === 0) return BOARD_TYPES;
+  return rows.map((r) => ({
+    key: r.key,
+    label: r.label,
+    deptCode: r.dept_code,
+    icon: r.icon,
+    accent: r.accent,
+    layout: r.layout,
+  }));
+}
+
+export interface CoverageRow {
+  location_id: string;
+  location_name: string;
+  dept_code: string;
+  dept_name: string;
+  board_type: string | null;
+  board_label: string | null;
+  appointments: number;
+  on_board: number;
+}
+
+/** Agenda-vs-board reconciliation for a day, so shortfalls are visible. */
+export async function getBoardCoverage(date: string): Promise<CoverageRow[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.rpc("medical_board_coverage", { p_date: date });
+  return (data ?? []) as CoverageRow[];
 }
 

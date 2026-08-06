@@ -4,7 +4,13 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import { PageHeader } from "../../../../_components/ui";
 import { boardType, locationSlug } from "@/lib/med-ops/types";
-import { getBoardDay, getBoardLocationBySlug, getBoardRows, seedBoard } from "../../data";
+import {
+  getBoardDay,
+  getBoardLocationBySlug,
+  getBoardRows,
+  getBoardTypes,
+  seedBoard,
+} from "../../data";
 import { ArchivedBoard } from "../../../board-archive/archived-board";
 import { MedicalBoard } from "./medical-board";
 
@@ -36,7 +42,7 @@ export default async function BoardPage({
     notFound();
   }
 
-  const board = boardType(boardKey);
+  const board = boardType(boardKey, await getBoardTypes());
   const location = await getBoardLocationBySlug(slug);
   if (!board || !location) notFound();
 

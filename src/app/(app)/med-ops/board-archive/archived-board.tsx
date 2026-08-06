@@ -6,7 +6,7 @@ import {
   type MedicalBoardRow,
 } from "@/lib/med-ops/types";
 import {
-  BOARD_TEMPLATES,
+  getTemplate,
   hydrateCard,
   type CardDoc,
   type CardTemplate,
@@ -26,7 +26,7 @@ export function ArchivedBoard({
   date: string;
   status: "open" | "archived" | null;
 }) {
-  const template = BOARD_TEMPLATES[board.key];
+  const template = getTemplate(board.key);
   const pretty = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",

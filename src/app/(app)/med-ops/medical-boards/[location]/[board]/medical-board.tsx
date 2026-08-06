@@ -14,7 +14,7 @@ import {
   type MedicalBoardRow,
 } from "@/lib/med-ops/types";
 import {
-  BOARD_TEMPLATES,
+  getTemplate,
   type CardDoc,
   type CardTemplate,
   type SummaryField,
@@ -179,7 +179,7 @@ export function MedicalBoard({
   };
 
   const total = rows.length;
-  const template = BOARD_TEMPLATES[board.key];
+  const template = getTemplate(board.key);
   const isCard = template.layout === "card";
 
   const statusOf = (r: MedicalBoardRow): string | null =>

@@ -12,7 +12,7 @@ import {
   type EditableField,
   type MedicalBoardRow,
 } from "@/lib/med-ops/types";
-import { BOARD_TEMPLATES } from "@/lib/med-ops/templates";
+import { getTemplate } from "@/lib/med-ops/templates";
 import {
   fetchBoardRow,
   patchBoardCard,
@@ -40,7 +40,7 @@ export function PatientWindow({
   const [row, setRow] = useState(initialRow);
   const [saving, setSaving] = useState(false);
   const editingRef = useRef(false);
-  const template = BOARD_TEMPLATES[board.key];
+  const template = getTemplate(board.key);
 
   const refresh = useCallback(async () => {
     if (editingRef.current) return;
