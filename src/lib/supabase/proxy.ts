@@ -47,6 +47,8 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/calendar/sync") ||
     // Admin user-roster sync cron endpoint self-authenticates via CRON_SECRET.
     pathname.startsWith("/api/admin/users/roster-sync") ||
+    // Medical Boards daily rollover cron self-authenticates via CRON_SECRET.
+    pathname.startsWith("/api/med-ops/boards/rollover") ||
     // ATS intake endpoints self-authenticate: the Gmail cron via CRON_SECRET,
     // the Indeed Apply webhook via its X-Indeed-Signature HMAC.
     pathname.startsWith("/api/ats/") ||

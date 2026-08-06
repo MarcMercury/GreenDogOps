@@ -4,7 +4,8 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import { PageHeader } from "../../../../_components/ui";
 import { boardType, locationSlug } from "@/lib/med-ops/types";
-import { getBoardLocationBySlug, getBoardRows, seedBoard } from "../../data";
+import { getBoardDay, getBoardLocationBySlug, getBoardRows, seedBoard } from "../../data";
+import { ArchivedBoard } from "../../../board-archive/archived-board";
 import { MedicalBoard } from "./medical-board";
 
 export const dynamic = "force-dynamic";
@@ -44,7 +45,11 @@ export default async function BoardPage({
   // Opening the board pulls in any appointment not on it yet; insert-only, so
   // it is safe on every visit and never disturbs work already recorded.
   await seedBoard(location.id, date, board.key);
-  const rows = await getBoardRows(location.id, date, board.key);
+  const [rows, day] = await Promise.all([
+    getBoardRows(location.id, date, board.key),
+    getBoardDay(location.id, date, board.key),
+  ]);
+  const archived = day?.status === "archived";
 
   const pretty = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
     weekday: "long",
@@ -68,14 +73,24 @@ export default async function BoardPage({
           </Link>
         }
       />
-      <MedicalBoard
-        key={`${location.id}:${date}:${board.key}`}
-        board={board}
-        locationId={location.id}
-        locationSlug={locationSlug(location)}
-        date={date}
-        initialRows={rows}
-      />
+      {archived ? (
+        <ArchivedBoard
+          rows={rows}
+          board={board}
+          locationName={location.display_name ?? location.name}
+          date={date}
+          status="archived"
+        />
+      ) : (
+        <MedicalBoard
+          key={`${location.id}:${date}:${board.key}`}
+          board={board}
+          locationId={location.id}
+          locationSlug={locationSlug(location)}
+          date={date}
+          initialRows={rows}
+        />
+      )}
     </div>
   );
 }

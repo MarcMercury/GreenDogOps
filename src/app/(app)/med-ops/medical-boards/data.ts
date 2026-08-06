@@ -73,3 +73,42 @@ export async function getBoardRows(
   return (data ?? []) as MedicalBoardRow[];
 }
 
+export interface BoardDay {
+  location_id: string;
+  board_date: string;
+  board_type: BoardTypeKey;
+  status: "open" | "archived";
+  seeded_count: number;
+  archived_at: string | null;
+}
+
+/** The board header, if a board was ever built for this day. */
+export async function getBoardDay(
+  locationId: string,
+  date: string,
+  boardType: BoardTypeKey,
+): Promise<BoardDay | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("medical_board_day")
+    .select("location_id, board_date, board_type, status, seeded_count, archived_at")
+    .eq("location_id", locationId)
+    .eq("board_date", date)
+    .eq("board_type", boardType)
+    .maybeSingle();
+  return (data as BoardDay | null) ?? null;
+}
+
+/** Dates that have at least one board, newest first — for the archive picker. */
+export async function getArchivedDates(limit = 180): Promise<string[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("medical_board_day")
+    .select("board_date")
+    .order("board_date", { ascending: false })
+    .limit(limit * 15);
+  const seen = new Set<string>();
+  for (const r of (data ?? []) as { board_date: string }[]) seen.add(r.board_date);
+  return [...seen].slice(0, limit);
+}
+

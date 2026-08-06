@@ -77,6 +77,7 @@ const MODULES_BOTTOM: NavItem[] = [
 /** Med Ops — clinical workflow boards. */
 const MED_OPS: NavItem[] = [
   { key: "med_boards", href: "/med-ops/medical-boards", label: "Medical Boards", icon: "🩺" },
+  { key: "med_boards", href: "/med-ops/board-archive", label: "Board Archive", icon: "🗄️" },
   { key: "ezyvet", href: "/ezyvet", label: "ezyVet Contacts", icon: "🐾" },
   { key: "ezyvet", href: "/ezyvet/patients", label: "ezyVet Patients", icon: "🐕" },
 ];
