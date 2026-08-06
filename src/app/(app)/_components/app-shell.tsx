@@ -77,12 +77,12 @@ const MODULES_BOTTOM: NavItem[] = [
 /** Med Ops — clinical workflow boards. */
 const MED_OPS: NavItem[] = [
   { key: "med_boards", href: "/med-ops/medical-boards", label: "Medical Boards", icon: "🩺" },
+  { key: "ezyvet", href: "/ezyvet", label: "ezyVet Contacts", icon: "🐾" },
+  { key: "ezyvet", href: "/ezyvet/patients", label: "ezyVet Patients", icon: "🐕" },
 ];
 
 /** Business development modules, after Operations. */
 const BIZ_DEV: NavItem[] = [
-  { key: "ezyvet", href: "/ezyvet", label: "ezyVet CRM", icon: "🐾" },
-  { key: "ezyvet", href: "/ezyvet/patients", label: "ezyVet Patients", icon: "🐕" },
   { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
   { key: "emp_reporting", href: "/emp-reporting", label: "Emp Reporting", icon: "💰" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
