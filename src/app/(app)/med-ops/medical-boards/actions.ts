@@ -143,3 +143,24 @@ export async function fetchBoardRows(
     .order("appt_time", { ascending: true });
   return (data ?? []) as MedicalBoardRow[];
 }
+
+/**
+ * Merge a patch into a patient card. Server-side merging keeps two people
+ * editing different fields of the same patient from overwriting each other.
+ */
+export async function patchBoardCard(
+  rowId: string,
+  patch: Record<string, unknown>,
+): Promise<ActionResult> {
+  const current = await ensureBoardUser();
+  if (!current) return { ok: false, error: "Not authorized." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("medical_board_patch_card", {
+    p_row: rowId,
+    p_patch: patch,
+    p_actor: current.email,
+  });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}

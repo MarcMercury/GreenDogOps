@@ -85,6 +85,7 @@ export interface MedicalBoardRow {
   mp: boolean;
   ds: boolean;
   notes: string | null;
+  card: Record<string, unknown> | null;
   updated_by: string | null;
   updated_at: string;
 }

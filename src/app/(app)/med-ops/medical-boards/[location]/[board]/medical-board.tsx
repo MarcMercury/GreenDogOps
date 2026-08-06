@@ -13,10 +13,13 @@ import {
   type EditableField,
   type MedicalBoardRow,
 } from "@/lib/med-ops/types";
+import { BOARD_TEMPLATES, type CardDoc } from "@/lib/med-ops/templates";
+import { PatientCard } from "./patient-card";
 import {
   addBoardRow,
   deleteBoardRow,
   fetchBoardRows,
+  patchBoardCard,
   syncBoardFromAgenda,
   updateBoardCell,
 } from "../../actions";
@@ -115,6 +118,25 @@ export function MedicalBoard({
     [refresh],
   );
 
+  const patchCard = useCallback(
+    (rowId: string, patch: Record<string, unknown>) => {
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === rowId
+            ? { ...r, card: { ...((r.card as CardDoc | null) ?? {}), ...patch } }
+            : r,
+        ),
+      );
+      void patchBoardCard(rowId, patch).then((res) => {
+        if (!res.ok) {
+          setNote(res.error);
+          void refresh();
+        }
+      });
+    },
+    [refresh],
+  );
+
   const onSync = () => {
     startTransition(async () => {
       const res = await syncBoardFromAgenda(locationId, date, board.key);
@@ -152,8 +174,18 @@ export function MedicalBoard({
   };
 
   const total = rows.length;
-  const out = rows.filter((r) => r.is_out).length;
-  const inProgress = rows.filter((r) => !r.is_out && r.status).length;
+  const template = BOARD_TEMPLATES[board.key];
+  const isCard = template.layout === "card";
+
+  const statusOf = (r: MedicalBoardRow): string | null =>
+    isCard ? ((r.card as CardDoc | null)?.status ?? null) : r.status;
+  const isDone = (r: MedicalBoardRow): boolean =>
+    isCard
+      ? /discharg|pickup/i.test(statusOf(r) ?? "")
+      : r.is_out;
+
+  const out = rows.filter(isDone).length;
+  const inProgress = rows.filter((r) => !isDone(r) && statusOf(r)).length;
   const waiting = total - out - inProgress;
 
   return (
@@ -211,6 +243,18 @@ export function MedicalBoard({
             Use “Sync from Agenda” to pull the day&apos;s booked appointments, or
             add a walk-in manually.
           </p>
+        </div>
+      ) : template.layout === "card" && template.card ? (
+        <div className="grid gap-3 2xl:grid-cols-2">
+          {rows.map((row) => (
+            <PatientCard
+              key={row.id}
+              row={row}
+              tpl={template.card!}
+              onPatch={patchCard}
+              onDelete={onDelete}
+            />
+          ))}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
