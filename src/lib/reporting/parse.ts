@@ -3,6 +3,7 @@
 // limit — the client parses, then ships compact JSON batches to the server.
 
 import type {
+  AnimalInput,
   ContactInput,
   InvoiceLineInput,
   LocationKey,
@@ -343,4 +344,131 @@ export function parseContactCsv(text: string): {
 export function labelFromFilename(filename: string): string {
   const base = filename.replace(/\.[^.]+$/, "").trim();
   return base.charAt(0).toUpperCase() + base.slice(1).toLowerCase();
+}
+
+const ANIMAL_REQUIRED = ["animal id"];
+
+/**
+ * Parse an ezyVet "Animals" CSV export (the full patient roster with summaries)
+ * into upsert-ready rows. Deduped on "Animal Id"; rows without one are skipped.
+ */
+export function parseAnimalCsv(text: string): {
+  rows: AnimalInput[];
+  skipped: number;
+  error?: string;
+} {
+  const grid = parseCsv(text);
+  if (grid.length < 2)
+    return { rows: [], skipped: 0, error: "File appears to be empty." };
+  const header = grid[0];
+  const idx = headerIndex(header);
+  for (const req of ANIMAL_REQUIRED) {
+    if (!idx.has(req))
+      return {
+        rows: [],
+        skipped: 0,
+        error: `Missing expected column "${req}". Is this an Animals export?`,
+      };
+  }
+  const col = (name: string) => idx.get(normalizeHeader(name));
+  const get = (r: string[], name: string): string | undefined => {
+    const c = col(name);
+    return c == null ? undefined : r[c];
+  };
+
+  const rows: AnimalInput[] = [];
+  let skipped = 0;
+  const seen = new Set<string>();
+
+  for (let r = 1; r < grid.length; r++) {
+    const row = grid[r];
+    if (row.length === 1 && row[0].trim() === "") continue;
+    const animalId = clean(get(row, "Animal Id"));
+    if (!animalId || seen.has(animalId)) {
+      skipped++;
+      continue;
+    }
+    seen.add(animalId);
+
+    const ownerFirst = clean(get(row, "Owner First Name"));
+    const ownerLast = clean(get(row, "Owner Last Name"));
+    const ownerBusiness = clean(get(row, "Owner Business Name"));
+    const ownerFull =
+      [ownerFirst, ownerLast].filter(Boolean).join(" ").trim() ||
+      ownerBusiness ||
+      null;
+
+    rows.push({
+      ezyvet_animal_id: animalId,
+      animal_code: clean(get(row, "Animal Code")),
+      animal_name: clean(get(row, "Animal Name")),
+      division: clean(get(row, "Division")),
+      species: clean(get(row, "Species")),
+      breed: clean(get(row, "Breed")),
+      color: clean(get(row, "AnimalColor")),
+      sex: clean(get(row, "Sex")),
+      weight_lb: toNumber(get(row, "Animal Weight (lb)")),
+      date_of_birth: toIsoDate(get(row, "Date of Birth")),
+      dob_is_estimated: toBool(get(row, "D.O.B is Estimated")),
+      age: clean(get(row, "Age")),
+      is_active: toBool(get(row, "Active")),
+      has_passed_away: toBool(get(row, "Has Passed Away")),
+      date_of_passing: toIsoDate(get(row, "Date of Passing")),
+      cause_of_death: clean(get(row, "Cause of Death")),
+      caution_status: clean(get(row, "Caution Status")),
+      microchip_number: clean(get(row, "Microchip Number")),
+      rabies_number: clean(get(row, "Rabies Number")),
+      rabies_number_date: toIsoDate(get(row, "Rabies Number Date")),
+      last_vaccination_date: toIsoDate(get(row, "Last Vaccination Date")),
+      last_vaccination_name: clean(get(row, "Last Vaccination Name")),
+      next_vaccination_due: toIsoDate(get(row, "Next Vaccination Due")),
+      next_vaccination_name: clean(get(row, "Next Vaccination Name")),
+      master_problems: clean(get(row, "Master Problems")),
+      animal_notes: clean(get(row, "Animal Notes")),
+      last_visit: toIsoDate(get(row, "Last Visit")),
+      next_appointment: toIsoDate(get(row, "Next Appointment")),
+      latest_bcs: clean(get(row, "Latest B.C.S.")),
+      latest_ds: clean(get(row, "Latest D.S.")),
+      latest_temp: clean(get(row, "Latest Temp")),
+      insurance_supplier: clean(get(row, "Insurance Supplier")),
+      insurance_number: clean(get(row, "Insurance Number")),
+      referring_clinic: clean(get(row, "Referring Clinic")),
+      referring_vet: clean(get(row, "Referring Vet")),
+      owner_contact_code: clean(get(row, "Owner Contact Code")),
+      owner_business_name: ownerBusiness,
+      owner_title: clean(get(row, "Owner Title")),
+      owner_first_name: ownerFirst,
+      owner_last_name: ownerLast,
+      owner_full_name: ownerFull,
+      owner_is_business: toBool(get(row, "Is Business")),
+      opt_out_marketing: toBool(get(row, "Opt Out of Electronic Marketing")),
+      email: clean(get(row, "Email Addresses")),
+      home_email: clean(get(row, "Home Email Address")),
+      business_email: clean(get(row, "Business Email Address")),
+      accounts_email: clean(get(row, "Accounts Email Address")),
+      phone: clean(get(row, "Phone Numbers")),
+      mobile: clean(get(row, "Mobile Numbers")),
+      fax: clean(get(row, "Fax Numbers")),
+      physical_street1: clean(get(row, "Physical Address Street 1")),
+      physical_street2: clean(get(row, "Physical Address Street 2")),
+      physical_suburb: clean(get(row, "Physical Address Suburb/Neighborhood")),
+      physical_city: clean(get(row, "Physical Address City")),
+      physical_state: clean(get(row, "Physical Address State")),
+      physical_post_code: clean(get(row, "Physical Address Postcode")),
+      physical_country: clean(get(row, "Physical Address Country")),
+      postal_street1: clean(get(row, "Postal Address Street 1")),
+      postal_street2: clean(get(row, "Postal Address Street 2")),
+      postal_suburb: clean(get(row, "Postal Address Suburb/Neighborhood")),
+      postal_city: clean(get(row, "Postal Address City")),
+      postal_state: clean(get(row, "Postal Address State")),
+      postal_post_code: clean(get(row, "Postal Address Postcode")),
+      postal_country: clean(get(row, "Postal Address Country")),
+      ezyvet_created_at: toIsoTimestamp(get(row, "Animal Record Created At")),
+      ezyvet_created_by: clean(get(row, "Animal Record Created By")),
+      ezyvet_modified_at: toIsoTimestamp(
+        get(row, "Animal Record Last Modified At"),
+      ),
+    });
+  }
+  return { rows, skipped };
 }

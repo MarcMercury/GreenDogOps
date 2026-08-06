@@ -82,6 +82,7 @@ const MED_OPS: NavItem[] = [
 /** Business development modules, after Operations. */
 const BIZ_DEV: NavItem[] = [
   { key: "ezyvet", href: "/ezyvet", label: "ezyVet CRM", icon: "🐾" },
+  { key: "ezyvet", href: "/ezyvet/patients", label: "ezyVet Patients", icon: "🐕" },
   { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
   { key: "emp_reporting", href: "/emp-reporting", label: "Emp Reporting", icon: "💰" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
@@ -99,7 +100,14 @@ const ALL_NAV: Array<{ href: string; label: string; icon: string }> = [
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
+  if (pathname !== href && !pathname.startsWith(`${href}/`)) return false;
+  // A more specific nav entry wins, so /ezyvet doesn't light up on
+  // /ezyvet/patients (same for /crm vs /crm/vendor).
+  return !ALL_NAV.some(
+    (n) =>
+      n.href.length > href.length &&
+      (pathname === n.href || pathname.startsWith(`${n.href}/`)),
+  );
 }
 
 function currentLabel(pathname: string): string {

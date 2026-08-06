@@ -184,9 +184,22 @@ export async function openReport(page, name, log = () => {}) {
 export async function selectFormat(page, format = "CSV") {
   const radio = page.locator(`input[name="format"][value="${format}"]`).first();
   if (await radio.count()) {
-    await radio.check({ force: true }).catch(async () => {
-      await radio.click({ force: true });
-    });
+    // Some reports (e.g. Animals) render format as a HIDDEN input rather than
+    // visible radios — check/click both fail there, so fall back to setting the
+    // field directly.
+    if (await radio.isVisible().catch(() => false)) {
+      await radio.check({ force: true }).catch(async () => {
+        await radio.click({ force: true }).catch(() => {});
+      });
+    } else {
+      await page.evaluate((fmt) => {
+        for (const el of document.querySelectorAll('input[name="format"]')) {
+          if (el.value !== fmt) continue;
+          el.checked = true;
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        }
+      }, format);
+    }
     await page.waitForTimeout(300);
     return;
   }

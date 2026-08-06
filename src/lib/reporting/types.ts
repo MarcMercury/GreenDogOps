@@ -79,6 +79,77 @@ export interface ContactInput {
   ezyvet_modified_by: string | null;
 }
 
+/** One patient row of the ezyVet "Animals" report, ready to upsert. */
+export interface AnimalInput {
+  ezyvet_animal_id: string;
+  animal_code: string | null;
+  animal_name: string | null;
+  division: string | null;
+  species: string | null;
+  breed: string | null;
+  color: string | null;
+  sex: string | null;
+  weight_lb: number | null;
+  date_of_birth: string | null;
+  dob_is_estimated: boolean | null;
+  age: string | null;
+  is_active: boolean | null;
+  has_passed_away: boolean | null;
+  date_of_passing: string | null;
+  cause_of_death: string | null;
+  caution_status: string | null;
+  microchip_number: string | null;
+  rabies_number: string | null;
+  rabies_number_date: string | null;
+  last_vaccination_date: string | null;
+  last_vaccination_name: string | null;
+  next_vaccination_due: string | null;
+  next_vaccination_name: string | null;
+  master_problems: string | null;
+  animal_notes: string | null;
+  last_visit: string | null;
+  next_appointment: string | null;
+  latest_bcs: string | null;
+  latest_ds: string | null;
+  latest_temp: string | null;
+  insurance_supplier: string | null;
+  insurance_number: string | null;
+  referring_clinic: string | null;
+  referring_vet: string | null;
+  owner_contact_code: string | null;
+  owner_business_name: string | null;
+  owner_title: string | null;
+  owner_first_name: string | null;
+  owner_last_name: string | null;
+  owner_full_name: string | null;
+  owner_is_business: boolean | null;
+  opt_out_marketing: boolean | null;
+  email: string | null;
+  home_email: string | null;
+  business_email: string | null;
+  accounts_email: string | null;
+  phone: string | null;
+  mobile: string | null;
+  fax: string | null;
+  physical_street1: string | null;
+  physical_street2: string | null;
+  physical_suburb: string | null;
+  physical_city: string | null;
+  physical_state: string | null;
+  physical_post_code: string | null;
+  physical_country: string | null;
+  postal_street1: string | null;
+  postal_street2: string | null;
+  postal_suburb: string | null;
+  postal_city: string | null;
+  postal_state: string | null;
+  postal_post_code: string | null;
+  postal_country: string | null;
+  ezyvet_created_at: string | null;
+  ezyvet_created_by: string | null;
+  ezyvet_modified_at: string | null;
+}
+
 export type LocationKey = "sherman_oaks" | "van_nuys" | "venice" | "other";
 export type SpeciesGroup = "Dog" | "Cat" | "Exotic" | "Unknown";
 
@@ -283,6 +354,17 @@ export interface ContactImportRow {
   new_contacts: number;
   updated_contacts: number;
   unchanged_contacts: number;
+  snapshot_date: string | null;
+  created_at: string;
+}
+
+export interface AnimalImportRow {
+  id: string;
+  filename: string | null;
+  total_rows: number;
+  new_animals: number;
+  updated_animals: number;
+  unchanged_animals: number;
   snapshot_date: string | null;
   created_at: string;
 }

@@ -31,6 +31,9 @@ const LOCATIONS = ["sherman_oaks", "van_nuys", "venice"];
 const GLOBAL_REPORTS = [
   { key: "invoice_lines", name: "Invoice Lines", dated: true, endpoint: "ezyvet/invoice-lines" },
   { key: "ezyvet_crm_contacts", name: "Contacts", dated: false, endpoint: "ezyvet/contacts" },
+  // Full patient roster with summaries. ~45k rows / 18 MB — too big for one
+  // request even gzipped, so it uploads in chunks (see uploadCsvChunked).
+  { key: "ezyvet_animals", name: "Animals", dated: false, endpoint: "ezyvet/animals", chunkRows: 8000 },
   { key: "referral_statistics", name: "Referral Statistics", dated: false, endpoint: "ezyvet/referral" },
   // Cancelled appointments (with reason) — spans all clinics from the admin
   // login; the clinic is identified by the report's "Using" address column.
@@ -59,7 +62,7 @@ async function main() {
   await emit({ status: "running", logs: [{ message: `Worker started for ${TARGET_DATE}` }] });
 
   const dir = mkdtempSync(join(tmpdir(), "ezyvet-"));
-  const { uploadCsv } = await import("./lib/ingest.mjs");
+  const { uploadCsv, uploadCsvChunked } = await import("./lib/ingest.mjs");
   const session = await openEzyvet({ locationKey: "sherman_oaks", log });
   const detail = {};
   let anySuccess = false;
@@ -86,7 +89,9 @@ async function main() {
       const query = report.dated
         ? { label: `Agent ${TARGET_DATE}`, filename: `${slug}-${TARGET_DATE}.csv` }
         : { snapshot_date: TARGET_DATE, filename: `${slug}-${TARGET_DATE}.csv` };
-      const result = await uploadCsv(report.endpoint, csvPath, query);
+      const result = report.chunkRows
+        ? await uploadCsvChunked(report.endpoint, csvPath, query, report.chunkRows)
+        : await uploadCsv(report.endpoint, csvPath, query);
 
       const records = (result.inserted ?? 0) + (result.updated ?? 0);
       detail[slug] = { status: "success", ...result, ms: Date.now() - t0 };

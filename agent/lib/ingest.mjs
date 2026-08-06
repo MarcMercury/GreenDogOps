@@ -71,7 +71,11 @@ export async function refreshReporting(retries = 2) {
  * @returns the endpoint's JSON result (records ingested, etc.)
  */
 export async function uploadCsv(endpoint, filePath, query = {}) {
-  const text = readFileSync(filePath, "utf8");
+  return postCsvText(endpoint, readFileSync(filePath, "utf8"), query);
+}
+
+/** POST one CSV payload (gzipped) to a data sink and return its JSON result. */
+async function postCsvText(endpoint, text, query = {}) {
   // gzip so large exports (e.g. the full Contacts list) stay under the
   // serverless request-body size limit. Send as octet-stream WITHOUT a
   // Content-Encoding header (which makes the platform auto-decompress and
@@ -89,4 +93,50 @@ export async function uploadCsv(endpoint, filePath, query = {}) {
     throw new Error(`Ingest ${endpoint} failed: ${json.error ?? res.status}`);
   }
   return json;
+}
+
+/**
+ * Split CSV text into whole records (a quoted field may contain newlines, so
+ * we can't just split on "\n"). Returns the raw record strings, header first.
+ */
+function splitCsvRecords(text) {
+  const records = [];
+  let start = 0;
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') inQuotes = !inQuotes;
+    else if (c === "\n" && !inQuotes) {
+      records.push(text.slice(start, i).replace(/\r$/, ""));
+      start = i + 1;
+    }
+  }
+  if (start < text.length) records.push(text.slice(start).replace(/\r$/, ""));
+  return records;
+}
+
+/**
+ * Upload a CSV that is too big for one request (e.g. the ~45k-row Animals
+ * snapshot) as several header-prefixed slices. The endpoint returns an
+ * `importId` on the first call which is threaded through the rest so every
+ * chunk lands on the same import record. Returns the summed counters.
+ */
+export async function uploadCsvChunked(endpoint, filePath, query = {}, maxRows = 8000) {
+  const records = splitCsvRecords(readFileSync(filePath, "utf8"));
+  const header = records[0];
+  const body = records.slice(1).filter((r) => r.trim() !== "");
+  const totals = { ok: true, parsed: 0, inserted: 0, updated: 0, skipped: 0, chunks: 0 };
+  let importId = null;
+  for (let i = 0; i < body.length; i += maxRows) {
+    const chunk = [header, ...body.slice(i, i + maxRows)].join("\n");
+    const q = importId ? { ...query, import_id: importId } : query;
+    const res = await postCsvText(endpoint, chunk, q);
+    importId = res.importId ?? importId;
+    totals.parsed += res.parsed ?? 0;
+    totals.inserted += res.inserted ?? 0;
+    totals.updated += res.updated ?? 0;
+    totals.skipped += res.skipped ?? 0;
+    totals.chunks++;
+  }
+  return { ...totals, importId };
 }

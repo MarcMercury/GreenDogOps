@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseInvoiceCsv, parseContactCsv } from "./parse";
+import { parseInvoiceCsv, parseContactCsv, parseAnimalCsv } from "./parse";
 
 export interface CsvIngestResult {
   ok: boolean;
@@ -162,6 +162,101 @@ export async function ingestContactCsvText(
   await admin
     .from("ezyvet_contact_import")
     .update({ new_contacts: created, updated_contacts: updated, unchanged_contacts: rows.length - created - updated })
+    .eq("id", importId);
+
+  return { ok: true, importId, parsed: rows.length, inserted: created, updated, skipped: parsed.skipped };
+}
+
+/**
+ * Ingest an ezyVet "Animals" CSV export (the full patient roster) using the
+ * service-role client. The snapshot is ~45k rows / 18 MB, which exceeds the
+ * serverless request-body limit even gzipped, so the worker splits it into
+ * several chunks that all share ONE import row: the first call creates the
+ * import (returns its id) and later calls pass it back in via `importId`, with
+ * the counters accumulating across chunks.
+ */
+export async function ingestAnimalCsvText(
+  text: string,
+  meta: { filename?: string; snapshotDate?: string | null; importId?: string | null } = {},
+): Promise<CsvIngestResult> {
+  const parsed = parseAnimalCsv(text);
+  if (parsed.error) {
+    return { ok: false, error: parsed.error, parsed: 0, inserted: 0, skipped: 0 };
+  }
+  const rows = parsed.rows;
+  const admin = createAdminClient();
+
+  let importId = meta.importId ?? null;
+  if (!importId) {
+    const { data: imp, error: impErr } = await admin
+      .from("ezyvet_animal_import")
+      .insert({
+        filename: meta.filename ?? "agent-animals.csv",
+        total_rows: 0,
+        snapshot_date: meta.snapshotDate ?? null,
+      })
+      .select("id")
+      .single();
+    if (impErr || !imp) {
+      return {
+        ok: false,
+        error: impErr?.message ?? "Failed to open import.",
+        parsed: rows.length,
+        inserted: 0,
+        skipped: parsed.skipped,
+      };
+    }
+    importId = imp.id as string;
+  }
+
+  // Classify created vs updated vs unchanged using ezyVet's own modified-at.
+  const ids = rows.map((r) => r.ezyvet_animal_id);
+  const prev = new Map<string, string | null>();
+  for (let i = 0; i < ids.length; i += 1000) {
+    const { data } = await admin
+      .from("ezyvet_animal")
+      .select("ezyvet_animal_id, ezyvet_modified_at")
+      .in("ezyvet_animal_id", ids.slice(i, i + 1000));
+    for (const e of data ?? []) {
+      prev.set(e.ezyvet_animal_id as string, (e.ezyvet_modified_at as string | null) ?? null);
+    }
+  }
+
+  let created = 0;
+  let updated = 0;
+  for (const r of rows) {
+    if (!prev.has(r.ezyvet_animal_id)) {
+      created++;
+      continue;
+    }
+    const before = (prev.get(r.ezyvet_animal_id) ?? "").slice(0, 19);
+    const after = (r.ezyvet_modified_at ?? "").slice(0, 19);
+    if (before !== after) updated++;
+  }
+
+  const nowIso = new Date().toISOString();
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500).map((r) => ({ ...r, last_import_id: importId, updated_at: nowIso }));
+    const { error } = await admin.from("ezyvet_animal").upsert(chunk, { onConflict: "ezyvet_animal_id" });
+    if (error) {
+      return { ok: false, error: error.message, importId, parsed: rows.length, inserted: created, updated, skipped: parsed.skipped };
+    }
+  }
+
+  // Accumulate this chunk's counters onto the shared import row.
+  const { data: cur } = await admin
+    .from("ezyvet_animal_import")
+    .select("total_rows, new_animals, updated_animals, unchanged_animals")
+    .eq("id", importId)
+    .maybeSingle();
+  await admin
+    .from("ezyvet_animal_import")
+    .update({
+      total_rows: (cur?.total_rows ?? 0) + rows.length,
+      new_animals: (cur?.new_animals ?? 0) + created,
+      updated_animals: (cur?.updated_animals ?? 0) + updated,
+      unchanged_animals: (cur?.unchanged_animals ?? 0) + (rows.length - created - updated),
+    })
     .eq("id", importId);
 
   return { ok: true, importId, parsed: rows.length, inserted: created, updated, skipped: parsed.skipped };
