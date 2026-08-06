@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import type { BoardTypeKey, MedicalBoardRow } from "@/lib/med-ops/types";
 
 export interface BoardLocation {
   id: string;
@@ -34,3 +35,41 @@ export async function getBoardLocationBySlug(
     ) ?? null
   );
 }
+
+/**
+ * Pull the day's appointments from the latest Agenda snapshot onto the board.
+ * Insert-only, so it never overwrites the team's edits (see medical_board_seed).
+ */
+export async function seedBoard(
+  locationId: string,
+  date: string,
+  boardType: BoardTypeKey,
+): Promise<number> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("medical_board_seed", {
+    p_location: locationId,
+    p_date: date,
+    p_board_type: boardType,
+  });
+  if (error) return 0;
+  return typeof data === "number" ? data : 0;
+}
+
+/** Every row on one day's board, in board order. */
+export async function getBoardRows(
+  locationId: string,
+  date: string,
+  boardType: BoardTypeKey,
+): Promise<MedicalBoardRow[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("medical_board_row")
+    .select("*")
+    .eq("location_id", locationId)
+    .eq("board_date", date)
+    .eq("board_type", boardType)
+    .order("sort_order", { ascending: true })
+    .order("appt_time", { ascending: true });
+  return (data ?? []) as MedicalBoardRow[];
+}
+

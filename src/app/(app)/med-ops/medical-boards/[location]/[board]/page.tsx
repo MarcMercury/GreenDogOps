@@ -3,10 +3,22 @@ import { notFound } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import { PageHeader } from "../../../../_components/ui";
-import { boardType } from "@/lib/med-ops/types";
-import { getBoardLocationBySlug } from "../../data";
+import { boardType, locationSlug } from "@/lib/med-ops/types";
+import { getBoardLocationBySlug, getBoardRows, seedBoard } from "../../data";
+import { MedicalBoard } from "./medical-board";
 
 export const dynamic = "force-dynamic";
+
+function todayLA(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export default async function BoardPage({
   params,
@@ -15,7 +27,7 @@ export default async function BoardPage({
   params: Promise<{ location: string; board: string }>;
   searchParams: Promise<{ date?: string }>;
 }) {
-  const [{ location: locationSlug, board: boardKey }, { date }] =
+  const [{ location: slug, board: boardKey }, { date: dateParam }] =
     await Promise.all([params, searchParams]);
 
   const current = await getCurrentUser();
@@ -24,15 +36,29 @@ export default async function BoardPage({
   }
 
   const board = boardType(boardKey);
-  const location = await getBoardLocationBySlug(locationSlug);
+  const location = await getBoardLocationBySlug(slug);
   if (!board || !location) notFound();
+
+  const date = dateParam && ISO_DATE.test(dateParam) ? dateParam : todayLA();
+
+  // Opening the board pulls in any appointment not on it yet; insert-only, so
+  // it is safe on every visit and never disturbs work already recorded.
+  await seedBoard(location.id, date, board.key);
+  const rows = await getBoardRows(location.id, date, board.key);
+
+  const pretty = new Date(`${date}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow={`${location.display_name ?? location.name} · Med Ops`}
+        eyebrow={`Med Ops · ${location.display_name ?? location.name}`}
         title={board.label}
-        description={date ? `Workflow board for ${date}.` : "Daily workflow board."}
+        description={pretty}
         actions={
           <Link
             href="/med-ops/medical-boards"
@@ -42,19 +68,14 @@ export default async function BoardPage({
           </Link>
         }
       />
-      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-10 text-center">
-        <span className="text-3xl" aria-hidden>
-          {board.icon}
-        </span>
-        <p className="mt-3 text-sm font-medium text-slate-700">
-          The interactive {board.label.toLowerCase()} is coming soon.
-        </p>
-        <p className="mx-auto mt-1 max-w-md text-xs text-slate-500">
-          This board will auto-populate from the ezyVet Agenda for this
-          department and day, with live-editable patient status, services, and
-          progress tracking.
-        </p>
-      </div>
+      <MedicalBoard
+        key={`${location.id}:${date}:${board.key}`}
+        board={board}
+        locationId={location.id}
+        locationSlug={locationSlug(location)}
+        date={date}
+        initialRows={rows}
+      />
     </div>
   );
 }
