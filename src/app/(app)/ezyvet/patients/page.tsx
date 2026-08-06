@@ -6,7 +6,8 @@ import type { AnimalImportRow } from "@/lib/reporting/types";
 import { PageHeader } from "../../_components/ui";
 import { StatCard, SectionCard, fmtNumber, fmtDate } from "../../reporting/charts";
 import { PatientSearch } from "./patient-search";
-import { PatientsTable, PATIENT_SELECT, type PatientRow } from "./patients-table";
+import { PatientsTable } from "./patients-table";
+import { PATIENT_SELECT, type PatientRow } from "./columns";
 
 export const dynamic = "force-dynamic";
 
