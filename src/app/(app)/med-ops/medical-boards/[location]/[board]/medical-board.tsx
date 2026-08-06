@@ -242,11 +242,11 @@ export function MedicalBoard({
       {rows.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/60 p-10 text-center">
           <p className="text-sm font-medium text-slate-700">
-            No patients on this board yet.
+            Nothing scheduled for this board today.
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Use “Sync from Agenda” to pull the day&apos;s booked appointments, or
-            add a walk-in manually.
+            Nothing is booked for this department today. Add a walk-in below, or
+            use “Sync from Agenda” if an appointment was added since this morning.
           </p>
         </div>
       ) : template.layout === "card" && template.card ? (

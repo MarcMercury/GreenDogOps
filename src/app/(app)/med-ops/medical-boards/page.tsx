@@ -88,11 +88,8 @@ export default async function MedicalBoardsPage() {
                   {loc.display_name ?? loc.name}
                 </h2>
                 {locTotal === 0 ? (
-                  <span
-                    title="The Agenda has no appointments for this clinic today — if that is unexpected, the morning report pull may have missed it."
-                    className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700"
-                  >
-                    No Agenda data today
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                    No appointments scheduled
                   </span>
                 ) : (
                   <span className="text-xs text-slate-500">
@@ -105,11 +102,16 @@ export default async function MedicalBoardsPage() {
                   const count = coverage.find(
                     (c) => c.location_id === loc.id && c.board_type === board.key,
                   );
+                  // A department with nothing booked is routine — the clinic is
+                  // closed, or it is simply not a surgery/exotics day.
+                  const booked = count?.appointments ?? 0;
                   return (
                     <Link
                       key={board.key}
                       href={`/med-ops/medical-boards/${locationSlug(loc)}/${board.key}?date=${date}`}
-                      className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
+                      className={`group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md ${
+                        booked === 0 ? "opacity-60 hover:opacity-100" : ""
+                      }`}
                     >
                       <div className="flex items-start justify-between">
                         <span
@@ -122,9 +124,9 @@ export default async function MedicalBoardsPage() {
                         >
                           {board.icon}
                         </span>
-                        {count && count.appointments > 0 ? (
+                        {booked > 0 ? (
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                            {count.appointments}
+                            {booked}
                           </span>
                         ) : (
                           <span
@@ -140,9 +142,9 @@ export default async function MedicalBoardsPage() {
                           {board.label}
                         </p>
                         <p className="mt-0.5 text-xs text-slate-500">
-                          {count && count.appointments > 0
-                            ? `${count.appointments} booked today`
-                            : "No appointments today"}
+                          {booked > 0
+                            ? `${booked} booked today`
+                            : "Nothing scheduled"}
                         </p>
                       </div>
                     </Link>
