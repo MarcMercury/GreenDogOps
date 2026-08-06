@@ -155,8 +155,12 @@ export interface BoardColumn {
   /** Header text — kept to the spreadsheet's abbreviations the team knows. */
   label: string;
   kind: ColumnKind;
-  /** Tailwind width class for the cell. */
+  /** Share of the table width (percent) for text columns. */
   width: string;
+  /** Very short label used when the column is rendered as a flag toggle. */
+  flagLabel?: string;
+  /** Render as a wrapping textarea so long entries are never cut off. */
+  wrap?: boolean;
   /** Tooltip expanding the abbreviation. */
   title?: string;
   options?: string[];
@@ -167,6 +171,13 @@ export const FAS_OPTIONS = [
   "FAS 2-3 (CAUTION)",
   "FAS 4-5 (STOP)",
 ];
+
+/** Compact labels so the FAS column doesn't need a wide cell. */
+export const FAS_SHORT: Record<string, string> = {
+  "FAS 0-1 (GO)": "0-1 GO",
+  "FAS 2-3 (CAUTION)": "2-3 CAUTION",
+  "FAS 4-5 (STOP)": "4-5 STOP",
+};
 
 export const STATUS_OPTIONS = [
   "CHECKED IN",
@@ -183,38 +194,57 @@ export const STATUS_OPTIONS = [
 
 /**
  * The board grid, mirroring the Clinic Board spreadsheet left-to-right so the
- * team's muscle memory carries over. Same columns for every board type in v1.
+ * team's muscle memory carries over. Widths are percentages that total 100 with
+ * the flags and action columns (see GRID_FLAG_WIDTH / GRID_ACTION_WIDTH), so the
+ * board fits one screen with no side-scrolling. The long free-text columns wrap
+ * rather than truncate, and the 13 yes/no columns collapse into one flags cell.
  */
 export const BOARD_COLUMNS: BoardColumn[] = [
-  { key: "is_out", label: "OUT", kind: "check", width: "w-12", title: "Patient is out / discharged" },
-  { key: "appt_time", label: "APT", kind: "text", width: "w-20", title: "Appointment time" },
-  { key: "pmc", label: "PMC", kind: "check", width: "w-12", title: "Pre-med check" },
-  { key: "emr", label: "EMR", kind: "check", width: "w-12", title: "EMR updated" },
-  { key: "patient", label: "PATIENT", kind: "text", width: "w-52" },
-  { key: "client_name", label: "CLIENT", kind: "text", width: "w-40" },
-  { key: "csr", label: "CSR", kind: "text", width: "w-16", title: "Client service rep" },
-  { key: "tech", label: "TECH", kind: "text", width: "w-20" },
-  { key: "dt", label: "DT", kind: "text", width: "w-16", title: "Doctor / DVM tech" },
-  { key: "weight_kg", label: "WT (KG)", kind: "text", width: "w-20", title: "Weight in kg" },
-  { key: "fas_score", label: "FAS SCORE", kind: "select", width: "w-40", title: "Fear, Anxiety & Stress score", options: FAS_OPTIONS },
-  { key: "de", label: "DE", kind: "check", width: "w-12", title: "Doctor exam" },
-  { key: "status", label: "STATUS", kind: "select", width: "w-44", options: STATUS_OPTIONS },
-  { key: "medical_hx", label: "MEDICAL HX", kind: "text", width: "w-64", title: "Medical history / cautions" },
-  { key: "services", label: "SERVICES / ADD ONS", kind: "text", width: "w-72" },
-  { key: "services_done", label: "DONE", kind: "check", width: "w-12", title: "Services complete" },
-  { key: "sedation", label: "SEDATION", kind: "text", width: "w-56", title: "Sedation protocol / dosing" },
-  { key: "sedation_done", label: "DONE", kind: "check", width: "w-12", title: "Sedation given" },
-  { key: "cbfc", label: "CBFC", kind: "text", width: "w-24", title: "Call back / follow-up call" },
-  { key: "owner_ud", label: "OWNER U/D", kind: "text", width: "w-28", title: "Owner update / discharge" },
-  { key: "room", label: "RM #", kind: "text", width: "w-16", title: "Room number" },
-  { key: "lab", label: "LAB", kind: "check", width: "w-12" },
-  { key: "sed", label: "SED", kind: "check", width: "w-12", title: "Sedation required" },
-  { key: "ev", label: "EV", kind: "check", width: "w-12", title: "Exam verified" },
-  { key: "inv", label: "INV", kind: "check", width: "w-12", title: "Invoiced" },
-  { key: "da", label: "DA", kind: "check", width: "w-12", title: "Doctor approved" },
-  { key: "mp", label: "MP", kind: "check", width: "w-12", title: "Medical plan" },
-  { key: "ds", label: "DS", kind: "check", width: "w-12", title: "Discharge summary" },
+  { key: "appt_time", label: "APT", kind: "text", width: "4%", title: "Appointment time" },
+  { key: "patient", label: "PATIENT", kind: "text", width: "10%" },
+  { key: "client_name", label: "CLIENT", kind: "text", width: "5%" },
+  { key: "csr", label: "CSR", kind: "text", width: "3%", title: "Client service rep" },
+  { key: "tech", label: "TECH", kind: "text", width: "4%" },
+  { key: "dt", label: "DT", kind: "text", width: "4%", title: "Doctor / DVM tech" },
+  { key: "weight_kg", label: "WT", kind: "text", width: "3%", title: "Weight in kg" },
+  { key: "fas_score", label: "FAS", kind: "select", width: "7%", title: "Fear, Anxiety & Stress score", options: FAS_OPTIONS },
+  { key: "status", label: "STATUS", kind: "select", width: "8%", options: STATUS_OPTIONS },
+  { key: "medical_hx", label: "MEDICAL HX", kind: "text", width: "11%", wrap: true, title: "Medical history / cautions" },
+  { key: "services", label: "SERVICES / ADD ONS", kind: "text", width: "11%", wrap: true },
+  { key: "sedation", label: "SEDATION", kind: "text", width: "7%", wrap: true, title: "Sedation protocol / dosing" },
+  { key: "cbfc", label: "CBFC", kind: "text", width: "3%", title: "Call back / follow-up call" },
+  { key: "owner_ud", label: "O U/D", kind: "text", width: "3%", title: "Owner update / discharge" },
+  { key: "room", label: "RM", kind: "text", width: "2%", title: "Room number" },
+  // Yes/no columns — rendered together in one cell.
+  { key: "is_out", label: "OUT", flagLabel: "OUT", kind: "check", width: "", title: "Patient is out / discharged" },
+  { key: "pmc", label: "PMC", flagLabel: "PMC", kind: "check", width: "", title: "Pre-med check" },
+  { key: "emr", label: "EMR", flagLabel: "EMR", kind: "check", width: "", title: "EMR updated" },
+  { key: "de", label: "DE", flagLabel: "DE", kind: "check", width: "", title: "Doctor exam" },
+  { key: "services_done", label: "SERVICES DONE", flagLabel: "SVC", kind: "check", width: "", title: "Services complete" },
+  { key: "sedation_done", label: "SEDATION GIVEN", flagLabel: "SD✓", kind: "check", width: "", title: "Sedation given" },
+  { key: "lab", label: "LAB", flagLabel: "LAB", kind: "check", width: "" },
+  { key: "sed", label: "SED", flagLabel: "SED", kind: "check", width: "", title: "Sedation required" },
+  { key: "ev", label: "EV", flagLabel: "EV", kind: "check", width: "", title: "Exam verified" },
+  { key: "inv", label: "INV", flagLabel: "INV", kind: "check", width: "", title: "Invoiced" },
+  { key: "da", label: "DA", flagLabel: "DA", kind: "check", width: "", title: "Doctor approved" },
+  { key: "mp", label: "MP", flagLabel: "MP", kind: "check", width: "", title: "Medical plan" },
+  { key: "ds", label: "DS", flagLabel: "DS", kind: "check", width: "", title: "Discharge summary" },
 ];
+
+/** Text columns total 85%; these two make up the remaining 15%. */
+export const GRID_FLAG_WIDTH = "11%";
+export const GRID_ACTION_WIDTH = "4%";
+
+/** The columns that get their own cell. */
+export const GRID_TEXT_COLUMNS = BOARD_COLUMNS.filter((c) => c.kind !== "check");
+/** The yes/no columns, shown together as toggle chips in a single cell. */
+export const GRID_FLAG_COLUMNS = BOARD_COLUMNS.filter((c) => c.kind === "check");
+
+/** Options for a select, including any legacy value not in the standard list. */
+export function withCurrent(options: string[], value: string | null): string[] {
+  if (value && !options.includes(value)) return [...options, value];
+  return options;
+}
 
 /** Tone classes for a FAS score, so risk reads at a glance. */
 export function fasTone(value: string | null): string {

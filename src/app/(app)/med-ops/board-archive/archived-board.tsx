@@ -1,5 +1,7 @@
 import {
-  BOARD_COLUMNS,
+  GRID_FLAG_COLUMNS,
+  GRID_FLAG_WIDTH,
+  GRID_TEXT_COLUMNS,
   fasTone,
   statusTone,
   type BoardTypeDef,
@@ -71,46 +73,61 @@ export function ArchivedBoard({
           ))}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="min-w-full border-collapse text-xs">
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full table-fixed border-collapse text-xs">
+            <colgroup>
+              {GRID_TEXT_COLUMNS.map((col) => (
+                <col key={col.key} style={{ width: col.width }} />
+              ))}
+              <col style={{ width: GRID_FLAG_WIDTH }} />
+            </colgroup>
             <thead className="bg-slate-50">
               <tr>
-                {BOARD_COLUMNS.map((col) => (
+                {GRID_TEXT_COLUMNS.map((col) => (
                   <th
                     key={col.key}
-                    className={`${col.width} whitespace-nowrap border-b border-slate-200 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500`}
+                    className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500"
                   >
                     {col.label}
                   </th>
                 ))}
+                <th className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Flags
+                </th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.id} className="border-b border-slate-100">
-                  {BOARD_COLUMNS.map((col) => {
-                    const value = row[col.key] as string | boolean | null;
-                    if (col.kind === "check") {
-                      return (
-                        <td key={col.key} className="px-2 py-1.5 text-center">
-                          {value ? "✓" : ""}
-                        </td>
-                      );
-                    }
+                <tr key={row.id} className="border-b border-slate-100 align-top">
+                  {GRID_TEXT_COLUMNS.map((col) => {
+                    const value = (row[col.key] as string | null) ?? "";
                     const tone =
                       col.key === "fas_score"
-                        ? fasTone(value as string | null)
+                        ? fasTone(value)
                         : col.key === "status"
-                          ? statusTone(value as string | null)
+                          ? statusTone(value)
                           : "";
                     return (
-                      <td key={col.key} className="px-2 py-1.5">
-                        <span className={`rounded px-1 ${tone}`}>
-                          {(value as string | null) ?? ""}
+                      <td key={col.key} className="px-1.5 py-1.5">
+                        <span className={`block whitespace-pre-wrap break-words rounded px-1 ${tone}`}>
+                          {value}
                         </span>
                       </td>
                     );
                   })}
+                  <td className="px-1.5 py-1.5">
+                    <div className="flex flex-wrap gap-0.5">
+                      {GRID_FLAG_COLUMNS.filter((c) => row[c.key]).map((c) => (
+                        <span
+                          key={c.key}
+                          title={c.label}
+                          className="rounded bg-emerald-600 px-1 py-0.5 text-[9px] font-semibold leading-tight text-white"
+                        >
+                          {c.flagLabel}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -5,9 +5,14 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { DB_SCHEMA } from "@/lib/supabase/config";
 import {
-  BOARD_COLUMNS,
+  FAS_SHORT,
+  GRID_ACTION_WIDTH,
+  GRID_FLAG_COLUMNS,
+  GRID_FLAG_WIDTH,
+  GRID_TEXT_COLUMNS,
   fasTone,
   statusTone,
+  withCurrent,
   type BoardColumn,
   type BoardTypeDef,
   type EditableField,
@@ -257,21 +262,30 @@ export function MedicalBoard({
           onDelete={onDelete}
         />
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="min-w-full border-collapse text-xs">
+        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full table-fixed border-collapse text-xs">
+            <colgroup>
+              {GRID_TEXT_COLUMNS.map((col) => (
+                <col key={col.key} style={{ width: col.width }} />
+              ))}
+              <col style={{ width: GRID_FLAG_WIDTH }} />
+              <col style={{ width: GRID_ACTION_WIDTH }} />
+            </colgroup>
             <thead className="sticky top-0 z-10 bg-slate-50">
               <tr>
-                {BOARD_COLUMNS.map((col) => (
+                {GRID_TEXT_COLUMNS.map((col) => (
                   <th
                     key={col.key}
                     title={col.title}
-                    className={`${col.width} whitespace-nowrap border-b border-slate-200 px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500`}
+                    className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500"
                   >
                     {col.label}
                   </th>
                 ))}
-                <th className="w-24 border-b border-slate-200" />
-                <th className="w-10 border-b border-slate-200" />
+                <th className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Flags
+                </th>
+                <th className="border-b border-slate-200" />
               </tr>
             </thead>
             <tbody>
@@ -282,8 +296,8 @@ export function MedicalBoard({
                     row.is_out ? "opacity-55" : ""
                   }`}
                 >
-                  {BOARD_COLUMNS.map((col) => (
-                    <td key={col.key} className={`${col.width} px-1 py-1 align-top`}>
+                  {GRID_TEXT_COLUMNS.map((col) => (
+                    <td key={col.key} className="px-1 py-1 align-top">
                       <Cell
                         row={row}
                         col={col}
@@ -293,24 +307,27 @@ export function MedicalBoard({
                     </td>
                   ))}
                   <td className="px-1 py-1 align-top">
-                    <button
-                      type="button"
-                      onClick={() => launchPatient(row.id)}
-                      title="Open this patient in its own window"
-                      className="whitespace-nowrap rounded border border-slate-200 bg-white px-1.5 py-1 text-[10px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
-                    >
-                      Launch ↗
-                    </button>
+                    <FlagGroup row={row} onCommit={commit} />
                   </td>
                   <td className="px-1 py-1 align-top">
-                    <button
-                      type="button"
-                      onClick={() => onDelete(row.id)}
-                      title="Remove from board"
-                      className="rounded px-1.5 py-1 text-slate-300 transition hover:bg-rose-50 hover:text-rose-600"
-                    >
-                      ×
-                    </button>
+                    <div className="flex flex-col items-center gap-0.5">
+                      <button
+                        type="button"
+                        onClick={() => launchPatient(row.id)}
+                        title="Open this patient in its own window"
+                        className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+                      >
+                        ↗
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDelete(row.id)}
+                        title="Remove from board"
+                        className="rounded px-1 text-[11px] text-slate-300 transition hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -459,72 +476,110 @@ function CardSummary({
   );
 }
 
+/** The yes/no columns as one compact block of toggle chips. */
+function FlagGroup({
+  row,
+  onCommit,
+}: {
+  row: MedicalBoardRow;
+  onCommit: (rowId: string, field: EditableField, value: CellValue) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-0.5">
+      {GRID_FLAG_COLUMNS.map((col) => {
+        const on = Boolean(row[col.key]);
+        return (
+          <button
+            key={col.key}
+            type="button"
+            title={`${col.label}${col.title ? ` — ${col.title}` : ""}`}
+            aria-pressed={on}
+            onClick={() => onCommit(row.id, col.key, !on)}
+            className={`rounded px-1 py-0.5 text-[9px] font-semibold leading-tight transition ${
+              on
+                ? "bg-emerald-600 text-white"
+                : "bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
+            }`}
+          >
+            {col.flagLabel}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Cell({
   row,
   col,
   onCommit,
   editingRef,
-}: {  row: MedicalBoardRow;
+}: {
+  row: MedicalBoardRow;
   col: BoardColumn;
   onCommit: (rowId: string, field: EditableField, value: CellValue) => void;
   editingRef: React.RefObject<{ rowId: string; field: EditableField } | null>;
 }) {
-  const value = cellValue(row, col.key);
+  const text = (cellValue(row, col.key) as string | null) ?? "";
 
-  if (col.kind === "check") {
+  // Enumerated columns are selects, so a long label never needs a wide cell.
+  if (col.kind === "select" && col.options) {
+    const tone = col.key === "fas_score" ? fasTone(text) : statusTone(text);
     return (
-      <div className="flex justify-center pt-1">
-        <input
-          type="checkbox"
-          checked={Boolean(value)}
-          onChange={(e) => onCommit(row.id, col.key, e.target.checked)}
-          className="h-4 w-4 cursor-pointer rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-          aria-label={col.label}
-        />
-      </div>
+      <select
+        value={text}
+        onChange={(e) => onCommit(row.id, col.key, e.target.value)}
+        className={`w-full rounded border border-transparent px-0.5 py-1 text-[11px] transition hover:border-slate-200 focus:border-emerald-400 focus:outline-none ${tone}`}
+      >
+        <option value="">—</option>
+        {withCurrent(col.options, text).map((o) => (
+          <option key={o} value={o}>
+            {FAS_SHORT[o] ?? o}
+          </option>
+        ))}
+      </select>
     );
   }
 
-  const tone =
-    col.key === "fas_score"
-      ? fasTone(value as string | null)
-      : col.key === "status"
-        ? statusTone(value as string | null)
-        : "";
+  const onFocus = () => {
+    editingRef.current = { rowId: row.id, field: col.key };
+  };
+  const onBlur = (
+    e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>,
+  ) => {
+    editingRef.current = null;
+    if (e.target.value !== text) onCommit(row.id, col.key, e.target.value);
+  };
+  const cls =
+    "w-full rounded border border-transparent px-1 py-1 text-[11px] transition hover:border-slate-200 focus:border-emerald-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400";
 
-  const listId = col.options ? `opt-${col.key}` : undefined;
+  // Long free text wraps rather than being clipped by the column width.
+  if (col.wrap) {
+    return (
+      <textarea
+        key={text}
+        rows={2}
+        defaultValue={text}
+        title={col.key === "services" ? row.appt_description ?? undefined : undefined}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        className={`${cls} resize-y leading-snug`}
+      />
+    );
+  }
 
   return (
-    <>
-      <input
-        // Remount when the stored value changes so edits made by teammates
-        // appear here. The cell being typed in is excluded from remote merges
-        // (see refresh), so this never fires mid-keystroke.
-        key={String(value ?? "")}
-        type="text"
-        defaultValue={(value as string | null) ?? ""}
-        list={listId}
-        title={col.key === "services" ? row.appt_description ?? undefined : undefined}
-        onFocus={() => {
-          editingRef.current = { rowId: row.id, field: col.key };
-        }}
-        onBlur={(e) => {
-          editingRef.current = null;
-          const next = e.target.value;
-          if (next !== ((value as string | null) ?? "")) {
-            onCommit(row.id, col.key, next);
-          }
-        }}
-        className={`w-full rounded border border-transparent px-1.5 py-1 text-xs transition hover:border-slate-200 focus:border-emerald-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 ${tone}`}
-      />
-      {col.options ? (
-        <datalist id={listId}>
-          {col.options.map((o) => (
-            <option key={o} value={o} />
-          ))}
-        </datalist>
-      ) : null}
-    </>
+    <input
+      // Remount when the stored value changes so a teammate's edit shows here.
+      // The focused cell is excluded from remote merges, so this never fires
+      // mid-keystroke.
+      key={text}
+      type="text"
+      defaultValue={text}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      className={cls}
+    />
   );
 }
 
