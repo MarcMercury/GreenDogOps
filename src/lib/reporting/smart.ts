@@ -84,13 +84,29 @@ const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles h
   is_business marks companies, is_vet marks referring vets. last_name/first_name/full_name.
 - ezyvet_appointment (matview) = one row per client visit day: client_contact_code,
   service_date, location_key, revenue, pet_count. Best source for appointment/visit counts.
-- report_* views/matviews are pre-aggregated yearly roll-ups (report_overview, report_monthly,
-  report_by_location, report_by_species, report_by_staff, report_by_case_owner, ...). They are
-  fast — prefer them when the question matches their grain, otherwise query the base tables.
+  An appointment is NOT a line count — never count invoice lines to answer "how many appointments".
+- report_* views/matviews are pre-aggregated roll-ups that encode the practice's official
+  definitions. ALWAYS prefer them when one matches the question, otherwise the number will
+  disagree with what the Reporting page shows. Their "month" column is a DATE (first of the
+  month), not an integer, e.g. month = date '2026-06-01'.
 - person = staff/roster and recruiting candidates; person.status tells them apart
   ('employee', 'contractor', 'former', 'applicant', 'prospect'). person_employment holds
   hire_date, pay and PTO. sched_* tables hold the published staff schedule.
-- crm_* tables hold partner/vendor/referral/student CRM records; ce_* tables hold continuing education.`;
+- crm_* tables hold partner/vendor/referral/student CRM records; ce_* tables hold continuing education.
+
+Doctor / provider production — get this right, it is the most commonly asked question:
+- Production is credited to the CASE OWNER, falling back to the staff member when the line has
+  no case owner. Roughly 2,000 lines a month have a NULL case_owner, so grouping on case_owner
+  alone silently drops ~$180k a month and changes who ranks first. When you must aggregate
+  ezyvet_invoice_line yourself, always group by
+  coalesce(nullif(case_owner,''), nullif(staff_member,'')) — never by case_owner or staff_member alone.
+- Canonical sources, in order of preference:
+  * doctor revenue for a MONTH -> report_case_owner_by_month (year, case_owner, month date, revenue)
+  * doctor revenue/appointments for a YEAR -> report_by_case_owner (staff_member column holds the provider, is_vet flags doctors)
+  * doctor by location -> report_staff_by_location; by department -> report_dvm_by_dept
+  * doctor by product/service -> report_case_owner_product(_group)
+  report_by_staff is the SALESPERSON view (who rang the line up), not production — only use it
+  for support-staff questions.`;
 
 const SQL_RULES = `Rules for the SQL:
 - PostgreSQL. The search_path is already the app schema, so reference tables unqualified.
@@ -101,6 +117,8 @@ const SQL_RULES = `Rules for the SQL:
 - Round money to 2 decimals and averages to 1 decimal.
 - Match names/text case-insensitively with ILIKE.
 - Ignore NULLs that would skew an average (e.g. patients with no date_of_birth).
+- Exclude the NULL/blank grouping key from "who is top" rankings, but never let unattributed
+  rows change the attribution rule — apply the coalesce described above instead.
 - Only use tables and columns that appear in the schema listing below.`;
 
 function planSystemPrompt(schema: string, today: string): string {
