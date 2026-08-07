@@ -1,7 +1,9 @@
 import "server-only";
 
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { createAdminClient } from "@/lib/supabase/admin";
 import { callTextLLM, hasLlmProvider, unwrapJson } from "@/lib/ai/llm";
+
+type AdminClient = ReturnType<typeof createAdminClient>;
 
 // ---------------------------------------------------------------------------
 // Smart Report — ask a plain-English question, get an answer from live data.
@@ -52,7 +54,7 @@ type CatalogTable = {
 let catalogCache: { text: string; at: number } | null = null;
 
 /** Compact `table(col type, ...)` listing of everything the query can touch. */
-async function getSchemaCatalog(admin: SupabaseClient): Promise<string> {
+async function getSchemaCatalog(admin: AdminClient): Promise<string> {
   if (catalogCache && Date.now() - catalogCache.at < SCHEMA_TTL_MS) {
     return catalogCache.text;
   }
@@ -167,7 +169,7 @@ function historyBlock(history: SmartTurn[]): string {
  * verified the user has admin access to the reporting module.
  */
 export async function askSmartReport(
-  admin: SupabaseClient,
+  admin: AdminClient,
   question: string,
   history: SmartTurn[] = [],
 ): Promise<SmartResult> {
