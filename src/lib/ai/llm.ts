@@ -20,6 +20,12 @@ export interface LlmTextOptions {
   json?: boolean;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * Gemini 2.5 reasoning budget, in tokens. It is spent from maxTokens, so an
+   * unbounded budget (the default) can consume the whole allowance and return a
+   * truncated reply. Set 0 to disable reasoning.
+   */
+  thinkingBudget?: number;
 }
 
 interface Provider {
@@ -80,6 +86,9 @@ async function callGemini(system: string, user: string, opts: LlmTextOptions): P
           generationConfig: {
             temperature: opts.temperature ?? 0,
             maxOutputTokens: opts.maxTokens ?? 2048,
+            ...(opts.thinkingBudget === undefined
+              ? {}
+              : { thinkingConfig: { thinkingBudget: opts.thinkingBudget } }),
             ...(opts.json ? { responseMimeType: "application/json" } : {}),
           },
         }),
@@ -92,6 +101,9 @@ async function callGemini(system: string, user: string, opts: LlmTextOptions): P
     const data = await res.json();
     const out: string =
       data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text ?? "").join("") ?? "";
+    if (!out.trim() && data?.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+      return { ok: false, error: "response hit the token limit before any text was produced" };
+    }
     return out.trim() ? { ok: true, content: out } : { ok: false, error: "empty response" };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "request failed" };
