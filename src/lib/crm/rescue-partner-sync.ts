@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 
 /**
  * Assimilate ezyVet "Rescue Partners" contacts into the Rescue/Shelter CRM.
@@ -155,7 +156,7 @@ function firstPhone(...raws: (string | null)[]): string | null {
   for (const raw of raws) {
     if (!raw) continue;
     const m = raw.match(/(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
-    if (m) return m[0].trim();
+    if (m) return formatPhoneNumber(m[0]);
   }
   return null;
 }

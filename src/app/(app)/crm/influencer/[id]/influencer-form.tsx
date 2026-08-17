@@ -77,7 +77,7 @@ export function InfluencerForm({
         <Field label="Contact name" name="contact_name" defaultValue={i.contact_name} />
         <Field label="Pet name" name="pet_name" defaultValue={i.pet_name} />
         <Field label="Email" name="email" type="email" defaultValue={i.email} />
-        <Field label="Phone" name="phone" defaultValue={i.phone} />
+        <Field label="Phone" name="phone" type="tel" defaultValue={i.phone} />
         <Field label="Location" name="location" defaultValue={i.location} />
         <Select label="Status" name="status" defaultValue={i.status} options={INFLUENCER_STATUS_OPTIONS} />
         <Select label="Tier" name="tier" defaultValue={i.tier} options={INFLUENCER_TIER_OPTIONS} />

@@ -195,8 +195,8 @@ export function OrganizationForm({
           <Section title="Primary contact">
             <Field label="Contact name" name="contact_name" defaultValue={org?.contact_name} />
             <Field label="Title" name="title" defaultValue={org?.title} />
-            <Field label="Phone" name="phone" defaultValue={org?.phone} />
-            <Field label="Alt phone" name="phone_alt" defaultValue={org?.phone_alt} />
+            <Field label="Phone" name="phone" type="tel" defaultValue={org?.phone} />
+            <Field label="Alt phone" name="phone_alt" type="tel" defaultValue={org?.phone_alt} />
             <Field label="Email" name="email" type="email" defaultValue={org?.email} />
             <Field label="Website" name="website" defaultValue={org?.website} />
             <Field label="Instagram" name="instagram" defaultValue={org?.instagram} />
@@ -205,7 +205,7 @@ export function OrganizationForm({
           <Section title="Secondary contact">
             <Field label="Contact name" name="secondary_contact_name" defaultValue={org?.secondary_contact_name} />
             <Field label="Title" name="secondary_contact_title" defaultValue={org?.secondary_contact_title} />
-            <Field label="Phone" name="secondary_contact_phone" defaultValue={org?.secondary_contact_phone} />
+            <Field label="Phone" name="secondary_contact_phone" type="tel" defaultValue={org?.secondary_contact_phone} />
             <Field label="Email" name="secondary_contact_email" type="email" defaultValue={org?.secondary_contact_email} />
           </Section>
 

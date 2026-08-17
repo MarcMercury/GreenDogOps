@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 
 export type SignupResult = { ok: true } | { ok: false; error: string };
 
@@ -30,7 +31,7 @@ export async function submitCeSignup(
 ): Promise<SignupResult> {
   const name = clean(formData.get("name"));
   const email = clean(formData.get("email"));
-  const phone = clean(formData.get("phone"));
+  const phone = formatPhoneNumber(clean(formData.get("phone")));
 
   if (!name) return { ok: false, error: "Please enter your name." };
   if (!email && !phone) {

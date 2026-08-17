@@ -8,6 +8,7 @@ import { ensureCanEdit, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 import * as XLSX from "xlsx";
 
 const DOCUMENTS_BUCKET = "employee-documents";
@@ -35,6 +36,11 @@ function num(v: FormDataEntryValue | null): number | null {
 
 function bool(v: FormDataEntryValue | null): boolean {
   return v === "on" || v === "true";
+}
+
+/** Reads a form field and normalizes it to the app-wide phone format. */
+function phone(v: FormDataEntryValue | null): string | null {
+  return formatPhoneNumber(str(v));
 }
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -123,9 +129,9 @@ export async function createEmployee(
     grid_name: str(formData.get("grid_name")),
     full_name: fullName,
     email: str(formData.get("email")),
-    phone_mobile: str(formData.get("phone_mobile")),
-    phone_home: str(formData.get("phone_home")),
-    phone_other: str(formData.get("phone_other")),
+    phone_mobile: phone(formData.get("phone_mobile")),
+    phone_home: phone(formData.get("phone_home")),
+    phone_other: phone(formData.get("phone_other")),
     date_of_birth: str(formData.get("date_of_birth")),
     postal_code: str(formData.get("postal_code")),
     work_location_type: str(formData.get("work_location_type")),
@@ -196,9 +202,9 @@ export async function updateEmployee(
     last_name: str(formData.get("last_name")),
     grid_name: str(formData.get("grid_name")),
     email: str(formData.get("email")),
-    phone_mobile: str(formData.get("phone_mobile")),
-    phone_home: str(formData.get("phone_home")),
-    phone_other: str(formData.get("phone_other")),
+    phone_mobile: phone(formData.get("phone_mobile")),
+    phone_home: phone(formData.get("phone_home")),
+    phone_other: phone(formData.get("phone_other")),
     date_of_birth: str(formData.get("date_of_birth")),
     postal_code: str(formData.get("postal_code")),
     work_location_type: str(formData.get("work_location_type")),
@@ -295,7 +301,7 @@ export async function updateEmployee(
 // Inline roster-grid editing
 // ---------------------------------------------------------------------------
 
-type FieldKind = "text" | "date" | "number" | "money" | "boolean";
+type FieldKind = "text" | "date" | "number" | "money" | "boolean" | "phone";
 
 /** Editable columns living on the `person` table, keyed to their value kind. */
 const PERSON_EDIT_FIELDS: Record<string, FieldKind> = {
@@ -303,9 +309,9 @@ const PERSON_EDIT_FIELDS: Record<string, FieldKind> = {
   last_name: "text",
   grid_name: "text",
   email: "text",
-  phone_mobile: "text",
-  phone_home: "text",
-  phone_other: "text",
+  phone_mobile: "phone",
+  phone_home: "phone",
+  phone_other: "phone",
   date_of_birth: "date",
   postal_code: "text",
   work_location_type: "text",
@@ -355,6 +361,8 @@ function coerceFieldValue(
     case "number":
     case "money":
       return num(raw);
+    case "phone":
+      return phone(raw);
     default:
       return str(raw);
   }
@@ -523,9 +531,9 @@ export async function importRosterFile(formData: FormData): Promise<ImportRoster
       addIfPresent(personPatch, "full_name", fullName);
       addIfPresent(personPatch, "grid_name", rowValue(row, ["grid_name", "display_name", "nickname"]));
       addIfPresent(personPatch, "email", email);
-      addIfPresent(personPatch, "phone_mobile", rowValue(row, ["phone_mobile", "mobile", "cell", "cell_phone"]));
-      addIfPresent(personPatch, "phone_home", rowValue(row, ["phone_home", "home_phone"]));
-      addIfPresent(personPatch, "phone_other", rowValue(row, ["phone_other", "other_phone"]));
+      addIfPresent(personPatch, "phone_mobile", formatPhoneNumber(rowValue(row, ["phone_mobile", "mobile", "cell", "cell_phone"])));
+      addIfPresent(personPatch, "phone_home", formatPhoneNumber(rowValue(row, ["phone_home", "home_phone"])));
+      addIfPresent(personPatch, "phone_other", formatPhoneNumber(rowValue(row, ["phone_other", "other_phone"])));
       addIfPresent(personPatch, "date_of_birth", rowValue(row, ["date_of_birth", "dob", "birth_date"]));
       addIfPresent(personPatch, "postal_code", rowValue(row, ["postal_code", "zip", "zipcode"]));
       addIfPresent(personPatch, "work_location_type", rowValue(row, ["work_location_type", "location_type"]));

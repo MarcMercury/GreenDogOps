@@ -37,6 +37,7 @@ import {
   type ActionResult,
 } from "./actions";
 import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { OwnerSelect } from "./owner-select";
 
 const fieldInput =
@@ -871,7 +872,7 @@ function AttendeesManager({ eventId, attendees, canEdit, run }: { eventId: strin
         <div className="grid gap-2 sm:grid-cols-[1.2fr_1.5fr_1fr_1fr_auto]">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className={fieldInput} />
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className={fieldInput} />
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className={fieldInput} />
+          <PhoneInput value={phone} onValueChange={setPhone} placeholder="Phone" className={fieldInput} />
           <select value={type} onChange={(e) => setType(e.target.value)} className={fieldInput}>
             {ATTENDEE_TYPES.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
           </select>

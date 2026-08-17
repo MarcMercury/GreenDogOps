@@ -18,6 +18,7 @@ import {
   partnerName,
   titleCase,
 } from "@/lib/crm/referral-types";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { savePartner } from "./actions";
 
 type FormTab = "basic" | "classification" | "visit" | "agreements" | "stats";
@@ -38,7 +39,11 @@ function Text({ label, name, defaultValue, type = "text", placeholder }: { label
   return (
     <label className="flex flex-col gap-1">
       <span className={labelCls}>{label}</span>
-      <input name={name} type={type} defaultValue={defaultValue ?? ""} placeholder={placeholder} step={type === "number" ? "any" : undefined} className={input} />
+      {type === "tel" ? (
+        <PhoneInput name={name} defaultValue={defaultValue ?? ""} placeholder={placeholder} className={input} />
+      ) : (
+        <input name={name} type={type} defaultValue={defaultValue ?? ""} placeholder={placeholder} step={type === "number" ? "any" : undefined} className={input} />
+      )}
     </label>
   );
 }
@@ -116,7 +121,7 @@ export function PartnerDialog({
               <Text label="Partner Name *" name="name" defaultValue={p?.name ?? p?.hospital_name} />
               <Select label="Status" name="status" defaultValue={p?.status ?? "active"} options={STATUS_OPTIONS} includeBlank={false} format={titleCase} />
               <Text label="Address" name="address" defaultValue={p?.address} />
-              <Text label="Phone" name="phone" defaultValue={p?.phone} />
+              <Text label="Phone" name="phone" type="tel" defaultValue={p?.phone} />
               <Text label="Email" name="email" defaultValue={p?.email} type="email" />
               <Text label="Website" name="website" defaultValue={p?.website} />
               <Text label="Contact Name" name="contact_name" defaultValue={p?.contact_name ?? p?.contact_person} />

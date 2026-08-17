@@ -7,6 +7,7 @@ import {
   CREDENTIAL_CATEGORIES,
   type Credential,
 } from "@/lib/admin/credentials";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { saveCredential, deleteCredential } from "../actions";
 
 const inputCls =
@@ -69,18 +70,24 @@ function Field({
   name,
   defaultValue,
   full,
+  type,
 }: {
   label: string;
   name: string;
   defaultValue?: string | null;
   full?: boolean;
+  type?: string;
 }) {
   return (
     <label className={`block ${full ? "sm:col-span-2" : ""}`}>
       <span className="mb-1 block text-xs font-medium text-slate-500">
         {label}
       </span>
-      <input name={name} defaultValue={defaultValue ?? ""} className={inputCls} />
+      {type === "tel" ? (
+        <PhoneInput name={name} defaultValue={defaultValue ?? ""} className={inputCls} />
+      ) : (
+        <input name={name} type={type} defaultValue={defaultValue ?? ""} className={inputCls} />
+      )}
     </label>
   );
 }
@@ -150,6 +157,7 @@ function CredentialForm({
             <Field
               label="Contact phone"
               name="contact_phone"
+              type="tel"
               defaultValue={cred?.contact_phone}
             />
             <Field label="Status" name="status" defaultValue={cred?.status} />

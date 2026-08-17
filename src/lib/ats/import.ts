@@ -6,6 +6,7 @@ import {
   candidateHasIdentity,
   type ParsedCandidate,
 } from "./import-types";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 
 // ---------------------------------------------------------------------------
 // Header mapping — map arbitrary spreadsheet/CSV column names onto our fields.
@@ -156,6 +157,8 @@ export function rowsToCandidates(rows: string[][]): {
       const val = cleanCell(row[col]);
       if (val == null) continue;
       if (field === "score") c.score = toScore(val);
+      else if (field === "phone_mobile" || field === "phone_home" || field === "phone_other")
+        c[field] = formatPhoneNumber(val);
       else c[field] = val;
     }
     // Derive first/last from a single full-name column when needed.
@@ -591,9 +594,9 @@ function coerceCandidate(raw: Record<string, unknown>): ParsedCandidate {
     c.last_name = last;
   }
   c.email = get("email");
-  c.phone_mobile = get("phone_mobile") ?? get("phone");
-  c.phone_home = get("phone_home");
-  c.phone_other = get("phone_other");
+  c.phone_mobile = formatPhoneNumber(get("phone_mobile") ?? get("phone"));
+  c.phone_home = formatPhoneNumber(get("phone_home"));
+  c.phone_other = formatPhoneNumber(get("phone_other"));
   c.date_of_birth = get("date_of_birth") ?? get("dob");
   c.postal_code = get("postal_code") ?? get("zip") ?? get("zip_code");
   c.target_title = get("target_title") ?? get("title");

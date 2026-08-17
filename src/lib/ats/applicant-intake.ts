@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 
 // ---------------------------------------------------------------------------
 // Shared applicant intake.
@@ -195,7 +196,7 @@ export async function createApplicantProfile(
       last_name: last,
       full_name: fullName,
       email: input.email,
-      phone_mobile: input.phone,
+      phone_mobile: formatPhoneNumber(input.phone),
     })
     .select("id")
     .single();

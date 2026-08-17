@@ -13,6 +13,7 @@ import {
   RECRUITING_SOURCE_OPTIONS,
   RECRUITING_POSITION_OPTIONS,
 } from "@/lib/ats/types";
+import { PhoneInput } from "@/lib/shared/phone-input";
 
 type Mode = "list" | "resume";
 
@@ -52,14 +53,23 @@ function TextField({
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      <input
-        type={type}
-        list={list}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-      />
+      {type === "tel" ? (
+        <PhoneInput
+          value={value}
+          placeholder={placeholder}
+          onValueChange={onChange}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      ) : (
+        <input
+          type={type}
+          list={list}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      )}
     </label>
   );
 }
@@ -519,13 +529,22 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
                   <tr key={i} className="border-t border-slate-200">
                     {FIELDS.map((f) => (
                       <td key={f.key} className="px-1 py-1">
-                        <input
-                          value={(c[f.key] as string | null) ?? ""}
-                          onChange={(e) => updateRow(i, f.key, e.target.value)}
-                          placeholder={f.placeholder}
-                          list={f.key === "target_title" ? POSITION_DATALIST_ID : undefined}
-                          className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none"
-                        />
+                        {f.key === "phone_mobile" ? (
+                          <PhoneInput
+                            value={(c[f.key] as string | null) ?? ""}
+                            onValueChange={(v) => updateRow(i, f.key, v)}
+                            placeholder={f.placeholder}
+                            className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none"
+                          />
+                        ) : (
+                          <input
+                            value={(c[f.key] as string | null) ?? ""}
+                            onChange={(e) => updateRow(i, f.key, e.target.value)}
+                            placeholder={f.placeholder}
+                            list={f.key === "target_title" ? POSITION_DATALIST_ID : undefined}
+                            className="w-full rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none"
+                          />
+                        )}
                       </td>
                     ))}
                     <td className="px-1 py-1 text-right">

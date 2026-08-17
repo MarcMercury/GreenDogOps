@@ -47,6 +47,7 @@ import {
 } from "./actions";
 import { PartnerDialog } from "./partner-dialog";
 import { PartnerMap } from "./partner-map";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { EmailComposeDialog } from "../_components/email-compose-dialog";
 import {
   buildReferralTemplateVars,
@@ -2044,7 +2045,7 @@ function ContactForm({
         </label>
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Phone</span>
-          <input name="phone" defaultValue={contact?.phone ?? ""} className={fieldInput} />
+          <PhoneInput name="phone" defaultValue={contact?.phone ?? ""} className={fieldInput} />
         </label>
         <label className="flex flex-col gap-1">
           <span className={fieldLabel}>Preferred Contact Method</span>

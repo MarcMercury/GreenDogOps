@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser, recordAudit } from "@/lib/auth/session";
 import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
 import type { InitiativeLink, TreeItem } from "@/lib/marketing/types";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 export type ActionResult =
   | { ok: true; message?: string }
   | { ok: false; error: string };
@@ -556,7 +557,7 @@ export async function saveAttendee(formData: FormData): Promise<ActionResult> {
     event_id: eventId,
     name: str(formData.get("name")),
     email: str(formData.get("email")),
-    phone: str(formData.get("phone")),
+    phone: formatPhoneNumber(str(formData.get("phone"))),
     attendee_type: str(formData.get("attendee_type")) ?? "lead",
     is_new_client: bool(formData.get("is_new_client")),
     notes: str(formData.get("notes")),

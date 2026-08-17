@@ -92,7 +92,7 @@ export function ContactForm({
         <Field label="First name" name="first_name" defaultValue={contact?.first_name} />
         <Field label="Last name" name="last_name" defaultValue={contact?.last_name} />
         <Field label="Email" name="email" type="email" defaultValue={contact?.email} />
-        <Field label="Phone" name="phone" defaultValue={contact?.phone} />
+        <Field label="Phone" name="phone" type="tel" defaultValue={contact?.phone} />
         <Select label="Status" name="status" defaultValue={contact?.status} options={CONTACT_STATUS_OPTIONS} />
         <Field label="School / Org" name="organization" defaultValue={contact?.organization} />
       </Section>

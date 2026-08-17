@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 import { updateEmployeeField } from "./actions";
 
-export type EditKind = "text" | "date" | "number" | "money" | "select" | "checkbox";
+export type EditKind = "text" | "date" | "number" | "money" | "select" | "checkbox" | "phone";
 
 export interface SelectOption {
   value: string;
@@ -57,7 +58,9 @@ export function EditableCell({
       ? "—"
       : String(rawValue));
 
-  function commit(next: string | boolean) {
+  function commit(raw: string | boolean) {
+    const next =
+      kind === "phone" && typeof raw === "string" ? formatPhoneNumber(raw) ?? "" : raw;
     const current =
       kind === "checkbox" ? Boolean(rawValue) : rawValue ?? "";
     // Skip the write when nothing actually changed.
@@ -144,7 +147,7 @@ export function EditableCell({
   }
 
   const inputType =
-    kind === "date" ? "date" : kind === "number" || kind === "money" ? "number" : "text";
+    kind === "date" ? "date" : kind === "number" || kind === "money" ? "number" : kind === "phone" ? "tel" : "text";
 
   return (
     <span onClick={stop}>

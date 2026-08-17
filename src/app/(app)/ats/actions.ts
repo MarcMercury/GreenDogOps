@@ -22,6 +22,7 @@ import {
   type CreateCandidatesResult,
 } from "@/lib/ats/import-types";
 import { ACCEPTED_LEAD_STAGE, DECLINED_STAGE, type CandidateDocument } from "@/lib/ats/types";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -40,6 +41,11 @@ function bool(v: FormDataEntryValue | null): boolean {
   return v === "on" || v === "true";
 }
 
+/** Reads a form field and normalizes it to the app-wide phone format. */
+function phone(v: FormDataEntryValue | null): string | null {
+  return formatPhoneNumber(str(v));
+}
+
 export type SaveResult = { ok: true } | { ok: false; error: string };
 
 export async function updateCandidate(
@@ -55,9 +61,9 @@ export async function updateCandidate(
     first_name: str(formData.get("first_name")),
     last_name: str(formData.get("last_name")),
     email: str(formData.get("email")),
-    phone_mobile: str(formData.get("phone_mobile")),
-    phone_home: str(formData.get("phone_home")),
-    phone_other: str(formData.get("phone_other")),
+    phone_mobile: phone(formData.get("phone_mobile")),
+    phone_home: phone(formData.get("phone_home")),
+    phone_other: phone(formData.get("phone_other")),
     date_of_birth: str(formData.get("date_of_birth")),
     postal_code: str(formData.get("postal_code")),
     opportunity_type: str(formData.get("opportunity_type")),
@@ -754,9 +760,9 @@ export async function createCandidate(
       last_name: lastName,
       full_name: fullName,
       email,
-      phone_mobile: str(formData.get("phone_mobile")),
-      phone_home: str(formData.get("phone_home")),
-      phone_other: str(formData.get("phone_other")),
+      phone_mobile: phone(formData.get("phone_mobile")),
+      phone_home: phone(formData.get("phone_home")),
+      phone_other: phone(formData.get("phone_other")),
       date_of_birth: str(formData.get("date_of_birth")),
       postal_code: str(formData.get("postal_code")),
       opportunity_type: str(formData.get("opportunity_type")),

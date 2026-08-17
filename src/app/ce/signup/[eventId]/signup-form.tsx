@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { submitCeSignup, type SignupResult } from "./actions";
 
 export function CeSignupForm({
@@ -64,10 +65,8 @@ export function CeSignupForm({
         </label>
         <label className="block">
           <span className="text-sm font-medium text-slate-700">Phone number</span>
-          <input
+          <PhoneInput
             name="phone"
-            type="tel"
-            autoComplete="tel"
             className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
         </label>

@@ -9,6 +9,7 @@ import {
   RECRUITING_POSITION_OPTIONS,
 } from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { CopyForSlackButton } from "./copy-for-slack";
 import { buildCandidateSummary } from "@/lib/ats/slack-summary";
 import { updateCandidate, hireCandidate, deleteCandidate, type SaveResult } from "../actions";
@@ -26,17 +27,23 @@ function Field({
   type?: string;
   list?: string;
 }) {
+  const inputCls =
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      <input
-        name={name}
-        type={type}
-        list={list}
-        defaultValue={defaultValue ?? ""}
-        step={type === "number" ? "any" : undefined}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-      />
+      {type === "tel" ? (
+        <PhoneInput name={name} defaultValue={defaultValue ?? ""} className={inputCls} />
+      ) : (
+        <input
+          name={name}
+          type={type}
+          list={list}
+          defaultValue={defaultValue ?? ""}
+          step={type === "number" ? "any" : undefined}
+          className={inputCls}
+        />
+      )}
     </label>
   );
 }

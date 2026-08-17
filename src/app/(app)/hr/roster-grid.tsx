@@ -209,7 +209,7 @@ export function RosterGrid({
         <EditableCell
           personId={r.id}
           field="phone_mobile"
-          kind="text"
+          kind="phone"
           rawValue={r.phone_mobile}
           disabled={!editable}
         />
@@ -223,7 +223,7 @@ export function RosterGrid({
         <EditableCell
           personId={r.id}
           field="phone_home"
-          kind="text"
+          kind="phone"
           rawValue={r.phone_home}
           disabled={!editable}
         />
@@ -237,7 +237,7 @@ export function RosterGrid({
         <EditableCell
           personId={r.id}
           field="phone_other"
-          kind="text"
+          kind="phone"
           rawValue={r.phone_other}
           disabled={!editable}
         />

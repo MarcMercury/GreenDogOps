@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import type { RosterRow } from "@/lib/hr/types";
 import { PAY_TYPE_LABELS, SCHEDULE_TYPE_OPTIONS } from "@/lib/hr/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { updateEmployee, type SaveResult } from "../actions";
 
 export function Field({
@@ -20,17 +21,28 @@ export function Field({
   type?: string;
   placeholder?: string;
 }) {
+  const inputCls =
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      <input
-        name={name}
-        type={type}
-        defaultValue={defaultValue ?? ""}
-        placeholder={placeholder}
-        step={type === "number" ? "any" : undefined}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-      />
+      {type === "tel" ? (
+        <PhoneInput
+          name={name}
+          defaultValue={defaultValue ?? ""}
+          placeholder={placeholder}
+          className={inputCls}
+        />
+      ) : (
+        <input
+          name={name}
+          type={type}
+          defaultValue={defaultValue ?? ""}
+          placeholder={placeholder}
+          step={type === "number" ? "any" : undefined}
+          className={inputCls}
+        />
+      )}
     </label>
   );
 }

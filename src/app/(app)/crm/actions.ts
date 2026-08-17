@@ -14,6 +14,7 @@ import {
   type OrgType,
   type ContactType,
 } from "@/lib/crm/types";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -40,6 +41,11 @@ function bool(v: FormDataEntryValue | null): boolean {
   return v === "on" || v === "true";
 }
 
+/** Reads a form field and normalizes it to the app-wide phone format. */
+function phone(v: FormDataEntryValue | null): string | null {
+  return formatPhoneNumber(str(v));
+}
+
 export type SaveResult = { ok: true } | { ok: false; error: string };
 
 function organizationPatch(formData: FormData) {
@@ -50,8 +56,8 @@ function organizationPatch(formData: FormData) {
     status: str(formData.get("status")),
     contact_name: str(formData.get("contact_name")),
     title: str(formData.get("title")),
-    phone: str(formData.get("phone")),
-    phone_alt: str(formData.get("phone_alt")),
+    phone: phone(formData.get("phone")),
+    phone_alt: phone(formData.get("phone_alt")),
     email: str(formData.get("email")),
     website: str(formData.get("website")),
     instagram: str(formData.get("instagram")),
@@ -81,7 +87,7 @@ function organizationPatch(formData: FormData) {
     secondary_contact_name: str(formData.get("secondary_contact_name")),
     secondary_contact_title: str(formData.get("secondary_contact_title")),
     secondary_contact_email: str(formData.get("secondary_contact_email")),
-    secondary_contact_phone: str(formData.get("secondary_contact_phone")),
+    secondary_contact_phone: phone(formData.get("secondary_contact_phone")),
     last_visit_date: str(formData.get("last_visit_date")),
     last_contact_date: str(formData.get("last_contact_date")),
     notes: str(formData.get("notes")),
@@ -374,7 +380,7 @@ function contactPatch(formData: FormData) {
     first_name: str(formData.get("first_name")),
     last_name: str(formData.get("last_name")),
     email: str(formData.get("email")),
-    phone: str(formData.get("phone")),
+    phone: phone(formData.get("phone")),
     status: str(formData.get("status")),
     organization: str(formData.get("organization")),
     program_type: str(formData.get("program_type")),
@@ -552,7 +558,7 @@ export async function importContacts(
       last_name: clean(r.last_name),
       full_name: clean(r.full_name),
       email: clean(r.email),
-      phone: clean(r.phone),
+      phone: formatPhoneNumber(r.phone),
       organization: clean(r.organization),
       status: clean(r.status) ?? "lead",
       lead_source: clean(r.lead_source),
@@ -582,7 +588,7 @@ function influencerPatch(formData: FormData) {
     contact_name: str(formData.get("contact_name")),
     pet_name: str(formData.get("pet_name")),
     email: str(formData.get("email")),
-    phone: str(formData.get("phone")),
+    phone: phone(formData.get("phone")),
     status: str(formData.get("status")),
     tier: str(formData.get("tier")),
     priority: str(formData.get("priority")),
@@ -1116,7 +1122,7 @@ export async function promoteStudentToRecruiting(
       last_name: contact.last_name,
       full_name: fullName,
       email: contact.email,
-      phone_mobile: contact.phone,
+      phone_mobile: formatPhoneNumber(contact.phone),
       notes: contact.notes,
       opportunity_type: contact.opportunity_type,
       source_contact_id: contact.id,

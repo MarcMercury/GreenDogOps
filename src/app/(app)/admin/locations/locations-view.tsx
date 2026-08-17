@@ -6,6 +6,7 @@ import {
   LOCATION_KIND_LABELS,
   type Location,
 } from "@/lib/shared/locations";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { Panel } from "../_components";
 import { saveLocation, setLocationActive } from "../actions";
 
@@ -32,13 +33,22 @@ function Field({
       <span className="mb-1 block text-xs font-medium text-slate-500">
         {label}
       </span>
-      <input
-        name={name}
-        type={type ?? "text"}
-        defaultValue={defaultValue ?? ""}
-        placeholder={placeholder}
-        className={inputCls}
-      />
+      {type === "tel" ? (
+        <PhoneInput
+          name={name}
+          defaultValue={defaultValue ?? ""}
+          placeholder={placeholder}
+          className={inputCls}
+        />
+      ) : (
+        <input
+          name={name}
+          type={type ?? "text"}
+          defaultValue={defaultValue ?? ""}
+          placeholder={placeholder}
+          className={inputCls}
+        />
+      )}
     </label>
   );
 }
@@ -205,6 +215,7 @@ function LocationForm({
             <Field
               label="Phone"
               name="phone"
+              type="tel"
               defaultValue={location?.phone}
               placeholder="(310) 606-2407"
             />

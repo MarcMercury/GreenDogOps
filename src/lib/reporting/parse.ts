@@ -9,6 +9,7 @@ import type {
   LocationKey,
   SpeciesGroup,
 } from "./types";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 
 /**
  * Parse CSV text into an array of string-cell rows. Handles quoted fields,
@@ -318,8 +319,8 @@ export function parseContactCsv(text: string): {
       physical_country: clean(get(row, "Contact Physical Country")),
       number_of_miles: toNumber(get(row, "Number of Miles")),
       email: clean(get(row, "Email Addresses")),
-      phone: clean(get(row, "Phone Numbers")),
-      mobile: clean(get(row, "Mobile Numbers")),
+      phone: formatPhoneNumber(get(row, "Phone Numbers")),
+      mobile: formatPhoneNumber(get(row, "Mobile Numbers")),
       website: clean(get(row, "Contact Website Address")),
       notes: clean(get(row, "Contact Notes")),
       account_code: clean(get(row, "Contact Account Code")),
@@ -446,9 +447,9 @@ export function parseAnimalCsv(text: string): {
       home_email: clean(get(row, "Home Email Address")),
       business_email: clean(get(row, "Business Email Address")),
       accounts_email: clean(get(row, "Accounts Email Address")),
-      phone: clean(get(row, "Phone Numbers")),
-      mobile: clean(get(row, "Mobile Numbers")),
-      fax: clean(get(row, "Fax Numbers")),
+      phone: formatPhoneNumber(get(row, "Phone Numbers")),
+      mobile: formatPhoneNumber(get(row, "Mobile Numbers")),
+      fax: formatPhoneNumber(get(row, "Fax Numbers")),
       physical_street1: clean(get(row, "Physical Address Street 1")),
       physical_street2: clean(get(row, "Physical Address Street 2")),
       physical_suburb: clean(get(row, "Physical Address Suburb/Neighborhood")),

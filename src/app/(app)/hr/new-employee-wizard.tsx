@@ -7,6 +7,7 @@ import {
   OPPORTUNITY_TYPES,
 } from "@/lib/shared/opportunity-types";
 import { SCHEDULE_TYPE_OPTIONS } from "@/lib/hr/types";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { createEmployee } from "./actions";
 
 type StepKey = "personal" | "employment" | "review";
@@ -76,13 +77,22 @@ function TextField({
         {label}
         {required ? <span className="text-rose-500"> *</span> : null}
       </span>
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-      />
+      {type === "tel" ? (
+        <PhoneInput
+          value={value}
+          placeholder={placeholder}
+          onValueChange={onChange}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => onChange(e.target.value)}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        />
+      )}
     </label>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 import { useState, useTransition } from "react";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { addProgramName } from "./actions";
 
 /**
@@ -100,17 +101,28 @@ export function Field({
   hint?: string;
   onChange?: (value: string) => void;
 }) {
+  const inputCls =
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
   return (
     <label className="flex flex-col gap-1">
       <FieldLabel label={label} hint={hint} />
-      <input
-        name={name}
-        type={type}
-        defaultValue={defaultValue ?? ""}
-        step={type === "number" ? "any" : undefined}
-        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-      />
+      {type === "tel" ? (
+        <PhoneInput
+          name={name}
+          defaultValue={defaultValue ?? ""}
+          onValueChange={onChange}
+          className={inputCls}
+        />
+      ) : (
+        <input
+          name={name}
+          type={type}
+          defaultValue={defaultValue ?? ""}
+          step={type === "number" ? "any" : undefined}
+          onChange={onChange ? (e) => onChange(e.target.value) : undefined}
+          className={inputCls}
+        />
+      )}
     </label>
   );
 }

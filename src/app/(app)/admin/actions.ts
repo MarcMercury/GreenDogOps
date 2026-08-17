@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, recordAudit } from "@/lib/auth/session";
 import { syncAppUsersToRoster } from "@/lib/admin/user-roster-sync";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 import {
   APP_ROLES,
   MODULES,
@@ -341,7 +342,7 @@ export async function saveLocation(formData: FormData): Promise<void> {
   const values: Record<string, unknown> = {};
   for (const f of LOCATION_TEXT_FIELDS) {
     const v = String(formData.get(f) ?? "").trim();
-    values[f] = v === "" ? null : v;
+    values[f] = f === "phone" ? formatPhoneNumber(v) : v === "" ? null : v;
   }
   if (!values.name) return;
 
@@ -469,7 +470,7 @@ function collectCredential(form: FormData): Record<string, string | null> {
   const out: Record<string, string | null> = {};
   for (const f of CREDENTIAL_FIELDS) {
     const v = String(form.get(f) ?? "").trim();
-    out[f] = v === "" ? null : v;
+    out[f] = f === "contact_phone" ? formatPhoneNumber(v) : v === "" ? null : v;
   }
   if (!out.category) out.category = "vendor";
   return out;

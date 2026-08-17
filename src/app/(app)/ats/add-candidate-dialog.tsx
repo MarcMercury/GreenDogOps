@@ -6,6 +6,7 @@ import {
   RECRUITING_PIPELINE_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
 } from "@/lib/ats/types";
+import { PhoneInput } from "@/lib/shared/phone-input";
 import { createCandidate } from "./actions";
 
 const inputCls =
@@ -26,13 +27,17 @@ function Field({
   return (
     <label className="flex flex-col gap-1">
       <span className={labelCls}>{label}</span>
-      <input
-        name={name}
-        type={type}
-        placeholder={placeholder}
-        step={type === "number" ? "any" : undefined}
-        className={inputCls}
-      />
+      {type === "tel" ? (
+        <PhoneInput name={name} placeholder={placeholder} className={inputCls} />
+      ) : (
+        <input
+          name={name}
+          type={type}
+          placeholder={placeholder}
+          step={type === "number" ? "any" : undefined}
+          className={inputCls}
+        />
+      )}
     </label>
   );
 }

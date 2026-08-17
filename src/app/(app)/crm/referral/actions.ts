@@ -9,6 +9,7 @@ import { fetchAllRows, mapWithConcurrency } from "@/lib/supabase/paginate";
 import { requireUser, requireAdmin, recordAudit } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
 import { sendEmail } from "@/lib/shared/email";
+import { formatPhoneNumber } from "@/lib/shared/phone";
 import { textToHtml } from "@/lib/crm/email-templates";
 import { redirect } from "next/navigation";
 
@@ -28,6 +29,10 @@ function num(v: FormDataEntryValue | null): number | null {
 }
 function bool(v: FormDataEntryValue | null): boolean {
   return v === "on" || v === "true";
+}
+/** Reads a form field and normalizes it to the app-wide phone format. */
+function phone(v: FormDataEntryValue | null): string | null {
+  return formatPhoneNumber(str(v));
 }
 function arr(formData: FormData, name: string): string[] {
   return formData.getAll(name).map((v) => String(v)).filter(Boolean);
@@ -61,7 +66,7 @@ export async function savePartner(formData: FormData): Promise<ActionResult> {
     status: str(formData.get("status")) ?? "active",
     contact_name: str(formData.get("contact_name")),
     email: str(formData.get("email")),
-    phone: str(formData.get("phone")),
+    phone: phone(formData.get("phone")),
     address: str(formData.get("address")),
     website: str(formData.get("website")),
     instagram_handle: str(formData.get("instagram_handle")),
@@ -347,7 +352,7 @@ export async function saveContact(formData: FormData): Promise<ActionResult> {
     name,
     title: str(formData.get("title")),
     email: str(formData.get("email")),
-    phone: str(formData.get("phone")),
+    phone: phone(formData.get("phone")),
     is_primary: bool(formData.get("is_primary")),
     preferred_contact_method: str(formData.get("preferred_contact_method")),
     relationship_notes: str(formData.get("relationship_notes")),
