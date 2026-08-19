@@ -10,6 +10,8 @@ import {
   VISIT_HEAT_LEVELS,
   visitHeat,
   partnerName,
+  partnerCoords,
+  partnerNeedsGeocode,
   titleCase,
 } from "@/lib/crm/referral-types";
 import { geocodePartners } from "./actions";
@@ -190,19 +192,17 @@ export function PartnerMap({
 
   const [geocoding, startGeocode] = useTransition();
 
-  const hasCoords = useCallback(
-    (p: ReferralPartner) => typeof p.latitude === "number" && typeof p.longitude === "number",
-    [],
-  );
+  const hasCoords = useCallback((p: ReferralPartner) => partnerCoords(p) !== null, []);
 
   // Partners that still need geocoding (have an address but no/stale coords).
   const needsGeocode = useMemo(
-    () =>
-      partners.filter((p) => {
-        const addr = p.address?.trim();
-        if (!addr) return false;
-        return !hasCoords(p) || p.geocoded_address !== addr;
-      }),
+    () => partners.filter((p) => partnerNeedsGeocode(p)),
+    [partners],
+  );
+
+  // Addresses Google could not pin (ZERO_RESULTS / region-level match only).
+  const unmappable = useMemo(
+    () => partners.filter((p) => !!p.geocode_error && !hasCoords(p)),
     [partners, hasCoords],
   );
 
@@ -272,7 +272,7 @@ export function PartnerMap({
     const bounds = new maps.LatLngBounds();
 
     for (const p of visible) {
-      const position = { lat: p.latitude as number, lng: p.longitude as number };
+      const position = partnerCoords(p)!;
       const { color } = heatFor(p);
       const marker = new maps.Marker({
         position,
@@ -336,12 +336,38 @@ export function PartnerMap({
     }
   }, [visible, status]);
 
-  function runGeocode() {
-    startGeocode(async () => {
-      const r = await geocodePartners();
-      onNotify(r.ok ? r.message : `Geocode error: ${r.error}`);
-    });
-  }
+  // Plot every pending clinic, not just the first server batch: the action caps
+  // each call, so keep calling until nothing is left (bounded to avoid loops).
+  const runGeocode = useCallback(
+    (retryFailed = false) => {
+      startGeocode(async () => {
+        let total = 0;
+        let last = "";
+        for (let pass = 0; pass < 20; pass++) {
+          const r = await geocodePartners(retryFailed && pass === 0);
+          if (!r.ok) {
+            onNotify(`Geocode error: ${r.error}`);
+            return;
+          }
+          total += r.geocoded;
+          last = r.message;
+          if (r.remaining === 0 || r.geocoded + r.failed === 0) break;
+        }
+        onNotify(total > 0 ? `Plotted ${total} clinic${total === 1 ? "" : "s"} on the map.` : last);
+      });
+    },
+    [onNotify],
+  );
+
+  // Auto-plot on open. Partners added or edited outside the Map tab used to sit
+  // unplotted until someone happened to notice and press the button, which is
+  // why clinics with valid addresses were missing from the map.
+  const autoRanRef = useRef(false);
+  useEffect(() => {
+    if (status !== "ready" || autoRanRef.current || needsGeocode.length === 0) return;
+    autoRanRef.current = true;
+    runGeocode();
+  }, [status, needsGeocode.length, runGeocode]);
 
   const filtersActive = zone || tier || priority || partnerStatus || search;
 
@@ -405,9 +431,9 @@ export function PartnerMap({
             <span>
               <span className="font-semibold text-slate-700">{visible.length}</span> shown
             </span>
-            {needsGeocode.length > 0 && (
+            {(needsGeocode.length > 0 || geocoding) && (
               <button
-                onClick={runGeocode}
+                onClick={() => runGeocode()}
                 disabled={geocoding}
                 className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
               >
@@ -439,11 +465,30 @@ export function PartnerMap({
       </div>
 
       {/* Footnotes */}
-      {status === "ready" && (visible.length === 0 || noAddress > 0) && (
-        <p className="text-xs text-slate-400">
-          {visible.length === 0 && "No clinics match the current filters. "}
-          {noAddress > 0 && `${noAddress} clinic${noAddress === 1 ? "" : "s"} have no address on file and can't be mapped.`}
-        </p>
+      {status === "ready" && (visible.length === 0 || noAddress > 0 || unmappable.length > 0) && (
+        <div className="space-y-1 text-xs text-slate-400">
+          {visible.length === 0 && <p>No clinics match the current filters.</p>}
+          {noAddress > 0 && (
+            <p>
+              {noAddress} clinic{noAddress === 1 ? "" : "s"} have no address on file and can&apos;t be
+              mapped.
+            </p>
+          )}
+          {unmappable.length > 0 && (
+            <p>
+              {unmappable.length} address{unmappable.length === 1 ? "" : "es"} couldn&apos;t be located
+              (e.g. &ldquo;{unmappable[0].address}&rdquo;) — fix the address on the clinic record, or{" "}
+              <button
+                onClick={() => runGeocode(true)}
+                disabled={geocoding}
+                className="font-medium text-emerald-600 underline underline-offset-2 disabled:opacity-50"
+              >
+                retry
+              </button>
+              .
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

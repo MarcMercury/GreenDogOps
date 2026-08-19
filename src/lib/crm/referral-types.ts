@@ -91,6 +91,8 @@ export interface ReferralPartner {
   longitude: number | null;
   geocoded_at: string | null;
   geocoded_address: string | null;
+  geocode_attempted_at: string | null;
+  geocode_error: string | null;
 
   created_at: string;
   updated_at: string | null;
@@ -262,6 +264,38 @@ export const VISIT_ITEM_OPTIONS = [
   { value: "gdd_event", label: "GDD Event" },
   { value: "other", label: "Other" },
 ] as const;
+
+// ---------------------------------------------------------------------------
+// Geocoding helpers (Map View) — shared by the client map and the server action
+// so "what still needs plotting" is decided in exactly one place.
+// ---------------------------------------------------------------------------
+export type GeocodablePartner = Pick<
+  ReferralPartner,
+  "address" | "latitude" | "longitude" | "geocoded_address" | "geocode_error"
+>;
+
+// Coordinates can arrive as strings from some Postgres/JSON round-trips, so
+// coerce rather than trusting `typeof === "number"`.
+export function partnerCoords(p: GeocodablePartner): { lat: number; lng: number } | null {
+  const lat = Number(p.latitude);
+  const lng = Number(p.longitude);
+  if (p.latitude == null || p.longitude == null) return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+// A partner needs geocoding when it has an address that hasn't been resolved
+// yet, or whose text changed since the last attempt. Addresses Google already
+// rejected are skipped (they'd otherwise be retried on every page load) unless
+// the caller explicitly asks to retry failures.
+export function partnerNeedsGeocode(p: GeocodablePartner, retryFailed = false): boolean {
+  const addr = p.address?.trim();
+  if (!addr) return false;
+  const attemptedThisAddress = p.geocoded_address?.trim() === addr;
+  if (partnerCoords(p) && attemptedThisAddress) return false;
+  if (p.geocode_error && attemptedThisAddress && !retryFailed) return false;
+  return true;
+}
 
 // ---------------------------------------------------------------------------
 // Display helpers

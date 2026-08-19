@@ -11,6 +11,7 @@ import { canEditModule } from "@/lib/auth/permissions";
 import { sendEmail } from "@/lib/shared/email";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { textToHtml } from "@/lib/crm/email-templates";
+import { partnerNeedsGeocode, type GeocodablePartner } from "@/lib/crm/referral-types";
 import { redirect } from "next/navigation";
 
 // ---------------------------------------------------------------------------
@@ -492,14 +493,35 @@ export async function recalculateMetrics(): Promise<ActionResult> {
 // and caches the result on the row. Only partners that have an address but are
 // missing coordinates (or whose address changed since the last geocode) are
 // processed. Capped per-call so the server action stays well under platform
-// timeouts; the UI can re-run until `remaining` hits 0.
+// timeouts; the UI re-runs until `remaining` hits 0.
 export type GeocodeResult =
   | { ok: true; geocoded: number; failed: number; remaining: number; message: string }
   | { ok: false; error: string };
 
 const GEOCODE_BATCH = 40;
 
-export async function geocodePartners(): Promise<GeocodeResult> {
+// Google returns a city/county/state centroid for vague input ("Serving Malibu
+// and Surrounding Areas"). Plotting those puts a fake pin in the middle of a
+// region, so treat them as unlocatable instead of as a hit.
+const TOO_COARSE_TYPES = new Set([
+  "country",
+  "administrative_area_level_1",
+  "administrative_area_level_2",
+  "locality",
+  "sublocality",
+  "postal_code",
+  "neighborhood",
+]);
+
+function isTooCoarse(result: { types?: string[]; geometry?: { location_type?: string } }): boolean {
+  const types = result.types ?? [];
+  if (types.some((t) => t === "street_address" || t === "premise" || t === "subpremise")) {
+    return false;
+  }
+  return types.some((t) => TOO_COARSE_TYPES.has(t));
+}
+
+export async function geocodePartners(retryFailed = false): Promise<GeocodeResult> {
   await requireReferralUser();
 
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
@@ -508,27 +530,16 @@ export async function geocodePartners(): Promise<GeocodeResult> {
   }
 
   const admin = createAdminClient();
-  const { data, error } = await fetchAllRows<{
-    id: unknown;
-    address: string | null;
-    latitude: number | null;
-    longitude: number | null;
-    geocoded_address: string | null;
-  }>((from, to) =>
+  const { data, error } = await fetchAllRows<GeocodablePartner & { id: unknown }>((from, to) =>
     admin
       .from("referral_partners")
-      .select("id, address, latitude, longitude, geocoded_address")
+      .select("id, address, latitude, longitude, geocoded_address, geocode_error")
       .not("address", "is", null)
       .range(from, to),
   );
   if (error) return { ok: false, error: error.message };
 
-  const stale = (data ?? []).filter((p) => {
-    const addr = (p.address as string | null)?.trim();
-    if (!addr) return false;
-    const hasCoords = p.latitude != null && p.longitude != null;
-    return !hasCoords || p.geocoded_address !== addr;
-  });
+  const stale = (data ?? []).filter((p) => partnerNeedsGeocode(p, retryFailed));
 
   const totalPending = stale.length;
   const batch = stale.slice(0, GEOCODE_BATCH);
@@ -540,15 +551,20 @@ export async function geocodePartners(): Promise<GeocodeResult> {
 
   for (const p of batch) {
     const address = (p.address as string).trim();
+    const now = new Date().toISOString();
     try {
       const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
       url.searchParams.set("address", address);
+      url.searchParams.set("region", "us");
       url.searchParams.set("key", apiKey);
       const res = await fetch(url, { cache: "no-store" });
       const json = (await res.json()) as {
         status: string;
         error_message?: string;
-        results?: { geometry?: { location?: { lat: number; lng: number } } }[];
+        results?: {
+          types?: string[];
+          geometry?: { location?: { lat: number; lng: number }; location_type?: string };
+        }[];
       };
 
       // A bad API key / disabled API / billing problem fails identically for
@@ -565,22 +581,35 @@ export async function geocodePartners(): Promise<GeocodeResult> {
         };
       }
 
-      const loc = json.results?.[0]?.geometry?.location;
-      if (json.status === "OK" && loc) {
+      const top = json.results?.[0];
+      const loc = top?.geometry?.location;
+      const coarse = top ? isTooCoarse(top) : false;
+      if (json.status === "OK" && loc && !coarse) {
         const { error: updErr } = await admin
           .from("referral_partners")
           .update({
             latitude: loc.lat,
             longitude: loc.lng,
-            geocoded_at: new Date().toISOString(),
+            geocoded_at: now,
             geocoded_address: address,
+            geocode_attempted_at: now,
+            geocode_error: null,
           })
           .eq("id", p.id as string);
         if (updErr) failed++;
         else geocoded++;
       } else {
-        // ZERO_RESULTS or similar — this specific address couldn't be located.
+        // ZERO_RESULTS or a region-level match — this address can't be pinned.
+        // Record the outcome so it isn't retried on every single page load.
         failed++;
+        await admin
+          .from("referral_partners")
+          .update({
+            geocoded_address: address,
+            geocode_attempted_at: now,
+            geocode_error: coarse ? "TOO_IMPRECISE" : json.status || "UNKNOWN",
+          })
+          .eq("id", p.id as string);
         if (sampleNotFound.length < 3) sampleNotFound.push(address);
       }
     } catch {

@@ -155,8 +155,9 @@ export default async function ReferralCrmPage() {
   const unmatched = Array.from(unmatchedMap.values()).sort((a, b) => b.revenue - a.revenue);
 
   // Browser-safe, referrer-restricted Maps key for the interactive Map View.
+  // `||` (not `??`): an env var defined as an empty string must still fall back.
   const mapsApiKey =
-    process.env.GOOGLE_MAPS_PUBLIC_KEY ?? process.env.GOOGLE_MAPS_API_KEY ?? "";
+    process.env.GOOGLE_MAPS_PUBLIC_KEY || process.env.GOOGLE_MAPS_API_KEY || "";
 
   // Full activity feed — every Referral CRM mutation is recorded in the shared
   // audit_log (partner edits, contact/note changes, visits, uploads). The admin

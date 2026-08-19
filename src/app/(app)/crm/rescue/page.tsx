@@ -63,8 +63,9 @@ export default async function RescueCrmPage() {
     visits.sort((a, b) => (a.visit_date < b.visit_date ? 1 : -1));
   }
 
+  // `||` (not `??`): an env var defined as an empty string must still fall back.
   const mapsApiKey =
-    process.env.GOOGLE_MAPS_PUBLIC_KEY ?? process.env.GOOGLE_MAPS_API_KEY ?? "";
+    process.env.GOOGLE_MAPS_PUBLIC_KEY || process.env.GOOGLE_MAPS_API_KEY || "";
 
   // Full activity feed — every mutation to a rescue record is recorded in the
   // shared audit_log (record edits, notes, documents, visits, deletions). The
