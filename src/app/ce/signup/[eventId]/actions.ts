@@ -18,6 +18,15 @@ function splitName(full: string): { first: string; last: string | null } {
   return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
+// This action is reachable by anyone holding an event's QR code, so cap both the
+// size of a single submission and how fast one event can accept them. A busy CE
+// event sees a handful of scans a minute; 60 per 10 minutes is far above real
+// use but stops a script from filling the CRM with junk leads.
+const MAX_NAME_LENGTH = 120;
+const MAX_EMAIL_LENGTH = 254;
+const BURST_WINDOW_MINUTES = 10;
+const BURST_MAX_SIGNUPS = 60;
+
 /**
  * PUBLIC action — called from the unauthenticated CE sign-up form reached by
  * scanning an event's QR code. Uses the service-role client (bypasses RLS) to
@@ -34,10 +43,13 @@ export async function submitCeSignup(
   const phone = formatPhoneNumber(clean(formData.get("phone")));
 
   if (!name) return { ok: false, error: "Please enter your name." };
+  if (name.length > MAX_NAME_LENGTH) {
+    return { ok: false, error: "Please enter a shorter name." };
+  }
   if (!email && !phone) {
     return { ok: false, error: "Please enter an email or phone number." };
   }
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (email && (email.length > MAX_EMAIL_LENGTH || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     return { ok: false, error: "Please enter a valid email address." };
   }
 
@@ -51,6 +63,21 @@ export async function submitCeSignup(
   if (evErr) return { ok: false, error: "Something went wrong. Please try again." };
   if (!eventRow) return { ok: false, error: "This event could not be found." };
   const event = eventRow as { id: string; name: string; event_date: string | null };
+
+  const windowStart = new Date(
+    Date.now() - BURST_WINDOW_MINUTES * 60_000,
+  ).toISOString();
+  const { count: recentSignups } = await admin
+    .from("crm_ce_attendance")
+    .select("id", { count: "exact", head: true })
+    .eq("ce_event_id", event.id)
+    .gte("created_at", windowStart);
+  if ((recentSignups ?? 0) >= BURST_MAX_SIGNUPS) {
+    return {
+      ok: false,
+      error: "This event is receiving a lot of sign-ups right now. Please try again in a few minutes.",
+    };
+  }
 
   // Reuse an existing CE lead with the same email to avoid duplicates from
   // repeat scans; otherwise create a new lead sourced from this event.

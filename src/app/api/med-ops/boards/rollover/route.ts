@@ -22,7 +22,19 @@ async function run(req: NextRequest) {
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
-  return NextResponse.json(data ?? { ok: true });
+
+  // Seeding only knows what ezyVet sends, which carries no attending doctor.
+  // This resolves the doctor from the schedule and the CSR from the booking
+  // notes; best-effort so a fill failure never loses the rebuilt board.
+  const { data: staff, error: staffError } = await admin.rpc(
+    "medical_board_fill_staff",
+    { p_date: null },
+  );
+
+  return NextResponse.json({
+    ...(data ?? { ok: true }),
+    staff_fill: staffError ? { error: staffError.message } : staff,
+  });
 }
 
 export async function GET(req: NextRequest) {

@@ -241,3 +241,61 @@ export function accessibleModules(user: AppUser): ModuleKey[] {
 export function roleDefaultModules(role: AppRole): ModuleKey[] {
   return ROLE_DEFAULT_MODULES[role];
 }
+
+/**
+ * Request header the proxy stamps with the current pathname so Server
+ * Components (which cannot read the URL) can resolve the active module.
+ * The proxy always overwrites it, so an inbound value cannot be spoofed.
+ */
+export const PATHNAME_HEADER = "x-gdo-pathname";
+
+// Route prefix -> module, mirroring the sidebar in _components/app-shell.tsx.
+// Deep links (/hr/[id], /crm/influencer/[id], /med-ops/...) inherit their
+// section's module. `/crm` itself, `/crm/contact/*` and `/crm/org/*` are
+// deliberately absent: a contact or organisation can belong to any of the CRM
+// modules, so there is no single key to check.
+const ROUTE_MODULES: ReadonlyArray<readonly [string, ModuleKey]> = [
+  ["/admin", "admin"],
+  ["/ats", "ats"],
+  ["/calendar", "calendar"],
+  ["/capacity", "schedule"],
+  ["/crm/business", "crm_business"],
+  ["/crm/ce", "crm_ce"],
+  ["/crm/influencer", "crm_influencer"],
+  ["/crm/referral", "crm_referral"],
+  ["/crm/rescue", "crm_rescue"],
+  ["/crm/student", "crm_student"],
+  ["/crm/vendor", "crm_vendor"],
+  ["/email-templates", "email_templates"],
+  ["/emp-reporting", "emp_reporting"],
+  ["/ezyvet", "ezyvet"],
+  ["/hr", "hr"],
+  ["/marketing", "marketing"],
+  ["/med-ops", "med_boards"],
+  ["/planning", "planning"],
+  ["/policies", "resources"],
+  ["/reporting", "reporting"],
+  ["/resources", "resources"],
+  ["/schedule", "schedule"],
+  ["/schedule-search", "schedule"],
+];
+
+/**
+ * The module a pathname belongs to, or null when the route is not module-scoped
+ * (dashboard, shared CRM record pages, API routes). Matches whole path segments
+ * and prefers the longest match, so `/schedule-search` never resolves via
+ * `/schedule`.
+ */
+export function moduleForPathname(pathname: string): ModuleKey | null {
+  let matched: ModuleKey | null = null;
+  let matchedLength = 0;
+  for (const [prefix, key] of ROUTE_MODULES) {
+    const isMatch =
+      pathname === prefix || pathname.startsWith(`${prefix}/`);
+    if (isMatch && prefix.length > matchedLength) {
+      matched = key;
+      matchedLength = prefix.length;
+    }
+  }
+  return matched;
+}

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { PATHNAME_HEADER } from "@/lib/auth/permissions";
 import { DB_SCHEMA, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
 
 /**
@@ -15,7 +16,17 @@ import { DB_SCHEMA, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
  *     canAccessModule() enforce module- and field-level permissions.
  */
 export async function updateSession(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  // Server Components cannot read the request path, so publish it as a header
+  // for (app)/layout.tsx to gate on. Always overwrite: a client could otherwise
+  // spoof it to reach a module it lacks. Re-read `request.headers` each time so
+  // cookies refreshed by setAll() below are carried through.
+  const forwardHeaders = () => {
+    const headers = new Headers(request.headers);
+    headers.set(PATHNAME_HEADER, request.nextUrl.pathname);
+    return headers;
+  };
+
+  let response = NextResponse.next({ request: { headers: forwardHeaders() } });
 
   const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     db: { schema: DB_SCHEMA },
@@ -27,7 +38,7 @@ export async function updateSession(request: NextRequest) {
         for (const { name, value } of cookiesToSet) {
           request.cookies.set(name, value);
         }
-        response = NextResponse.next({ request });
+        response = NextResponse.next({ request: { headers: forwardHeaders() } });
         for (const { name, value, options } of cookiesToSet) {
           response.cookies.set(name, value, options);
         }
