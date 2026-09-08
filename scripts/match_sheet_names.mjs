@@ -19,23 +19,9 @@ const sheetPath = process.argv[2] ?? path.join(ROOT, ".data/sheet_September_all.
 const placements = JSON.parse(fs.readFileSync(sheetPath, "utf8"));
 const roster = JSON.parse(fs.readFileSync(path.join(ROOT, ".data/roster.json"), "utf8"));
 
-/**
- * Sheet spelling -> roster spelling, for cases token matching cannot bridge.
- * Only nicknames and spelling variants that resolve to exactly ONE roster
- * person with the SAME surname belong here. Anything where the surname differs
- * (e.g. sheet "Lizbeth Martinez" vs roster "Lizbeth Gallegos"/"Lizbeth Ramos")
- * is deliberately left out — that needs a human to confirm.
- */
-const ALIASES = {
-  "Tay Fox": "Taylor Fox",
-  "Vero Rios": "Veronica Rios",
-  "Rachel Banyasz": "Rachael Banyasz",
-  "Rachel Banyasz1": "Rachael Banyasz",
-};
-
 /** Lowercase alphabetic tokens; drops honorifics and trailing dedupe digits. */
 function tokens(name) {
-  return String(ALIASES[String(name).trim()] ?? name)
+  return String(name)
     .replace(/\d+\s*$/, "")
     .toLowerCase()
     .replace(/\bdr\.?\b/g, " ")
@@ -44,11 +30,24 @@ function tokens(name) {
     .filter(Boolean);
 }
 
-const rosterTokens = roster.map((p) => ({
-  id: p.id,
-  full_name: p.full_name,
-  toks: tokens(p.full_name),
-}));
+// person.grid_name IS the schedule-sheet spelling ("Dr. Faro", "Raquel R") and
+// is what lib/hr/wheniwork.ts already matches on, so try it before any fuzzy
+// token work. Scheduling only ever places employees/contractors, so applicants
+// are a last resort and are reported rather than silently used.
+const ROSTER_STATUSES = new Set(["employee", "contractor"]);
+const rosterTokens = [];
+for (const p of roster) {
+  const entry = {
+    id: p.id,
+    full_name: p.full_name,
+    grid_name: p.grid_name,
+    status: p.status,
+    toks: tokens(p.full_name),
+    gridToks: p.grid_name ? tokens(p.grid_name) : null,
+  };
+  rosterTokens.push(entry);
+}
+const active = rosterTokens.filter((r) => ROSTER_STATUSES.has(r.status));
 
 const sheetNames = [...new Set(placements.map((p) => p.person))].sort();
 
@@ -60,24 +59,27 @@ for (const raw of sheetNames) {
   const t = tokens(raw);
   if (!t.length) continue;
 
-  // 1. exact token-set equality
-  let hits = rosterTokens.filter(
-    (r) => r.toks.length === t.length && r.toks.every((x, i) => x === t[i]),
-  );
+  const eq = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+
+  // 0. grid_name — the sheet spelling the roster already records.
+  let hits = active.filter((r) => r.gridToks && eq(r.gridToks, t));
+
+  // 1. exact full-name token equality
+  if (hits.length !== 1) {
+    const e = active.filter((r) => eq(r.toks, t));
+    if (e.length) hits = e;
+  }
 
   // 2. sheet tokens are a subset of the roster name ("Dr. Rally" in
-  //    "Heather Rally Webb"); requires a surname-length token to avoid
-  //    matching on a bare first name.
+  //    "Heather Rally Webb")
   if (hits.length !== 1) {
-    const sub = rosterTokens.filter((r) => t.every((x) => r.toks.includes(x)));
+    const sub = active.filter((r) => t.every((x) => r.toks.includes(x)));
     if (sub.length) hits = sub;
   }
 
-  // 3. first + last initial ("Raquel Velez" vs "Raquel V Velez")
+  // 3. first + last token ("Raquel Velez" vs "Raquel V Velez")
   if (hits.length !== 1 && t.length >= 2) {
-    const fl = rosterTokens.filter(
-      (r) => r.toks[0] === t[0] && r.toks.at(-1) === t.at(-1),
-    );
+    const fl = active.filter((r) => r.toks[0] === t[0] && r.toks.at(-1) === t.at(-1));
     if (fl.length) hits = fl;
   }
 

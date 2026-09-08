@@ -23,7 +23,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { google } from "googleapis";
 
-const SHEET_ID = "18DvLbxmzT-mmyaCRUW2xbzRxG4-HNPJS8rbUHZdNXdU";
+// Defaults to the staff schedule; override with SHEET_ID=<id> for any other
+// workbook shared with the service account (e.g. the HR roster).
+const SHEET_ID =
+  process.env.SHEET_ID || "18DvLbxmzT-mmyaCRUW2xbzRxG4-HNPJS8rbUHZdNXdU";
 const YEAR = 2026;
 const ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -83,7 +86,24 @@ function getSheetsClient() {
 
 async function listTabs() {
   const sheets = getSheetsClient();
-  const { data } = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID });
+  let data;
+  try {
+    ({ data } = await sheets.spreadsheets.get({ spreadsheetId: SHEET_ID }));
+  } catch (err) {
+    const detail = err?.response?.data?.error;
+    const creds = JSON.parse(
+      process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+        readEnvValue(path.join(ROOT, ".env.local"), "GOOGLE_SERVICE_ACCOUNT_JSON"),
+    );
+    console.error(`cannot read ${SHEET_ID}: ${detail?.status ?? err?.code ?? "error"}`);
+    if ((detail?.status ?? "") === "PERMISSION_DENIED" || err?.code === 403) {
+      console.error(`share the sheet (Viewer) with ${creds.client_email}`);
+    } else {
+      console.error(detail?.message ?? err?.message ?? "");
+    }
+    process.exitCode = 1;
+    return;
+  }
   console.log(data.properties?.title);
   for (const s of data.sheets ?? []) {
     const p = s.properties;
