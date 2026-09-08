@@ -1,14 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 /**
  * Create an agent_run row and return its id. Used by the worker for SCHEDULED

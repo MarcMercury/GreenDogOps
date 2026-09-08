@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import type { AnimalImportRow } from "@/lib/reporting/types";
@@ -46,7 +46,9 @@ export default async function EzyvetPatientsPage({
     );
   }
 
-  const supabase = await createClient();
+  // Service-role client: report_animal_summary / report_animals_by_species are
+  // RLS-exempt views (migration 0164). The module gate above is the authority.
+  const supabase = createAdminClient();
 
   let query = supabase.from("ezyvet_animal").select(PATIENT_SELECT, { count: "exact" });
 

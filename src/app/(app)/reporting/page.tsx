@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
   isAdminRole,
@@ -66,7 +66,10 @@ export default async function ReportingPage({
     );
   }
 
-  const supabase = await createClient();
+  // Service-role client: the report_* views are materialized/definer views that
+  // cannot enforce RLS, so migration 0164 revoked them from `authenticated`.
+  // Access is already gated by the admin check above.
+  const supabase = createAdminClient();
   const isAdmin = isAdminRole(current.appUser.role);
   const canEdit = canEditModule(current.appUser, "reporting");
 

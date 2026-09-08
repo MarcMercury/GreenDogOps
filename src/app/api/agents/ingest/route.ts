@@ -1,16 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { applyAgentRunUpdate, type AgentRunUpdate } from "@/lib/admin/agent-ingest";
 
 // Service-role Supabase writes need the Node.js runtime; never cache.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** True when the request carries the Vercel Cron `Authorization: Bearer` secret. */
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // local dev with no secret configured
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 /**
  * Progress sink for the off-Vercel agent worker. The worker POSTs run status,

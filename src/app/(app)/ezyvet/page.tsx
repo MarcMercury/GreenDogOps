@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
+import { isAdminRole, canEditModule, canAccessModule } from "@/lib/auth/permissions";
 import type { ClientSummary, ContactImportRow } from "@/lib/reporting/types";
 import { PageHeader } from "../_components/ui";
 import { StatCard, SectionCard, fmtCurrency, fmtNumber } from "../reporting/charts";
@@ -21,10 +21,30 @@ export default async function EzyvetCrmPage({
 }) {
   const { q, filter, group, page: pageParam } = await searchParams;
   const page = Math.max(1, Number(pageParam) || 1);
-  const supabase = await createClient();
   const current = await getCurrentUser();
-  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
-  const canEdit = current ? canEditModule(current.appUser, "ezyvet") : false;
+  if (!current || !canAccessModule(current.appUser, "ezyvet")) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-6">
+        <PageHeader
+          eyebrow="Veterinary CRM"
+          title="ezyVet CRM"
+          description="Client records synced from ezyVet."
+        />
+        <SectionCard
+          title="Access required"
+          description="You do not have access to the ezyVet workspace."
+        >
+          <p className="text-sm text-slate-500">Ask an administrator to grant you access.</p>
+        </SectionCard>
+      </div>
+    );
+  }
+
+  // Service-role client: report_client_summary / report_clients_by_group are
+  // RLS-exempt views (migration 0164). The module gate above is the authority.
+  const supabase = createAdminClient();
+  const isAdmin = isAdminRole(current.appUser.role);
+  const canEdit = canEditModule(current.appUser, "ezyvet");
 
   let query = supabase
     .from("ezyvet_contact")

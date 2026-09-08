@@ -7,8 +7,12 @@ import { DB_SCHEMA, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
  * sync. Called from the root `proxy.ts` (Next.js 16 renamed middleware -> proxy).
  *
  * Also performs an optimistic auth gate: unauthenticated users are redirected
- * to /login. Real authorization (module/field-level) is enforced by RLS on the
- * isolated `greendogops` schema, not here.
+ * to /login. This only proves "has a session on the shared Supabase project";
+ * it does NOT prove the visitor is a Green Dog Ops user. Two further layers do:
+ *   - RLS on the `greendogops` schema (migration 0164) restricts every table to
+ *     an active `app_user` via greendogops.is_gdo_user().
+ *   - src/lib/auth/session.ts (requireUser / requireAdmin / ensureCanEdit) and
+ *     canAccessModule() enforce module- and field-level permissions.
  */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });

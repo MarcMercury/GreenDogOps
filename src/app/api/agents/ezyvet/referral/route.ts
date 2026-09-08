@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ingestReferralBuffer } from "@/lib/crm/referral-ingest";
 import { readCsvBody } from "@/lib/agents/http";
@@ -6,12 +7,6 @@ import { readCsvBody } from "@/lib/agents/http";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 /**
  * Agent data sink for the ezyVet referral reports (Referral Statistics — global,

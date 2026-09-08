@@ -1,17 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { syncWhenIWorkTimeOff } from "@/lib/hr/wheniwork";
 
 // Service-role Supabase + outbound fetch need the Node.js runtime; never cache.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
-
-/** True when the request carries the Vercel Cron `Authorization: Bearer` secret. */
-function authorized(req: NextRequest): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // local dev with no secret configured
-  return req.headers.get("authorization") === `Bearer ${secret}`;
-}
 
 /**
  * Parse When I Work time-off notification emails (from noreply@wheniwork.com in
