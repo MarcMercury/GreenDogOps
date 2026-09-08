@@ -10,8 +10,14 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openEzyvet } from "./ezyvet/session.mjs";
-import { openReporting, runCsvReport, switchLocation } from "./ezyvet/report-center.mjs";
+import { openEzyvet, LOCATION_LABELS } from "./ezyvet/session.mjs";
+import {
+  openReporting,
+  runCsvReport,
+  switchLocation,
+  switchDepartment,
+  ROOT_DEPARTMENT,
+} from "./ezyvet/report-center.mjs";
 import { reportRun, ensureRun, refreshReporting } from "./lib/ingest.mjs";
 
 let RUN_ID = process.env.RUN_ID || null;
@@ -27,10 +33,12 @@ const TARGET_DATE = process.env.TARGET_DATE || previousDayLA();
 // Clinics for per-location reports (must switch the ezyVet header first).
 const LOCATIONS = ["sherman_oaks", "van_nuys", "venice"];
 
+// Department the global reports run under unless they override it.
+const DEFAULT_DEPARTMENT = LOCATION_LABELS.sherman_oaks;
+
 // Global reports (one run for the whole business). `dated` → From/To = TARGET_DATE.
 const GLOBAL_REPORTS = [
   { key: "invoice_lines", name: "Invoice Lines", dated: true, endpoint: "ezyvet/invoice-lines" },
-  { key: "ezyvet_crm_contacts", name: "Contacts", dated: false, endpoint: "ezyvet/contacts" },
   // Full patient roster with summaries. ~45k rows / 18 MB — too big for one
   // request even gzipped, so it uploads in chunks (see uploadCsvChunked).
   { key: "ezyvet_animals", name: "Animals", dated: false, endpoint: "ezyvet/animals", chunkRows: 8000 },
@@ -40,6 +48,19 @@ const GLOBAL_REPORTS = [
   // Powers the Appointment Review cancels-by-type breakdown. From/To = the
   // target day (the past day being reviewed).
   { key: "cancelled_appointments", name: "Cancelled Appointments", dated: true, endpoint: "ezyvet/cancelled" },
+  // Full contact list. The report only exports contacts belonging to the
+  // header department, so it MUST run under the parent department — under a
+  // clinic it returns that clinic's contacts only (~4k of ~33k) and the
+  // new-clients-by-month trend flatlines. Runs last so the department switch
+  // happens once. ~33k rows, so it uploads in chunks like Animals.
+  {
+    key: "ezyvet_crm_contacts",
+    name: "Contacts",
+    dated: false,
+    endpoint: "ezyvet/contacts",
+    department: ROOT_DEPARTMENT,
+    chunkRows: 6000,
+  },
 ];
 
 // Per-location reports (run once per clinic; the referral ingest auto-detects
@@ -114,8 +135,19 @@ async function main() {
   try {
     await openReporting(session.page, log);
 
-    // 1) Global reports.
+    // 1) Global reports, each under the department it needs.
     for (const report of GLOBAL_REPORTS) {
+      const department = report.department ?? DEFAULT_DEPARTMENT;
+      try {
+        await switchDepartment(session.page, department, log);
+        await openReporting(session.page, log);
+      } catch (err) {
+        anyFailure = true;
+        const msg = err?.message ?? String(err);
+        detail[report.key] = { status: "error", error: `department switch: ${msg}` };
+        await emit({ detail: { ...detail }, logs: [{ level: "error", message: `${department} switch failed: ${msg}` }] });
+        continue;
+      }
       await runOne(report);
     }
 

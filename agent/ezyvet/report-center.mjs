@@ -2,10 +2,17 @@
 // CSV format + date range, run it, and download the generated CSV.
 import { EZYVET_ORIGIN, LOCATION_LABELS } from "./session.mjs";
 
-/** Read the clinic currently shown in the ezyVet header, e.g. "Van Nuys". */
-async function currentLocationLabel(page) {
+/** Parent department that owns the org-wide contact list. */
+export const ROOT_DEPARTMENT = "GDD & MPMV";
+
+/** Read the department currently shown in the ezyVet header. */
+async function currentDepartmentLabel(page) {
   return page.evaluate(() => {
-    const m = document.body.innerText.match(/Green Dog - (Sherman Oaks|Van Nuys|Venice)/);
+    // The header block is the first few lines of the page: organization,
+    // department, inventory location. Only look there — the department names
+    // also appear deeper in the page (report rows, pickers).
+    const head = document.body.innerText.split("\n").slice(0, 4).join("\n");
+    const m = head.match(/Green Dog - (Sherman Oaks|Van Nuys|Venice)|GDD & MPMV/);
     return m ? m[0] : "";
   });
 }
@@ -20,14 +27,24 @@ async function currentLocationLabel(page) {
 export async function switchLocation(page, locationKey, log = () => {}) {
   const target = LOCATION_LABELS[locationKey];
   if (!target) throw new Error(`Unknown location key: ${locationKey}`);
-  const base = target.replace(/\s*\(BU\)\s*/i, "").trim(); // "Green Dog - Venice"
+  return switchDepartment(page, target, log);
+}
+
+/**
+ * Switch the header department to `label`. Accepts a clinic ("Green Dog - Van
+ * Nuys") or the parent department ("GDD & MPMV"), which scopes reports to the
+ * whole organization rather than one clinic — the Contacts report only exports
+ * the selected department's contacts, so the parent is required for the full list.
+ */
+export async function switchDepartment(page, label, log = () => {}) {
+  const base = label.replace(/\s*\(BU\)\s*/i, "").trim(); // "Green Dog - Venice"
   const shortName = base.replace("Green Dog - ", "").trim();  // "Venice"
-  const current = await currentLocationLabel(page);
-  if (current.includes(shortName)) {
+  const current = await currentDepartmentLabel(page);
+  if (current && (current === base || current.includes(shortName))) {
     log(`already on ${shortName}`);
     return;
   }
-  log(`switching clinic → ${target}`);
+  log(`switching department → ${base}`);
 
   // Dismiss any modal left open by a previous (failed) switch attempt.
   await page.keyboard.press("Escape").catch(() => {});
@@ -51,25 +68,34 @@ export async function switchLocation(page, locationKey, log = () => {}) {
   if (!opened) throw new Error("could not open the department switcher modal");
 
   // Set Select Department: click the field to open the (small) department list,
-  // type the clinic name, then click the option ANCHOR. The option row uniquely
-  // doubles the clinic name ("Green Dog - Van Nuys(Green Dog - Van Nuys)"), so
-  // match that on the <a> — clicking the inner text span doesn't fire its handler.
+  // type the department name, then click the option ANCHOR. Clinic rows double
+  // the name ("Green Dog - Van Nuys(Green Dog - Van Nuys)"), while the parent
+  // row shows it once — match either on the <a>, since clicking the inner text
+  // span doesn't fire its handler.
   const dept = page.locator('xpath=//*[normalize-space(text())="Select Department"]/following::input[1]').first();
   const esc = (s) => s.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
-  const optRe = new RegExp(`${esc(base)}[\\s\\S]*${esc(base)}`, "i");
-  const option = page.locator("a").filter({ hasText: optRe }).first();
+  // The dropdown's type-ahead returns nothing for "&", so search the first word.
+  const searchTerm = shortName.split(" & ")[0];
+  const doubledRe = new RegExp(`${esc(base)}[\\s\\S]*${esc(base)}`, "i");
+  const exactRe = new RegExp(`^\\s*${esc(base)}\\s*$`, "i");
+  const candidates = [
+    page.locator("a").filter({ hasText: doubledRe }).first(),
+    page.locator("a").filter({ hasText: exactRe }).first(),
+  ];
   let picked = false;
   for (let attempt = 0; attempt < 3 && !picked; attempt++) {
     await dept.click();
     await page.waitForTimeout(1200);
     await dept.fill("");
-    await dept.pressSequentially(shortName, { delay: 80 });
-    for (let i = 0; i < 15; i++) {
+    await dept.pressSequentially(searchTerm, { delay: 80 });
+    for (let i = 0; i < 15 && !picked; i++) {
       await page.waitForTimeout(1000);
-      if ((await option.count()) && (await option.isVisible().catch(() => false))) {
-        await option.click();
-        picked = true;
-        break;
+      for (const option of candidates) {
+        if ((await option.count()) && (await option.isVisible().catch(() => false))) {
+          await option.click();
+          picked = true;
+          break;
+        }
       }
     }
   }
@@ -93,13 +119,13 @@ export async function switchLocation(page, locationKey, log = () => {}) {
     else await clickVisibleText(page, "Yes");
   } catch { /* no confirm dialog */ }
 
-  await page.waitForTimeout(9000); // app reloads into the new clinic context
-  const after = await currentLocationLabel(page);
-  log(`clinic now: ${after}`);
+  await page.waitForTimeout(9000); // app reloads into the new department context
+  const after = await currentDepartmentLabel(page);
+  log(`department now: ${after}`);
   if (!after.includes(shortName)) {
     await page.screenshot({ path: `.secrets/ezyvet-probe/switch-fail-${shortName.replace(/\s+/g, "_")}.png`, fullPage: true }).catch(() => {});
     await dismissModal(page);
-    throw new Error(`clinic switch to "${shortName}" did not take effect (header still "${after}")`);
+    throw new Error(`department switch to "${shortName}" did not take effect (header still "${after}")`);
   }
 }
 

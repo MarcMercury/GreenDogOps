@@ -88,11 +88,15 @@ export async function ingestInvoiceCsvText(
 /**
  * Ingest an ezyVet "Contacts" CSV export (raw text) using the service-role
  * client. Upserts into ezyvet_contact (dedup on ezyvet_contact_id) and logs
- * created/updated/unchanged for client-growth trend reporting.
+ * created/updated/unchanged for client-growth trend reporting. The full export
+ * is ~33k rows, which exceeds the serverless request-body limit even gzipped,
+ * so the worker splits it into chunks that all share ONE import row: the first
+ * call creates the import (returns its id) and later calls pass it back in via
+ * `importId`, with the counters accumulating across chunks.
  */
 export async function ingestContactCsvText(
   text: string,
-  meta: { filename?: string; snapshotDate?: string | null } = {},
+  meta: { filename?: string; snapshotDate?: string | null; importId?: string | null } = {},
 ): Promise<CsvIngestResult> {
   const parsed = parseContactCsv(text);
   if (parsed.error) {
@@ -101,19 +105,22 @@ export async function ingestContactCsvText(
   const rows = parsed.rows;
   const admin = createAdminClient();
 
-  const { data: imp, error: impErr } = await admin
-    .from("ezyvet_contact_import")
-    .insert({
-      filename: meta.filename ?? "agent-contacts.csv",
-      total_rows: rows.length,
-      snapshot_date: meta.snapshotDate ?? null,
-    })
-    .select("id")
-    .single();
-  if (impErr || !imp) {
-    return { ok: false, error: impErr?.message ?? "Failed to open import.", parsed: rows.length, inserted: 0, skipped: parsed.skipped };
+  let importId = meta.importId ?? null;
+  if (!importId) {
+    const { data: imp, error: impErr } = await admin
+      .from("ezyvet_contact_import")
+      .insert({
+        filename: meta.filename ?? "agent-contacts.csv",
+        total_rows: 0,
+        snapshot_date: meta.snapshotDate ?? null,
+      })
+      .select("id")
+      .single();
+    if (impErr || !imp) {
+      return { ok: false, error: impErr?.message ?? "Failed to open import.", parsed: rows.length, inserted: 0, skipped: parsed.skipped };
+    }
+    importId = imp.id as string;
   }
-  const importId = imp.id as string;
 
   // Classify created/updated/unchanged via ezyVet modified-at (chunked lookup).
   const ids = rows.map((r) => r.ezyvet_contact_id);
@@ -159,14 +166,24 @@ export async function ingestContactCsvText(
     }
   }
 
+  // Accumulate this chunk's counters onto the shared import row.
+  const { data: cur } = await admin
+    .from("ezyvet_contact_import")
+    .select("total_rows, new_contacts, updated_contacts, unchanged_contacts")
+    .eq("id", importId)
+    .maybeSingle();
   await admin
     .from("ezyvet_contact_import")
-    .update({ new_contacts: created, updated_contacts: updated, unchanged_contacts: rows.length - created - updated })
+    .update({
+      total_rows: (cur?.total_rows ?? 0) + rows.length,
+      new_contacts: (cur?.new_contacts ?? 0) + created,
+      updated_contacts: (cur?.updated_contacts ?? 0) + updated,
+      unchanged_contacts: (cur?.unchanged_contacts ?? 0) + (rows.length - created - updated),
+    })
     .eq("id", importId);
 
   return { ok: true, importId, parsed: rows.length, inserted: created, updated, skipped: parsed.skipped };
 }
-
 /**
  * Ingest an ezyVet "Animals" CSV export (the full patient roster) using the
  * service-role client. The snapshot is ~45k rows / 18 MB, which exceeds the
