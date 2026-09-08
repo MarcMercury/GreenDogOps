@@ -56,7 +56,8 @@ export async function getStaffBreakdown(
   if (!staffMember || typeof staffMember !== "string") {
     return { topGroups: [], topProducts: [] };
   }
-  const supabase = await createClient();
+  // Service-role: the report_* views are revoked from `authenticated` (0164).
+  const supabase = createAdminClient();
   const groupView = byCaseOwner
     ? "report_case_owner_product_group"
     : "report_staff_product_group";
