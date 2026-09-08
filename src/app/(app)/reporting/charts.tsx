@@ -138,31 +138,40 @@ export function MonthlyBars({
   /** Optional shared scale, so small multiples are comparable. */
   max?: number;
 }) {
-  const values = data.map((d) => Number(d[valueKey] ?? 0));
+  const months = [...data].sort((a, b) => String(a.month).localeCompare(String(b.month)));
+  const values = months.map((d) => Number(d[valueKey] ?? 0));
   const max = Math.max(1, maxOverride ?? 0, ...values);
-  if (data.length === 0)
+  if (months.length === 0)
     return <p className="text-xs text-slate-400">No data yet.</p>;
   return (
-    <div className="flex items-end gap-2 overflow-x-auto pb-1" style={{ minHeight: 160 }}>
-      {data.map((d) => {
-        const v = Number(d[valueKey] ?? 0);
-        const h = Math.max(2, Math.round((v / max) * 130));
-        return (
-          <div key={d.month} className="flex min-w-[42px] flex-1 flex-col items-center gap-1">
-            <span className="text-[10px] font-medium tabular-nums text-slate-500">
-              {format(v)}
-            </span>
-            <div
-              className="w-full rounded-t-md"
-              style={{ height: h, backgroundColor: color }}
-              title={`${d.month}: ${format(v)}`}
-            />
-            <span className="text-[10px] font-medium text-slate-400">
-              {fmtMonth(d.month)}
-            </span>
-          </div>
-        );
-      })}
+    // dir="rtl" on the scroller starts the view at the newest month; the inner
+    // track stays ltr so bars still read oldest → newest.
+    <div dir="rtl" className="overflow-x-auto pb-1">
+      <div
+        dir="ltr"
+        className="flex w-max min-w-full items-end gap-2"
+        style={{ minHeight: 160 }}
+      >
+        {months.map((d) => {
+          const v = Number(d[valueKey] ?? 0);
+          const h = Math.max(2, Math.round((v / max) * 130));
+          return (
+            <div key={d.month} className="flex min-w-[42px] flex-1 flex-col items-center gap-1">
+              <span className="text-[10px] font-medium tabular-nums text-slate-500">
+                {format(v)}
+              </span>
+              <div
+                className="w-full rounded-t-md"
+                style={{ height: h, backgroundColor: color }}
+                title={`${d.month}: ${format(v)}`}
+              />
+              <span className="text-[10px] font-medium text-slate-400">
+                {fmtMonth(d.month)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

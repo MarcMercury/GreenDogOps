@@ -950,7 +950,7 @@ export function ReportingTabs(props: ReportingTabsProps) {
 
               <SectionCard
                 title="New clients by month"
-                description="Growth derived from ezyVet contact created dates."
+                description="Growth derived from ezyVet contact created dates. Scroll horizontally for earlier months."
                 action={
                   <a
                     href="/ezyvet"
@@ -962,7 +962,7 @@ export function ReportingTabs(props: ReportingTabsProps) {
               >
                 <MonthlyBars
                   data={
-                    clientsByMonth.slice(-18) as unknown as {
+                    clientsByMonth as unknown as {
                       month: string;
                       [k: string]: string | number;
                     }[]
