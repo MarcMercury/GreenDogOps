@@ -169,6 +169,21 @@ const scheduleNames = new Set(
 /** Spreadsheet formula errors must never reach the database. */
 const isFormulaError = (v) => /^#(N\/A|REF|VALUE|NAME|DIV\/0|NULL)/i.test(clean(v));
 
+// A GRID NAME that is another active person's own name would silently hijack
+// their identity: lib/hr/wheniwork.ts builds its lookup with idx.set(key, id),
+// so a shared key is won by whichever row is processed last. The HR sheet has
+// had exactly this (Rachel Moreno's GRID NAME set to Raquel Romero's).
+const ownNameKeys = new Map();
+for (const p of roster) {
+  if (!ACTIVE.has(p.status)) continue;
+  const kk = key(p.full_name ?? "");
+  if (kk) ownNameKeys.set(kk, p.id);
+}
+const collidesWithSomeoneElse = (person, gridName) => {
+  const owner = ownNameKeys.get(key(gridName));
+  return owner !== undefined && owner !== person.id;
+};
+
 const toInsert = current.filter((c) => !byKey.has(c.k));
 const toReactivate = current
   .map((c) => ({ c, p: byKey.get(c.k) }))
@@ -192,8 +207,12 @@ const gridGaps = current
       x.c.grid_name &&
       !isFormulaError(x.c.grid_name) &&
       clean(x.p.grid_name) !== x.c.grid_name &&
+      !collidesWithSomeoneElse(x.p, x.c.grid_name) &&
       !(scheduleNames.has(key(x.p.grid_name ?? "")) && !scheduleNames.has(key(x.c.grid_name))),
   );
+const gridCollisions = current
+  .map((c) => ({ c, p: byKey.get(c.k) }))
+  .filter((x) => x.p && x.c.grid_name && collidesWithSomeoneElse(x.p, x.c.grid_name));
 const orphans = roster.filter(
   (p) =>
     ACTIVE.has(p.status) &&
@@ -201,6 +220,10 @@ const orphans = roster.filter(
     !currentKeys.has(key(p.grid_name ?? "")) &&
     !formerKeys.has(key(p.full_name)),
 );
+// The workbook is an employee comp sheet, so 1099 contractors are expected to be
+// absent from it. Their absence is not a signal.
+const orphanEmployees = orphans.filter((p) => p.status === "employee");
+const orphanContractors = orphans.filter((p) => p.status === "contractor");
 
 if (!EMIT_SQL) {
   console.log(`sheet "${CURRENT_TAB}"  : ${current.length} current employees`);
@@ -214,8 +237,12 @@ if (!EMIT_SQL) {
   for (const x of toReactivate) console.log(`   ~ ${x.p.full_name}  [${x.p.status}] -> employee`);
   console.log(`\ngrid_name gaps                    : ${gridGaps.length}`);
   for (const x of gridGaps) console.log(`   * ${x.p.full_name}: '${clean(x.p.grid_name) || "-"}' -> '${x.c.grid_name}'`);
-  console.log(`\nACTIVE IN DB, ON NEITHER TAB (review, NOT auto-changed): ${orphans.length}`);
-  for (const p of orphans) console.log(`   ? ${p.full_name} [${p.status}]`);
+  console.log(`\nGRID NAME belongs to someone else — FIX THE SHEET (not applied): ${gridCollisions.length}`);
+  for (const x of gridCollisions) console.log(`   ! ${x.p.full_name}: GRID NAME '${x.c.grid_name}' is another employee's name`);
+  console.log(`\nEMPLOYEES ON NEITHER TAB (review, NOT auto-changed): ${orphanEmployees.length}`);
+  for (const p of orphanEmployees) console.log(`   ? ${p.full_name} [${p.status}]`);
+  console.log(`\n1099 contractors, expected to be absent from this sheet: ${orphanContractors.length}`);
+  for (const p of orphanContractors) console.log(`   . ${p.full_name}`);
   console.log(`\nDUPLICATE person rows sharing a name (review, NOT auto-merged): ${dupRows.length}`);
   for (const [, list] of dupRows) {
     console.log(`   ! ${list[0].full_name}: ${list.map((p) => `${p.status}`).join(" + ")}`);
