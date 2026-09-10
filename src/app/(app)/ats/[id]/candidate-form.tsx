@@ -11,8 +11,15 @@ import {
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { PhoneInput } from "@/lib/shared/phone-input";
 import { CopyForSlackButton } from "./copy-for-slack";
+import { PostToSlackButton } from "./post-to-slack";
 import { buildCandidateSummary } from "@/lib/ats/slack-summary";
-import { updateCandidate, hireCandidate, deleteCandidate, type SaveResult } from "../actions";
+import {
+  updateCandidate,
+  hireCandidate,
+  deleteCandidate,
+  postCandidateSummaryToSlack,
+  type SaveResult,
+} from "../actions";
 
 function Field({
   label,
@@ -185,11 +192,13 @@ export function CandidateForm({
   row,
   isAdmin = false,
   canEdit = false,
+  slackEnabled = false,
   hidden = false,
 }: {
   row: CandidateRow;
   isAdmin?: boolean;
   canEdit?: boolean;
+  slackEnabled?: boolean;
   hidden?: boolean;
 }) {
   const rec = row.person_recruiting;
@@ -211,6 +220,13 @@ export function CandidateForm({
           label="Copy candidate summary"
           getText={() => buildCandidateSummary(row)}
         />
+        {slackEnabled && (
+          <PostToSlackButton
+            label="Post candidate summary"
+            confirmMessage="Post this candidate summary to the Slack hiring channel?"
+            onPost={() => postCandidateSummaryToSlack(row.id)}
+          />
+        )}
         {canEdit && (
           <>
             <HireButton personId={row.id} />

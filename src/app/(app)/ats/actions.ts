@@ -21,7 +21,12 @@ import {
   type ParseResumeResult,
   type CreateCandidatesResult,
 } from "@/lib/ats/import-types";
-import { ACCEPTED_LEAD_STAGE, DECLINED_STAGE, type CandidateDocument } from "@/lib/ats/types";
+import { ACCEPTED_LEAD_STAGE, DECLINED_STAGE, type CandidateDocument, type CandidateRow, type PersonInterview } from "@/lib/ats/types";
+import {
+  buildCandidateSummary,
+  buildInterviewSummary,
+} from "@/lib/ats/slack-summary";
+import { postSlackMessage } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 
 function str(v: FormDataEntryValue | null): string | null {
@@ -169,6 +174,98 @@ export async function deleteInterview(
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/ats/${personId}`);
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Slack — post candidate / interview summaries to the hiring channel.
+//
+// The summary text is rebuilt server-side from the database rather than taken
+// from the client, and the channel comes from an allow-listed key, so a caller
+// can only ever post the real summary to a configured channel.
+// ---------------------------------------------------------------------------
+
+async function loadCandidateRow(personId: string): Promise<CandidateRow | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("person")
+    .select(
+      `id, status, first_name, last_name, full_name, email, phone_mobile,
+       phone_home, phone_other, date_of_birth, postal_code, opportunity_type,
+       notes, source_contact_id, created_at, updated_at,
+       person_recruiting (
+         person_id, target_position_id, pipeline, stage, status_notes, source,
+         application_date, interview_date, score, resume_url, keep_for_future,
+         follow_up_date, notes, target_title, created_at, updated_at
+       )`,
+    )
+    .eq("id", personId)
+    .maybeSingle();
+  if (!data) return null;
+
+  const rec = (data as { person_recruiting?: unknown }).person_recruiting;
+  return {
+    ...data,
+    person_recruiting: Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null),
+  } as CandidateRow;
+}
+
+async function postSummary(
+  personId: string,
+  kind: "candidate" | "interview",
+  build: (row: CandidateRow) => Promise<string | null>,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+
+  const row = await loadCandidateRow(personId);
+  if (!row) return { ok: false, error: "Candidate not found." };
+
+  const text = await build(row);
+  if (!text) return { ok: false, error: "Nothing to post." };
+
+  const { appUser, email } = gate.current;
+  const result = await postSlackMessage({
+    channelKey: "hiring",
+    text,
+    username: appUser.full_name ?? email.split("@")[0],
+  });
+  if (!result.ok) return { ok: false, error: result.error ?? "Slack post failed." };
+
+  await recordAudit({
+    actorId: appUser.id,
+    actorEmail: email,
+    action: "slack.post",
+    entity: "person",
+    entityId: personId,
+    summary: `Posted ${kind} summary to Slack`,
+    metadata: { channel: result.channel, ts: result.ts },
+  });
+  return { ok: true };
+}
+
+export async function postCandidateSummaryToSlack(
+  personId: string,
+): Promise<SaveResult> {
+  return postSummary(personId, "candidate", async (row) =>
+    buildCandidateSummary(row),
+  );
+}
+
+export async function postInterviewSummaryToSlack(
+  personId: string,
+  interviewId: string,
+): Promise<SaveResult> {
+  return postSummary(personId, "interview", async (row) => {
+    const supabase = await createClient();
+    const { data } = await supabase
+      .from("person_interview")
+      .select("*")
+      .eq("id", interviewId)
+      .eq("person_id", personId)
+      .maybeSingle();
+    if (!data) return null;
+    return buildInterviewSummary(row, data as PersonInterview);
+  });
 }
 
 // ---------------------------------------------------------------------------

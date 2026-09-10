@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
+import { isSlackConfigured } from "@/lib/slack/client";
 import type { CandidateRow, PersonInterview } from "@/lib/ats/types";
 import type { PersonDocument, PersonDocumentWithUrl } from "@/lib/hr/types";
 import type { ProfileTransition } from "@/lib/shared/transitions";
@@ -124,6 +125,7 @@ export default async function CandidateDetailPage({
         transitions={transitions}
         isAdmin={isAdmin}
         canEdit={canEdit}
+        slackEnabled={canEdit && isSlackConfigured()}
       />
     </div>
   );

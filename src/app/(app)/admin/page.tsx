@@ -43,7 +43,7 @@ const INTEGRATIONS: { label: string; env: string }[] = [
   { label: "OpenRouter (AI fallback)", env: "OPENROUTER_API_KEY" },
   { label: "Tavily (search fallback)", env: "TAVILY_API_KEY" },
   { label: "Resend (email)", env: "RESEND_API_KEY" },
-  { label: "Slack", env: "SLACK_BOT_TOKEN" },
+  { label: "Slack (bot token)", env: "SLACK_BOT_TOKEN" },
   { label: "Google Maps", env: "GOOGLE_MAPS_API_KEY" },
   { label: "Service role key", env: "SUPABASE_SERVICE_ROLE_KEY" },
   { label: "Cron secret", env: "CRON_SECRET" },

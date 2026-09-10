@@ -18,12 +18,14 @@ import type { ProfileTransition } from "@/lib/shared/transitions";
 import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
 import { CandidateForm } from "./candidate-form";
 import { CopyForSlackButton } from "./copy-for-slack";
+import { PostToSlackButton } from "./post-to-slack";
 import { buildInterviewSummary } from "@/lib/ats/slack-summary";
 import {
   saveInterview,
   deleteInterview,
   uploadCandidateDocument,
   deleteCandidateDocument,
+  postInterviewSummaryToSlack,
   type SaveResult,
 } from "../actions";
 
@@ -43,6 +45,7 @@ export function CandidateProfile({
   transitions,
   isAdmin = false,
   canEdit = false,
+  slackEnabled = false,
 }: {
   row: CandidateRow;
   interviews: PersonInterview[];
@@ -50,6 +53,7 @@ export function CandidateProfile({
   transitions: ProfileTransition[];
   isAdmin?: boolean;
   canEdit?: boolean;
+  slackEnabled?: boolean;
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("profile");
   const rec = row.person_recruiting;
@@ -109,11 +113,17 @@ export function CandidateProfile({
         row={row}
         isAdmin={isAdmin}
         canEdit={canEdit}
+        slackEnabled={slackEnabled}
         hidden={activeTab !== "profile"}
       />
 
       {activeTab === "interviews" && (
-        <InterviewsPanel row={row} interviews={interviews} canEdit={canEdit} />
+        <InterviewsPanel
+          row={row}
+          interviews={interviews}
+          canEdit={canEdit}
+          slackEnabled={slackEnabled}
+        />
       )}
 
       {activeTab === "documents" && (
@@ -251,10 +261,12 @@ function InterviewsPanel({
   row,
   interviews,
   canEdit = false,
+  slackEnabled = false,
 }: {
   row: CandidateRow;
   interviews: PersonInterview[];
   canEdit?: boolean;
+  slackEnabled?: boolean;
 }) {
   const personId = row.id;
   const formRef = useRef<HTMLFormElement>(null);
@@ -362,7 +374,13 @@ function InterviewsPanel({
       ) : (
         <ul className="space-y-3">
           {interviews.map((iv) => (
-            <InterviewCard key={iv.id} row={row} interview={iv} canEdit={canEdit} />
+            <InterviewCard
+              key={iv.id}
+              row={row}
+              interview={iv}
+              canEdit={canEdit}
+              slackEnabled={slackEnabled}
+            />
           ))}
         </ul>
       )}
@@ -374,10 +392,12 @@ function InterviewCard({
   row,
   interview,
   canEdit = false,
+  slackEnabled = false,
 }: {
   row: CandidateRow;
   interview: PersonInterview;
   canEdit?: boolean;
+  slackEnabled?: boolean;
 }) {
   const personId = row.id;
   const [open, setOpen] = useState(false);
@@ -419,6 +439,13 @@ function InterviewCard({
             label="Copy summary"
             getText={() => buildInterviewSummary(row, interview)}
           />
+          {slackEnabled && (
+            <PostToSlackButton
+              label="Post summary"
+              confirmMessage="Post this interview summary to the Slack hiring channel?"
+              onPost={() => postInterviewSummaryToSlack(personId, interview.id)}
+            />
+          )}
           {canEdit && (
             <DeleteButton
               label="this interview"
