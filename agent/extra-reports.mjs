@@ -63,18 +63,28 @@ async function main() {
   await emit({ status: "running", logs: [{ message: `Extra reports started for ${TARGET_DATE}` }] });
 
   const dir = mkdtempSync(join(tmpdir(), "ezyvet-extra-"));
-  const { browser, page } = await openEzyvet({ locationKey: "sherman_oaks", headless: true, log });
-
   const detail = {};
   let failures = 0;
+  let session = null;
+
+  // Most of these reports only export the header department's records, so the
+  // whole set runs under the parent department to cover all three hospitals.
+  const openSession = async () => {
+    session = await openEzyvet({ locationKey: "sherman_oaks", headless: true, blockAssets: true, log });
+    await switchDepartment(session.page, ROOT_DEPARTMENT, log);
+  };
+  const closeSession = async () => {
+    if (session) await session.browser.close().catch(() => {});
+    session = null;
+  };
+
   try {
-    // Most of these reports only export the header department's records, so run
-    // the whole set under the parent department to cover all three hospitals.
-    await switchDepartment(page, ROOT_DEPARTMENT, log);
+    await openSession();
 
     for (const report of REPORTS) {
       try {
-        const result = await runOne(page, report, dir);
+        if (!session) await openSession();
+        const result = await runOne(session.page, report, dir);
         detail[report.key] = { status: "success", records: result.inserted ?? 0, parsed: result.parsed ?? 0 };
         log(`${report.key}: ${result.inserted ?? 0} rows`);
         await emit({
@@ -88,15 +98,16 @@ async function main() {
         detail[report.key] = { status: "error", error: message };
         log(`${report.key}: ERROR ${message}`);
         await emit({ detail, logs: [{ level: "error", message: `${report.name}: ${message}` }] });
+        // A crashed renderer poisons every later report — start a fresh browser.
+        if (/crash|closed|Target/i.test(message)) await closeSession();
       }
     }
   } finally {
-    await browser.close();
+    await closeSession();
   }
 
-  const status = failures === 0 ? "success" : failures === REPORTS.length ? "error" : "success";
   await emit({
-    status,
+    status: failures === REPORTS.length ? "error" : "success",
     detail,
     error: failures ? `${failures} of ${REPORTS.length} reports failed` : undefined,
     logs: [{ message: `Extra reports finished (${REPORTS.length - failures}/${REPORTS.length} ok)` }],

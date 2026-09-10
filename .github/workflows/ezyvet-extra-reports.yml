@@ -1,0 +1,95 @@
+name: ezyVet Extra Reports Agent
+
+# Pulls the long tail of the ezyVet Report Center — payments, receivables, the
+# daily close, appointment timings, clinical compliance and inventory — into the
+# spec-driven tables (see src/lib/reporting/report-specs.ts).
+#
+# Deliberately a SEPARATE workflow from ezyvet-agent.yml so a failure in the
+# long tail can never jeopardise the core invoice/patient ingest, and so the two
+# never hold two ezyVet logins for the same user at the same time.
+on:
+  schedule:
+    # 7:00 AM Pacific — an hour after the daily ingest, so the two never overlap.
+    # GitHub cron is UTC-only with no DST awareness, so fire at both 14:00 UTC
+    # (7 AM PDT) and 15:00 UTC (7 AM PST) and let the gate below pick the right one.
+    - cron: "0 14,15 * * *"
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "agent_run id (from the app). Leave blank to create one."
+        required: false
+      target_date:
+        description: "Target date YYYY-MM-DD (default: previous LA day)"
+        required: false
+      report_keys:
+        description: "Comma-separated report keys to run (blank = all)"
+        required: false
+
+concurrency:
+  group: ezyvet-extra-reports
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - id: check
+        run: |
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "Manual run — proceeding."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HOUR=$(TZ=America/Los_Angeles date +%H)
+          echo "Los Angeles hour: $HOUR"
+          if [ "$HOUR" = "07" ]; then
+            echo "7 AM Pacific — proceeding."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not 7 AM Pacific — skipping this scheduled trigger."
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  ingest:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    # 26 reports, each generating and downloading a CSV.
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run ezyVet extra-reports worker
+        env:
+          EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
+          EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}
+          EZYVET_PASSWORD: ${{ secrets.EZYVET_PASSWORD }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          RUN_ID: ${{ github.event.inputs.run_id }}
+          AGENT_KEY: ezyvet_extra_reports
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
+          REPORT_KEYS: ${{ github.event.inputs.report_keys }}
+        run: node agent/extra-reports.mjs
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezyvet-extra-reports-debug
+          path: .secrets/ezyvet-probe/*.png
+          if-no-files-found: ignore
+          retention-days: 5

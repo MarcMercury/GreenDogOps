@@ -152,4 +152,136 @@ export const REPORT_DOCS: Record<string, ReportDoc> = {
       "worklist. Re-read over a rolling two-week window, so a consult that gets " +
       "invoiced later simply drops out of the table.",
   },
+  estimate_status: {
+    title: "Estimates",
+    report: "Estimate Status",
+    purpose: "Every estimate and its stage — the quote-to-acceptance funnel.",
+    comment:
+      "One row per estimate with its status (Created / Sent / Accepted / " +
+      "Declined), value and originating doctor. Conversion rate = accepted " +
+      "value over total value. date_sent is null while the estimate is unsent " +
+      "(date_sent_raw then reads 'Not Sent'). Re-read on a rolling window and " +
+      "upserted, since estimates change status days after they are written.",
+  },
+
+  consult_metrics: {
+    title: "Consult Metrics",
+    report: "Consult Metrics",
+    purpose: "Clinical case mix: presenting and master problems per consult and doctor.",
+    comment:
+      "One row per clinical record: the case owner, the pet (species, breed, " +
+      "weight, date of birth) and the MASTER and PRESENTING PROBLEMS. This is " +
+      "the only source of what we actually treat, so use it for case-mix, " +
+      "caseload-by-condition and per-doctor clinical questions. Problems are " +
+      "free text and may list several separated by commas, so match with ILIKE.",
+  },
+  clinical_note_approval: {
+    title: "Clinical Note Approval",
+    report: "Clinical Note Approval",
+    purpose: "Medical-record completion: which notes are approved, by whom and when.",
+    comment:
+      "One row per clinical note (SOAP and similar) with its approver and " +
+      "created/approved/modified timestamps. approved_by null means the record " +
+      "is still unapproved — the medical-records compliance backlog. Rebuilt " +
+      "over a rolling 30-day window each run.",
+  },
+  controlled_drug: {
+    title: "Controlled Drugs",
+    report: "Controlled Drug",
+    purpose: "Controlled-substance dispensing log for DEA reporting.",
+    comment:
+      "Every controlled-substance dispense: product, prescriber and DEA number, " +
+      "quantity, quantity on hand, and the pet/client it was dispensed for. " +
+      "dispensed_qty is negative for a dispense. Client date of birth, phone " +
+      "and address ARE in the ezyVet export but are deliberately not stored. " +
+      "Note ezyVet's export is column-shifted, so the clinic arrives under its " +
+      "'Batch' header and is stored as division; batch number is not available.",
+  },
+  vaccinations: {
+    title: "Vaccinations",
+    report: "Vaccinations",
+    purpose: "Vaccinations given, with next-due dates for compliance and recall.",
+    comment:
+      "One row per vaccination administered: product, quantity, the vet who " +
+      "gave it, the date, and next_date for the reminder. is_historical marks " +
+      "vaccinations recorded from an outside clinic rather than given here.",
+  },
+  soc_overdue: {
+    title: "Standard of Care Overdue",
+    report: "SOC Overdue with Upcoming Appointments",
+    purpose: "Pets with overdue standard-of-care items who already have an appointment booked.",
+    comment:
+      "The pre-visit preparation worklist: pets with an overdue standard-of-care " +
+      "item (vaccine, test, treatment) AND an upcoming appointment, so the team " +
+      "can add it before the visit. days_overdue is how late the item is, " +
+      "days_until_appt how soon they are coming in. Daily snapshot — filter to " +
+      "the latest snapshot_date, and note the same pet appears once per overdue item.",
+  },
+  wellness_plan_use: {
+    title: "Wellness Plan Use",
+    report: "Wellness Plan Use",
+    purpose: "Membership benefit utilisation: what is allocated, used and remaining.",
+    comment:
+      "One row per pet per plan benefit per snapshot: allocated, used and " +
+      "available. Unused 'available' benefits are the practice's outstanding " +
+      "liability and the reason to recall the client. Large table (~20k rows " +
+      "per snapshot), so always filter to one snapshot_date and aggregate.",
+  },
+
+  inventory_value: {
+    title: "Inventory Value",
+    report: "Inventory Value",
+    purpose: "Stock on hand and the dollars tied up in it, per product per day.",
+    comment:
+      "Daily snapshot of stocked products: quantity in inventory, current and " +
+      "weighted-average unit cost, and total value. Trend total_inventory_value " +
+      "by snapshot_date for stock levels over time. Negative quantities are " +
+      "real in ezyVet (items sold that were never received) and flag count errors.",
+  },
+  expiring_inventory: {
+    title: "Expiring Inventory",
+    report: "Expiring Inventory",
+    purpose: "Batches expiring in the next six months — waste prevention worklist.",
+    comment:
+      "Product batches with an expiry date inside the look-ahead window, with " +
+      "quantity and the cost at risk. Daily snapshot; use the latest " +
+      "snapshot_date and order by expiry_date to work the list.",
+  },
+  expired_inventory: {
+    title: "Expired Inventory",
+    report: "Expired Inventory",
+    purpose: "Batches already past their expiry date that are still in stock.",
+    comment:
+      "Stock that has already expired and should be pulled and written off. " +
+      "Daily snapshot — anything appearing here is a live problem.",
+  },
+  inventory_ordering: {
+    title: "Inventory Ordering",
+    report: "Inventory Ordering",
+    purpose: "Reorder worklist with stock turns: what to order and how fast it moves.",
+    comment:
+      "Daily snapshot of the ordering position per product: in inventory, " +
+      "available, on order, receipting, short, and to_order, plus inventory " +
+      "turns for last month, the last 12 months and the monthly average. " +
+      "to_order > 0 is the buy list; low turns with high stock is dead money.",
+  },
+  inventory_transfer: {
+    title: "Inventory Transfers",
+    report: "Inventory Transfer",
+    purpose: "Stock moved between locations, with reason and value.",
+    comment:
+      "Stock movements between inventory locations: product, quantity, reason, " +
+      "per-unit cost and total. Explains why a clinic's stock changed without a " +
+      "sale, and surfaces stock quietly shifting between hospitals.",
+  },
+  purchases: {
+    title: "Purchases",
+    report: "Purchases",
+    purpose: "What was bought from suppliers: product, quantity and spend.",
+    comment:
+      "Purchase-order lines received from suppliers over a rolling window: " +
+      "product, quantity, unit price and totals excluding and including tax. " +
+      "The source for supplier spend and COGS-side questions; ties to the " +
+      "vendor CRM by supplier code.",
+  },
 };

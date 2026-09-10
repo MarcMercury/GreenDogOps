@@ -276,16 +276,11 @@ export const EXTRA_REPORTS = [
     dates: "none",
   },
   {
-    key: "inventory_movement",
-    name: "Inventory Movement",
-    endpoint: "ezyvet/inventory-movement",
-    dates: "range",
-  },
-  {
     key: "inventory_transfer",
     name: "Inventory Transfer",
     endpoint: "ezyvet/inventory-transfer",
     dates: "range",
+    window: 30,
     configure: (page) => setCheckbox(page, "usedaterange", true),
   },
   {
@@ -293,17 +288,16 @@ export const EXTRA_REPORTS = [
     name: "Purchases",
     endpoint: "ezyvet/purchases",
     dates: "range",
-    window: 30,
+    window: 120,
     configure: (page) => setRadio(page, "showlinedetails", "1"),
   },
-  {
-    key: "received_invoices",
-    name: "Received Invoices",
-    endpoint: "ezyvet/received-invoices",
-    dates: "range",
-    window: 30,
-  },
 ];
+
+// Deliberately NOT pulled:
+//   Inventory Movement — never finishes generating (>3 min in the Report Queue)
+//     and duplicates Inventory Value + Products Billed.
+//   Received Invoices — this practice does not record supplier invoices in
+//     ezyVet; the export is empty even over a 120-day window.
 
 export const EXTRA_REPORTS_BY_KEY = new Map(EXTRA_REPORTS.map((r) => [r.key, r]));
 

@@ -2,6 +2,8 @@ import "server-only";
 
 import type { createAdminClient } from "@/lib/supabase/admin";
 import { callTextLLM, hasLlmProvider, unwrapJson } from "@/lib/ai/llm";
+import { REPORT_DOCS } from "./report-docs";
+import { REPORT_SPECS } from "./report-specs";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -230,6 +232,34 @@ Doctor / provider production — get this right, it is the most commonly asked q
   report_by_staff is the SALESPERSON view (who rang the line up), not production — only use it
   for support-staff questions.`;
 
+/**
+ * The 26 spec-driven ezyVet report tables (payments, receivables, daily close,
+ * appointment timings, clinical compliance, inventory). Built from REPORT_DOCS
+ * so the note the model reads is the same text stored as the table comment.
+ */
+const EXTRA_REPORT_NOTES = `
+Daily ezyVet report tables — these cover ground the invoice/patient tables cannot.
+Each carries snapshot_date (the day of the pull) plus period_start/period_end (the
+window requested). SNAPSHOT tables repeat their whole contents every day, so a query
+that does not pin one snapshot_date multiplies every total by the number of days
+ingested — prefer the matching report_* view, which already pins the latest pull:
+${Object.entries(REPORT_DOCS)
+  .filter(([key]) => REPORT_SPECS[key])
+  .map(([key, doc]) => `- ${REPORT_SPECS[key].table} (ezyVet "${doc.report}"): ${doc.comment}`)
+  .join("\n")}
+
+Views over those tables: report_daily_collections (payments by day/location/method),
+report_ar_aging_current + report_ar_aging_trend, report_appointment_flow (wait and
+consult minutes by day/location), report_unbilled_consults_current,
+report_estimate_conversion, report_clinical_note_backlog, report_soc_overdue_current,
+report_inventory_on_hand, report_inventory_value_trend, report_reorder_list,
+report_wellness_plan_current.
+
+Money rule: ezyvet_invoice_line is what we BILLED; ezyvet_payment is what we
+COLLECTED; ezyvet_aged_receivable is what is still OWED. They will not agree and
+should not be added together. Margin/gross profit exists only in ezyvet_staff_sale
+and ezyvet_customer_invoice_stat.`;
+
 const SQL_RULES = `Rules for the SQL:
 - PostgreSQL. The search_path is already the app schema, so reference tables unqualified.
 - Exactly ONE statement, starting with SELECT or WITH. No semicolon. Never write INSERT,
@@ -264,6 +294,8 @@ with its row count. Use whichever one answers the question, not just the obvious
 Today is ${today}.
 
 ${DOMAIN_NOTES}
+
+${EXTRA_REPORT_NOTES}
 
 ${SQL_RULES}
 ${

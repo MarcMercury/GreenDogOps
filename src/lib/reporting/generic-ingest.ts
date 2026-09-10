@@ -87,6 +87,13 @@ function coerce(value: string | undefined, type: ColumnSpec["type"]): Row[string
       return parseLongDate(value).date;
     case "long_timestamp":
       return parseLongDate(value).timestamp;
+    case "dmy_date": {
+      // Estimate Status is DAY-first ("28-08-2026 15:48:14 PDT") while every
+      // other ezyVet report is month-first. Proven by days > 12 in position 1.
+      const m = clean(value)?.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+      if (!m) return null;
+      return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    }
     default:
       return clean(value);
   }
@@ -279,7 +286,7 @@ export async function ingestReportCsvText(
 
   // Stamp every row with the pull that produced it so a partial re-run is
   // traceable and snapshot reports can be trended over time.
-  const stamped = rows.map((r) => ({
+  const stamped: Row[] = rows.map((r) => ({
     ...r,
     snapshot_date: snapshotDate,
     period_start: opts.from ?? null,
@@ -289,8 +296,9 @@ export async function ingestReportCsvText(
   let dateStart: string | null = null;
   let dateEnd: string | null = null;
   if (spec.dateColumn) {
+    const column = spec.dateColumn;
     const dates = stamped
-      .map((r) => r[spec.dateColumn as string])
+      .map((r) => r[column])
       .filter((d): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d))
       .sort();
     dateStart = dates[0] ?? null;
