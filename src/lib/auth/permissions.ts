@@ -257,6 +257,7 @@ export const PATHNAME_HEADER = "x-gdo-pathname";
 const ROUTE_MODULES: ReadonlyArray<readonly [string, ModuleKey]> = [
   ["/admin", "admin"],
   ["/ats", "ats"],
+  ["/biz-dev", "reporting"],
   ["/calendar", "calendar"],
   ["/capacity", "schedule"],
   ["/crm/business", "crm_business"],

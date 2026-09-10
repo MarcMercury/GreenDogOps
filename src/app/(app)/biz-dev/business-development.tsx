@@ -1,113 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import type {
-  BizDevLocation,
-  BizDevOpenDays,
-  BizDevWeekdayFactors,
-} from "@/lib/reporting/types";
+import { useMemo, useState } from "react";
+import type { BizDevLocation, BizDevOpenDays } from "@/lib/reporting/types";
 import { LOCATION_COLORS } from "@/lib/reporting/types";
-import {
-  getBusinessDevelopmentData,
-  updateBizDevApptType,
-  saveBizDevOpenDays,
-  addBizDevApptType,
-  deleteBizDevApptType,
-} from "./actions";
-import { StatCard, SectionCard, fmtCurrency } from "./charts";
-
-/** Average number of weeks in a month (52 / 12) for the monthly roll-up. */
-const WEEKS_PER_MONTH = 52 / 12;
-
-const DAY_DEFS: {
-  key: keyof BizDevOpenDays;
-  factorKey: keyof BizDevWeekdayFactors;
-  label: string;
-  title: string;
-}[] = [
-  { key: "open_sun", factorKey: "factor_sun", label: "S", title: "Sunday" },
-  { key: "open_mon", factorKey: "factor_mon", label: "M", title: "Monday" },
-  { key: "open_tue", factorKey: "factor_tue", label: "T", title: "Tuesday" },
-  { key: "open_wed", factorKey: "factor_wed", label: "W", title: "Wednesday" },
-  { key: "open_thu", factorKey: "factor_thu", label: "T", title: "Thursday" },
-  { key: "open_fri", factorKey: "factor_fri", label: "F", title: "Friday" },
-  { key: "open_sat", factorKey: "factor_sat", label: "S", title: "Saturday" },
-];
-
-function openDayCount(d: BizDevOpenDays): number {
-  return DAY_DEFS.reduce((n, def) => n + (d[def.key] ? 1 : 0), 0);
-}
-
-/** Sum of the volume factors for the clinic's OPEN days (Σ factor over open days). */
-function openDayFactorSum(loc: BizDevLocation): number {
-  return DAY_DEFS.reduce(
-    (s, def) =>
-      s + (loc.open_days[def.key] ? Number(loc.weekday_factors[def.factorKey] ?? 1) : 0),
-    0,
-  );
-}
-
-interface LocTotals {
-  /** Sum of realized avg appointments per day (current run-rate reference). */
-  currentApptsPerDay: number;
-  /** Planned appts/day across DAILY-cadence rows only. */
-  plannedApptsPerDayDaily: number;
-  /** Planned appts/week across WEEKLY-cadence rows only. */
-  plannedWeeklyAppts: number;
-  /** Expected planned appts on a typical (factor = 1) open day. */
-  plannedApptsTypicalDay: number;
-  /** Factor-weighted planned appts per week. */
-  plannedApptsPerWeek: number;
-  projWeekly: number;
-  projDailyEffective: number;
-  currentWeekly: number;
-  projMonthly: number;
-  currentMonthly: number;
-  openDays: number;
-  factorSum: number;
-}
-
-function computeTotals(loc: BizDevLocation): LocTotals {
-  const openDays = openDayCount(loc.open_days);
-  const factorSum = openDayFactorSum(loc);
-  let currentApptsPerDay = 0;
-  let plannedApptsPerDayDaily = 0;
-  let plannedWeeklyAppts = 0;
-  let projWeekly = 0;
-  let currentWeekly = 0;
-  for (const t of loc.types) {
-    if (!t.included) continue;
-    // Current run-rate: realized daily average, weighted by the weekday mix.
-    currentApptsPerDay += t.avg_per_day;
-    currentWeekly += t.avg_per_day * t.avg_value * factorSum;
-    if (t.cadence === "weekly") {
-      // A weekly service happens N times per week regardless of open-day count.
-      plannedWeeklyAppts += t.planned_per_week;
-      projWeekly += t.planned_per_week * t.avg_value;
-    } else {
-      plannedApptsPerDayDaily += t.planned_per_day;
-      // Weight the week by the sum of open-day factors (Saturdays lighter, etc.).
-      projWeekly += t.planned_per_day * t.avg_value * factorSum;
-    }
-  }
-  const plannedApptsTypicalDay =
-    plannedApptsPerDayDaily + (openDays > 0 ? plannedWeeklyAppts / openDays : 0);
-  const plannedApptsPerWeek = plannedApptsPerDayDaily * factorSum + plannedWeeklyAppts;
-  return {
-    currentApptsPerDay,
-    plannedApptsPerDayDaily,
-    plannedWeeklyAppts,
-    plannedApptsTypicalDay,
-    plannedApptsPerWeek,
-    projWeekly,
-    projDailyEffective: openDays > 0 ? projWeekly / openDays : projWeekly,
-    currentWeekly,
-    projMonthly: projWeekly * WEEKS_PER_MONTH,
-    currentMonthly: currentWeekly * WEEKS_PER_MONTH,
-    openDays,
-    factorSum,
-  };
-}
+import { DAY_DEFS, computeTotals } from "@/lib/reporting/bizdev";
+import { StatCard, SectionCard, fmtCurrency } from "../reporting/charts";
+import type { BizDevPatch } from "./use-bizdev-data";
 
 /**
  * A number input that keeps a local string while typing and commits the parsed
@@ -296,19 +194,7 @@ function LocationPlanner({
 }: {
   loc: BizDevLocation;
   canEdit: boolean;
-  onPatchType: (
-    typeId: string,
-    patch: {
-      avg_value?: number;
-      avg_per_day?: number;
-      planned_per_day?: number;
-      planned_per_week?: number;
-      cadence?: "daily" | "weekly";
-      max_per_day?: number;
-      included?: boolean;
-      hidden?: boolean;
-    },
-  ) => void;
+  onPatchType: (typeId: string, patch: BizDevPatch) => void;
   onToggleDay: (key: keyof BizDevOpenDays) => void;
   onAddType: (name: string, value: number) => void;
   onRemoveType: (typeId: string) => void;
@@ -716,115 +602,24 @@ function MiniStat({
   );
 }
 
-export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
-  const [locations, setLocations] = useState<BizDevLocation[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
-
-  useEffect(() => {
-    let active = true;
-    getBusinessDevelopmentData()
-      .then((d) => {
-        if (active) setLocations(d);
-      })
-      .catch((e: unknown) => {
-        if (active) setError(e instanceof Error ? e.message : "Failed to load.");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  const patchType = (
-    locId: string,
-    typeId: string,
-    patch: {
-      avg_value?: number;
-      avg_per_day?: number;
-      planned_per_day?: number;
-      planned_per_week?: number;
-      cadence?: "daily" | "weekly";
-      max_per_day?: number;
-      included?: boolean;
-      hidden?: boolean;
-    },
-  ) => {
-    setLocations((prev) =>
-      prev
-        ? prev.map((l) =>
-            l.location_id === locId
-              ? {
-                  ...l,
-                  types: l.types.map((t) =>
-                    t.id === typeId ? { ...t, ...patch } : t,
-                  ),
-                }
-              : l,
-          )
-        : prev,
-    );
-    startTransition(async () => {
-      const res = await updateBizDevApptType(typeId, patch);
-      if (!res.ok) setError(res.error);
-    });
-  };
-
-  const toggleDay = (locId: string, key: keyof BizDevOpenDays) => {
-    let next: BizDevOpenDays | null = null;
-    setLocations((prev) =>
-      prev
-        ? prev.map((l) => {
-            if (l.location_id !== locId) return l;
-            const open_days = { ...l.open_days, [key]: !l.open_days[key] };
-            next = open_days;
-            return { ...l, open_days };
-          })
-        : prev,
-    );
-    if (next) {
-      const days = next;
-      startTransition(async () => {
-        const res = await saveBizDevOpenDays(locId, days);
-        if (!res.ok) setError(res.error);
-      });
-    }
-  };
-
-  const addType = (locId: string, name: string, value: number) => {
-    startTransition(async () => {
-      const res = await addBizDevApptType(locId, name, value);
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
-      setLocations((prev) =>
-        prev
-          ? prev.map((l) =>
-              l.location_id === locId
-                ? { ...l, types: [...l.types, res.row] }
-                : l,
-            )
-          : prev,
-      );
-    });
-  };
-
-  const removeType = (locId: string, typeId: string) => {
-    setLocations((prev) =>
-      prev
-        ? prev.map((l) =>
-            l.location_id === locId
-              ? { ...l, types: l.types.filter((t) => t.id !== typeId) }
-              : l,
-          )
-        : prev,
-    );
-    startTransition(async () => {
-      const res = await deleteBizDevApptType(typeId);
-      if (!res.ok) setError(res.error);
-    });
-  };
-
+export function BusinessDevelopment({
+  canEdit,
+  locations,
+  error,
+  onPatchType,
+  onToggleDay,
+  onAddType,
+  onRemoveType,
+}: {
+  canEdit: boolean;
+  /** null while the planner is still loading. */
+  locations: BizDevLocation[] | null;
+  error: string | null;
+  onPatchType: (locId: string, typeId: string, patch: BizDevPatch) => void;
+  onToggleDay: (locId: string, key: keyof BizDevOpenDays) => void;
+  onAddType: (locId: string, name: string, value: number) => void;
+  onRemoveType: (locId: string, typeId: string) => void;
+}) {
   if (error && !locations) {
     return (
       <SectionCard title="Business Development">
@@ -913,11 +708,11 @@ export function BusinessDevelopment({ canEdit }: { canEdit: boolean }) {
           loc={loc}
           canEdit={canEdit}
           onPatchType={(typeId, patch) =>
-            patchType(loc.location_id, typeId, patch)
+            onPatchType(loc.location_id, typeId, patch)
           }
-          onToggleDay={(key) => toggleDay(loc.location_id, key)}
-          onAddType={(name, value) => addType(loc.location_id, name, value)}
-          onRemoveType={(typeId) => removeType(loc.location_id, typeId)}
+          onToggleDay={(key) => onToggleDay(loc.location_id, key)}
+          onAddType={(name, value) => onAddType(loc.location_id, name, value)}
+          onRemoveType={(typeId) => onRemoveType(loc.location_id, typeId)}
         />
       ))}
     </div>

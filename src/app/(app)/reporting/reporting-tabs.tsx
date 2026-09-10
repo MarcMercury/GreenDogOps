@@ -37,7 +37,6 @@ import {
 } from "./charts";
 import { ImportHistory } from "./import-history";
 import { AppointmentReview } from "./appointment-review";
-import { BusinessDevelopment } from "./business-development";
 import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 
 type TabKey =
@@ -48,7 +47,6 @@ type TabKey =
   | "staff"
   | "dvm-dept"
   | "clients"
-  | "business-dev"
   | "uploads";
 
 const TABS: { key: TabKey; label: string }[] = [
@@ -59,7 +57,6 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "staff", label: "Doctors/Staff" },
   { key: "dvm-dept", label: "DVM by Dept" },
   { key: "clients", label: "Clients" },
-  { key: "business-dev", label: "Business Development" },
   { key: "uploads", label: "Uploads" },
 ];
 
@@ -111,7 +108,6 @@ export interface ReportingTabsProps {
   hasClientData: boolean;
   imports: InvoiceImportRow[];
   isAdmin: boolean;
-  canEdit: boolean;
 }
 
 /** Compact location → revenue/value matrix table. */
@@ -476,7 +472,6 @@ export function ReportingTabs(props: ReportingTabsProps) {
     hasClientData,
     imports,
     isAdmin,
-    canEdit,
   } = props;
 
   const avgAppt =
@@ -1015,8 +1010,6 @@ export function ReportingTabs(props: ReportingTabsProps) {
 
       {/* ---------------------------------------------------------------- */}
       {tab === "appointment-review" && <AppointmentReview />}
-
-      {tab === "business-dev" && <BusinessDevelopment canEdit={canEdit} />}
 
       {tab === "uploads" && (
         <div className="space-y-6">

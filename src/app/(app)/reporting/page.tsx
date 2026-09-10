@@ -245,7 +245,6 @@ export default async function ReportingPage({
             hasClientData={hasClientData}
             imports={imports}
             isAdmin={isAdmin}
-            canEdit={canEdit}
           />
         </>
       )}

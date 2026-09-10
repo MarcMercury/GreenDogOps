@@ -87,6 +87,7 @@ const BIZ_DEV: NavItem[] = [
   { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
   { key: "reporting", href: "/reporting/smart", label: "Smart Report", icon: "🤖" },
   { key: "emp_reporting", href: "/emp-reporting", label: "Emp Reporting", icon: "💰" },
+  { key: "reporting", href: "/biz-dev", label: "Biz Dev", icon: "🧮" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 
