@@ -97,11 +97,11 @@ export async function updateUser(formData: FormData): Promise<void> {
   if (id === current.authId && (!isActive || role !== "owner")) {
     // Keep the current owner safe; ignore self-lockout attempts.
     revalidatePath(`/admin/users/${id}`);
-    return;
+    redirect(`/admin/users/${id}?saved=locked`);
   }
 
   const admin = createAdminClient();
-  await admin
+  const { error } = await admin
     .from("app_user")
     .update({
       role,
@@ -112,6 +112,9 @@ export async function updateUser(formData: FormData): Promise<void> {
       module_access: moduleAccess,
     })
     .eq("id", id);
+  if (error) {
+    redirect(`/admin/users/${id}?saved=error`);
+  }
 
   await recordAudit({
     actorId: current.authId,
@@ -125,6 +128,7 @@ export async function updateUser(formData: FormData): Promise<void> {
 
   revalidatePath("/admin/users");
   revalidatePath(`/admin/users/${id}`);
+  redirect(`/admin/users/${id}?saved=ok`);
 }
 
 /** Revoke a user's GDO access (soft — keeps the record + audit trail). */

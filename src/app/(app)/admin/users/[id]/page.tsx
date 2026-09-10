@@ -11,6 +11,7 @@ import {
   type AppUser,
 } from "@/lib/auth/permissions";
 import { Panel } from "../../_components";
+import { SaveChangesButton } from "./save-changes-button";
 import {
   updateUser,
   revokeAccess,
@@ -19,6 +20,15 @@ import {
 } from "../../actions";
 
 export const dynamic = "force-dynamic";
+
+const SAVE_BANNERS: Record<string, { tone: "ok" | "error"; text: string }> = {
+  ok: { tone: "ok", text: "Changes saved." },
+  error: { tone: "error", text: "Could not save the changes. Try again." },
+  locked: {
+    tone: "error",
+    text: "Nothing was saved: you cannot deactivate or demote your own owner account. Ask another owner to make that change.",
+  },
+};
 
 const ROSTER_BANNERS: Record<string, { tone: "ok" | "error"; text: string }> = {
   linked: { tone: "ok", text: "Linked to roster profile and synced name + title." },
@@ -41,10 +51,10 @@ export default async function UserDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ pw?: string; roster?: string }>;
+  searchParams: Promise<{ pw?: string; roster?: string; saved?: string }>;
 }) {
   const { id } = await params;
-  const { pw, roster } = await searchParams;
+  const { pw, roster, saved } = await searchParams;
   const admin = createAdminClient();
   const { data } = await admin
     .from("app_user")
@@ -139,6 +149,7 @@ export default async function UserDetailPage({
 
   const rosterBanner = roster ? ROSTER_BANNERS[roster] : undefined;
   const pwBanner = pw ? PW_BANNERS[pw] : undefined;
+  const saveBanner = saved ? SAVE_BANNERS[saved] : undefined;
 
   const defaultsByRole = Object.fromEntries(
     APP_ROLES.map((r) => [r, new Set(roleDefaultModules(r))]),
@@ -173,6 +184,17 @@ export default async function UserDetailPage({
           }`}
         >
           {pwBanner.text}
+        </div>
+      ) : null}
+      {saveBanner ? (
+        <div
+          className={`rounded-xl border px-4 py-3 text-sm ${
+            saveBanner.tone === "ok"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+              : "border-rose-200 bg-rose-50 text-rose-700"
+          }`}
+        >
+          {saveBanner.text}
         </div>
       ) : null}
 
@@ -303,12 +325,7 @@ export default async function UserDetailPage({
         </Panel>
 
         <div className="flex justify-end">
-          <button
-            type="submit"
-            className="rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700"
-          >
-            Save changes
-          </button>
+          <SaveChangesButton />
         </div>
       </form>
 
