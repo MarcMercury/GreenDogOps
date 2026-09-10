@@ -4,6 +4,12 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 import { callTextLLM, hasLlmProvider, unwrapJson } from "@/lib/ai/llm";
 import { REPORT_DOCS } from "./report-docs";
 import { REPORT_SPECS } from "./report-specs";
+import {
+  blockedIdentifier,
+  scopeNotice,
+  scrubRows,
+  type SmartScope,
+} from "./smart-scope";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -111,7 +117,7 @@ function sourceList(passages: PolicyPassage[]): string {
   return lines.length ? `\n\n**Sources**\n${lines.join("\n")}` : "";
 }
 
-let catalogCache: { schema: string; values: string; at: number } | null = null;
+let catalogCache: { tables: CatalogTable[]; hints: ValueHint[]; at: number } | null = null;
 
 function rowLabel(rows: number | null): string {
   if (rows === null || rows === undefined || rows < 0) return "";
@@ -128,34 +134,52 @@ function rowLabel(rows: number | null): string {
  * (`species = 'Dog'`) that match nothing, because ezyVet stores
  * `'Canine (dog)'`. Both come from cached RPCs so this costs one round trip
  * every 10 minutes.
+ *
+ * The raw catalog is cached and then rendered PER SCOPE: anything the caller
+ * may not read is left out entirely, so the model does not waste attempts
+ * writing queries that the guard in askSmartReport would reject.
  */
-async function getSchemaCatalog(admin: AdminClient): Promise<{ schema: string; values: string }> {
-  if (catalogCache && Date.now() - catalogCache.at < SCHEMA_TTL_MS) {
-    return { schema: catalogCache.schema, values: catalogCache.values };
+async function getSchemaCatalog(
+  admin: AdminClient,
+  scope: SmartScope,
+): Promise<{ schema: string; values: string }> {
+  if (!catalogCache || Date.now() - catalogCache.at >= SCHEMA_TTL_MS) {
+    const [{ data, error }, hints] = await Promise.all([
+      admin.rpc("smart_schema"),
+      admin.rpc("smart_value_hints"),
+    ]);
+    if (error) throw new Error(`Could not read the database schema: ${error.message}`);
+    catalogCache = {
+      tables: (data ?? []) as CatalogTable[],
+      // A failure here must not break the report — the vocabulary is a bonus.
+      hints: ((hints.data ?? []) as ValueHint[]).filter((h) => h.values?.length),
+      at: Date.now(),
+    };
   }
-  const [{ data, error }, hints] = await Promise.all([
-    admin.rpc("smart_schema"),
-    admin.rpc("smart_value_hints"),
-  ]);
-  if (error) throw new Error(`Could not read the database schema: ${error.message}`);
 
-  const tables = (data ?? []) as CatalogTable[];
-  const schema = tables
+  const blockedTables = new Set(scope.blockedTables);
+  const blockedColumns = new Set(scope.blockedColumns);
+
+  const schema = catalogCache.tables
+    .filter((t) => !blockedTables.has(t.name.toLowerCase()))
     .map(
       (t) =>
         `${t.name} [${t.kind}${rowLabel(t.rows)}](${t.columns
+          .filter((c) => !blockedColumns.has(c.name.toLowerCase()))
           .map((c) => `${c.name} ${c.type}`)
           .join(", ")})`,
     )
     .join("\n");
 
-  // A failure here must not break the report — the vocabulary is a bonus.
-  const values = ((hints.data ?? []) as ValueHint[])
-    .filter((h) => h.values?.length)
+  const values = catalogCache.hints
+    .filter(
+      (h) =>
+        !blockedTables.has(h.table.toLowerCase()) &&
+        !blockedColumns.has(h.column.toLowerCase()),
+    )
     .map((h) => `${h.table}.${h.column} = ${h.values.join(" | ")}`)
     .join("\n");
 
-  catalogCache = { schema, values, at: Date.now() };
   return { schema, values };
 }
 
@@ -201,9 +225,58 @@ const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles h
   Instead AND one ILIKE '%word%' per significant word, dropping hyphens and stop words
   (e.g. name ILIKE '%dental%' AND name ILIKE '%x%ray%'), and return the matches so the reader
   can pick the right one.
-- ezyvet_appointment (matview) = one row per client visit day: client_contact_code,
-  service_date, location_key, revenue, pet_count. Best source for appointment/visit counts.
-  An appointment is NOT a line count — never count invoice lines to answer "how many appointments".
+- ezyvet_appointment (matview) = one row per client visit day that has ALREADY BEEN BILLED:
+  client_contact_code, service_date, location_key, revenue, pet_count. It is derived from
+  ezyvet_invoice_line, so it ONLY covers PAST, RENDERED visits and has NO rows for today or any
+  future date (those appointments are not invoiced yet). Use it for historical visit counts and
+  revenue-per-visit, counting DISTINCT visits here, never invoice lines. For "how many
+  appointments today / tomorrow / this week / scheduled / on the board / booked / upcoming" you
+  MUST use the agenda snapshot tables below — this matview will wrongly report zero.
+- SCHEDULED / BOOKED appointments (the live ezyVet appointment book = the "clinic board") live in
+  the agenda snapshot tables, refreshed several times a day, and DO cover today and future dates:
+  * ezyvet_agenda_snapshot = aggregate booked counts, one row per
+    (location_id, appt_date, department_id, snapshot_date) with appt_count. This is the source for
+    "how many appointments are booked on <day> at <location>".
+  * ezyvet_agenda_appt_snapshot = one row per individual booked appointment (client_name,
+    patient_name, resource, appt_time, appt_type, status) for per-appointment detail.
+  These tables key location by location_id (uuid) -> greendogops.location (name 'Venice',
+  'Van Nuys', 'Sherman Oaks', ...), NOT by the location_key text on the invoice tables, so JOIN
+  greendogops.location on location_id and match the hospital by l.name ILIKE '%venice%'.
+  snapshot_date is the day the pull was taken, appt_date is the day of the appointment; the same
+  appt_date appears in MANY snapshots, so ALWAYS take the latest snapshot per cell — e.g.
+  distinct on (location_id, appt_date, department_id) ... order by ..., snapshot_date desc — then
+  sum(appt_count), or counts multiply by the number of pulls. The canonical booked-vs-rendered
+  numbers come from the function appointment_review(p_start date, p_end date) (returns
+  location_name, department_name, appt_date, expected_count = booked, rendered_count = actually
+  seen); query it directly, e.g. select location_name, sum(expected_count) as booked from
+  appointment_review(current_date, current_date) group by location_name.
+- An appointment is NOT an invoice line — never count invoice lines to answer "how many appointments".
+
+Wellness plan ("Green Dog Plus" / "GDD+") membership — counting this wrong is easy:
+- ezyvet_wellness_plan_use (and report_wellness_plan_current, which pins the latest snapshot) is
+  one row per PET per PLAN BENEFIT — ~21,500 rows for ~910 members. NEVER count rows, and never
+  count distinct unique_id, to answer "how many members": that returns a benefit count in the
+  thousands and is wrong by ~20x.
+- A MEMBER / CLIENT on the plan = count(distinct customer_code). An enrolled PET = count(distinct
+  pet_code). There are more pets than members (some clients enrol several pets), so always say
+  which one you counted.
+- There is NO status/active column: every row in the latest snapshot IS a current active member.
+  "Active members", "current members" and "members" all mean the same count(distinct customer_code)
+  over report_wellness_plan_current. Do NOT approximate "active" with available > 0 (that is
+  "members with unused benefits left" and undercounts) or used > 0 ("members who have redeemed
+  something") — those are different questions, so answer them only if that is what was asked.
+- The plan column has exactly two values and they are PRICE TIERS, not different products:
+  'Green Dog Plus' is the ORIGINAL/OLD price and 'Green Dog Plus #2' is the NEWER/CURRENT price.
+  A handful of clients hold BOTH, so the per-plan member counts add up to MORE than the distinct
+  total — when splitting members old vs new, classify each customer_code once (e.g. group by
+  customer_code with bool_or(plan = ...)) instead of grouping by plan, and say how the overlap
+  was treated.
+- Membership TENURE ("on the plan more than a year") must be measured per member, not per benefit
+  row: take min(term_start_date) per customer_code, then compare that to
+  current_date - interval '1 year'. term_start_date repeats on every one of that pet's benefit rows.
+- Keep these definitions STABLE across a conversation: if a follow-up question refines an earlier
+  one ("of those members, how many..."), reuse the exact same population and filters as the
+  previous answer so the totals still reconcile, and if you must change the definition, say so.
 - report_* views/matviews are pre-aggregated roll-ups that encode the practice's official
   definitions. ALWAYS prefer them when one matches the question, otherwise the number will
   disagree with what the Reporting page shows. Their "month" column is a DATE (first of the
@@ -266,6 +339,13 @@ const SQL_RULES = `Rules for the SQL:
   UPDATE, DELETE, CREATE, ALTER, DROP, GRANT, REFRESH, COPY or CALL — the query is rejected.
 - Return a small result: aggregate where possible and add ORDER BY + LIMIT (max ${ROW_LIMIT}) for lists.
 - Give every column a short, human-readable alias (e.g. "avg_age_years", "client_count").
+- Many tables hold one row per X per Y (per benefit, per line, per snapshot, per overdue item).
+  Before counting, decide WHICH ENTITY the question is about and count(distinct <that key>) —
+  a raw count(*) on those tables answers a different question and is usually wrong by an order
+  of magnitude. Name the entity in the alias ("member_count", not "count").
+- If the question is a FOLLOW-UP to an earlier turn ("of those, how many...", "how many of them"),
+  reuse the SAME population, table and filters as the previous query so the numbers reconcile
+  with the answer already given. Never silently switch the counted entity between turns.
 - Round money to 2 decimals and averages to 1 decimal.
 - Match names/text case-insensitively with ILIKE, and match category values with
   ILIKE '%fragment%' rather than = unless the exact stored value is listed under
@@ -285,6 +365,7 @@ function planSystemPrompt(
   values: string,
   today: string,
   passages: string,
+  restrictions: string,
 ): string {
   return `You are the Smart Report analyst for Green Dog Ops, a veterinary practice management app.
 You answer questions by writing ONE read-only PostgreSQL query against the app's database.
@@ -298,6 +379,7 @@ ${DOMAIN_NOTES}
 ${EXTRA_REPORT_NOTES}
 
 ${SQL_RULES}
+${restrictions}
 ${
   passages
     ? `\nSome questions are about company POLICY or PROCEDURE rather than data. When the excerpts below
@@ -396,12 +478,14 @@ function historyBlock(history: SmartTurn[]): string {
 
 /**
  * Answer one question. `admin` must be a service-role client — the smart_query
- * RPC is not callable by the browser, and the caller is expected to have already
- * verified the user has admin access to the reporting module.
+ * RPC is not callable by the browser. `scope` is what the ASKING USER is
+ * allowed to see: smart_query bypasses RLS, so it is the only thing keeping
+ * salaries and confidential employee records out of the answer.
  */
 export async function askSmartReport(
   admin: AdminClient,
   question: string,
+  scope: SmartScope,
   history: SmartTurn[] = [],
 ): Promise<SmartResult> {
   const empty: Omit<SmartResult, "answer" | "ok"> = {
@@ -426,11 +510,17 @@ export async function askSmartReport(
   }
 
   const [{ schema, values }, passages] = await Promise.all([
-    getSchemaCatalog(admin),
+    getSchemaCatalog(admin, scope),
     getPolicyPassages(admin, q),
   ]);
   const today = new Date().toISOString().slice(0, 10);
-  const system = planSystemPrompt(schema, values, today, passageBlock(passages));
+  const system = planSystemPrompt(
+    schema,
+    values,
+    today,
+    passageBlock(passages),
+    scopeNotice(scope),
+  );
 
   const attempts: SmartAttempt[] = [];
   let provider: string | null = null;
@@ -481,6 +571,19 @@ export async function askSmartReport(
 
     sql = parsed.sql;
     note = parsed.note;
+
+    // Hard gate. The prompt already hides these, but the model's SQL is never
+    // trusted: smart_query runs as service_role and would happily return them.
+    const blocked = blockedIdentifier(sql, scope);
+    if (blocked) {
+      attempts.push({
+        sql,
+        error: `"${blocked}" is not available to this user. Answer without it, or explain that the data is restricted.`,
+      });
+      sql = null;
+      continue;
+    }
+
     const { data, error } = await admin.rpc("smart_query", { p_sql: sql, p_limit: ROW_LIMIT });
     if (error) {
       attempts.push({ sql, error: error.message });
@@ -488,7 +591,7 @@ export async function askSmartReport(
       continue;
     }
 
-    rows = (data ?? []) as SmartRow[];
+    rows = scrubRows((data ?? []) as SmartRow[], scope);
     // A query that runs but finds nothing is usually a filter that does not match
     // the stored text (species = 'Dog'), not a genuinely empty dataset. Hand that
     // back to the model once so it can widen the query.

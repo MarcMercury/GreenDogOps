@@ -1,25 +1,28 @@
 "use server";
 
 import { requireUser } from "@/lib/auth/session";
-import { canAccessModule } from "@/lib/auth/permissions";
+import { canUseSmartReport } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { smartScopeFor } from "@/lib/reporting/smart-scope";
 import { askSmartReport, type SmartResult, type SmartTurn } from "@/lib/reporting/smart";
 
 const MAX_QUESTION_CHARS = 800;
 
 /**
  * Answer one Smart Report question. Runs with the service-role client (the
- * smart_query RPC is service_role-only), so the reporting-module check here is
- * the access gate.
+ * smart_query RPC is service_role-only), so the checks here are the only access
+ * gate: canUseSmartReport decides who may ask at all, and smartScopeFor decides
+ * which tables and columns their question is allowed to reach.
  */
 export async function askSmartQuestion(
   question: string,
   history: SmartTurn[] = [],
 ): Promise<SmartResult> {
   const current = await requireUser();
-  if (!canAccessModule(current.appUser, "reporting")) {
-    throw new Error("You do not have access to reporting data.");
+  if (!canUseSmartReport(current.appUser)) {
+    throw new Error("You do not have access to Smart Report.");
   }
+  const scope = smartScopeFor(current.appUser.role);
 
   const q = typeof question === "string" ? question.trim().slice(0, MAX_QUESTION_CHARS) : "";
   const turns: SmartTurn[] = (Array.isArray(history) ? history : [])
@@ -28,7 +31,7 @@ export async function askSmartQuestion(
     .map((t) => ({ role: t.role, content: t.content.slice(0, 600) }));
 
   try {
-    return await askSmartReport(createAdminClient(), q, turns);
+    return await askSmartReport(createAdminClient(), q, scope, turns);
   } catch (e) {
     return {
       ok: false,

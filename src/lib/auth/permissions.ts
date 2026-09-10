@@ -233,6 +233,20 @@ export function canAccessModule(user: AppUser, key: ModuleKey): boolean {
   return ROLE_DEFAULT_MODULES[user.role].includes(key);
 }
 
+/**
+ * Smart Report is the one Reporting surface open below Owner/Admin: everyone
+ * above basic Staff may ask questions. What each of them can SEE is narrowed
+ * separately by smartScopeFor() in lib/reporting/smart-scope.ts (salaries are
+ * Owner/Admin/Executive only). An explicit per-user `reporting` override still
+ * wins in both directions, so a single staff member can be granted it.
+ */
+export function canUseSmartReport(user: AppUser): boolean {
+  if (!user.is_active) return false;
+  const override = user.module_access?.reporting;
+  if (typeof override === "boolean") return override;
+  return user.role !== "staff";
+}
+
 /** The set of module keys a user can access. */
 export function accessibleModules(user: AppUser): ModuleKey[] {
   return ALL_MODULES.filter((k) => canAccessModule(user, k));
@@ -282,12 +296,23 @@ const ROUTE_MODULES: ReadonlyArray<readonly [string, ModuleKey]> = [
 ];
 
 /**
+ * Routes inside a module's URL space that carry their OWN access rule, so the
+ * layout must not apply the parent module's gate. Smart Report lives under
+ * /reporting but is open to everyone above Staff (canUseSmartReport); its page
+ * and server action enforce that themselves.
+ */
+const ROUTE_MODULE_EXCEPTIONS: readonly string[] = ["/reporting/smart"];
+
+/**
  * The module a pathname belongs to, or null when the route is not module-scoped
  * (dashboard, shared CRM record pages, API routes). Matches whole path segments
  * and prefers the longest match, so `/schedule-search` never resolves via
  * `/schedule`.
  */
 export function moduleForPathname(pathname: string): ModuleKey | null {
+  for (const prefix of ROUTE_MODULE_EXCEPTIONS) {
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) return null;
+  }
   let matched: ModuleKey | null = null;
   let matchedLength = 0;
   for (const [prefix, key] of ROUTE_MODULES) {
