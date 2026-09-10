@@ -56,6 +56,59 @@ type CatalogTable = {
 
 type ValueHint = { table: string; column: string; values: string[] };
 
+type PolicyPassage = {
+  title: string;
+  category: string;
+  source_url: string | null;
+  content: string;
+};
+
+/** Passages to retrieve from the policy library for one question. */
+const PASSAGE_LIMIT = 6;
+const PASSAGE_CHARS = 1200;
+
+/**
+ * Full-text search over the TEXT of the policy/protocol documents.
+ *
+ * These live in resource_document_chunk rather than being queried by the
+ * model's own SQL on purpose: smart_query() rejects a statement containing
+ * words like "create", and a policy question ("how do I create a hazard
+ * report?") would put that word inside the search literal.
+ */
+async function getPolicyPassages(
+  admin: AdminClient,
+  question: string,
+): Promise<PolicyPassage[]> {
+  const { data, error } = await admin.rpc("search_resource_content", {
+    p_query: question,
+    p_limit: PASSAGE_LIMIT,
+  });
+  // Documents are a bonus source — never fail the report over them.
+  if (error) return [];
+  return (data ?? []) as PolicyPassage[];
+}
+
+function passageBlock(passages: PolicyPassage[]): string {
+  if (!passages.length) return "";
+  const body = passages
+    .map(
+      (p, i) =>
+        `[${i + 1}] ${p.title}${p.source_url ? ` (${p.source_url})` : ""}\n${p.content.slice(0, PASSAGE_CHARS)}`,
+    )
+    .join("\n\n");
+  return `\nPolicy & protocol excerpts (the company's own HR/safety documents, matched to this question):\n${body}\n`;
+}
+
+/** Markdown "Sources" footer so a policy answer is always traceable to a document. */
+function sourceList(passages: PolicyPassage[]): string {
+  const seen = new Map<string, string | null>();
+  for (const p of passages) if (!seen.has(p.title)) seen.set(p.title, p.source_url);
+  const lines = [...seen]
+    .slice(0, 4)
+    .map(([title, url]) => (url ? `- [${title}](${url})` : `- ${title}`));
+  return lines.length ? `\n\n**Sources**\n${lines.join("\n")}` : "";
+}
+
 let catalogCache: { schema: string; values: string; at: number } | null = null;
 
 function rowLabel(rows: number | null): string {
@@ -197,7 +250,12 @@ const SQL_RULES = `Rules for the SQL:
   rows change the attribution rule — apply the coalesce described above instead.
 - Only use tables and columns that appear in the schema listing below.`;
 
-function planSystemPrompt(schema: string, values: string, today: string): string {
+function planSystemPrompt(
+  schema: string,
+  values: string,
+  today: string,
+  passages: string,
+): string {
   return `You are the Smart Report analyst for Green Dog Ops, a veterinary practice management app.
 You answer questions by writing ONE read-only PostgreSQL query against the app's database.
 You can see the ENTIRE database below — every table, view and materialised view the app has,
@@ -208,7 +266,14 @@ Today is ${today}.
 ${DOMAIN_NOTES}
 
 ${SQL_RULES}
-
+${
+  passages
+    ? `\nSome questions are about company POLICY or PROCEDURE rather than data. When the excerpts below
+answer the question, set "sql" to null and put the answer in "answer", quoting the document by name.
+Never guess at policy: if the excerpts do not cover it, say so rather than inventing a rule.
+${passages}`
+    : ""
+}
 Reply with a single JSON object, no prose, using exactly these keys:
 {"sql": "<the SELECT statement, or null>", "note": "<one short sentence on any assumption you made, or null>", "answer": "<only when no query is needed or the question cannot be answered from this schema, otherwise null>"}
 
@@ -328,9 +393,12 @@ export async function askSmartReport(
     };
   }
 
-  const { schema, values } = await getSchemaCatalog(admin);
+  const [{ schema, values }, passages] = await Promise.all([
+    getSchemaCatalog(admin),
+    getPolicyPassages(admin, q),
+  ]);
   const today = new Date().toISOString().slice(0, 10);
-  const system = planSystemPrompt(schema, values, today);
+  const system = planSystemPrompt(schema, values, today, passageBlock(passages));
 
   const attempts: SmartAttempt[] = [];
   let provider: string | null = null;
@@ -359,6 +427,16 @@ export async function askSmartReport(
 
     const parsed = parsePlan(plan.content);
     if (!parsed.sql) {
+      // A policy question is answered from the retrieved documents, not SQL.
+      if (parsed.answer && passages.length) {
+        return {
+          ok: true,
+          answer: `${parsed.answer}${sourceList(passages)}`,
+          ...empty,
+          provider,
+          attempts,
+        };
+      }
       if (parsed.answer && attempt === MAX_SQL_ATTEMPTS - 1) {
         return { ok: false, answer: parsed.answer, ...empty, provider, attempts };
       }
