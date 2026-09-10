@@ -1,4 +1,5 @@
 import type {
+  BizDevHours,
   BizDevLocation,
   BizDevOpenDays,
   BizDevWeekdayFactors,
@@ -11,6 +12,8 @@ export const WEEKS_PER_MONTH = 52 / 12;
 export interface BizDevDayDef {
   key: keyof BizDevOpenDays;
   factorKey: keyof BizDevWeekdayFactors;
+  openKey: keyof BizDevHours;
+  closeKey: keyof BizDevHours;
   /** 0 = Sunday, matching JS getDay(). */
   weekday: number;
   label: string;
@@ -18,13 +21,13 @@ export interface BizDevDayDef {
 }
 
 export const DAY_DEFS: BizDevDayDef[] = [
-  { key: "open_sun", factorKey: "factor_sun", weekday: 0, label: "S", title: "Sunday" },
-  { key: "open_mon", factorKey: "factor_mon", weekday: 1, label: "M", title: "Monday" },
-  { key: "open_tue", factorKey: "factor_tue", weekday: 2, label: "T", title: "Tuesday" },
-  { key: "open_wed", factorKey: "factor_wed", weekday: 3, label: "W", title: "Wednesday" },
-  { key: "open_thu", factorKey: "factor_thu", weekday: 4, label: "T", title: "Thursday" },
-  { key: "open_fri", factorKey: "factor_fri", weekday: 5, label: "F", title: "Friday" },
-  { key: "open_sat", factorKey: "factor_sat", weekday: 6, label: "S", title: "Saturday" },
+  { key: "open_sun", factorKey: "factor_sun", openKey: "open_min_sun", closeKey: "close_min_sun", weekday: 0, label: "S", title: "Sunday" },
+  { key: "open_mon", factorKey: "factor_mon", openKey: "open_min_mon", closeKey: "close_min_mon", weekday: 1, label: "M", title: "Monday" },
+  { key: "open_tue", factorKey: "factor_tue", openKey: "open_min_tue", closeKey: "close_min_tue", weekday: 2, label: "T", title: "Tuesday" },
+  { key: "open_wed", factorKey: "factor_wed", openKey: "open_min_wed", closeKey: "close_min_wed", weekday: 3, label: "W", title: "Wednesday" },
+  { key: "open_thu", factorKey: "factor_thu", openKey: "open_min_thu", closeKey: "close_min_thu", weekday: 4, label: "T", title: "Thursday" },
+  { key: "open_fri", factorKey: "factor_fri", openKey: "open_min_fri", closeKey: "close_min_fri", weekday: 5, label: "F", title: "Friday" },
+  { key: "open_sat", factorKey: "factor_sat", openKey: "open_min_sat", closeKey: "close_min_sat", weekday: 6, label: "S", title: "Saturday" },
 ];
 
 export function openDayCount(d: BizDevOpenDays): number {
@@ -111,9 +114,16 @@ export function computeTotals(loc: BizDevLocation): LocTotals {
 // across the day using the clinic's realized hourly demand curve.
 // ---------------------------------------------------------------------------
 
-/** Day window used when a clinic has no realized hourly demand yet. */
-const FALLBACK_START_HOUR = 8;
-const FALLBACK_END_HOUR = 18;
+/** Day window used when a clinic has no configured hours. */
+export const DEFAULT_OPEN_MINUTE = 8 * 60;
+export const DEFAULT_CLOSE_MINUTE = 18 * 60;
+
+/**
+ * How much of the busiest hour's demand every open hour is guaranteed. Without
+ * a floor the plan piles onto the historically busy hours and leaves the rest
+ * of the open day empty; the point of setting hours is to fill them.
+ */
+const QUIET_HOUR_FLOOR = 0.35;
 
 /** Distinct colors for appointment types with no planning-palette match. */
 const EXTRA_COLORS = [
@@ -242,24 +252,28 @@ export function buildDayPlan(
   const factor = Number(loc.weekday_factors[def.factorKey] ?? 1) || 1;
   const openDays = openDayCount(loc.open_days);
 
-  // Day window: the hours the clinic actually books, else a sensible default.
-  const busyHours = loc.hour_demand
-    .filter((h) => h.avg_per_open_day > 0)
-    .map((h) => h.hour);
-  const startHour = busyHours.length ? Math.min(...busyHours) : FALLBACK_START_HOUR;
-  const endHour = busyHours.length
-    ? Math.max(Math.max(...busyHours) + 1, startHour + 1)
-    : FALLBACK_END_HOUR;
-  const startMinute = startHour * 60;
-  const endMinute = endHour * 60;
+  // The day window is the clinic's configured hours for this weekday, so the
+  // plan fills the whole time the clinic is open.
+  const startMinute = Number(loc.hours?.[def.openKey] ?? DEFAULT_OPEN_MINUTE);
+  const endMinute = Math.max(
+    Number(loc.hours?.[def.closeKey] ?? DEFAULT_CLOSE_MINUTE),
+    startMinute + stepMinutes,
+  );
 
   const buckets: number[] = [];
   for (let t = startMinute; t < endMinute; t += stepMinutes) buckets.push(t);
 
+  // Shape the day by realized hourly demand, but keep a floor under the quiet
+  // hours so open time never goes unplanned.
   const demandByHour = new Map(
     loc.hour_demand.map((h) => [h.hour, h.avg_per_open_day]),
   );
-  const weights = buckets.map((b) => demandByHour.get(Math.floor(b / 60)) ?? 0);
+  const hasHourDemand = loc.hour_demand.some((h) => h.avg_per_open_day > 0);
+  const peak = Math.max(0, ...loc.hour_demand.map((h) => h.avg_per_open_day));
+  const floor = hasHourDemand ? peak * QUIET_HOUR_FLOOR : 0;
+  const weights = buckets.map((b) =>
+    Math.max(demandByHour.get(Math.floor(b / 60)) ?? 0, floor),
+  );
 
   const columns: DayPlanColumn[] = [];
   const slots: DayPlanSlot[] = [];
@@ -325,6 +339,6 @@ export function buildDayPlan(
     slots,
     totalAppts: columns.reduce((s, c) => s + c.count, 0),
     totalRevenue: columns.reduce((s, c) => s + c.revenue, 0),
-    hasHourDemand: busyHours.length > 0,
+    hasHourDemand,
   };
 }

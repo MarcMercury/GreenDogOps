@@ -15,8 +15,15 @@ const TABS: { key: TabKey; label: string }[] = [
 export function BizDevWorkspace({ canEdit }: { canEdit: boolean }) {
   const [tab, setTab] = useState<TabKey>("planner");
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
-  const { locations, error, patchType, toggleDay, addType, removeType } =
-    useBizDevData();
+  const {
+    locations,
+    error,
+    patchType,
+    toggleDay,
+    saveHours,
+    addType,
+    removeType,
+  } = useBizDevData();
 
   return (
     <div className="space-y-6">
@@ -67,6 +74,7 @@ export function BizDevWorkspace({ canEdit }: { canEdit: boolean }) {
             error={error}
             onPatchType={patchType}
             onToggleDay={toggleDay}
+            onSaveHours={saveHours}
             onAddType={addType}
             onRemoveType={removeType}
           />

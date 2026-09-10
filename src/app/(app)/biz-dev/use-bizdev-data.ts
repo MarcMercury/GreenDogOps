@@ -1,11 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState, useTransition } from "react";
-import type { BizDevLocation, BizDevOpenDays } from "@/lib/reporting/types";
+import type {
+  BizDevHours,
+  BizDevLocation,
+  BizDevOpenDays,
+} from "@/lib/reporting/types";
 import {
   getBusinessDevelopmentData,
   updateBizDevApptType,
   saveBizDevOpenDays,
+  saveBizDevHours,
   addBizDevApptType,
   deleteBizDevApptType,
 } from "../reporting/actions";
@@ -27,6 +32,7 @@ export interface BizDevData {
   error: string | null;
   patchType: (locId: string, typeId: string, patch: BizDevPatch) => void;
   toggleDay: (locId: string, key: keyof BizDevOpenDays) => void;
+  saveHours: (locId: string, hours: BizDevHours) => void;
   addType: (locId: string, name: string, value: number) => void;
   removeType: (locId: string, typeId: string) => void;
 }
@@ -100,6 +106,18 @@ export function useBizDevData(): BizDevData {
     }
   }, []);
 
+  const saveHours = useCallback((locId: string, hours: BizDevHours) => {
+    setLocations((prev) =>
+      prev
+        ? prev.map((l) => (l.location_id === locId ? { ...l, hours } : l))
+        : prev,
+    );
+    startTransition(async () => {
+      const res = await saveBizDevHours(locId, hours);
+      if (!res.ok) setError(res.error);
+    });
+  }, []);
+
   const addType = useCallback((locId: string, name: string, value: number) => {
     startTransition(async () => {
       const res = await addBizDevApptType(locId, name, value);
@@ -135,5 +153,5 @@ export function useBizDevData(): BizDevData {
     });
   }, []);
 
-  return { locations, error, patchType, toggleDay, addType, removeType };
+  return { locations, error, patchType, toggleDay, saveHours, addType, removeType };
 }

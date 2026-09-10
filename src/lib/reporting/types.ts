@@ -610,6 +610,24 @@ export interface BizDevWeekdayFactors {
   factor_sat: number;
 }
 
+/** Per-weekday opening hours, in minutes from midnight (480 = 8:00am). */
+export interface BizDevHours {
+  open_min_sun: number;
+  open_min_mon: number;
+  open_min_tue: number;
+  open_min_wed: number;
+  open_min_thu: number;
+  open_min_fri: number;
+  open_min_sat: number;
+  close_min_sun: number;
+  close_min_mon: number;
+  close_min_tue: number;
+  close_min_wed: number;
+  close_min_thu: number;
+  close_min_fri: number;
+  close_min_sat: number;
+}
+
 /** A clinic's full Business Development planning state. */
 export interface BizDevLocation {
   location_id: string;
@@ -619,6 +637,8 @@ export interface BizDevLocation {
   blended_avg_value: number;
   open_days: BizDevOpenDays;
   weekday_factors: BizDevWeekdayFactors;
+  /** Opening hours per weekday — the window the Planning Guide fills. */
+  hours: BizDevHours;
   /** Realized average booked appointments by hour-of-day (0..23) on a typical day. */
   hour_demand: { hour: number; avg_per_open_day: number }[];
   types: BizDevApptTypeRow[];

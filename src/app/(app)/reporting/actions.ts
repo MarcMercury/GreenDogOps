@@ -20,8 +20,13 @@ import type {
   BizDevApptTypeRow,
   BizDevOpenDays,
   BizDevWeekdayFactors,
+  BizDevHours,
   LocationKey,
 } from "@/lib/reporting/types";
+
+/** Clinic hours fallback when a config row predates migration 0177: 8am–6pm. */
+const DEFAULT_OPEN_MIN = 480;
+const DEFAULT_CLOSE_MIN = 1080;
 
 export type ActionResult =
   | { ok: true; message: string }
@@ -697,8 +702,10 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   // capacity). Default Mon–Sat, factors 1.0, no providers configured.
   const CFG_COLS =
     "location_id, open_sun, open_mon, open_tue, open_wed, open_thu, open_fri, open_sat, " +
-    "factor_sun, factor_mon, factor_tue, factor_wed, factor_thu, factor_fri, factor_sat";
-  interface CfgDbRow extends BizDevOpenDays {
+    "factor_sun, factor_mon, factor_tue, factor_wed, factor_thu, factor_fri, factor_sat, " +
+    "open_min_sun, open_min_mon, open_min_tue, open_min_wed, open_min_thu, open_min_fri, open_min_sat, " +
+    "close_min_sun, close_min_mon, close_min_tue, close_min_wed, close_min_thu, close_min_fri, close_min_sat";
+  interface CfgDbRow extends BizDevOpenDays, Partial<BizDevHours> {
     location_id: string;
     factor_sun: number | string;
     factor_mon: number | string;
@@ -799,6 +806,22 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     factor_fri: Number(c?.factor_fri ?? 1),
     factor_sat: Number(c?.factor_sat ?? 1),
   });
+  const hoursFrom = (c: CfgDbRow | undefined): BizDevHours => ({
+    open_min_sun: Number(c?.open_min_sun ?? DEFAULT_OPEN_MIN),
+    open_min_mon: Number(c?.open_min_mon ?? DEFAULT_OPEN_MIN),
+    open_min_tue: Number(c?.open_min_tue ?? DEFAULT_OPEN_MIN),
+    open_min_wed: Number(c?.open_min_wed ?? DEFAULT_OPEN_MIN),
+    open_min_thu: Number(c?.open_min_thu ?? DEFAULT_OPEN_MIN),
+    open_min_fri: Number(c?.open_min_fri ?? DEFAULT_OPEN_MIN),
+    open_min_sat: Number(c?.open_min_sat ?? DEFAULT_OPEN_MIN),
+    close_min_sun: Number(c?.close_min_sun ?? DEFAULT_CLOSE_MIN),
+    close_min_mon: Number(c?.close_min_mon ?? DEFAULT_CLOSE_MIN),
+    close_min_tue: Number(c?.close_min_tue ?? DEFAULT_CLOSE_MIN),
+    close_min_wed: Number(c?.close_min_wed ?? DEFAULT_CLOSE_MIN),
+    close_min_thu: Number(c?.close_min_thu ?? DEFAULT_CLOSE_MIN),
+    close_min_fri: Number(c?.close_min_fri ?? DEFAULT_CLOSE_MIN),
+    close_min_sat: Number(c?.close_min_sat ?? DEFAULT_CLOSE_MIN),
+  });
 
   // Re-read the (now seeded) planner rows.
   const { data: allRowsData } = await admin
@@ -846,6 +869,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
       blended_avg_value: Math.round((blendedByKey.get(key) ?? 0) * 100) / 100,
       open_days: openDaysFrom(cfgById.get(loc.id)),
       weekday_factors: factorsFrom(cfgById.get(loc.id)),
+      hours: hoursFrom(cfgById.get(loc.id)),
       hour_demand: hourByLoc.get(loc.id) ?? [],
       types: rows,
     });
@@ -951,6 +975,38 @@ export async function saveBizDevWeekdayFactors(
     },
     { onConflict: "location_id" },
   );
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, message: "Saved." };
+}
+
+/** Save a clinic's per-weekday opening hours (minutes from midnight). */
+export async function saveBizDevHours(
+  locationId: string,
+  hours: BizDevHours,
+): Promise<ActionResult> {
+  await requireReportingEditor();
+  if (!UUID_RE.test(locationId)) return { ok: false, error: "Invalid clinic." };
+  const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+  const update: Record<string, number | string> = {
+    location_id: locationId,
+    updated_at: new Date().toISOString(),
+  };
+  for (const d of DAYS) {
+    const rawOpen = Number(hours[`open_min_${d}`]);
+    const rawClose = Number(hours[`close_min_${d}`]);
+    const open = Number.isFinite(rawOpen)
+      ? Math.min(1425, Math.max(0, Math.round(rawOpen)))
+      : DEFAULT_OPEN_MIN;
+    const close = Number.isFinite(rawClose)
+      ? Math.min(1440, Math.max(open + 15, Math.round(rawClose)))
+      : Math.max(open + 15, DEFAULT_CLOSE_MIN);
+    update[`open_min_${d}`] = open;
+    update[`close_min_${d}`] = close;
+  }
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("bizdev_location_config")
+    .upsert(update, { onConflict: "location_id" });
   if (error) return { ok: false, error: error.message };
   return { ok: true, message: "Saved." };
 }

@@ -1,11 +1,100 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { BizDevLocation, BizDevOpenDays } from "@/lib/reporting/types";
+import type {
+  BizDevHours,
+  BizDevLocation,
+  BizDevOpenDays,
+} from "@/lib/reporting/types";
 import { LOCATION_COLORS } from "@/lib/reporting/types";
 import { DAY_DEFS, computeTotals } from "@/lib/reporting/bizdev";
+import { minutesToInput, minutesToLabel, parseMinutes } from "@/lib/planning/types";
 import { StatCard, SectionCard, fmtCurrency } from "../reporting/charts";
 import type { BizDevPatch } from "./use-bizdev-data";
+
+/** Per-weekday opening hours. The Planning Guide fills exactly this window. */
+function ClinicHours({
+  loc,
+  canEdit,
+  onSaveHours,
+}: {
+  loc: BizDevLocation;
+  canEdit: boolean;
+  onSaveHours: (hours: BizDevHours) => void;
+}) {
+  const openDefs = DAY_DEFS.filter((d) => loc.open_days[d.key]);
+  if (openDefs.length === 0) {
+    return (
+      <p className="text-xs text-slate-400">
+        No open days selected — turn a day on above to set its hours.
+      </p>
+    );
+  }
+  const commit = (key: keyof BizDevHours, raw: string) => {
+    const min = parseMinutes(raw);
+    if (min === null) return;
+    onSaveHours({ ...loc.hours, [key]: min });
+  };
+  // Applies the first open day's hours to every other open day.
+  const copyToAll = () => {
+    const first = openDefs[0];
+    const open = loc.hours[first.openKey];
+    const close = loc.hours[first.closeKey];
+    const next = { ...loc.hours };
+    for (const d of openDefs) {
+      next[d.openKey] = open;
+      next[d.closeKey] = close;
+    }
+    onSaveHours(next);
+  };
+  return (
+    <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+      {openDefs.map((d) => {
+        const open = loc.hours[d.openKey];
+        const close = loc.hours[d.closeKey];
+        return (
+          <div key={d.key}>
+            <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              {d.title.slice(0, 3)}
+              <span className="ml-1 font-normal normal-case tracking-normal text-slate-400">
+                {((close - open) / 60).toFixed(1)}h
+              </span>
+            </p>
+            <div className="flex items-center gap-1">
+              <input
+                type="time"
+                step={900}
+                disabled={!canEdit}
+                value={minutesToInput(open)}
+                onChange={(e) => commit(d.openKey, e.target.value)}
+                className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs tabular-nums text-slate-800 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-200 disabled:bg-slate-50 disabled:text-slate-400"
+              />
+              <span className="text-xs text-slate-300">–</span>
+              <input
+                type="time"
+                step={900}
+                disabled={!canEdit}
+                value={minutesToInput(close)}
+                onChange={(e) => commit(d.closeKey, e.target.value)}
+                className="rounded-md border border-slate-200 bg-white px-1.5 py-1 text-xs tabular-nums text-slate-800 focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-200 disabled:bg-slate-50 disabled:text-slate-400"
+              />
+            </div>
+          </div>
+        );
+      })}
+      {canEdit && openDefs.length > 1 ? (
+        <button
+          type="button"
+          onClick={copyToAll}
+          className="mb-1 text-xs font-medium text-slate-500 hover:text-slate-700"
+          title={`Apply ${minutesToLabel(loc.hours[openDefs[0].openKey])}–${minutesToLabel(loc.hours[openDefs[0].closeKey])} to every open day`}
+        >
+          Copy {openDefs[0].title.slice(0, 3)} to all
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 /**
  * A number input that keeps a local string while typing and commits the parsed
@@ -189,6 +278,7 @@ function LocationPlanner({
   canEdit,
   onPatchType,
   onToggleDay,
+  onSaveHours,
   onAddType,
   onRemoveType,
 }: {
@@ -196,6 +286,7 @@ function LocationPlanner({
   canEdit: boolean;
   onPatchType: (typeId: string, patch: BizDevPatch) => void;
   onToggleDay: (key: keyof BizDevOpenDays) => void;
+  onSaveHours: (hours: BizDevHours) => void;
   onAddType: (name: string, value: number) => void;
   onRemoveType: (typeId: string) => void;
 }) {
@@ -290,6 +381,12 @@ function LocationPlanner({
 
       {!collapsed ? (
         <>
+      <div className="mt-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+          Hours open — the window the planning guide fills
+        </p>
+        <ClinicHours loc={loc} canEdit={canEdit} onSaveHours={onSaveHours} />
+      </div>
       <div className="mt-3 rounded-xl border border-slate-200/70 bg-slate-50/40 px-3 py-2">
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
           Weekday ranking (busiest → slowest)
@@ -608,6 +705,7 @@ export function BusinessDevelopment({
   error,
   onPatchType,
   onToggleDay,
+  onSaveHours,
   onAddType,
   onRemoveType,
 }: {
@@ -617,6 +715,7 @@ export function BusinessDevelopment({
   error: string | null;
   onPatchType: (locId: string, typeId: string, patch: BizDevPatch) => void;
   onToggleDay: (locId: string, key: keyof BizDevOpenDays) => void;
+  onSaveHours: (locId: string, hours: BizDevHours) => void;
   onAddType: (locId: string, name: string, value: number) => void;
   onRemoveType: (locId: string, typeId: string) => void;
 }) {
@@ -711,6 +810,7 @@ export function BusinessDevelopment({
             onPatchType(loc.location_id, typeId, patch)
           }
           onToggleDay={(key) => onToggleDay(loc.location_id, key)}
+          onSaveHours={(hours) => onSaveHours(loc.location_id, hours)}
           onAddType={(name, value) => onAddType(loc.location_id, name, value)}
           onRemoveType={(typeId) => onRemoveType(loc.location_id, typeId)}
         />

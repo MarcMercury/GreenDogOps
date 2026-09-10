@@ -36,11 +36,12 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
             </span>
           </h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            {minutesToLabel(plan.startMinute)} to {minutesToLabel(plan.endMinute)} ·{" "}
-            {plan.stepMinutes}-minute slots · {plan.columns.length} track
+            Open {minutesToLabel(plan.startMinute)} to{" "}
+            {minutesToLabel(plan.endMinute)} · {plan.stepMinutes}-minute slots ·{" "}
+            {plan.columns.length} track
             {plan.columns.length === 1 ? "" : "s"}
             {plan.hasHourDemand
-              ? " · laid out by realized hourly demand"
+              ? " · weighted by realized hourly demand"
               : " · evenly spread (no hourly demand yet)"}
           </p>
         </div>
@@ -304,8 +305,9 @@ export function PlanningGuideView({
         </label>
 
         <p className="ml-auto text-xs text-slate-400">
-          Generated from the current plan. Daily services scale by the weekday
-          factor; weekly services are spread across the open days.
+          Each clinic&apos;s day spans its hours from the Business Development
+          tab. Daily services scale by the weekday factor; weekly services are
+          spread across the open days.
         </p>
       </div>
 
