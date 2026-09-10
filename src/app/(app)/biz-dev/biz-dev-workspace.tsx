@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { PlanningTrackRules } from "@/lib/reporting/bizdev";
 import { BusinessDevelopment } from "./business-development";
 import { PlanningGuideView } from "./planning-guide-view";
 import { useBizDevData } from "./use-bizdev-data";
@@ -12,7 +13,13 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "guide", label: "Planning Guide" },
 ];
 
-export function BizDevWorkspace({ canEdit }: { canEdit: boolean }) {
+export function BizDevWorkspace({
+  canEdit,
+  rules,
+}: {
+  canEdit: boolean;
+  rules: PlanningTrackRules;
+}) {
   const [tab, setTab] = useState<TabKey>("planner");
   const [generatedAt, setGeneratedAt] = useState<number | null>(null);
   const {
@@ -80,7 +87,11 @@ export function BizDevWorkspace({ canEdit }: { canEdit: boolean }) {
           />
         </div>
       ) : locations ? (
-        <PlanningGuideView locations={locations} generatedAt={generatedAt} />
+        <PlanningGuideView
+          locations={locations}
+          rules={rules}
+          generatedAt={generatedAt}
+        />
       ) : (
         <p className="text-sm text-slate-400">Loading planner…</p>
       )}

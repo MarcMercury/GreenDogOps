@@ -5,6 +5,8 @@ import type {
   BizDevWeekdayFactors,
 } from "./types";
 import { APPOINTMENT_TYPES } from "@/lib/planning/types";
+import type { GuideTrack } from "@/lib/planning/tracks";
+import { guideTracksFor, planningCodeFor, trackForApptType } from "@/lib/planning/tracks";
 
 /** Average number of weeks in a month (52 / 12) for the monthly roll-up. */
 export const WEEKS_PER_MONTH = 52 / 12;
@@ -139,27 +141,6 @@ const EXTRA_COLORS = [
   "#a855f7",
 ];
 
-/** Match an ezyVet appointment type name to the planning guide palette. */
-function planningCodeFor(name: string): string | null {
-  const n = name.toLowerCase();
-  if (/exotic/.test(n)) {
-    if (/recheck/.test(n)) return "ex_recheck";
-    if (/well/.test(n)) return "ex_wellness";
-    if (/groom|tech/.test(n)) return "ex_groom";
-    return "ex_sick";
-  }
-  if (/urgent|emergen|uc\b/.test(n)) return "uc";
-  if (/dental|dentistry/.test(n)) return "dental";
-  if (/acupunct/.test(n)) return "acu";
-  if (/internal med|ultrasound|\bim\b|endoscop/.test(n)) return "im";
-  if (/drop\s?off/.test(n)) return "drop";
-  if (/tech/.test(n)) return "tech";
-  if (/new animal|\bnad\b|\boe\b|wellness|annual|puppy|kitten/.test(n)) return "nad";
-  if (/exam|consult|recheck|sick|visit/.test(n)) return "ve";
-  if (/surgery|procedure|surgical/.test(n)) return "dental";
-  return null;
-}
-
 /** A short chip label for an appointment type with no palette match. */
 function shortLabel(name: string): string {
   const words = name.replace(/[^a-zA-Z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
@@ -172,13 +153,11 @@ function shortLabel(name: string): string {
     .toUpperCase();
 }
 
-export interface DayPlanColumn {
-  /** The bizdev appt-type row id. */
-  id: string;
+/** One appointment type's share of a track. */
+export interface DayPlanType {
   name: string;
   short: string;
   color: string;
-  /** Appointments placed on this day. */
   count: number;
   avgValue: number;
   revenue: number;
@@ -187,11 +166,50 @@ export interface DayPlanColumn {
   overCap: boolean;
 }
 
+export interface DayPlanColumn {
+  /** `${departmentId}:${trackType}`. */
+  id: string;
+  /** Track name from the shared rules, e.g. "NAD / Clinic" or "Urgent Care". */
+  name: string;
+  /** The schedule department this track belongs to. */
+  deptName: string;
+  color: string;
+  /** Appointments placed on this day. */
+  count: number;
+  revenue: number;
+  types: DayPlanType[];
+}
+
 export interface DayPlanSlot {
   id: string;
   columnId: string;
   startMinute: number;
   durationMinutes: number;
+  /** Chip label — the appointment type's short code. */
+  short: string;
+  typeName: string;
+  color: string;
+}
+
+/** A planned appointment type that can't be laid out, and why. */
+export interface DayPlanExclusion {
+  apptType: string;
+  count: number;
+  reason: "ignored" | "unmapped" | "non-planning";
+  deptName: string | null;
+}
+
+/**
+ * The Planning Guide Setup rules (Schedule ▸ Set Up): which department renders
+ * each ezyVet appointment type, and which departments are planning areas.
+ */
+export interface PlanningTrackRules {
+  /** Active departments flagged show_in_planning, in display order. */
+  planningDepartments: { id: string; name: string; color: string }[];
+  /** Every active department, for naming non-planning exclusions. */
+  departmentNames: Record<string, string>;
+  /** appt_type → { department_id, is_ignored } from ezyvet_appt_type_dept_map. */
+  apptTypeDept: Record<string, { departmentId: string | null; isIgnored: boolean }>;
 }
 
 export interface BizDevDayPlan {
@@ -210,6 +228,8 @@ export interface BizDevDayPlan {
   buckets: number[];
   columns: DayPlanColumn[];
   slots: DayPlanSlot[];
+  /** Planned types the Planning Guide Setup rules keep off the guide. */
+  excluded: DayPlanExclusion[];
   totalAppts: number;
   totalRevenue: number;
   /** False when the clinic has no realized hourly demand to lay the day out by. */
@@ -240,12 +260,16 @@ function distribute(count: number, weights: number[]): number[] {
 
 /**
  * Convert one clinic's Business Development plan into a planning-guide layout
- * for a given weekday.
+ * for a given weekday, following the same rules as the Operations planning
+ * guides: appointment types are attributed to the department that renders them
+ * (Schedule ▸ Set Up ▸ Planning Guide Setup), and each department contributes
+ * its standard appointment tracks as the guide's columns.
  */
 export function buildDayPlan(
   loc: BizDevLocation,
   weekday: number,
   stepMinutes: number,
+  rules: PlanningTrackRules,
 ): BizDevDayPlan {
   const def = DAY_DEFS.find((d) => d.weekday === weekday) ?? DAY_DEFS[1];
   const isOpen = Boolean(loc.open_days[def.key]);
@@ -275,10 +299,6 @@ export function buildDayPlan(
     Math.max(demandByHour.get(Math.floor(b / 60)) ?? 0, floor),
   );
 
-  const columns: DayPlanColumn[] = [];
-  const slots: DayPlanSlot[] = [];
-  let extraColor = 0;
-
   const planned = loc.types
     .filter((t) => t.included && !t.hidden)
     .map((t) => {
@@ -295,33 +315,98 @@ export function buildDayPlan(
     .filter((p) => p.count > 0)
     .sort((a, b) => b.count - a.count || a.row.appt_type.localeCompare(b.row.appt_type));
 
+  // Every planning department contributes its standard tracks, in setup order.
+  const columns: DayPlanColumn[] = [];
+  const columnByKey = new Map<string, DayPlanColumn>();
+  const trackOwner = new Map<string, { deptId: string; track: GuideTrack }[]>();
+  for (const dept of rules.planningDepartments) {
+    const tracks = guideTracksFor(dept.name, 1);
+    trackOwner.set(dept.id, tracks.map((track) => ({ deptId: dept.id, track })));
+    for (const track of tracks) {
+      const id = `${dept.id}:${track.type}`;
+      const col: DayPlanColumn = {
+        id,
+        name: track.name,
+        deptName: dept.name,
+        color: track.color,
+        count: 0,
+        revenue: 0,
+        types: [],
+      };
+      columns.push(col);
+      columnByKey.set(id, col);
+    }
+  }
+
+  const slots: DayPlanSlot[] = [];
+  const excluded: DayPlanExclusion[] = [];
+  let extraColor = 0;
+
   for (const { row, count, eff } of planned) {
+    const mapping = rules.apptTypeDept[row.appt_type.trim()];
+    const deptId = mapping?.departmentId ?? null;
+    if (mapping?.isIgnored) {
+      excluded.push({ apptType: row.appt_type, count, reason: "ignored", deptName: null });
+      continue;
+    }
+    if (!deptId) {
+      excluded.push({ apptType: row.appt_type, count, reason: "unmapped", deptName: null });
+      continue;
+    }
+    const tracks = trackOwner.get(deptId);
+    if (!tracks) {
+      excluded.push({
+        apptType: row.appt_type,
+        count,
+        reason: "non-planning",
+        deptName: rules.departmentNames[deptId] ?? null,
+      });
+      continue;
+    }
+    const track = trackForApptType(
+      tracks.map((t) => t.track),
+      row.appt_type,
+    );
+    const col = columnByKey.get(`${deptId}:${track.type}`);
+    if (!col) continue;
+
     const code = planningCodeFor(row.appt_type);
     const palette = code ? APPOINTMENT_TYPES.find((a) => a.code === code) : undefined;
-    const color = palette?.color ?? EXTRA_COLORS[extraColor++ % EXTRA_COLORS.length];
-    columns.push({
-      id: row.id,
+    const short = palette?.short ?? shortLabel(row.appt_type);
+    const chipColor =
+      palette?.color ?? EXTRA_COLORS[extraColor++ % EXTRA_COLORS.length];
+
+    col.count += count;
+    col.revenue += count * row.avg_value;
+    col.types.push({
       name: row.appt_type,
-      short: palette?.short ?? shortLabel(row.appt_type),
-      color,
+      short,
+      color: chipColor,
       count,
       avgValue: row.avg_value,
       revenue: count * row.avg_value,
       cadence: row.cadence,
       overCap: row.max_per_day > 0 && eff > row.max_per_day + 0.001,
     });
+
     const perBucket = distribute(count, weights);
     perBucket.forEach((n, i) => {
       for (let k = 0; k < n; k++) {
         slots.push({
           id: `${row.id}:${buckets[i]}:${k}`,
-          columnId: row.id,
+          columnId: col.id,
           startMinute: buckets[i],
           durationMinutes: stepMinutes,
+          short,
+          typeName: row.appt_type,
+          color: chipColor,
         });
       }
     });
   }
+
+  // Only show tracks that have something planned.
+  const usedColumns = columns.filter((c) => c.count > 0);
 
   return {
     locationId: loc.location_id,
@@ -335,10 +420,11 @@ export function buildDayPlan(
     endMinute,
     stepMinutes,
     buckets,
-    columns,
+    columns: usedColumns,
     slots,
-    totalAppts: columns.reduce((s, c) => s + c.count, 0),
-    totalRevenue: columns.reduce((s, c) => s + c.revenue, 0),
+    excluded,
+    totalAppts: usedColumns.reduce((s, c) => s + c.count, 0),
+    totalRevenue: usedColumns.reduce((s, c) => s + c.revenue, 0),
     hasHourDemand,
   };
 }

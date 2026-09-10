@@ -3,6 +3,7 @@ import { canAccessModule, canEditModule } from "@/lib/auth/permissions";
 import { PageHeader } from "../_components/ui";
 import { SectionCard } from "../reporting/charts";
 import { BizDevWorkspace } from "./biz-dev-workspace";
+import { getPlanningTrackRules } from "./data";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,10 @@ export default async function BizDevPage() {
     );
   }
 
+  // The Planning Guide tab follows the same Planning Guide Setup rules as the
+  // Operations guides: appointment type → department, department → tracks.
+  const rules = await getPlanningTrackRules();
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -39,7 +44,10 @@ export default async function BizDevPage() {
         title="Biz Dev"
         description="Model each clinic's day — plan the appointment mix, then convert it into a planning guide."
       />
-      <BizDevWorkspace canEdit={canEditModule(current.appUser, "reporting")} />
+      <BizDevWorkspace
+        canEdit={canEditModule(current.appUser, "reporting")}
+        rules={rules}
+      />
     </div>
   );
 }

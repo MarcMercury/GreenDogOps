@@ -7,6 +7,7 @@ import type { AttendanceStatus, ScheduleStatus } from "@/lib/schedule/types";
 import { dateForDay } from "@/lib/schedule/types";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
 import { classifyRole, emptyStaffing } from "@/lib/planning/resolve";
+import { DVM_COLORS, guideTracksFor } from "@/lib/planning/tracks";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -1714,8 +1715,6 @@ export async function deleteWeek(weekId: string): Promise<ActionResult> {
 // PLANNING GUIDE — generate from a scheduled day's staffing
 // ===========================================================================
 
-const DVM_COLORS = ["#2563eb", "#0d9488", "#7c3aed", "#db2777", "#ea580c", "#16a34a"];
-
 /**
  * Reverse the old flow: read how many DVMs are staffed for a (location,
  * department, day) and scaffold a matching planning guide — one exam track per
@@ -1886,52 +1885,6 @@ export async function generateGuideFromDay(
 // Exotics), so the base grid reads like a real day the scheduler then tunes.
 // ---------------------------------------------------------------------------
 
-interface GenColumn {
-  name: string;
-  color: string;
-  type: string;
-}
-
-/**
- * The appointment-track columns to scaffold for a department, derived from the
- * existing planning guides. Exam-style areas get one track per DVM plus a shared
- * Urgent Care lane; specialties get their own single track(s).
- */
-function guideColumnsFor(deptName: string, dvmCount: number): GenColumn[] {
-  const n = deptName.toLowerCase();
-  const dvms = Math.max(1, dvmCount);
-  const exam = (label: string, type: string): GenColumn[] =>
-    Array.from({ length: dvms }, (_, i) => ({
-      name: dvms > 1 ? `DVM ${i + 1} — ${label}` : label,
-      color: DVM_COLORS[i % DVM_COLORS.length],
-      type,
-    }));
-
-  if (n.includes("exotic")) {
-    return [{ name: "Exotics", color: "#16a34a", type: "ex_sick" }];
-  }
-  if (/\bim\b/.test(n) || n.includes("internal")) {
-    const cols: GenColumn[] = [
-      { name: "Internal Med", color: "#9333ea", type: "im" },
-    ];
-    if (dvms > 1) {
-      cols.push({ name: "Dental Clinic", color: "#db2777", type: "dental" });
-    }
-    return cols;
-  }
-  if (n.includes("clinic") || n.includes("wellness") || n.includes("nad")) {
-    return [
-      ...exam("NAD / Clinic", "nad"),
-      { name: "Urgent Care", color: "#d97706", type: "uc" },
-    ];
-  }
-  // AP and any other exam-based area.
-  return [
-    ...exam("Exam", "nad"),
-    { name: "Urgent Care", color: "#d97706", type: "uc" },
-  ];
-}
-
 /**
  * Generate (or regenerate) a planning guide for a Daily Capacity tile. Reads the
  * day's staffing signature for the (location, department), scaffolds the
@@ -2068,7 +2021,7 @@ export async function generateGuideFromCapacity(
   const times: number[] = [];
   for (let t = START; t < END; t += STEP) times.push(t);
 
-  const genCols = guideColumnsFor(deptLabel, dvmCount);
+  const genCols = guideTracksFor(deptLabel, dvmCount);
 
   // Bookable candidate cells, earliest time first then across columns. Fill the
   // first `target` (all when target is 0) so bookable count == the tile number.

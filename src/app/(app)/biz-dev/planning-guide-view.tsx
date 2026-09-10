@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import type { BizDevLocation } from "@/lib/reporting/types";
 import { LOCATION_COLORS } from "@/lib/reporting/types";
 import { DAY_DEFS, buildDayPlan } from "@/lib/reporting/bizdev";
-import type { BizDevDayPlan } from "@/lib/reporting/bizdev";
+import type { BizDevDayPlan, DayPlanSlot, PlanningTrackRules } from "@/lib/reporting/bizdev";
 import { apptChipStyle, bucketMarker, minutesToLabel } from "@/lib/planning/types";
 import { fmtCurrency } from "../reporting/charts";
 
@@ -14,10 +15,12 @@ const STEP_OPTIONS = [15, 30, 60] as const;
 function DayGuide({ plan }: { plan: BizDevDayPlan }) {
   const accent = LOCATION_COLORS[plan.locationKey] ?? "#10b981";
   const slotsByCell = useMemo(() => {
-    const map = new Map<string, number>();
+    const map = new Map<string, DayPlanSlot[]>();
     for (const s of plan.slots) {
       const key = `${s.columnId}:${s.startMinute}`;
-      map.set(key, (map.get(key) ?? 0) + 1);
+      const list = map.get(key);
+      if (list) list.push(s);
+      else map.set(key, [s]);
     }
     return map;
   }, [plan.slots]);
@@ -59,8 +62,9 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
         </p>
       ) : plan.columns.length === 0 ? (
         <p className="px-5 py-6 text-sm text-slate-500">
-          No planned appointments for this day. Set a Planned/day or Planned/week
-          on the Business Development tab.
+          Nothing to lay out for this day. Set a Planned/day or Planned/week on the
+          Business Development tab, and make sure those appointment types are
+          assigned to a planning department.
         </p>
       ) : (
         <>
@@ -75,7 +79,7 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
                     <th
                       key={col.id}
                       className="border-b-2 border-slate-200 bg-slate-50 px-2 py-2 text-left align-top"
-                      style={{ minWidth: 130, borderTop: `3px solid ${col.color}` }}
+                      style={{ minWidth: 150, borderTop: `3px solid ${col.color}` }}
                     >
                       <div className="flex items-center gap-1.5">
                         <span
@@ -87,11 +91,10 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
                         </span>
                       </div>
                       <p className="mt-0.5 truncate text-[11px] font-normal text-slate-400">
-                        {col.count} × {fmtCurrency(col.avgValue)} ={" "}
+                        {col.deptName} · {col.count} appt ·{" "}
                         {fmtCurrency(col.revenue)}
-                        {col.cadence === "weekly" ? " · weekly" : ""}
                       </p>
-                      {col.overCap ? (
+                      {col.types.some((t) => t.overCap) ? (
                         <span className="mt-0.5 inline-block rounded bg-rose-50 px-1 py-0.5 text-[10px] font-semibold uppercase text-rose-600">
                           over cap
                         </span>
@@ -123,21 +126,21 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
                         {minutesToLabel(bucket)}
                       </td>
                       {plan.columns.map((col) => {
-                        const n = slotsByCell.get(`${col.id}:${bucket}`) ?? 0;
+                        const cell = slotsByCell.get(`${col.id}:${bucket}`) ?? [];
                         return (
                           <td
                             key={col.id}
                             className={`border-l border-slate-100 px-1.5 py-1 ${rowBorder}`}
                           >
                             <div className="flex min-h-[1.5rem] flex-wrap gap-1">
-                              {Array.from({ length: n }, (_, i) => (
+                              {cell.map((s) => (
                                 <span
-                                  key={i}
-                                  style={apptChipStyle(col.color)}
+                                  key={s.id}
+                                  style={apptChipStyle(s.color)}
                                   className="rounded border px-1.5 py-0.5 text-xs font-medium leading-tight"
-                                  title={`${col.name} — ${minutesToLabel(bucket)}`}
+                                  title={`${s.typeName} — ${minutesToLabel(bucket)}`}
                                 >
-                                  {col.short}
+                                  {s.short}
                                 </span>
                               ))}
                             </div>
@@ -154,21 +157,51 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Legend
             </span>
-            {plan.columns.map((col) => (
-              <span
-                key={col.id}
-                className="inline-flex items-center gap-1 text-[11px] text-slate-500"
-              >
+            {plan.columns.flatMap((col) =>
+              col.types.map((t) => (
                 <span
-                  className="h-2.5 w-2.5 rounded-sm"
-                  style={{ backgroundColor: col.color }}
-                />
-                {col.short} — {col.name}
-              </span>
-            ))}
+                  key={`${col.id}:${t.name}`}
+                  className="inline-flex items-center gap-1 text-[11px] text-slate-500"
+                >
+                  <span
+                    className="h-2.5 w-2.5 rounded-sm"
+                    style={{ backgroundColor: t.color }}
+                  />
+                  {t.short} — {t.name} ({t.count})
+                </span>
+              )),
+            )}
           </div>
         </>
       )}
+
+      {plan.excluded.length > 0 ? (
+        <div className="border-t border-amber-100 bg-amber-50/60 px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+            Not on the guide
+          </p>
+          <p className="mt-1 text-xs text-amber-800">
+            {plan.excluded.map((e, i) => (
+              <span key={e.apptType}>
+                {i > 0 ? ", " : ""}
+                <strong>{e.apptType}</strong> ({e.count}
+                {e.reason === "ignored"
+                  ? ", ignored"
+                  : e.reason === "unmapped"
+                    ? ", no department"
+                    : `, ${e.deptName ?? "department"} is not a planning area`}
+                )
+              </span>
+            ))}
+          </p>
+          <Link
+            href="/schedule/setup"
+            className="mt-1 inline-block text-xs font-medium text-amber-700 underline hover:text-amber-900"
+          >
+            Fix in Schedule ▸ Set Up ▸ Planning Guide Setup
+          </Link>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -204,9 +237,11 @@ function Metric({
  */
 export function PlanningGuideView({
   locations,
+  rules,
   generatedAt,
 }: {
   locations: BizDevLocation[];
+  rules: PlanningTrackRules;
   /** Set when the user has run "Convert to planning guide". */
   generatedAt: number | null;
 }) {
@@ -218,8 +253,8 @@ export function PlanningGuideView({
     () =>
       locations
         .filter((l) => locationId === "all" || l.location_id === locationId)
-        .map((l) => buildDayPlan(l, weekday, step)),
-    [locations, locationId, weekday, step],
+        .map((l) => buildDayPlan(l, weekday, step, rules)),
+    [locations, locationId, weekday, step, rules],
   );
 
   if (!generatedAt) {
@@ -305,9 +340,9 @@ export function PlanningGuideView({
         </label>
 
         <p className="ml-auto text-xs text-slate-400">
-          Each clinic&apos;s day spans its hours from the Business Development
-          tab. Daily services scale by the weekday factor; weekly services are
-          spread across the open days.
+          Tracks follow the same Planning Guide Setup rules as the Operations
+          guides: each appointment type is rendered by its department. Each
+          clinic&apos;s day spans its configured hours.
         </p>
       </div>
 
