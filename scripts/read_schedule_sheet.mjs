@@ -43,6 +43,18 @@ export const SHEET_LOCATIONS = {
   AETNA: "Van Nuys",
 };
 
+/** A VET-* header row (substring match) -> the scheduling department it opens.
+ *  Rows below it (Intern / Extern / techs) inherit this until the next header. */
+export const VET_SECTION_DEPT = {
+  "vet-surgery": "SURGERY",
+  "vet-ap": "AP",
+  "vet-nad": "NAD/VE/UC",
+  "vet-im": "IM",
+  "vet-exotics": "EXOTICS",
+  "vet-mpmv": "MPMV",
+  "vet-cardio": "CARDIO",
+};
+
 /** medical_board_type.key -> the sheet role rows that staff that board. */
 export const BOARD_ROLE_ROWS = {
   ap: ["VET-AP", "2nd VET-AP"],
@@ -113,7 +125,8 @@ async function listTabs() {
   }
 }
 
-/** Every placement in a month tab as {week,pub,date,dow,location,role,shift,person}. */
+/** Every placement in a month tab as
+ *  {week,pub,date,dow,location,role,section,shift,person}. */
 export async function extractTab(tab, roleFilter = "") {
   const tabMonth = MONTHS[tab.trim().toLowerCase()];
   if (!tabMonth) throw new Error(`cannot resolve a month from tab "${tab}"`);
@@ -191,11 +204,26 @@ export async function extractTab(tab, roleFilter = "") {
       }
     }
 
+    // Department inheritance for Intern/Extern rows: a VET-* header row sets the
+    // running department that following non-header rows belong to.
+    let sectionDept = null;
+    // Occurrence index of each role label within the block, so the 5th "AP Tech"
+    // row maps to the 5th AP Tech scheduling line rather than collapsing.
+    const roleSeen = new Map();
     for (let r = firstStaffRow; r < end; r++) {
       const role = cell(r, 1);
-      if (!role || (needle && !role.toLowerCase().includes(needle))) continue;
+      const roleLower = role.toLowerCase();
+      for (const [kw, dept] of Object.entries(VET_SECTION_DEPT)) {
+        if (roleLower.includes(kw)) {
+          sectionDept = dept;
+          break;
+        }
+      }
+      if (!role || (needle && !roleLower.includes(needle))) continue;
       if (/^WEEK\s*\d/i.test(role) || role === "Role") continue;
       const shift = cell(r, 2);
+      const roleIdx = roleSeen.get(roleLower) ?? 0;
+      roleSeen.set(roleLower, roleIdx + 1);
 
       for (let d = 0; d < days.length; d++) {
         const day = days[d];
@@ -213,6 +241,8 @@ export async function extractTab(tab, roleFilter = "") {
             dow: day.dow,
             location: loc.toUpperCase(),
             role,
+            section: sectionDept,
+            roleIdx,
             shift,
             person,
           });
