@@ -150,6 +150,89 @@ export interface AnimalInput {
   ezyvet_modified_at: string | null;
 }
 
+/** One row of the ezyVet "Products" report (the product catalog). */
+export interface ProductInput {
+  ezyvet_product_id: string;
+  product_code: string | null;
+  product_name: string | null;
+  description: string | null;
+  product_group: string | null;
+  product_type: string | null;
+  new_product_type: string | null;
+  clinical_type: string | null;
+  bundle_type: string | null;
+  is_fixed_price_bundle: boolean | null;
+  diagnostic_name: string | null;
+  therapeutic_name: string | null;
+  schedule_or_class: string | null;
+  is_active: boolean | null;
+  is_sold: boolean | null;
+  is_purchased: boolean | null;
+  excluded_from_sales: boolean | null;
+  on_special: boolean | null;
+  available_on_web: boolean | null;
+  requires_prescription: boolean | null;
+  generates_prescription: boolean | null;
+  is_rvm_medication: boolean | null;
+  is_rabies_vax: boolean | null;
+  can_expire: boolean | null;
+  is_container: boolean | null;
+  is_template: boolean | null;
+  has_markup: boolean | null;
+  stock_goes_negative: boolean | null;
+  requires_freight: boolean | null;
+  tracking_level: string | null;
+  rrp: number | null;
+  barcode: string | null;
+  primary_barcode: string | null;
+  external_reference: string | null;
+  secondary_external_reference: string | null;
+  unique_identifier: string | null;
+  supplier: string | null;
+  default_supplier: string | null;
+  default_supplier_product_code: string | null;
+  supplier_contact: string | null;
+  sales_account: string | null;
+  purchases_account: string | null;
+  inventory_account: string | null;
+  minimum_inventory: number | null;
+  minimum_reorder: number | null;
+  minimum_sell_units: number | null;
+  default_sell_units: number | null;
+  lowest_dispensable_unit: string | null;
+  lowest_dispensable_quantity: number | null;
+  concentration: number | null;
+  concentration_unit: string | null;
+  booster_duration_seconds: number | null;
+  default_vaccination_qty: number | null;
+  last_invoiced_date: string | null;
+  notes: string | null;
+  notes_important: boolean | null;
+  warning: string | null;
+  instructions: string | null;
+  default_medication_text: string | null;
+  default_prescribing_user: string | null;
+  ezyvet_created_at: string | null;
+  ezyvet_created_by: string | null;
+  ezyvet_modified_at: string | null;
+  ezyvet_modified_by: string | null;
+}
+
+/** One row of the ezyVet "Product Pricing" report (one product per division). */
+export interface ProductPriceInput {
+  product_code: string;
+  division: string;
+  product_name: string | null;
+  product_group: string | null;
+  cost: number | null;
+  sell_price_excl: number | null;
+  sell_price_incl: number | null;
+  markup: number | null;
+  service_fee_product_id: string | null;
+  service_fee_product_code: string | null;
+  service_fee_product_ref: string | null;
+}
+
 export type LocationKey = "sherman_oaks" | "van_nuys" | "venice" | "other";
 export type SpeciesGroup = "Dog" | "Cat" | "Exotic" | "Unknown";
 

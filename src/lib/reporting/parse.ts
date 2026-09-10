@@ -7,6 +7,8 @@ import type {
   ContactInput,
   InvoiceLineInput,
   LocationKey,
+  ProductInput,
+  ProductPriceInput,
   SpeciesGroup,
 } from "./types";
 import { formatPhoneNumber } from "@/lib/shared/phone";
@@ -131,6 +133,18 @@ function toIsoTimestamp(v: string | undefined): string | null {
   if (t == null) return null;
   const m = t.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
   if (m) return `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`;
+  // The Products report renders them as "MM-DD-YYYY h:mmam" instead.
+  const us = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+(\d{1,2}):(\d{2})\s*(am|pm)?$/i);
+  if (us) {
+    const [, mm, dd, yyyy, hhRaw, min, ampm] = us;
+    let hh = Number(hhRaw);
+    if (ampm) {
+      const pm = ampm.toLowerCase() === "pm";
+      if (hh === 12) hh = pm ? 12 : 0;
+      else if (pm) hh += 12;
+    }
+    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}T${String(hh).padStart(2, "0")}:${min}:00Z`;
+  }
   const d = toIsoDate(t);
   return d ? `${d}T00:00:00Z` : null;
 }
@@ -468,6 +482,195 @@ export function parseAnimalCsv(text: string): {
       ezyvet_created_by: clean(get(row, "Animal Record Created By")),
       ezyvet_modified_at: toIsoTimestamp(
         get(row, "Animal Record Last Modified At"),
+      ),
+    });
+  }
+  return { rows, skipped };
+}
+
+const PRODUCT_REQUIRED = ["product id"];
+
+/**
+ * Parse an ezyVet "Products" CSV export (the product catalog) into
+ * upsert-ready rows. Deduped on "Product ID"; rows without one are skipped.
+ * The report exports 107 columns — only the ones with reporting value are kept.
+ */
+export function parseProductCsv(text: string): {
+  rows: ProductInput[];
+  skipped: number;
+  error?: string;
+} {
+  const grid = parseCsv(text);
+  if (grid.length < 2)
+    return { rows: [], skipped: 0, error: "File appears to be empty." };
+  const idx = headerIndex(grid[0]);
+  for (const req of PRODUCT_REQUIRED) {
+    if (!idx.has(req))
+      return {
+        rows: [],
+        skipped: 0,
+        error: `Missing expected column "${req}". Is this a Products export?`,
+      };
+  }
+  const get = (r: string[], name: string): string | undefined => {
+    const c = idx.get(normalizeHeader(name));
+    return c == null ? undefined : r[c];
+  };
+
+  const rows: ProductInput[] = [];
+  let skipped = 0;
+  const seen = new Set<string>();
+
+  for (let r = 1; r < grid.length; r++) {
+    const row = grid[r];
+    if (row.length === 1 && row[0].trim() === "") continue;
+    const productId = clean(get(row, "Product ID"));
+    if (!productId || seen.has(productId)) {
+      skipped++;
+      continue;
+    }
+    seen.add(productId);
+
+    rows.push({
+      ezyvet_product_id: productId,
+      product_code: clean(get(row, "Product Code")),
+      product_name: clean(get(row, "Product Name")),
+      description: clean(get(row, "Product Description")),
+      product_group: clean(get(row, "Product Financial Product Group")),
+      product_type: clean(get(row, "Product Product Type")),
+      new_product_type: clean(get(row, "Product New Product Type")),
+      clinical_type: clean(get(row, "Product Clinical Type")),
+      bundle_type: clean(get(row, "Product Bundle")),
+      is_fixed_price_bundle: toBool(get(row, "Fixed Price Bundle")),
+      diagnostic_name: clean(get(row, "Product Diagnostic")),
+      therapeutic_name: clean(get(row, "Product Therapeutic")),
+      schedule_or_class: clean(get(row, "Product Schedule or Class")),
+      is_active: toBool(get(row, "Product Active")),
+      is_sold: toBool(get(row, "Product Is Sold")),
+      is_purchased: toBool(get(row, "Product Is Purchased")),
+      excluded_from_sales: toBool(get(row, "Product Excluded From Sales")),
+      on_special: toBool(get(row, "Product On Special")),
+      available_on_web: toBool(get(row, "Product Available On Web")),
+      requires_prescription: toBool(get(row, "Product Requires Prescription")),
+      generates_prescription: toBool(get(row, "Product Generates Prescription")),
+      is_rvm_medication: toBool(get(row, "Product Is RVM Medication")),
+      is_rabies_vax: toBool(get(row, "Product Is Rabies Vax")),
+      can_expire: toBool(get(row, "Product Can Expire")),
+      is_container: toBool(get(row, "Product Is Container")),
+      is_template: toBool(get(row, "Product Is Template")),
+      has_markup: toBool(get(row, "Product Has Markup")),
+      stock_goes_negative: toBool(get(row, "Product Stock Goes Negative")),
+      requires_freight: toBool(get(row, "Product Requires Freight")),
+      tracking_level: clean(get(row, "Product Tracking Level")),
+      rrp: toNumber(get(row, "Product RRP")),
+      barcode: clean(get(row, "Product Barcode")),
+      primary_barcode: clean(get(row, "Product Primary Barcode")),
+      external_reference: clean(get(row, "Product External Reference")),
+      secondary_external_reference: clean(
+        get(row, "Product Secondary External Reference"),
+      ),
+      unique_identifier: clean(get(row, "Product Unique Identifier")),
+      supplier: clean(get(row, "Product Supplier")),
+      default_supplier: clean(get(row, "Product Default Supplier")),
+      default_supplier_product_code: clean(
+        get(row, "Product Default Supplier Product Code"),
+      ),
+      supplier_contact: clean(get(row, "Product Supplier Contact")),
+      sales_account: clean(get(row, "Product Sales Account")),
+      purchases_account: clean(get(row, "Product Purchases Account")),
+      inventory_account: clean(get(row, "Product Inventory Account")),
+      minimum_inventory: toNumber(get(row, "Product Minimum Inventory")),
+      minimum_reorder: toNumber(get(row, "Product Minimum Reorder")),
+      minimum_sell_units: toNumber(get(row, "Product Minimum Sell Units")),
+      default_sell_units: toNumber(get(row, "Product Default Sell Units")),
+      lowest_dispensable_unit: clean(get(row, "Product Lowest Dispensable Unit")),
+      lowest_dispensable_quantity: toNumber(
+        get(row, "Product Lowest Dispensable Quantity"),
+      ),
+      concentration: toNumber(get(row, "Product Concentration")),
+      concentration_unit: clean(get(row, "Product Concentration Unit")),
+      // ezyVet's own header typo ("Secords") — keep it verbatim.
+      booster_duration_seconds: toNumber(
+        get(row, "Product Booster Duration Secords"),
+      ),
+      default_vaccination_qty: toNumber(
+        get(row, "Product Default Vaccination Issue Quantity"),
+      ),
+      last_invoiced_date: toIsoDate(get(row, "Last Invoiced Date")),
+      notes: clean(get(row, "Product Notes")),
+      notes_important: toBool(get(row, "Product Notes Important")),
+      warning: clean(get(row, "Product Warning")),
+      instructions: clean(get(row, "Product Instructions")),
+      default_medication_text: clean(get(row, "Product Default Medication Text")),
+      default_prescribing_user: clean(
+        get(row, "Product Default Prescribing User"),
+      ),
+      ezyvet_created_at: toIsoTimestamp(get(row, "Product Creation Time")),
+      ezyvet_created_by: clean(get(row, "Product Creating User")),
+      ezyvet_modified_at: toIsoTimestamp(get(row, "Product Modified Time")),
+      ezyvet_modified_by: clean(get(row, "Product Modifying User")),
+    });
+  }
+  return { rows, skipped };
+}
+
+const PRICING_REQUIRED = ["code", "division"];
+
+/**
+ * Parse an ezyVet "Product Pricing" CSV export. One row per product per
+ * division (prices are set per hospital), so the dedup key is Code + Division.
+ */
+export function parseProductPricingCsv(text: string): {
+  rows: ProductPriceInput[];
+  skipped: number;
+  error?: string;
+} {
+  const grid = parseCsv(text);
+  if (grid.length < 2)
+    return { rows: [], skipped: 0, error: "File appears to be empty." };
+  const idx = headerIndex(grid[0]);
+  for (const req of PRICING_REQUIRED) {
+    if (!idx.has(req))
+      return {
+        rows: [],
+        skipped: 0,
+        error: `Missing expected column "${req}". Is this a Product Pricing export?`,
+      };
+  }
+  const get = (r: string[], name: string): string | undefined => {
+    const c = idx.get(normalizeHeader(name));
+    return c == null ? undefined : r[c];
+  };
+
+  const rows: ProductPriceInput[] = [];
+  let skipped = 0;
+  const seen = new Set<string>();
+
+  for (let r = 1; r < grid.length; r++) {
+    const row = grid[r];
+    if (row.length === 1 && row[0].trim() === "") continue;
+    const code = clean(get(row, "Code"));
+    const division = clean(get(row, "Division"));
+    const key = `${code}|${division}`;
+    if (!code || !division || seen.has(key)) {
+      skipped++;
+      continue;
+    }
+    seen.add(key);
+
+    rows.push({
+      product_code: code,
+      division,
+      product_name: clean(get(row, "Name")),
+      product_group: clean(get(row, "Financial Product Group")),
+      cost: toNumber(get(row, "Cost")),
+      sell_price_excl: toNumber(get(row, "Sell Price Exc. TAX")),
+      sell_price_incl: toNumber(get(row, "Sell Price Inc. TAX")),
+      markup: toNumber(get(row, "Markup")),
+      service_fee_product_id: clean(get(row, "Service Fee Product Id")),
+      service_fee_product_code: clean(get(row, "Service Fee Product Code")),
+      service_fee_product_ref: clean(
+        get(row, "Service Fee Product External Reference"),
       ),
     });
   }

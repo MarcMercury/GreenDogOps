@@ -48,6 +48,10 @@ const GLOBAL_REPORTS = [
   // Powers the Appointment Review cancels-by-type breakdown. From/To = the
   // target day (the past day being reviewed).
   { key: "cancelled_appointments", name: "Cancelled Appointments", dated: true, endpoint: "ezyvet/cancelled" },
+  // Product catalog + per-division pricing. Both are snapshots (no date range)
+  // and feed the Smart Report's product/price questions.
+  { key: "ezyvet_products", name: "Products", dated: false, endpoint: "ezyvet/products" },
+  { key: "ezyvet_product_pricing", name: "Product Pricing", dated: false, endpoint: "ezyvet/product-pricing" },
   // Full contact list. The report only exports contacts belonging to the
   // header department, so it MUST run under the parent department — under a
   // clinic it returns that clinic's contacts only (~4k of ~33k) and the

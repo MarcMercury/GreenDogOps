@@ -124,6 +124,28 @@ const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles h
   ezyvet_contact.contact_code.
 - ezyvet_contact = CLIENTS (pet owners) and other contacts. is_customer marks real clients,
   is_business marks companies, is_vet marks referring vets. last_name/first_name/full_name.
+- ezyvet_product = the PRODUCT/SERVICE CATALOG (~4k rows), refreshed nightly from ezyVet. This
+  is what the practice SELLS: product_name, product_code, product_group (the financial product
+  group, e.g. 'Medications - Rx', '*Services', 'Consumables, Food, and Supplements'),
+  product_type ('Standard','Diagnostic','Medication','Procedure','Vaccination','Service Fee'),
+  clinical_type, requires_prescription, is_rabies_vax, supplier, minimum_inventory and
+  last_invoiced_date (when it last sold). The export only contains ACTIVE products.
+- ezyvet_product_price = PRICES, one row per product PER HOSPITAL (product_code + division,
+  ~8k rows): cost, sell_price_excl, sell_price_incl, markup. Prices are set per division, so
+  a product has several rows — never sum prices across divisions, filter or group by division.
+  division values match ezyvet_animal.division ('Green Dog - Sherman Oaks', 'Green Dog - Van Nuys',
+  'Green Dog - Venice (BU)', 'GDD & MPMV' = the shared parent list).
+- For any "what do we charge / what does X cost / margin" question use report_product_price_list
+  (product + price joined, plus margin_dollars); report_products_by_group and
+  report_product_summary are the catalog roll-ups. Join products to sales with
+  ezyvet_invoice_line.product_code = ezyvet_product.product_code — the catalog holds the CURRENT
+  price, the invoice line holds what was actually billed.
+- Product names are inconsistent free text: 'X Ray', 'Xray' and 'X-Ray' all occur, punctuation is
+  erratic ('Dental X Ray- FULL MOUTH') and clinic-specific versions are prefixed ('SO Dental X Ray-
+  FULL MOUTH' for Sherman Oaks). NEVER match a multi-word product with one ILIKE '%dental x-ray%'.
+  Instead AND one ILIKE '%word%' per significant word, dropping hyphens and stop words
+  (e.g. name ILIKE '%dental%' AND name ILIKE '%x%ray%'), and return the matches so the reader
+  can pick the right one.
 - ezyvet_appointment (matview) = one row per client visit day: client_contact_code,
   service_date, location_key, revenue, pet_count. Best source for appointment/visit counts.
   An appointment is NOT a line count — never count invoice lines to answer "how many appointments".
