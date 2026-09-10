@@ -234,40 +234,52 @@ export async function selectFormat(page, format = "CSV") {
   if (await label.count()) await label.click();
 }
 
-/** Fill the From/To date range (accepts YYYY-MM-DD, converts to MM-DD-YYYY). */
-export async function setDateRange(page, fromIso, toIso) {
-  const from = toEzyvetDate(fromIso);
-  const to = toEzyvetDate(toIso);
-  // ezyVet date-range reports use jQuery-UI datepickers named sdate/edate.
-  // Focusing/clicking opens an overlay that steals pointer events, so set the
-  // values purely via JS and fire input/change so the form state updates.
-  const sdate = page.locator('input[name="sdate"]').first();
-  await sdate.waitFor({ state: "attached", timeout: 10000 });
+/**
+ * Set one date input by field name (accepts YYYY-MM-DD, writes MM-DD-YYYY).
+ * ezyVet renders these as jQuery-UI datepickers whose overlay steals pointer
+ * events, so the value is set purely via JS with input/change events fired.
+ * Returns false when the field does not exist on the open form.
+ */
+export async function setDateValue(page, name, iso) {
+  const value = toEzyvetDate(iso);
+  const field = page.locator(`input[name="${name}"]`).first();
+  if (!(await field.count())) return false;
 
-  await page.evaluate(({ from, to }) => {
-    const set = (name, v) => {
-      const el = document.querySelector(`input[name="${name}"]`);
-      if (!el) return;
-      el.value = v;
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-    };
-    set("sdate", from);
-    set("edate", to);
-    // Hide any open jQuery-UI datepicker overlay.
+  await page.evaluate(({ name, value }) => {
+    const el = document.querySelector(`input[name="${CSS.escape(name)}"]`);
+    if (!el) return;
+    el.value = value;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
     const dp = document.getElementById("ui-datepicker-div");
     if (dp) dp.style.display = "none";
-  }, { from, to });
+  }, { name, value });
   await page.keyboard.press("Escape");
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(300);
 
-  const got = {
-    sdate: await sdate.inputValue().catch(() => ""),
-    edate: await page.locator('input[name="edate"]').first().inputValue().catch(() => ""),
-  };
-  if (got.sdate !== from || got.edate !== to) {
-    throw new Error(`Date range did not commit (wanted ${from}..${to}, got ${got.sdate}..${got.edate}).`);
+  const got = await field.inputValue().catch(() => "");
+  if (got !== value) throw new Error(`Date field ${name} did not commit (wanted ${value}, got ${got}).`);
+  return true;
+}
+
+// From/To input names, in the order they are tried. Older reports use
+// sdate/edate; the newer report engine (Inventory Movement, Invoice Revenue By
+// Group, SMS Volumes) uses bracketed Dates[...] names instead.
+const DATE_RANGE_FIELDS = [
+  ["sdate", "edate"],
+  ["Dates[Start_datetext]", "Dates[End_datetext]"],
+];
+
+/** Fill the From/To date range (accepts YYYY-MM-DD, converts to MM-DD-YYYY). */
+export async function setDateRange(page, fromIso, toIso) {
+  for (const [fromName, toName] of DATE_RANGE_FIELDS) {
+    const from = page.locator(`input[name="${fromName}"]`).first();
+    if (!(await from.count())) continue;
+    await setDateValue(page, fromName, fromIso);
+    await setDateValue(page, toName, toIso);
+    return;
   }
+  throw new Error("No recognised From/To date fields on this report form.");
 }
 
 /** Build the regex that matches a completed CSV row for `reportName`. */

@@ -30,12 +30,22 @@ function makeContextOptions(storageState) {
   };
 }
 
-async function newContext(browser, storageState) {
+async function newContext(browser, storageState, blockAssets = false) {
   const context = await browser.newContext(makeContextOptions(storageState));
   // Light stealth: the AWS WAF challenge flags default headless fingerprints.
   await context.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
   });
+  // Report scraping never looks at pixels, and ezyVet's calendar is heavy
+  // enough to crash a memory-constrained renderer. Dropping images/fonts/media
+  // keeps the DOM (and the CSV downloads) intact for a fraction of the memory.
+  if (blockAssets) {
+    await context.route("**/*", (route) => {
+      const type = route.request().resourceType();
+      if (type === "image" || type === "font" || type === "media") return route.abort();
+      return route.continue();
+    });
+  }
   return context;
 }
 
@@ -59,6 +69,7 @@ function isLoggedIn(url) {
  * @param {string} [opts.locationKey]  which clinic to select (default sherman_oaks)
  * @param {string} [opts.statePath]    path to persist/reuse storage state
  * @param {boolean} [opts.headless]    default true
+ * @param {boolean} [opts.blockAssets] drop images/fonts/media (report scraping)
  * @param {(m:string)=>void} [opts.log]
  * @returns {Promise<{browser, context, page, close: () => Promise<void>}>}
  */
@@ -67,6 +78,7 @@ export async function openEzyvet(opts = {}) {
     locationKey = "sherman_oaks",
     statePath = ".secrets/ezyvet-state.json",
     headless = true,
+    blockAssets = false,
     log = () => {},
   } = opts;
 
@@ -89,7 +101,7 @@ export async function openEzyvet(opts = {}) {
   });
 
   const reuse = existsSync(statePath);
-  let context = await newContext(browser, reuse ? statePath : undefined);
+  let context = await newContext(browser, reuse ? statePath : undefined, blockAssets);
   let page = await context.newPage();
 
   // Try the saved session first.
@@ -103,7 +115,7 @@ export async function openEzyvet(opts = {}) {
     }
     log("saved session expired — re-authenticating");
     await context.close();
-    context = await newContext(browser, undefined);
+    context = await newContext(browser, undefined, blockAssets);
     page = await context.newPage();
   }
 

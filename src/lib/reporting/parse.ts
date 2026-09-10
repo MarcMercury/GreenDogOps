@@ -85,24 +85,25 @@ function headerIndex(header: string[]): Map<string, number> {
   return map;
 }
 
-function normalizeHeader(h: string): string {
+export function normalizeHeader(h: string): string {
   return h.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-function clean(v: string | undefined): string | null {
+export function clean(v: string | undefined): string | null {
   if (v == null) return null;
   const t = v.trim();
   return t === "" ? null : t;
 }
 
-function toNumber(v: string | undefined): number | null {
+export function toNumber(v: string | undefined): number | null {
   const t = clean(v);
   if (t == null) return null;
-  const num = Number(t.replace(/[$,]/g, ""));
+  // Money and percentages both arrive decorated ($1,234.56 / 21.69%).
+  const num = Number(t.replace(/[$,%]/g, ""));
   return Number.isFinite(num) ? num : null;
 }
 
-function toBool(v: string | undefined): boolean | null {
+export function toBool(v: string | undefined): boolean | null {
   const t = clean(v);
   if (t == null) return null;
   const u = t.toUpperCase();
@@ -112,11 +113,11 @@ function toBool(v: string | undefined): boolean | null {
 }
 
 /** ezyVet dates are MM-DD-YYYY. Returns ISO YYYY-MM-DD, or null. */
-function toIsoDate(v: string | undefined): string | null {
+export function toIsoDate(v: string | undefined): string | null {
   const t = clean(v);
   if (t == null) return null;
-  // MM-DD-YYYY or MM/DD/YYYY
-  const m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  // MM-DD-YYYY or MM/DD/YYYY, optionally followed by a time ("09-09-2026 8:42am").
+  const m = t.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?![\d-/])/);
   if (m) {
     const [, mm, dd, yyyy] = m;
     return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
@@ -128,7 +129,7 @@ function toIsoDate(v: string | undefined): string | null {
 }
 
 /** ezyVet "Created At" timestamps are "YYYY-MM-DD HH:MM:SS". */
-function toIsoTimestamp(v: string | undefined): string | null {
+export function toIsoTimestamp(v: string | undefined): string | null {
   const t = clean(v);
   if (t == null) return null;
   const m = t.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
