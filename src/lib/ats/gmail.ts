@@ -27,12 +27,15 @@ import type { ParsedCandidate } from "@/lib/ats/import-types";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 const IMPORTED_LABEL = "GD-Imported";
 // Only real applications: Indeed per-candidate "New application" notifications
-// (conversation-*@indeedemail.com) and direct website submissions from the
-// careers form (gv-clients.com). Everything else in the inbox is ignored.
+// (conversation-*@indeedemail.com), Indeed's bundled digests of the same
+// (employers-noreply@indeed.com, several candidates per message), and direct
+// website submissions from the careers form (gv-clients.com). Everything else
+// in the inbox is ignored.
 // Gmail requires the label/date filters INSIDE each OR group — a leading
 // filter before `(A OR B)` silently matches nothing.
 const DEFAULT_QUERY =
   '(from:indeedemail.com subject:"New application" newer_than:120d -label:GD-Imported)' +
+  ' OR (from:employers-noreply@indeed.com subject:"New application" newer_than:120d -label:GD-Imported)' +
   ' OR (from:gv-clients.com "Career Application" newer_than:120d -label:GD-Imported)';
 const DEFAULT_MAX = 25;
 // Attachment extensions we treat as a resume worth parsing / storing.
@@ -159,6 +162,26 @@ function displayName(from: string): string | null {
   return n && !n.includes("@") ? n : null;
 }
 
+/** Extract the bare address from a "Name <addr>" header. */
+function emailAddress(from: string): string | null {
+  return from.match(/<([^>]+)>/)?.[1]?.trim() ?? null;
+}
+
+/** Role from an Indeed subject: "[Action required] New application for X, City, ST". */
+function indeedRole(subject: string): string | null {
+  const role = subject.match(/New application for\s+(.+)/i)?.[1];
+  return role ? role.split(",")[0].trim() : null;
+}
+
+/** The employer-dashboard deep link Indeed embeds (usually URL-encoded). */
+function indeedCandidateLink(bodyText: string): string | null {
+  const encoded = bodyText.match(/candidates%2Fview%3Fid%3D([\w-]+)/i)?.[1];
+  if (encoded) return `https://employers.indeed.com/candidates/view?id=${encoded}`;
+  return (
+    bodyText.match(/https:\/\/employers\.indeed\.com\/candidates\/view\?id=[\w-]+/i)?.[0] ?? null
+  );
+}
+
 /** Pull a single `*Label*` field value from the gv-clients form body. */
 function gvField(body: string, label: string): string | null {
   const m = body.match(new RegExp("\\*\\s*" + label + "\\s*\\*\\s*([^*\\[]+)", "i"));
@@ -166,7 +189,14 @@ function gvField(body: string, label: string): string | null {
   return v || null;
 }
 
-/** Build an applicant from an Indeed "New application" notification (name + role only). */
+/**
+ * Build an applicant from an Indeed "New application" notification.
+ *
+ * Indeed masks the applicant: the only address in the message is a per-job
+ * relay (conversation-*@indeedemail.com). It is kept in the notes rather than
+ * person.email because it differs per job, which would defeat the name-based
+ * dedup and let one person land in the pipeline once per posting.
+ */
 function parseIndeedApplication(
   from: string,
   subject: string,
@@ -174,8 +204,8 @@ function parseIndeedApplication(
 ): ApplicantInput | null {
   const name = displayName(from) || bodyText.match(/^(.+?)\s+applied to/i)?.[1]?.trim() || null;
   if (!name) return null;
-  let role = subject.match(/New application for\s+(.+)/i)?.[1] ?? null;
-  if (role) role = role.split(",")[0].trim(); // drop ", City, State"
+  const relay = emailAddress(from);
+  const link = indeedCandidateLink(bodyText);
   return {
     firstName: null,
     lastName: null,
@@ -183,10 +213,83 @@ function parseIndeedApplication(
     email: null,
     phone: null,
     source: "Indeed",
-    targetTitle: role,
+    targetTitle: indeedRole(subject),
     applicationDate: todayISO(),
-    notes: subject,
+    notes: [
+      subject,
+      relay && `Indeed relay (replies reach the candidate): ${relay}`,
+      link && `Indeed profile: ${link}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   };
+}
+
+// "Wendy Garcia meets 4/6 qualifications for your job." — one per candidate in
+// a bundled digest.
+const BUNDLE_ENTRY_RE = /\s+meets\s+(\d+)\/(\d+)\s+qualifications/gu;
+
+// A plausible name token: capitalised, optionally one hyphen. Long slug-like
+// tokens are how wrapped tracking URLs leak into the text, so they are cut.
+const NAME_TOKEN = /^[\p{Lu}][\p{L}'’]*(?:-[\p{L}'’]+)?$/u;
+
+/**
+ * Recover the candidate name sitting just before a "meets N/M" phrase. The
+ * digest runs sentences straight into tracking URLs, and quoted-printable line
+ * wraps split those URLs, so walk back word by word and stop at the first
+ * token that cannot be part of a name.
+ */
+function nameBefore(text: string): string | null {
+  const tail =
+    text
+      .replace(/https?:\/\/\S+/g, " ")
+      .replace(/\s+/g, " ")
+      .split(/[.,|]/)
+      .pop()
+      ?.trim() ?? "";
+  const tokens = tail.split(" ").filter(Boolean);
+  const picked: string[] = [];
+  for (let i = tokens.length - 1; i >= 0 && picked.length < 4; i--) {
+    const t = tokens[i];
+    if (t.length > 20 || !NAME_TOKEN.test(t)) break;
+    picked.unshift(t);
+  }
+  return picked.length ? picked.join(" ") : null;
+}
+
+/** Build applicants from an Indeed bundled digest ("X and 11 others applied"). */
+function parseIndeedBundle(subject: string, bodyText: string): ApplicantInput[] {
+  const role = indeedRole(subject);
+  const seen = new Set<string>();
+  const out: ApplicantInput[] = [];
+
+  for (const m of bodyText.matchAll(BUNDLE_ENTRY_RE)) {
+    const name = nameBefore(bodyText.slice(Math.max(0, m.index - 120), m.index));
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const link = bodyText.slice(m.index + m[0].length).match(/https?:\/\/\S+/)?.[0] ?? null;
+    out.push({
+      firstName: null,
+      lastName: null,
+      fullName: name,
+      email: null,
+      phone: null,
+      source: "Indeed",
+      targetTitle: role,
+      applicationDate: todayISO(),
+      notes: [
+        subject,
+        `Meets ${m[1]}/${m[2]} qualifications (per Indeed)`,
+        link && `Indeed profile: ${link}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    });
+  }
+  return out;
 }
 
 /** Build an applicant from a gv-clients "Career Application" form email. */
@@ -209,11 +312,13 @@ function parseGvClientsApplication(bodyText: string): ApplicantInput | null {
   };
 }
 
-/** Convert one message into a recruiting profile. */
+type Outcome = "created" | "reapplied" | "duplicate" | "skipped";
+
+/** Convert one message into recruiting profiles (a digest carries several). */
 async function ingestOne(
   gmail: gmail_v1.Gmail,
   message: gmail_v1.Schema$Message,
-): Promise<"created" | "reapplied" | "duplicate" | "skipped"> {
+): Promise<Outcome[]> {
   const payload = message.payload;
   const subject = header(payload, "Subject");
   const from = header(payload, "From");
@@ -234,14 +339,19 @@ async function ingestOne(
     }
   }
 
-  let input: ApplicantInput | null = null;
+  let inputs: ApplicantInput[] = [];
 
   if (fromLc.includes("indeedemail.com") && /new application/i.test(subject)) {
     // Indeed strips PII from notifications: we get name + role only.
-    input = parseIndeedApplication(from, subject, bodyText);
+    const one = parseIndeedApplication(from, subject, bodyText);
+    if (one) inputs = [one];
+  } else if (fromLc.includes("employers-noreply@indeed.com")) {
+    // Bundled digest: several candidates in a single message.
+    inputs = parseIndeedBundle(subject, bodyText);
   } else if (fromLc.includes("gv-clients.com")) {
     // Direct website submission with structured form fields.
-    input = parseGvClientsApplication(bodyText);
+    const one = parseGvClientsApplication(bodyText);
+    if (one) inputs = [one];
   } else {
     // Fallback for anything else: AI-extract from a resume attachment or body.
     let candidate: ParsedCandidate | null = null;
@@ -262,33 +372,43 @@ async function ingestOne(
       if (r.ok) candidate = r.candidate;
     }
     if (candidate) {
-      input = {
-        firstName: candidate.first_name,
-        lastName: candidate.last_name,
-        fullName: candidate.full_name,
-        email: candidate.email,
-        phone: candidate.phone_mobile,
-        source: /indeed/i.test(fromLc) ? "Indeed" : "GD Website",
-        targetTitle: candidate.target_title,
-        applicationDate,
-        notes:
-          [candidate.notes, subject && `Received via email: ${subject}`]
-            .filter(Boolean)
-            .join("\n\n") || null,
-      };
+      inputs = [
+        {
+          firstName: candidate.first_name,
+          lastName: candidate.last_name,
+          fullName: candidate.full_name,
+          email: candidate.email,
+          phone: candidate.phone_mobile,
+          source: /indeed/i.test(fromLc) ? "Indeed" : "GD Website",
+          targetTitle: candidate.target_title,
+          applicationDate,
+          notes:
+            [candidate.notes, subject && `Received via email: ${subject}`]
+              .filter(Boolean)
+              .join("\n\n") || null,
+        },
+      ];
     }
   }
 
-  if (!input || (!input.email && !input.fullName && !input.firstName && !input.lastName)) {
-    return "skipped";
-  }
-  input.applicationDate = applicationDate;
+  const usable = inputs.filter(
+    (i) => i.email || i.fullName || i.firstName || i.lastName,
+  );
+  if (usable.length === 0) return ["skipped"];
 
-  const outcome = await createApplicantProfile(input, resumes);
-  if (outcome.status === "created") return "created";
-  if (outcome.status === "reapplied") return "reapplied";
-  if (outcome.status === "duplicate") return "duplicate";
-  return "skipped";
+  const outcomes: Outcome[] = [];
+  for (const input of usable) {
+    input.applicationDate = applicationDate;
+    const outcome = await createApplicantProfile(input, resumes);
+    outcomes.push(
+      outcome.status === "created" ||
+        outcome.status === "reapplied" ||
+        outcome.status === "duplicate"
+        ? outcome.status
+        : "skipped",
+    );
+  }
+  return outcomes;
 }
 
 /**
@@ -333,11 +453,13 @@ export async function ingestGmailInbox(): Promise<GmailIngestResult> {
         format: "full",
       });
 
-      const outcome = await ingestOne(gmail, message);
-      if (outcome === "created") result.created++;
-      else if (outcome === "reapplied") result.reapplied++;
-      else if (outcome === "duplicate") result.duplicates++;
-      else result.skipped++;
+      const outcomes = await ingestOne(gmail, message);
+      for (const outcome of outcomes) {
+        if (outcome === "created") result.created++;
+        else if (outcome === "reapplied") result.reapplied++;
+        else if (outcome === "duplicate") result.duplicates++;
+        else result.skipped++;
+      }
     } catch (err) {
       result.skipped++;
       result.errors.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
