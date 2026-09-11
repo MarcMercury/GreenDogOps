@@ -87,6 +87,33 @@ const EXAMPLE_LIMIT = 3;
 
 type SmartExample = { question: string; sql: string };
 
+type GlossaryEntry = { term: string; definition: string; sql_hint: string | null };
+
+/**
+ * The practice's own vocabulary for the phrases in this question. The glossary
+ * is team-maintained, so a term the business defines differently from the raw
+ * schema ("expiring plan", "production") can be corrected without a code change.
+ */
+async function getGlossary(
+  admin: AdminClient,
+  question: string,
+): Promise<GlossaryEntry[]> {
+  const { data, error } = await admin.rpc("smart_glossary_for", { p_question: question });
+  if (error) return [];
+  return (data ?? []) as GlossaryEntry[];
+}
+
+function glossaryBlock(entries: GlossaryEntry[]): string {
+  if (!entries.length) return "";
+  return `\nHouse definitions — this is what these phrases mean AT THIS PRACTICE, and they override any
+assumption you would make from the column names alone:\n${entries
+    .map(
+      (e) =>
+        `- ${e.term}: ${e.definition}${e.sql_hint ? `\n  SQL: ${e.sql_hint}` : ""}`,
+    )
+    .join("\n")}\n`;
+}
+
 /**
  * The closest questions an admin has confirmed were answered correctly, with
  * the SQL that answered them. This is how the report improves with use: a
@@ -537,6 +564,7 @@ function planSystemPrompt(
   today: string,
   passages: string,
   examples: string,
+  glossary: string,
   restrictions: string,
 ): string {
   return `You are the Smart Report analyst for Green Dog Ops, a veterinary practice management app.
@@ -552,7 +580,7 @@ ${EXTRA_REPORT_NOTES}
 
 ${SQL_RULES}
 ${restrictions}
-${examples}
+${glossary}${examples}
 ${
   passages
     ? `\nSome questions are about company POLICY or PROCEDURE rather than data. When the excerpts below
@@ -695,10 +723,11 @@ export async function askSmartReport(
     };
   }
 
-  const [{ schema, values, functions }, passages, examples] = await Promise.all([
+  const [{ schema, values, functions }, passages, examples, glossary] = await Promise.all([
     getSchemaCatalog(admin, scope),
     getPolicyPassages(admin, q),
     getExamples(admin, q, scope),
+    getGlossary(admin, q),
   ]);
   const today = new Date().toISOString().slice(0, 10);
   const system = planSystemPrompt(
@@ -708,6 +737,7 @@ export async function askSmartReport(
     today,
     passageBlock(passages),
     exampleBlock(examples),
+    glossaryBlock(glossary),
     scopeNotice(scope),
   );
 

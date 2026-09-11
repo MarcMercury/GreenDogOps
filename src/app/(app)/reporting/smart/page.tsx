@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canAccessModule, canUseSmartReport } from "@/lib/auth/permissions";
+import { canAccessModule, canUseSmartReport, canEditModule, isAdminRole } from "@/lib/auth/permissions";
 import { smartScopeFor } from "@/lib/reporting/smart-scope";
 import { PageHeader } from "../../_components/ui";
 import { SectionCard } from "../charts";
 import { SmartChat } from "./smart-chat";
+import { GlossaryPanel } from "./glossary-panel";
 
 export const dynamic = "force-dynamic";
 // A question can spend 60s in smart_query plus several LLM round trips; the
@@ -65,6 +66,11 @@ export default async function SmartReportPage() {
         </p>
       ) : null}
       <SmartChat />
+      <GlossaryPanel
+        canEdit={
+          canEditModule(current.appUser, "reporting") || isAdminRole(current.appUser.role)
+        }
+      />
     </div>
   );
 }
