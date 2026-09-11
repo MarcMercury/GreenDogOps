@@ -64,6 +64,13 @@ type CatalogTable = {
 
 type ValueHint = { table: string; column: string; values: string[] };
 
+type CatalogFunction = {
+  name: string;
+  args: string;
+  returns: string;
+  comment: string | null;
+};
+
 type PolicyPassage = {
   title: string;
   category: string;
@@ -117,7 +124,12 @@ function sourceList(passages: PolicyPassage[]): string {
   return lines.length ? `\n\n**Sources**\n${lines.join("\n")}` : "";
 }
 
-let catalogCache: { tables: CatalogTable[]; hints: ValueHint[]; at: number } | null = null;
+let catalogCache: {
+  tables: CatalogTable[];
+  hints: ValueHint[];
+  functions: CatalogFunction[];
+  at: number;
+} | null = null;
 
 function rowLabel(rows: number | null): string {
   if (rows === null || rows === undefined || rows < 0) return "";
@@ -142,17 +154,19 @@ function rowLabel(rows: number | null): string {
 async function getSchemaCatalog(
   admin: AdminClient,
   scope: SmartScope,
-): Promise<{ schema: string; values: string }> {
+): Promise<{ schema: string; values: string; functions: string }> {
   if (!catalogCache || Date.now() - catalogCache.at >= SCHEMA_TTL_MS) {
-    const [{ data, error }, hints] = await Promise.all([
+    const [{ data, error }, hints, fns] = await Promise.all([
       admin.rpc("smart_schema"),
       admin.rpc("smart_value_hints"),
+      admin.rpc("smart_functions"),
     ]);
     if (error) throw new Error(`Could not read the database schema: ${error.message}`);
     catalogCache = {
       tables: (data ?? []) as CatalogTable[],
       // A failure here must not break the report — the vocabulary is a bonus.
       hints: ((hints.data ?? []) as ValueHint[]).filter((h) => h.values?.length),
+      functions: (fns.data ?? []) as CatalogFunction[],
       at: Date.now(),
     };
   }
@@ -180,7 +194,16 @@ async function getSchemaCatalog(
     .map((h) => `${h.table}.${h.column} = ${h.values.join(" | ")}`)
     .join("\n");
 
-  return { schema, values };
+  const functions = catalogCache.functions
+    .map(
+      (f) =>
+        `${f.name}(${f.args}) -> ${f.returns.replace(/^TABLE/, "")}${
+          f.comment ? `\n    ${f.comment}` : ""
+        }`,
+    )
+    .join("\n");
+
+  return { schema, values, functions };
 }
 
 const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles hospitals):
@@ -203,6 +226,28 @@ const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles h
   ezyvet_contact.contact_code.
 - ezyvet_contact = CLIENTS (pet owners) and other contacts. is_customer marks real clients,
   is_business marks companies, is_vet marks referring vets. last_name/first_name/full_name.
+  ezyvet_created_at is when the client record was created = when they became a client.
+
+NEW CLIENTS and per-hospital client questions — read this before writing the query:
+- A NEW CLIENT is a contact whose ezyvet_created_at falls in the period (~450/month company-wide).
+  report_clients_by_month is the canonical company-wide roll-up and is what the Reporting page shows.
+- ezyvet_contact.division is NOT the hospital. It only ever contains 'GDD & MPMV' or
+  'Green Dog - Sherman Oaks' — there is NO Venice or Van Nuys value. Filtering contacts by a
+  Venice/Van Nuys division returns ZERO rows and reads like "we signed up no one", which is wrong.
+  (The four-hospital division labels exist on ezyvet_animal and ezyvet_product_price, not here.)
+- ezyvet_contact.ezyvet_created_by / staff_member are ezyVet SECURITY ROLES, not people and not
+  locations: 'RCSRs' (the remote CSR team, who create most records), 'Vetstoria' (online booking),
+  'Emily AI', 'VE Front Office', 'VALLEY Front Office', 'SO Front Office'. Only a small minority are
+  location-named, so counting one of them massively undercounts a hospital. Never attribute a
+  client to a hospital this way.
+- The ONLY reliable hospital attribution for a client is ezyvet_invoice_line.location_key
+  ('sherman_oaks', 'van_nuys', 'venice', 'other'). Use report_new_clients_by_location_month
+  (month, location_key, location_label, new_clients, new_customers) for "new clients at <hospital>"
+  — it pins each new contact to the location of their FIRST billed line, and location_key
+  'no_visit_yet' holds clients created but not yet billed anywhere (about a quarter of them), so
+  mention that bucket rather than silently dropping it.
+- ezyvet_invoice_line only goes back to 2025-01-02. Never derive "who was new" from a first
+  invoice line for 2025 or earlier — every pre-existing client looks new at the start of the data.
 - ezyvet_product = the PRODUCT/SERVICE CATALOG (~4k rows), refreshed nightly from ezyVet. This
   is what the practice SELLS: product_name, product_code, product_group (the financial product
   group, e.g. 'Medications - Rx', '*Services', 'Consumables, Food, and Supplements'),
@@ -384,11 +429,16 @@ const SQL_RULES = `Rules for the SQL:
   rows change the attribution rule — apply the coalesce described above instead.
 - Sanity-check a single-row "who is the top X" result before returning it: if the winning value is
   orders of magnitude away from the rest of the column, it is bad data, not the answer.
+- A count of ZERO is almost never the right answer at a busy three-hospital practice. If a query
+  would report 0 (or 0 for every period), assume a filter literal is wrong — especially a division,
+  location or status value you guessed — and rewrite it with a looser filter or a different column
+  before answering.
 - Only use tables and columns that appear in the schema listing below.`;
 
 function planSystemPrompt(
   schema: string,
   values: string,
+  functions: string,
   today: string,
   passages: string,
   restrictions: string,
@@ -420,6 +470,13 @@ Reply with a single JSON object, no prose, using exactly these keys:
 Database schema (name [kind, approx rows](column type, ...)):
 ${schema}
 ${
+  functions
+    ? `\nQueryable functions — call these in the FROM clause like a table, e.g.
+select location_name, sum(expected_count) from appointment_review(current_date, current_date)
+group by location_name. Each one already encodes a rule that is easy to get wrong by hand,
+so prefer it over rebuilding the logic:\n${functions}\n`
+    : ""
+}${
   values
     ? `\nCommon column values (the EXACT text stored in these columns — use them verbatim in filters):\n${values}`
     : ""
@@ -487,11 +544,17 @@ function columnsOf(rows: SmartRow[]): string[] {
   return seen;
 }
 
-/** No rows at all, or a single aggregate row where everything came back NULL. */
+/**
+ * No rows at all, or a single aggregate row that carries no information — every
+ * value NULL, or every value zero. `count(*) = 0` is almost always a filter that
+ * matched nothing, not a real answer, so it gets the same retry as no rows.
+ */
 function isEmptyResult(rows: SmartRow[]): boolean {
   if (!rows.length) return true;
   if (rows.length > 1) return false;
-  return Object.values(rows[0]).every((v) => v === null || v === undefined);
+  return Object.values(rows[0]).every(
+    (v) => v === null || v === undefined || v === 0 || v === "0",
+  );
 }
 
 function historyBlock(history: SmartTurn[]): string {
@@ -535,7 +598,7 @@ export async function askSmartReport(
     };
   }
 
-  const [{ schema, values }, passages] = await Promise.all([
+  const [{ schema, values, functions }, passages] = await Promise.all([
     getSchemaCatalog(admin, scope),
     getPolicyPassages(admin, q),
   ]);
@@ -543,6 +606,7 @@ export async function askSmartReport(
   const system = planSystemPrompt(
     schema,
     values,
+    functions,
     today,
     passageBlock(passages),
     scopeNotice(scope),
@@ -627,7 +691,7 @@ export async function askSmartReport(
       attempts.push({
         sql,
         error:
-          "The query ran but returned no data (no rows, or every value was NULL). Check the filters against the \"Common column values\" list and try again with looser matching (ILIKE '%fragment%', no date window). If the column really is empty, answer with the same query.",
+          "The query ran but returned no usable data (no rows, or every value was NULL or zero). A zero is almost always a filter that matched nothing, not a real answer — this is a busy three-hospital practice. Check every literal against the \"Common column values\" list, drop the most suspect filter, and try again with looser matching (ILIKE '%fragment%', no date window). If the column really is empty, answer with the same query.",
       });
       rows = [];
       sql = null;
