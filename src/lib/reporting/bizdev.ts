@@ -127,9 +127,6 @@ export const DEFAULT_CLOSE_MINUTE = 18 * 60;
  */
 const QUIET_HOUR_FLOOR = 0.35;
 
-/** Starting offsets along the demand curve, cycled per lane so short lanes stagger. */
-const PHASES = [0.5, 0.15, 0.8, 0.35, 0.65];
-
 /** Distinct colors for appointment types with no planning-palette match. */
 const EXTRA_COLORS = [
   "#0ea5e9",
@@ -233,56 +230,43 @@ export interface BizDevDayPlan {
 }
 
 /**
- * Choose `count` DISTINCT time buckets for one lane — a lane books at most one
- * appointment per slot. Picks are spread across the whole day by walking the
- * demand-weighted cumulative curve at even intervals, so busy hours get more
- * slots without any two appointments landing on the same time. `phase` (0..1)
- * offsets where along the curve the walk starts, so two short lanes don't both
- * land on the same hour.
+ * How many appointments the whole clinic should start in each time bucket.
+ * Demand-weighted, but capped so the busy hours can't swallow the day — the
+ * point of the guide is a workable, level schedule across the open hours.
  */
-function placeOnePerSlot(
-  count: number,
-  weights: number[],
-  phase: number,
-): number[] {
-  const total = weights.length;
-  const n = Math.min(count, total);
-  if (n <= 0) return [];
+function bucketTargets(total: number, weights: number[], cap: number): number[] {
+  const size = weights.length;
+  const out = new Array<number>(size).fill(0);
+  if (total <= 0 || size === 0 || cap <= 0) return out;
 
-  const sum = weights.reduce((s, w) => s + w, 0);
-  const w = sum > 0 ? weights : weights.map(() => 1);
-  const wSum = sum > 0 ? sum : total;
-  const cumulative: number[] = [];
-  let acc = 0;
-  for (const x of w) {
-    acc += x;
-    cumulative.push(acc);
+  const usable = Math.min(total, size * cap);
+  const anyWeight = weights.some((w) => w > 0);
+  const w = anyWeight ? weights : weights.map(() => 1);
+  const wSum = w.reduce((s, x) => s + x, 0);
+  const exact = w.map((x) => (usable * x) / wSum);
+
+  let placed = 0;
+  for (let i = 0; i < size; i++) {
+    out[i] = Math.min(cap, Math.floor(exact[i]));
+    placed += out[i];
   }
-
-  const taken = new Set<number>();
-  for (let i = 0; i < n; i++) {
-    const target = ((i + phase) * wSum) / n;
-    let idx = cumulative.findIndex((c) => c >= target);
-    if (idx < 0) idx = total - 1;
-    if (taken.has(idx)) {
-      // Nearest free slot, looking later first so the day fills forward.
-      let free = -1;
-      for (let d = 1; d < total; d++) {
-        if (idx + d < total && !taken.has(idx + d)) {
-          free = idx + d;
-          break;
-        }
-        if (idx - d >= 0 && !taken.has(idx - d)) {
-          free = idx - d;
-          break;
-        }
+  // Hand out what rounding left over, busiest bucket first, never past the cap.
+  const order = exact
+    .map((x, i) => ({ i, rem: x - Math.floor(x) }))
+    .sort((a, b) => b.rem - a.rem || a.i - b.i);
+  while (placed < usable) {
+    let progressed = false;
+    for (const o of order) {
+      if (placed >= usable) break;
+      if (out[o.i] < cap) {
+        out[o.i] += 1;
+        placed += 1;
+        progressed = true;
       }
-      if (free < 0) break;
-      idx = free;
     }
-    taken.add(idx);
+    if (!progressed) break;
   }
-  return [...taken].sort((a, b) => a - b);
+  return out;
 }
 
 /**
@@ -362,7 +346,6 @@ export function buildDayPlan(
   const slots: DayPlanSlot[] = [];
   const excluded: DayPlanExclusion[] = [];
   let extraColor = 0;
-  let laneOrdinal = 0;
 
   for (const { row, count, eff } of planned) {
     const mapping = rules.apptTypeDept[row.appt_type.trim()];
@@ -422,15 +405,6 @@ export function buildDayPlan(
           laneCount,
         },
       });
-
-      for (const i of placeOnePerSlot(laneAppts, weights, PHASES[laneOrdinal++ % PHASES.length])) {
-        slots.push({
-          id: `${id}:${buckets[i]}`,
-          columnId: id,
-          startMinute: buckets[i],
-          durationMinutes: stepMinutes,
-        });
-      }
     }
   }
 
@@ -444,6 +418,68 @@ export function buildDayPlan(
         a.col.lane - b.col.lane,
     )
     .map((b) => b.col);
+
+  // Book the day as a whole rather than each lane on its own, or every type
+  // piles onto the same busy hour. Each bucket takes its share of the day's
+  // appointments (demand-weighted, capped), handed to whichever lanes have
+  // fallen furthest behind the pace they need to finish the day — so lanes
+  // spread out instead of running back-to-back, and a lane still never books
+  // two appointments at the same time.
+  const totalAppts = columns.reduce((s, c) => s + c.count, 0);
+  const maxConcurrent = Math.max(
+    1,
+    Math.ceil((totalAppts / Math.max(1, buckets.length)) * 1.5),
+  );
+  const targets = bucketTargets(totalAppts, weights, maxConcurrent);
+
+  const weightTotal = weights.reduce((s, x) => s + x, 0);
+  const elapsed: number[] = [];
+  let run = 0;
+  for (let i = 0; i < buckets.length; i++) {
+    run += weightTotal > 0 ? weights[i] : 1;
+    elapsed.push(weightTotal > 0 ? run / weightTotal : (i + 1) / buckets.length);
+  }
+
+  const lanes = columns.map((col, idx) => ({ col, idx, left: col.count }));
+  for (let i = 0; i < buckets.length; i++) {
+    let room = targets[i];
+    if (room <= 0) continue;
+    const ready = lanes
+      .filter((l) => l.left > 0)
+      // How many this lane "should" have started by now, minus what it has.
+      .map((l) => ({ l, behind: l.col.count * elapsed[i] - (l.col.count - l.left) }))
+      .sort((a, b) => b.behind - a.behind || a.l.idx - b.l.idx);
+    for (const { l } of ready) {
+      if (room <= 0) break;
+      l.left -= 1;
+      room -= 1;
+      slots.push({
+        id: `${l.col.id}:${buckets[i]}`,
+        columnId: l.col.id,
+        startMinute: buckets[i],
+        durationMinutes: stepMinutes,
+      });
+    }
+  }
+  // Anything the capped targets couldn't fit goes in this lane's first free slot.
+  for (const l of lanes) {
+    if (l.left <= 0) continue;
+    const used = new Set(
+      slots.filter((s) => s.columnId === l.col.id).map((s) => s.startMinute),
+    );
+    for (const b of buckets) {
+      if (l.left <= 0) break;
+      if (used.has(b)) continue;
+      used.add(b);
+      l.left -= 1;
+      slots.push({
+        id: `${l.col.id}:${b}`,
+        columnId: l.col.id,
+        startMinute: b,
+        durationMinutes: stepMinutes,
+      });
+    }
+  }
 
   return {
     locationId: loc.location_id,
@@ -460,7 +496,7 @@ export function buildDayPlan(
     columns,
     slots,
     excluded,
-    totalAppts: columns.reduce((s, c) => s + c.count, 0),
+    totalAppts,
     totalRevenue: columns.reduce((s, c) => s + c.revenue, 0),
     hasHourDemand,
   };
