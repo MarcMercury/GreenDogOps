@@ -361,6 +361,13 @@ NEW CLIENTS and per-hospital client questions — read this before writing the q
   location_name, department_name, appt_date, expected_count = booked, rendered_count = actually
   seen); query it directly, e.g. select location_name, sum(expected_count) as booked from
   appointment_review(current_date, current_date) group by location_name.
+- ⚠️ FUTURE DATES: appointment_review_by_type() is a LOOK-BACK comparison. Its scheduled,
+  rendered and not_rendered columns only count days that have already been re-scanned after the
+  fact, so for today or any future day they are ALL ZERO and the real booked count sits in the
+  PENDING column. A question about next week answered with "scheduled" will wrongly report zero
+  appointments everywhere. For anything forward-looking use appointment_review() and sum
+  expected_count (or sum pending from the by_type function when the breakdown by type is wanted).
+  Never conclude "no appointments are booked" from a future-dated query without checking pending.
 - An appointment is NOT an invoice line — never count invoice lines to answer "how many appointments".
 
 Wellness plan ("Green Dog Plus" / "GDD+") membership — counting this wrong is easy:
