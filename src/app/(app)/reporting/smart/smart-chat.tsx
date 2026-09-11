@@ -1,7 +1,13 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
-import { askSmartQuestion } from "./actions";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import {
+  askSmartQuestion,
+  getSmartHistory,
+  rateSmartAnswer,
+  type SmartAnswer,
+  type SmartHistoryEntry,
+} from "./actions";
 import type { SmartResult, SmartRow, SmartTurn } from "@/lib/reporting/smart";
 
 const SUGGESTIONS = [
@@ -15,7 +21,13 @@ const SUGGESTIONS = [
 
 type Message =
   | { id: string; role: "user"; content: string }
-  | { id: string; role: "assistant"; content: string; result?: SmartResult };
+  | {
+      id: string;
+      role: "assistant";
+      content: string;
+      result?: SmartResult;
+      logId?: string | null;
+    };
 
 /** Minimal markdown: **bold**, `code`, and "- " bullet lists. */
 function renderInline(text: string): React.ReactNode {
@@ -200,11 +212,120 @@ function SqlDetails({ result }: { result: SmartResult }) {
   );
 }
 
+/** Thumbs up/down on an answer. An admin's thumbs-up also marks it as a
+ *  worked example the next similar question will be shown. */
+function AnswerFeedback({ logId }: { logId: string }) {
+  const [rating, setRating] = useState<1 | -1 | null>(null);
+  const [verified, setVerified] = useState(false);
+
+  const rate = (value: 1 | -1) => {
+    setRating(value);
+    void rateSmartAnswer(logId, value).then((r) => setVerified(r.verified));
+  };
+
+  return (
+    <div className="mt-3 flex items-center gap-2 border-t border-slate-200/70 pt-2">
+      <span className="text-[11px] text-slate-400">Was this right?</span>
+      <button
+        type="button"
+        onClick={() => rate(1)}
+        aria-label="Correct"
+        className={`rounded px-1.5 py-0.5 text-sm transition ${
+          rating === 1 ? "bg-emerald-100 text-emerald-700" : "text-slate-300 hover:text-emerald-600"
+        }`}
+      >
+        ✓
+      </button>
+      <button
+        type="button"
+        onClick={() => rate(-1)}
+        aria-label="Wrong"
+        className={`rounded px-1.5 py-0.5 text-sm transition ${
+          rating === -1 ? "bg-rose-100 text-rose-700" : "text-slate-300 hover:text-rose-600"
+        }`}
+      >
+        ✕
+      </button>
+      {verified ? (
+        <span className="text-[11px] font-medium text-emerald-600">
+          Saved as a verified example
+        </span>
+      ) : rating === -1 ? (
+        <span className="text-[11px] text-slate-400">Logged — thanks, this helps us fix it.</span>
+      ) : null}
+    </div>
+  );
+}
+
+/** The signed-in user's own past questions. Clicking one asks it again, so the
+ *  numbers are always fresh and answered under the current user's permissions. */
+function HistoryPanel({
+  history,
+  onPick,
+  disabled,
+}: {
+  history: SmartHistoryEntry[];
+  onPick: (question: string) => void;
+  disabled: boolean;
+}) {
+  if (!history.length) {
+    return (
+      <p className="px-4 py-3 text-xs text-slate-400">
+        Your questions will appear here once you ask one.
+      </p>
+    );
+  }
+  const dayLabel = (iso: string) => {
+    const d = new Date(iso);
+    const today = new Date();
+    const sameDay = d.toDateString() === today.toDateString();
+    return sameDay
+      ? d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+      : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+  return (
+    <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+      {history.map((h) => (
+        <li key={h.id}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onPick(h.question)}
+            className="flex w-full items-start gap-2 px-4 py-2 text-left transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            <span className="mt-0.5 w-10 shrink-0 text-[10px] tabular-nums text-slate-400">
+              {dayLabel(h.created_at)}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs text-slate-600">{h.question}</span>
+            {h.verified ? (
+              <span className="shrink-0 text-[10px] font-semibold text-emerald-600">verified</span>
+            ) : !h.ok ? (
+              <span className="shrink-0 text-[10px] text-rose-400">failed</span>
+            ) : null}
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function SmartChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
+  const [history, setHistory] = useState<SmartHistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const refreshHistory = useCallback(() => {
+    void getSmartHistory()
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  }, []);
+
+  useEffect(() => {
+    refreshHistory();
+  }, [refreshHistory]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -214,16 +335,23 @@ export function SmartChat() {
     const q = question.trim();
     if (!q || pending) return;
 
-    const history: SmartTurn[] = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
+    const turns: SmartTurn[] = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
     setMessages((prev) => [...prev, { id: `${Date.now()}-u`, role: "user", content: q }]);
     setInput("");
     setPending(true);
     try {
-      const result = await askSmartQuestion(q, history);
+      const result: SmartAnswer = await askSmartQuestion(q, turns);
       setMessages((prev) => [
         ...prev,
-        { id: `${Date.now()}-a`, role: "assistant", content: result.answer, result },
+        {
+          id: `${Date.now()}-a`,
+          role: "assistant",
+          content: result.answer,
+          result,
+          logId: result.logId,
+        },
       ]);
+      refreshHistory();
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -241,6 +369,29 @@ export function SmartChat() {
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
+          <button
+            type="button"
+            onClick={() => setShowHistory((v) => !v)}
+            className="text-[11px] font-medium uppercase tracking-wide text-slate-400 transition hover:text-slate-600"
+          >
+            {showHistory ? "Hide" : "Show"} my history
+            {history.length ? ` (${history.length})` : ""}
+          </button>
+          <span className="text-[11px] text-slate-300">Only you can see your history</span>
+        </div>
+        {showHistory ? (
+          <div className="border-b border-slate-100 bg-slate-50/50">
+            <HistoryPanel
+              history={history}
+              disabled={pending}
+              onPick={(q) => {
+                setShowHistory(false);
+                void ask(q);
+              }}
+            />
+          </div>
+        ) : null}
         <div className="min-h-[22rem] space-y-4 p-5">
           {!messages.length ? (
             <div className="space-y-4">
@@ -285,6 +436,7 @@ export function SmartChat() {
                       <SqlDetails result={m.result} />
                     </>
                   ) : null}
+                  {m.logId ? <AnswerFeedback logId={m.logId} /> : null}
                 </div>
               </div>
             ),

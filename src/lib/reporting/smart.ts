@@ -82,6 +82,45 @@ type PolicyPassage = {
 const PASSAGE_LIMIT = 6;
 const PASSAGE_CHARS = 1200;
 
+/** Verified question/SQL pairs to show the model as worked examples. */
+const EXAMPLE_LIMIT = 3;
+
+type SmartExample = { question: string; sql: string };
+
+/**
+ * The closest questions an admin has confirmed were answered correctly, with
+ * the SQL that answered them. This is how the report improves with use: a
+ * verified answer becomes guidance for the next similar question.
+ *
+ * Examples are filtered through the caller's scope — a verified query that
+ * touches a column this user may not read would otherwise leak the column name
+ * and tempt a query the guard then rejects.
+ */
+async function getExamples(
+  admin: AdminClient,
+  question: string,
+  scope: SmartScope,
+): Promise<SmartExample[]> {
+  const { data, error } = await admin.rpc("smart_examples", {
+    p_question: question,
+    p_limit: EXAMPLE_LIMIT,
+  });
+  // Examples are a bonus — never fail the report over them.
+  if (error) return [];
+  return ((data ?? []) as SmartExample[]).filter(
+    (e) => e.sql && !blockedIdentifier(e.sql, scope),
+  );
+}
+
+function exampleBlock(examples: SmartExample[]): string {
+  if (!examples.length) return "";
+  return `\nWorked examples — these questions were answered with this SQL and a human confirmed the
+answer was right. Follow the same tables, joins and definitions when the question is similar;
+adapt the filters rather than inventing a different approach:\n${examples
+    .map((e, i) => `[${i + 1}] ${e.question}\n${e.sql}`)
+    .join("\n\n")}\n`;
+}
+
 /**
  * Full-text search over the TEXT of the policy/protocol documents.
  *
@@ -497,6 +536,7 @@ function planSystemPrompt(
   functions: string,
   today: string,
   passages: string,
+  examples: string,
   restrictions: string,
 ): string {
   return `You are the Smart Report analyst for Green Dog Ops, a veterinary practice management app.
@@ -512,6 +552,7 @@ ${EXTRA_REPORT_NOTES}
 
 ${SQL_RULES}
 ${restrictions}
+${examples}
 ${
   passages
     ? `\nSome questions are about company POLICY or PROCEDURE rather than data. When the excerpts below
@@ -654,9 +695,10 @@ export async function askSmartReport(
     };
   }
 
-  const [{ schema, values, functions }, passages] = await Promise.all([
+  const [{ schema, values, functions }, passages, examples] = await Promise.all([
     getSchemaCatalog(admin, scope),
     getPolicyPassages(admin, q),
+    getExamples(admin, q, scope),
   ]);
   const today = new Date().toISOString().slice(0, 10);
   const system = planSystemPrompt(
@@ -665,6 +707,7 @@ export async function askSmartReport(
     functions,
     today,
     passageBlock(passages),
+    exampleBlock(examples),
     scopeNotice(scope),
   );
 
