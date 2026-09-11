@@ -7,6 +7,9 @@ import { SectionCard } from "../charts";
 import { SmartChat } from "./smart-chat";
 
 export const dynamic = "force-dynamic";
+// A question can spend 60s in smart_query plus several LLM round trips; the
+// 60s default would 504 the server action mid-answer.
+export const maxDuration = 300;
 
 export default async function SmartReportPage() {
   const current = await getCurrentUser();
