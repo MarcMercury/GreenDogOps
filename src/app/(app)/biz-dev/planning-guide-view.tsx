@@ -14,16 +14,31 @@ const STEP_OPTIONS = [15, 30, 60] as const;
 /** The planning-guide rendering of one clinic's planned day. */
 function DayGuide({ plan }: { plan: BizDevDayPlan }) {
   const accent = LOCATION_COLORS[plan.locationKey] ?? "#10b981";
-  const slotsByCell = useMemo(() => {
-    const map = new Map<string, DayPlanSlot[]>();
-    for (const s of plan.slots) {
-      const key = `${s.columnId}:${s.startMinute}`;
-      const list = map.get(key);
-      if (list) list.push(s);
-      else map.set(key, [s]);
-    }
+  const slotByCell = useMemo(() => {
+    const map = new Map<string, DayPlanSlot>();
+    for (const s of plan.slots) map.set(`${s.columnId}:${s.startMinute}`, s);
     return map;
   }, [plan.slots]);
+
+  // Contiguous columns of the same track share one grouping header.
+  const trackGroups = useMemo(() => {
+    const groups: { name: string; deptName: string; span: number; count: number }[] = [];
+    for (const col of plan.columns) {
+      const last = groups[groups.length - 1];
+      if (last && last.name === col.trackName && last.deptName === col.deptName) {
+        last.span += 1;
+        last.count += col.count;
+      } else {
+        groups.push({
+          name: col.trackName,
+          deptName: col.deptName,
+          span: 1,
+          count: col.count,
+        });
+      }
+    }
+    return groups;
+  }, [plan.columns]);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
@@ -41,8 +56,8 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
           <p className="mt-0.5 text-xs text-slate-500">
             Open {minutesToLabel(plan.startMinute)} to{" "}
             {minutesToLabel(plan.endMinute)} · {plan.stepMinutes}-minute slots ·{" "}
-            {plan.columns.length} track
-            {plan.columns.length === 1 ? "" : "s"}
+            {plan.columns.length} lane
+            {plan.columns.length === 1 ? "" : "s"} · one appointment per slot
             {plan.hasHourDemand
               ? " · weighted by realized hourly demand"
               : " · evenly spread (no hourly demand yet)"}
@@ -67,112 +82,111 @@ function DayGuide({ plan }: { plan: BizDevDayPlan }) {
           assigned to a planning department.
         </p>
       ) : (
-        <>
-          <div className="overflow-x-auto p-2">
-            <table className="w-full border-separate border-spacing-0 text-sm">
-              <thead>
-                <tr>
-                  <th className="sticky left-0 z-20 w-14 bg-slate-50 px-2 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                    Time
+        <div className="overflow-x-auto p-2">
+          <table className="w-full border-separate border-spacing-0 text-sm">
+            <thead>
+              <tr>
+                <th className="sticky left-0 z-20 bg-slate-50" />
+                {trackGroups.map((g, i) => (
+                  <th
+                    key={`${g.deptName}:${g.name}:${i}`}
+                    colSpan={g.span}
+                    className="border-b border-slate-200 bg-slate-100/70 px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+                  >
+                    {g.name}
+                    <span className="ml-1.5 font-normal normal-case tracking-normal text-slate-400">
+                      {g.deptName} · {g.count} appt
+                    </span>
                   </th>
-                  {plan.columns.map((col) => (
-                    <th
-                      key={col.id}
-                      className="border-b-2 border-slate-200 bg-slate-50 px-2 py-2 text-left align-top"
-                      style={{ minWidth: 150, borderTop: `3px solid ${col.color}` }}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span
-                          className="h-2.5 w-2.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: col.color }}
-                        />
-                        <span className="truncate font-semibold text-slate-700">
-                          {col.name}
-                        </span>
-                      </div>
-                      <p className="mt-0.5 truncate text-[11px] font-normal text-slate-400">
-                        {col.deptName} · {col.count} appt ·{" "}
-                        {fmtCurrency(col.revenue)}
-                      </p>
-                      {col.types.some((t) => t.overCap) ? (
-                        <span className="mt-0.5 inline-block rounded bg-rose-50 px-1 py-0.5 text-[10px] font-semibold uppercase text-rose-600">
-                          over cap
+                ))}
+              </tr>
+              <tr>
+                <th className="sticky left-0 z-20 w-14 bg-slate-50 px-2 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  Time
+                </th>
+                {plan.columns.map((col) => (
+                  <th
+                    key={col.id}
+                    className="border-b-2 border-slate-200 bg-slate-50 px-2 py-2 text-left align-top"
+                    style={{ minWidth: 120, borderTop: `3px solid ${col.color}` }}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: col.color }}
+                      />
+                      <span className="truncate font-semibold text-slate-700">
+                        {col.name}
+                      </span>
+                      {col.laneCount > 1 ? (
+                        <span className="shrink-0 rounded bg-slate-200 px-1 text-[10px] font-semibold text-slate-600">
+                          {col.lane}/{col.laneCount}
                         </span>
                       ) : null}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {plan.buckets.map((bucket) => {
-                  const marker = bucketMarker(bucket);
-                  const rowBorder =
-                    marker === "hour"
-                      ? "border-t-2 border-slate-300"
-                      : marker === "half"
-                        ? "border-t border-slate-200"
-                        : "border-t border-dashed border-slate-100";
-                  const timeText =
-                    marker === "hour"
-                      ? "text-[13px] font-bold text-slate-600"
-                      : marker === "half"
-                        ? "text-xs font-semibold text-slate-400"
-                        : "text-[10px] font-medium text-slate-300";
-                  return (
-                    <tr key={bucket} className="align-top">
-                      <td
-                        className={`sticky left-0 z-10 bg-white px-2 py-1 text-right tabular-nums ${rowBorder} ${timeText}`}
-                      >
-                        {minutesToLabel(bucket)}
-                      </td>
-                      {plan.columns.map((col) => {
-                        const cell = slotsByCell.get(`${col.id}:${bucket}`) ?? [];
-                        return (
-                          <td
-                            key={col.id}
-                            className={`border-l border-slate-100 px-1.5 py-1 ${rowBorder}`}
-                          >
-                            <div className="flex min-h-[1.5rem] flex-wrap gap-1">
-                              {cell.map((s) => (
-                                <span
-                                  key={s.id}
-                                  style={apptChipStyle(s.color)}
-                                  className="rounded border px-1.5 py-0.5 text-xs font-medium leading-tight"
-                                  title={`${s.typeName} — ${minutesToLabel(bucket)}`}
-                                >
-                                  {s.short}
-                                </span>
-                              ))}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-slate-100 px-4 py-3">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Legend
-            </span>
-            {plan.columns.flatMap((col) =>
-              col.types.map((t) => (
-                <span
-                  key={`${col.id}:${t.name}`}
-                  className="inline-flex items-center gap-1 text-[11px] text-slate-500"
-                >
-                  <span
-                    className="h-2.5 w-2.5 rounded-sm"
-                    style={{ backgroundColor: t.color }}
-                  />
-                  {t.short} — {t.name} ({t.count})
-                </span>
-              )),
-            )}
-          </div>
-        </>
+                    </div>
+                    <p className="mt-0.5 truncate text-[11px] font-normal text-slate-400">
+                      {col.count} × {fmtCurrency(col.avgValue)} ={" "}
+                      {fmtCurrency(col.revenue)}
+                      {col.cadence === "weekly" ? " · weekly" : ""}
+                    </p>
+                    {col.overCap ? (
+                      <span className="mt-0.5 inline-block rounded bg-rose-50 px-1 py-0.5 text-[10px] font-semibold uppercase text-rose-600">
+                        over cap
+                      </span>
+                    ) : null}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {plan.buckets.map((bucket) => {
+                const marker = bucketMarker(bucket);
+                const rowBorder =
+                  marker === "hour"
+                    ? "border-t-2 border-slate-300"
+                    : marker === "half"
+                      ? "border-t border-slate-200"
+                      : "border-t border-dashed border-slate-100";
+                const timeText =
+                  marker === "hour"
+                    ? "text-[13px] font-bold text-slate-600"
+                    : marker === "half"
+                      ? "text-xs font-semibold text-slate-400"
+                      : "text-[10px] font-medium text-slate-300";
+                return (
+                  <tr key={bucket} className="align-top">
+                    <td
+                      className={`sticky left-0 z-10 bg-white px-2 py-1 text-right tabular-nums ${rowBorder} ${timeText}`}
+                    >
+                      {minutesToLabel(bucket)}
+                    </td>
+                    {plan.columns.map((col) => {
+                      const slot = slotByCell.get(`${col.id}:${bucket}`);
+                      return (
+                        <td
+                          key={col.id}
+                          className={`border-l border-slate-100 px-1.5 py-1 ${rowBorder}`}
+                        >
+                          <div className="flex min-h-[1.5rem] items-start">
+                            {slot ? (
+                              <span
+                                style={apptChipStyle(col.color)}
+                                className="block w-full truncate rounded border px-1.5 py-0.5 text-xs font-medium leading-tight"
+                                title={`${col.name} — ${minutesToLabel(bucket)}`}
+                              >
+                                {col.short}
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {plan.excluded.length > 0 ? (
@@ -341,8 +355,8 @@ export function PlanningGuideView({
 
         <p className="ml-auto text-xs text-slate-400">
           Tracks follow the same Planning Guide Setup rules as the Operations
-          guides: each appointment type is rendered by its department. Each
-          clinic&apos;s day spans its configured hours.
+          guides. Every appointment type gets its own lane and one appointment
+          per time slot — types never share a slot.
         </p>
       </div>
 

@@ -127,6 +127,9 @@ export const DEFAULT_CLOSE_MINUTE = 18 * 60;
  */
 const QUIET_HOUR_FLOOR = 0.35;
 
+/** Starting offsets along the demand curve, cycled per lane so short lanes stagger. */
+const PHASES = [0.5, 0.15, 0.8, 0.35, 0.65];
+
 /** Distinct colors for appointment types with no planning-palette match. */
 const EXTRA_COLORS = [
   "#0ea5e9",
@@ -153,31 +156,28 @@ function shortLabel(name: string): string {
     .toUpperCase();
 }
 
-/** One appointment type's share of a track. */
-export interface DayPlanType {
+/** One lane of a department track: a single appointment type, one appt per slot. */
+export interface DayPlanColumn {
+  /** `${departmentId}:${trackType}:${apptType}:${lane}`. */
+  id: string;
+  /** The appointment type this lane books — types never share a lane. */
   name: string;
   short: string;
+  /** Track name from the shared rules, e.g. "NAD / Clinic" or "Urgent Care". */
+  trackName: string;
+  /** The schedule department this track belongs to. */
+  deptName: string;
   color: string;
+  /** Appointments placed on this day. */
   count: number;
   avgValue: number;
   revenue: number;
   cadence: "daily" | "weekly";
   /** Set when the plan exceeds the type's Max/day ceiling. */
   overCap: boolean;
-}
-
-export interface DayPlanColumn {
-  /** `${departmentId}:${trackType}`. */
-  id: string;
-  /** Track name from the shared rules, e.g. "NAD / Clinic" or "Urgent Care". */
-  name: string;
-  /** The schedule department this track belongs to. */
-  deptName: string;
-  color: string;
-  /** Appointments placed on this day. */
-  count: number;
-  revenue: number;
-  types: DayPlanType[];
+  /** 1-based lane number when a type needs more than one to fit the day. */
+  lane: number;
+  laneCount: number;
 }
 
 export interface DayPlanSlot {
@@ -185,10 +185,6 @@ export interface DayPlanSlot {
   columnId: string;
   startMinute: number;
   durationMinutes: number;
-  /** Chip label — the appointment type's short code. */
-  short: string;
-  typeName: string;
-  color: string;
 }
 
 /** A planned appointment type that can't be laid out, and why. */
@@ -237,25 +233,56 @@ export interface BizDevDayPlan {
 }
 
 /**
- * Spread `count` items across `weights` (largest-remainder) so the totals match
- * exactly and the busiest buckets get the extras.
+ * Choose `count` DISTINCT time buckets for one lane — a lane books at most one
+ * appointment per slot. Picks are spread across the whole day by walking the
+ * demand-weighted cumulative curve at even intervals, so busy hours get more
+ * slots without any two appointments landing on the same time. `phase` (0..1)
+ * offsets where along the curve the walk starts, so two short lanes don't both
+ * land on the same hour.
  */
-function distribute(count: number, weights: number[]): number[] {
-  const total = weights.reduce((s, w) => s + w, 0);
-  if (count <= 0 || weights.length === 0) return weights.map(() => 0);
-  const even = total <= 0;
-  const exact = weights.map((w) =>
-    even ? count / weights.length : (count * w) / total,
-  );
-  const base = exact.map((n) => Math.floor(n));
-  let left = count - base.reduce((s, n) => s + n, 0);
-  const order = exact
-    .map((n, i) => ({ i, rem: n - Math.floor(n) }))
-    .sort((a, b) => b.rem - a.rem || a.i - b.i);
-  for (let k = 0; left > 0; k++, left--) {
-    base[order[k % order.length].i] += 1;
+function placeOnePerSlot(
+  count: number,
+  weights: number[],
+  phase: number,
+): number[] {
+  const total = weights.length;
+  const n = Math.min(count, total);
+  if (n <= 0) return [];
+
+  const sum = weights.reduce((s, w) => s + w, 0);
+  const w = sum > 0 ? weights : weights.map(() => 1);
+  const wSum = sum > 0 ? sum : total;
+  const cumulative: number[] = [];
+  let acc = 0;
+  for (const x of w) {
+    acc += x;
+    cumulative.push(acc);
   }
-  return base;
+
+  const taken = new Set<number>();
+  for (let i = 0; i < n; i++) {
+    const target = ((i + phase) * wSum) / n;
+    let idx = cumulative.findIndex((c) => c >= target);
+    if (idx < 0) idx = total - 1;
+    if (taken.has(idx)) {
+      // Nearest free slot, looking later first so the day fills forward.
+      let free = -1;
+      for (let d = 1; d < total; d++) {
+        if (idx + d < total && !taken.has(idx + d)) {
+          free = idx + d;
+          break;
+        }
+        if (idx - d >= 0 && !taken.has(idx - d)) {
+          free = idx - d;
+          break;
+        }
+      }
+      if (free < 0) break;
+      idx = free;
+    }
+    taken.add(idx);
+  }
+  return [...taken].sort((a, b) => a - b);
 }
 
 /**
@@ -315,32 +342,27 @@ export function buildDayPlan(
     .filter((p) => p.count > 0)
     .sort((a, b) => b.count - a.count || a.row.appt_type.localeCompare(b.row.appt_type));
 
-  // Every planning department contributes its standard tracks, in setup order.
-  const columns: DayPlanColumn[] = [];
-  const columnByKey = new Map<string, DayPlanColumn>();
-  const trackOwner = new Map<string, { deptId: string; track: GuideTrack }[]>();
+  // Every planning department contributes its standard tracks, in setup order;
+  // a type is then given its OWN lane(s) inside its track so two appointment
+  // types never share a column, and a lane never double-books a time slot.
+  const trackOrder: { key: string; deptName: string; track: GuideTrack }[] = [];
+  const trackIndex = new Map<string, number>();
+  const tracksByDept = new Map<string, GuideTrack[]>();
   for (const dept of rules.planningDepartments) {
     const tracks = guideTracksFor(dept.name, 1);
-    trackOwner.set(dept.id, tracks.map((track) => ({ deptId: dept.id, track })));
+    tracksByDept.set(dept.id, tracks);
     for (const track of tracks) {
-      const id = `${dept.id}:${track.type}`;
-      const col: DayPlanColumn = {
-        id,
-        name: track.name,
-        deptName: dept.name,
-        color: track.color,
-        count: 0,
-        revenue: 0,
-        types: [],
-      };
-      columns.push(col);
-      columnByKey.set(id, col);
+      const key = `${dept.id}:${track.type}`;
+      trackIndex.set(key, trackOrder.length);
+      trackOrder.push({ key, deptName: dept.name, track });
     }
   }
 
+  const built: { col: DayPlanColumn; order: number; total: number }[] = [];
   const slots: DayPlanSlot[] = [];
   const excluded: DayPlanExclusion[] = [];
   let extraColor = 0;
+  let laneOrdinal = 0;
 
   for (const { row, count, eff } of planned) {
     const mapping = rules.apptTypeDept[row.appt_type.trim()];
@@ -353,7 +375,7 @@ export function buildDayPlan(
       excluded.push({ apptType: row.appt_type, count, reason: "unmapped", deptName: null });
       continue;
     }
-    const tracks = trackOwner.get(deptId);
+    const tracks = tracksByDept.get(deptId);
     if (!tracks) {
       excluded.push({
         apptType: row.appt_type,
@@ -363,50 +385,65 @@ export function buildDayPlan(
       });
       continue;
     }
-    const track = trackForApptType(
-      tracks.map((t) => t.track),
-      row.appt_type,
-    );
-    const col = columnByKey.get(`${deptId}:${track.type}`);
-    if (!col) continue;
+    const track = trackForApptType(tracks, row.appt_type);
+    const trackKey = `${deptId}:${track.type}`;
+    const order = trackIndex.get(trackKey) ?? trackOrder.length;
+    const deptName = rules.departmentNames[deptId] ?? "";
 
     const code = planningCodeFor(row.appt_type);
     const palette = code ? APPOINTMENT_TYPES.find((a) => a.code === code) : undefined;
     const short = palette?.short ?? shortLabel(row.appt_type);
-    const chipColor =
-      palette?.color ?? EXTRA_COLORS[extraColor++ % EXTRA_COLORS.length];
+    const color = palette?.color ?? EXTRA_COLORS[extraColor++ % EXTRA_COLORS.length];
 
-    col.count += count;
-    col.revenue += count * row.avg_value;
-    col.types.push({
-      name: row.appt_type,
-      short,
-      color: chipColor,
-      count,
-      avgValue: row.avg_value,
-      revenue: count * row.avg_value,
-      cadence: row.cadence,
-      overCap: row.max_per_day > 0 && eff > row.max_per_day + 0.001,
-    });
+    // One lane holds at most one appointment per slot, so a type that can't fit
+    // the day in a single lane opens parallel lanes (two rooms running it).
+    const laneCount = Math.max(1, Math.ceil(count / buckets.length));
+    for (let lane = 0; lane < laneCount; lane++) {
+      const laneAppts =
+        Math.floor(count / laneCount) + (lane < count % laneCount ? 1 : 0);
+      if (laneAppts <= 0) continue;
+      const id = `${trackKey}:${row.id}:${lane}`;
+      built.push({
+        order,
+        total: count,
+        col: {
+          id,
+          name: row.appt_type,
+          short,
+          trackName: track.name,
+          deptName,
+          color,
+          count: laneAppts,
+          avgValue: row.avg_value,
+          revenue: laneAppts * row.avg_value,
+          cadence: row.cadence,
+          overCap: row.max_per_day > 0 && eff > row.max_per_day + 0.001,
+          lane: lane + 1,
+          laneCount,
+        },
+      });
 
-    const perBucket = distribute(count, weights);
-    perBucket.forEach((n, i) => {
-      for (let k = 0; k < n; k++) {
+      for (const i of placeOnePerSlot(laneAppts, weights, PHASES[laneOrdinal++ % PHASES.length])) {
         slots.push({
-          id: `${row.id}:${buckets[i]}:${k}`,
-          columnId: col.id,
+          id: `${id}:${buckets[i]}`,
+          columnId: id,
           startMinute: buckets[i],
           durationMinutes: stepMinutes,
-          short,
-          typeName: row.appt_type,
-          color: chipColor,
         });
       }
-    });
+    }
   }
 
-  // Only show tracks that have something planned.
-  const usedColumns = columns.filter((c) => c.count > 0);
+  // Department/track order first, then the busiest types, then lane number.
+  const columns = built
+    .sort(
+      (a, b) =>
+        a.order - b.order ||
+        b.total - a.total ||
+        a.col.name.localeCompare(b.col.name) ||
+        a.col.lane - b.col.lane,
+    )
+    .map((b) => b.col);
 
   return {
     locationId: loc.location_id,
@@ -420,11 +457,11 @@ export function buildDayPlan(
     endMinute,
     stepMinutes,
     buckets,
-    columns: usedColumns,
+    columns,
     slots,
     excluded,
-    totalAppts: usedColumns.reduce((s, c) => s + c.count, 0),
-    totalRevenue: usedColumns.reduce((s, c) => s + c.revenue, 0),
+    totalAppts: columns.reduce((s, c) => s + c.count, 0),
+    totalRevenue: columns.reduce((s, c) => s + c.revenue, 0),
     hasHourDemand,
   };
 }
