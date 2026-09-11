@@ -46,8 +46,8 @@ export interface SmartResult {
   attempts: SmartAttempt[];
 }
 
-/** Rows requested from the database for one question. */
-const ROW_LIMIT = 200;
+/** Rows requested from the database for one question. null = no cap. */
+const ROW_LIMIT: number | null = null;
 /** Rows handed back to the model when it writes the prose answer. */
 const ROWS_IN_PROMPT = 60;
 const MAX_SQL_ATTEMPTS = 4;
@@ -337,7 +337,9 @@ const SQL_RULES = `Rules for the SQL:
 - PostgreSQL. The search_path is already the app schema, so reference tables unqualified.
 - Exactly ONE statement, starting with SELECT or WITH. No semicolon. Never write INSERT,
   UPDATE, DELETE, CREATE, ALTER, DROP, GRANT, REFRESH, COPY or CALL — the query is rejected.
-- Return a small result: aggregate where possible and add ORDER BY + LIMIT (max ${ROW_LIMIT}) for lists.
+- Aggregate where possible and always add ORDER BY. Do NOT add a LIMIT unless the user
+  asked for a top-N ("top 10", "first 5") — a full list must come back complete, however
+  many rows that is. The result set is not capped.
 - Give every column a short, human-readable alias (e.g. "avg_age_years", "client_count").
 - Many tables hold one row per X per Y (per benefit, per line, per snapshot, per overdue item).
   Before counting, decide WHICH ENTITY the question is about and count(distinct <that key>) —
@@ -646,7 +648,7 @@ export async function askSmartReport(
     rows,
     columns: columnsOf(rows),
     rowCount: rows.length,
-    truncated: rows.length >= ROW_LIMIT,
+    truncated: ROW_LIMIT !== null && rows.length >= ROW_LIMIT,
     provider: summary.ok ? summary.provider : provider,
     attempts,
   };

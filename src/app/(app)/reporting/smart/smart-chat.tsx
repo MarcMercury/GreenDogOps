@@ -98,9 +98,13 @@ function toCsv(columns: string[], rows: SmartRow[]): string {
   return [columns.join(","), ...rows.map((r) => columns.map((c) => esc(r[c])).join(","))].join("\n");
 }
 
+const PREVIEW_ROWS = 12;
+/** Rows added per "Show more" — a result can be tens of thousands of rows. */
+const ROWS_PER_PAGE = 500;
+
 function ResultTable({ result }: { result: SmartResult }) {
-  const [expanded, setExpanded] = useState(false);
-  const rows = expanded ? result.rows : result.rows.slice(0, 12);
+  const [visible, setVisible] = useState(PREVIEW_ROWS);
+  const rows = result.rows.slice(0, visible);
   if (!result.rows.length || !result.columns.length) return null;
 
   const download = () => {
@@ -145,17 +149,29 @@ function ResultTable({ result }: { result: SmartResult }) {
       <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-3 py-2 text-[11px] text-slate-500">
         <span>
           {result.rowCount.toLocaleString()} row{result.rowCount === 1 ? "" : "s"}
-          {result.truncated ? " (capped)" : ""}
-          {result.rows.length > 12 && !expanded ? " — showing first 12" : ""}
+          {rows.length < result.rows.length ? ` — showing first ${rows.length.toLocaleString()}` : ""}
         </span>
         <span className="flex gap-3">
-          {result.rows.length > 12 ? (
-            <button type="button" onClick={() => setExpanded((v) => !v)} className="font-medium text-emerald-700 hover:underline">
-              {expanded ? "Show less" : "Show all"}
+          {rows.length < result.rows.length ? (
+            <button
+              type="button"
+              onClick={() => setVisible((v) => v + ROWS_PER_PAGE)}
+              className="font-medium text-emerald-700 hover:underline"
+            >
+              Show {Math.min(ROWS_PER_PAGE, result.rows.length - rows.length).toLocaleString()} more
+            </button>
+          ) : null}
+          {visible > PREVIEW_ROWS ? (
+            <button
+              type="button"
+              onClick={() => setVisible(PREVIEW_ROWS)}
+              className="font-medium text-emerald-700 hover:underline"
+            >
+              Show less
             </button>
           ) : null}
           <button type="button" onClick={download} className="font-medium text-emerald-700 hover:underline">
-            Download CSV
+            Download CSV ({result.rowCount.toLocaleString()})
           </button>
         </span>
       </div>
