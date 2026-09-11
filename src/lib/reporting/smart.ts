@@ -291,6 +291,25 @@ Wellness plan ("Green Dog Plus" / "GDD+") membership — counting this wrong is 
   is the real one; drafts also live there).
 - crm_* tables hold partner/vendor/referral/student CRM records; ce_* tables hold continuing education.
 
+Pay / salary / compensation (person_employment) — every one of these has produced a wrong answer:
+- ALWAYS join person and filter the status. "Our employees" / "our highest paid employee" means
+  p.status = 'employee' (add 'contractor' only when the question is about contractors or about
+  everyone we pay). 'former' is separated staff and 'applicant'/'prospect' are candidates who were
+  never on payroll — leaving them in returns an ex-employee as the current top earner.
+- annual_wages is the normalised ANNUAL figure and is the ONLY column to rank, compare or average
+  pay on. biweekly_wage * 26 should equal it.
+- current_rate is AMBIGUOUS: it holds an HOURLY rate for hourly staff (e.g. 23.50) and an ANNUAL
+  salary for salaried staff (e.g. 250000) in the same column. Never rank on it, never compare it
+  across people, and never multiply it by 2080 to annualise.
+- pay_type is NULL on every row today. Never filter on it and never branch on it.
+- Roughly 1 in 5 current employees has NO salary on file (annual_wages is NULL). A pay ranking
+  MUST say WHERE annual_wages IS NOT NULL and ORDER BY annual_wages DESC NULLS LAST, and should
+  report how many people were excluded for having no figure recorded.
+- The roster is hand-maintained and a handful of rows have data-entry typos (a biweekly amount
+  typed into the annual column, or an annual amount typed into the biweekly column). When ranking
+  or averaging pay, keep only plausible figures — annual_wages between 20000 and 400000 — and note
+  that implausible rows were skipped. A technician "salary" in the millions is a typo, not an answer.
+
 Doctor / provider production — get this right, it is the most commonly asked question:
 - Production is credited to the CASE OWNER, falling back to the staff member when the line has
   no case owner. Roughly 2,000 lines a month have a NULL case_owner, so grouping on case_owner
@@ -358,8 +377,13 @@ const SQL_RULES = `Rules for the SQL:
 - Ignore NULLs that would skew an average (e.g. patients with no date_of_birth), and report
   the count of rows behind an aggregate (e.g. add a "patients" count alongside "avg_age_years")
   so the answer can be sanity-checked.
+- In PostgreSQL, ORDER BY <col> DESC puts NULLs FIRST. Every "highest / top / most / largest"
+  question MUST use ORDER BY <measure> DESC NULLS LAST, and normally also WHERE <measure> IS NOT
+  NULL — otherwise the "winner" is a row with no value at all. Same for ASC and "lowest".
 - Exclude the NULL/blank grouping key from "who is top" rankings, but never let unattributed
   rows change the attribution rule — apply the coalesce described above instead.
+- Sanity-check a single-row "who is the top X" result before returning it: if the winning value is
+  orders of magnitude away from the rest of the column, it is bad data, not the answer.
 - Only use tables and columns that appear in the schema listing below.`;
 
 function planSystemPrompt(
