@@ -322,10 +322,49 @@ Wellness plan ("Green Dog Plus" / "GDD+") membership — counting this wrong is 
 - Keep these definitions STABLE across a conversation: if a follow-up question refines an earlier
   one ("of those members, how many..."), reuse the exact same population and filters as the
   previous answer so the totals still reconcile, and if you must change the definition, say so.
+REPORTING PAGE PARITY — the /reporting page is the official number. If a question asks for
+anything that page shows, query the SAME report_* view it uses, with the same year filter, and
+do NOT recompute it from ezyvet_invoice_line. A hand-rolled sum will disagree and the reader
+will treat one of them as broken.
+- Every revenue/appointment roll-up is built on the ezyvet_appointment matview, which is one row
+  per (client_contact_code, line_date, location_key) from ezyvet_invoice_line, keeping only
+  client-days that contain at least one APPOINTMENT line. A line is NOT an appointment line when
+  the product name contains 'deposit' or 'refund', or the product_group is one of: Retail;
+  Consumables, Food, and Supplements; Supplies; Parasite Control; Medications - Rx; Controlled
+  Substances - Rx; Green Dog Pet Plus Wellness Plan; Follow Up; Cremation Services; Service Fee;
+  *Discount/Credit/Deposit. revenue = sum(total_incl) of ALL lines on a qualifying day (the retail
+  items bought during that visit count), but a retail- or pharmacy-only day is dropped entirely.
+  That is why a raw sum over ezyvet_invoice_line is always HIGHER than the Reporting page
+  (July 2026: report_monthly $1,112,238.62 vs raw lines $1,174,141.65).
+- Which view backs which part of the page:
+  * headline totals -> report_overview (total_appointments, total_lines, total_revenue, unique_clients)
+  * monthly bars -> report_monthly; per clinic -> report_by_location; clinic x month -> report_location_monthly
+  * species mix -> report_by_species (species_group of the visit's biggest line)
+  * Products/Services -> report_top_product_group, report_top_product, report_product_by_location
+  * Doctors/Staff -> report_by_case_owner (production), report_by_staff (salesperson),
+    report_staff_by_location, report_case_owner_by_month
+  * DVM by Dept -> report_dvm_by_dept (joins the PUBLISHED schedule and splits a doctor's day
+    across the departments they were rostered in — it is NOT derivable from invoices alone)
+  * Clients -> report_client_summary, report_clients_by_month, report_clients_by_recency(_location)
+  * Patients -> report_patients_by_species, report_species_by_recency
+- TWO DIFFERENT BASES — never add them together or try to reconcile them, and always say which
+  one you used:
+  * APPOINTMENT base (retail-only days dropped): report_overview, report_monthly,
+    report_by_location, report_location_monthly, report_by_species.
+  * RAW INVOICE LINE base (every line, including retail and Rx): report_by_case_owner,
+    report_by_staff, report_staff_by_location, report_case_owner_by_month, report_top_product(_group),
+    report_product_by_location.
+  So the doctors' revenue will not sum to the monthly revenue. That is expected, not an error.
+- The "appointments" count also differs by view: report_overview/monthly/by_location count a
+  distinct (client, day, LOCATION); report_by_case_owner/report_by_staff count a distinct
+  (client, day) with no location. Use the view that matches the question rather than mixing them.
+- year on every report_* view comes from the line/service date, and the page defaults to the
+  LATEST year that has data (report_years), which may not be the current calendar year. For
+  "this year" use the current year; if that year has no rows, say so rather than returning zero.
+- The client and patient views are a CURRENT SNAPSHOT and are not year-scoped at all.
 - report_* views/matviews are pre-aggregated roll-ups that encode the practice's official
-  definitions. ALWAYS prefer them when one matches the question, otherwise the number will
-  disagree with what the Reporting page shows. Their "month" column is a DATE (first of the
-  month), not an integer, e.g. month = date '2026-06-01'.
+  definitions. Their "month" column is a DATE (first of the month), not an integer,
+  e.g. month = date '2026-06-01'.
 - person = staff/roster and recruiting candidates; person.status tells them apart
   ('employee', 'contractor', 'former', 'applicant', 'prospect') — always filter it, the table is
   mostly applicants. person_employment holds hire_date, pay, PTO, adp_job_title (the real job
