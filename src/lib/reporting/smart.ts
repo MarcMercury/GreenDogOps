@@ -319,6 +319,23 @@ Wellness plan ("Green Dog Plus" / "GDD+") membership — counting this wrong is 
 - Membership TENURE ("on the plan more than a year") must be measured per member, not per benefit
   row: take min(term_start_date) per customer_code, then compare that to
   current_date - interval '1 year'. term_start_date repeats on every one of that pet's benefit rows.
+- EXPIRY / RENEWAL: there is no expiry, term_end or renewal column — do NOT answer "we can't tell".
+  A plan term runs ONE YEAR from term_start_date, so a pet's plan expires (renews) on
+  term_start_date + interval '1 year'. A pet can carry benefit rows from more than one term
+  (about 1 in 5 do), so take the CURRENT term first — max(term_start_date) per pet_code — and
+  date the renewal off that:
+    with per_pet as (select pet_code, max(pet_name) as pet_name, max(customer_name) as owner_name,
+                            max(location_key) as location_key, max(term_start_date) as term_start
+                       from report_wellness_plan_current group by pet_code)
+    select pet_name, owner_name, location_key, term_start,
+           (term_start + interval '1 year')::date as renews_on
+      from per_pet
+     where (term_start + interval '1 year')::date >= date_trunc('month', current_date)::date
+       and (term_start + interval '1 year')::date <  (date_trunc('month', current_date) + interval '1 month')::date
+     order by renews_on
+  "Expiring/renewing this month" is that anniversary inside the current calendar month; a renewal
+  date already in the PAST means the plan has lapsed. Expiry is a PER-PET question (the pet holds
+  the term), so list pets with their owner, not distinct customers.
 - Keep these definitions STABLE across a conversation: if a follow-up question refines an earlier
   one ("of those members, how many..."), reuse the exact same population and filters as the
   previous answer so the totals still reconcile, and if you must change the definition, say so.
