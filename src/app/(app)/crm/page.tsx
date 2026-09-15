@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   CRM_SECTIONS,
+  isMarketingVendorOrg,
   isNonMedPartnerOrg,
   isRescueOrg,
   type OrgType,
@@ -31,16 +32,21 @@ export default async function CrmHubPage() {
   }[];
   // Rescues are a marketing_partner subtype with their own CRM, and the rest of
   // the vendor/partner org types split on category: 'marketing' = Non-Med
-  // Partners, everything else = Vendors & Supplies.
+  // Partners, 'marketing_vendor' = Marketing Vendors, the rest = Vendors &
+  // Supplies.
   const rescueCount = orgRows.filter((o) => isRescueOrg(o)).length;
   const nonMedCount = orgRows.filter(
     (o) => o.org_type !== "referral_clinic" && isNonMedPartnerOrg(o),
+  ).length;
+  const marketingVendorCount = orgRows.filter(
+    (o) => o.org_type !== "referral_clinic" && isMarketingVendorOrg(o),
   ).length;
   const suppliesCount = orgRows.filter(
     (o) =>
       o.org_type !== "referral_clinic" &&
       !isRescueOrg(o) &&
-      !isNonMedPartnerOrg(o),
+      !isNonMedPartnerOrg(o) &&
+      !isMarketingVendorOrg(o),
   ).length;
   const orgCounts: Record<string, number> = {};
   for (const o of orgRows) {
@@ -57,6 +63,7 @@ export default async function CrmHubPage() {
     if (!section) return 0;
     if (section.slug === "rescue") return rescueCount;
     if (section.slug === "vendor") return nonMedCount;
+    if (section.slug === "marketing-vendor") return marketingVendorCount;
     if (section.slug === "supplies") return suppliesCount;
     if (section.entity === "influencer") return influencerCount;
     if (section.entity === "organization") {

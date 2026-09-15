@@ -36,10 +36,12 @@ function setSidebarCollapsed(value: boolean): void {
   window.dispatchEvent(new Event(SIDEBAR_EVENT));
 }
 
-const crmSection = (slug: string): NavItem => {
+// The module key normally follows the slug (crm_<slug>); pass `key` when the
+// slug contains a hyphen or otherwise diverges from the ModuleKey.
+const crmSection = (slug: string, key?: ModuleKey): NavItem => {
   const s = CRM_SECTIONS.find((sec) => sec.slug === slug);
   return {
-    key: `crm_${slug}` as ModuleKey,
+    key: key ?? (`crm_${slug}` as ModuleKey),
     href: `/crm/${slug}`,
     label: s?.label ?? slug,
     icon: s?.icon ?? "🏢",
@@ -67,6 +69,7 @@ const MARKETING: NavItem[] = [
   crmSection("referral"),
   crmSection("rescue"),
   crmSection("vendor"),
+  crmSection("marketing-vendor", "crm_marketing_vendor"),
 ];
 
 /** Operations modules. */

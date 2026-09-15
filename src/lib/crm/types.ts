@@ -489,9 +489,7 @@ export const CRM_SUBTYPE_OPTIONS: CrmOption[] = [
   { value: "ENDODONTICS", label: "Endodontics" },
   // Office / marketing
   { value: "RETAIL", label: "Retail" },
-  { value: "PRINTING", label: "Printing" },
   { value: "Office Supply", label: "Office Supply" },
-  { value: "Industry Media", label: "Industry Media" },
   { value: "Conference / CE", label: "Conference / CE" },
   { value: "VENDORS", label: "Vendors" },
   { value: "MISCELLANEOUS", label: "Miscellaneous" },
@@ -531,7 +529,8 @@ export const CATEGORY_OPTIONS: CrmOption[] = [
   { value: "medical_supplies", label: "Medical Supplies" },
   { value: "facility_supply", label: "Facility Supply" },
   { value: "facility_maintenance", label: "Facility Maintenance" },
-  { value: "marketing", label: "Marketing" },
+  { value: "marketing", label: "Marketing (Non-Med Partner)" },
+  { value: "marketing_vendor", label: "Marketing Vendor" },
 ];
 
 export const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
@@ -738,6 +737,7 @@ export const COMPENSATION_TYPE_OPTIONS: CrmOption[] = [
 export type CrmSlug =
   | "referral"
   | "vendor"
+  | "marketing-vendor"
   | "supplies"
   | "rescue"
   | "student"
@@ -778,6 +778,13 @@ export const RESCUE_SUBTYPE = "rescue";
  * else is a Vendor & Supplies record (med, facility & office purchasing).
  */
 export const NON_MED_CATEGORY = "marketing";
+
+/**
+ * Marketing services we BUY rather than partner with — printing, media, merch,
+ * client-comms software, entertainment. Split out of NON_MED_CATEGORY by
+ * migration 0187 so Non-Med Partners stays a list of places we visit.
+ */
+export const MARKETING_VENDOR_CATEGORY = "marketing_vendor";
 
 export const CRM_SECTIONS: CrmSection[] = [
   {
@@ -821,6 +828,22 @@ export const CRM_SECTIONS: CrmSection[] = [
     ],
     category: NON_MED_CATEGORY,
     categoryExcluded: true,
+  },
+  {
+    slug: "marketing-vendor",
+    title: "Marketing Vendors",
+    label: "Marketing Vendors",
+    description:
+      "Printing, media, merchandise & other marketing services we purchase.",
+    icon: "🧾",
+    entity: "organization",
+    orgTypes: [
+      "marketing_partner",
+      "office_marketing",
+      "med_ops",
+      "facility_resource",
+    ],
+    category: MARKETING_VENDOR_CATEGORY,
   },
   {
     slug: "rescue",
@@ -879,11 +902,20 @@ export function isNonMedPartnerOrg(org: {
   return (org.category ?? "").trim().toLowerCase() === NON_MED_CATEGORY;
 }
 
+/** True when an organization is a Marketing Vendor (category = 'marketing_vendor'). */
+export function isMarketingVendorOrg(org: {
+  subtype: string | null;
+  category: string | null;
+}): boolean {
+  if (isRescueOrg(org)) return false;
+  return (org.category ?? "").trim().toLowerCase() === MARKETING_VENDOR_CATEGORY;
+}
+
 /**
  * Resolve the owning CRM section slug for a specific organization record.
  * Rescues live under their own Rescue/Shelter CRM, and the remaining
  * vendor/partner org types split on `category`: 'marketing' → Non-Med Partners,
- * everything else → Vendors & Supplies.
+ * 'marketing_vendor' → Marketing Vendors, everything else → Vendors & Supplies.
  */
 export function crmSlugForOrg(org: {
   org_type: OrgType;
@@ -892,9 +924,10 @@ export function crmSlugForOrg(org: {
 }): CrmSlug {
   if (isRescueOrg(org)) return "rescue";
   if (org.org_type === "referral_clinic") return "referral";
-  return (org.category ?? "").trim().toLowerCase() === NON_MED_CATEGORY
-    ? "vendor"
-    : "supplies";
+  const category = (org.category ?? "").trim().toLowerCase();
+  if (category === NON_MED_CATEGORY) return "vendor";
+  if (category === MARKETING_VENDOR_CATEGORY) return "marketing-vendor";
+  return "supplies";
 }
 
 export function crmSlugForContactType(t: ContactType): CrmSlug {

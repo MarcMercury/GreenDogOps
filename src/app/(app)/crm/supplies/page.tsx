@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import {
   type CrmOrganization,
+  MARKETING_VENDOR_CATEGORY,
   NON_MED_CATEGORY,
   RESCUE_SUBTYPE,
 } from "@/lib/crm/types";
@@ -21,8 +22,10 @@ export default async function SuppliesCrmPage() {
         "med_ops",
         "office_marketing",
       ])
-      // Marketing-category records are Non-Med Partners; rescues have their own CRM.
+      // Marketing-category records are Non-Med Partners, marketing_vendor ones
+      // are Marketing Vendors, and rescues have their own CRM.
       .or(`category.is.null,category.neq.${NON_MED_CATEGORY}`)
+      .or(`category.is.null,category.neq.${MARKETING_VENDOR_CATEGORY}`)
       .or(`subtype.is.null,subtype.neq.${RESCUE_SUBTYPE}`)
       .order("name", { ascending: true })
       .range(from, to),

@@ -110,6 +110,14 @@ const GROUPS: Group[] = [
         dot: "bg-violet-500",
         module: "crm_vendor",
       },
+      {
+        href: "/crm/marketing-vendor",
+        title: "Marketing Vendors",
+        desc: "Printing, media, merchandise & marketing services we buy.",
+        icon: "🧾",
+        dot: "bg-violet-500",
+        module: "crm_marketing_vendor",
+      },
     ],
   },
   {
@@ -227,6 +235,7 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
   marketing: "📣",
   crm_referral: "🏥",
   crm_vendor: "🤝",
+  crm_marketing_vendor: "🧾",
   crm_supplies: "📦",
   crm_rescue: "🐕",
   crm_business: "🤝",
