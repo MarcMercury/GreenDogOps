@@ -156,7 +156,10 @@ async function main() {
     logs: [{ message: `Appointment records finished (${done - failures}/${done} ok)` }],
   });
   log(`done — ${done - failures}/${done} windows succeeded`);
-  if (failures) process.exitCode = 1;
+  // Only a total failure fails the job: one flaky window is recorded on the
+  // agent_run (and re-read by the next day's overlapping range) and must not
+  // turn the whole morning report run red.
+  if (failures && failures === done) process.exitCode = 1;
 }
 
 main().catch((err) => {
