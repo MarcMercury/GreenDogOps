@@ -293,6 +293,42 @@ export const REPORT_SPECS: Record<string, ReportSpec> = {
   },
 
   // ── Appointments / operations ──────────────────────────────────────────────
+  appointment_records: {
+    key: "appointment_records",
+    table: "ezyvet_appointment_record",
+    required: ["all resources / vets", "division(s)", "date", "appointment type"],
+    locationFrom: "Division(s)",
+    dateColumn: "appt_date",
+    columns: [
+      txt("All Resources / Vets", "resource"),
+      txt("Division(s)", "division"),
+      { csv: "Date", column: "appt_date", type: "date" },
+      txt("Start", "start_time"),
+      { csv: "End Date", column: "end_date", type: "date" },
+      txt("End", "end_time"),
+      txt("Appointment Type", "appointment_type"),
+      txt("Appointment Group", "appointment_group"),
+      // The free-text booking note staff type on the appointment.
+      txt("Description", "description"),
+      txt("Client Name", "client_name"),
+      txt("Client Code", "client_code"),
+      txt("Pet Name", "pet_name"),
+      txt("Pet Code", "pet_code"),
+      txt("Preferred Contact", "preferred_contact"),
+      txt("Client Landline", "client_landline"),
+      txt("Client Mobile", "client_mobile"),
+      txt("Client Email", "client_email"),
+      txt("Client Address", "client_address"),
+      txt("Animal Referring Clinic", "animal_referring_clinic"),
+      txt("Animal Referring Vet", "animal_referring_vet"),
+      txt("Clinical Referring Clinic", "clinical_referring_clinic"),
+      txt("Clinical Referring Vet", "clinical_referring_vet"),
+    ],
+    // No ezyVet id in the export, so the window is rebuilt on every pull —
+    // that also picks up reschedules and cancellations for the days re-read.
+    identity: ["appt_date", "resource"],
+  },
+
   appointment_status: {
     key: "appointment_status",
     table: "ezyvet_appointment_status",

@@ -368,6 +368,20 @@ NEW CLIENTS and per-hospital client questions — read this before writing the q
   appointments everywhere. For anything forward-looking use appointment_review() and sum
   expected_count (or sum pending from the by_type function when the breakdown by type is wanted).
   Never conclude "no appointments are booked" from a future-dated query without checking pending.
+- APPOINTMENT TYPE / per-appointment detail: ezyvet_appointment_record (and the views
+  report_appointment_detail, report_appointment_type_volume, report_appointment_type_by_species)
+  is one row per APPOINTMENT with its appointment_type, the resource it was booked on, the
+  booking note, and the client_code / pet_code. This is the ONLY source that ties an appointment
+  TYPE to a specific pet and owner, so use it for "how many <type> appointments", appointment-mix,
+  and demand/volume planning by type. Do NOT confuse it with the ezyvet_appointment MATVIEW
+  (billed visit days) — different grain, different name. Coverage is whatever date windows have
+  been pulled (2026 onward), and it spans past AND future dates. Rows with an empty client_code
+  and pet_code are calendar blocks, holds and internal columns, not bookings: filter
+  is_booking on report_appointment_detail, or require a non-empty client_code/pet_code. It
+  includes CANCELLED appointments and carries no status column, so pair it with
+  cancelled_appointments()/ezyvet_appointment_status for status or show-rate questions.
+  report_appointment_detail already joins the pet (species, breed, master_problems, animal_notes)
+  and the client (notes, customer_group) — prefer it over hand-writing those joins.
 - An appointment is NOT an invoice line — never count invoice lines to answer "how many appointments".
 
 Wellness plan ("Green Dog Plus" / "GDD+") membership — counting this wrong is easy:

@@ -24,6 +24,12 @@ on:
       report_keys:
         description: "Comma-separated report keys to run (blank = all)"
         required: false
+      appt_from:
+        description: "Appointment records FROM date YYYY-MM-DD (blank = 7 days back)"
+        required: false
+      appt_to:
+        description: "Appointment records TO date YYYY-MM-DD (blank = 120 days ahead)"
+        required: false
 
 concurrency:
   group: ezyvet-extra-reports
@@ -56,8 +62,9 @@ jobs:
     needs: gate
     if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-latest
-    # 26 reports, each generating and downloading a CSV.
-    timeout-minutes: 90
+    # 26 reports, each generating and downloading a CSV, plus the detailed
+    # appointment export windows.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -84,6 +91,23 @@ jobs:
           TARGET_DATE: ${{ github.event.inputs.target_date }}
           REPORT_KEYS: ${{ github.event.inputs.report_keys }}
         run: node agent/extra-reports.mjs
+
+      # Detailed appointment records come from the Records DASHBOARD, not the
+      # Report Center, so they run as their own worker. Kept in this workflow so
+      # the two never hold two ezyVet logins for the same user at once. Runs
+      # even if a Report Center report failed above.
+      - name: Run ezyVet appointment-records worker
+        if: always()
+        env:
+          EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
+          EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}
+          EZYVET_PASSWORD: ${{ secrets.EZYVET_PASSWORD }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          AGENT_KEY: ezyvet_extra_reports
+          FROM_DATE: ${{ github.event.inputs.appt_from }}
+          TO_DATE: ${{ github.event.inputs.appt_to }}
+        run: node agent/appointment-records.mjs
 
       - name: Upload debug artifacts
         if: always()

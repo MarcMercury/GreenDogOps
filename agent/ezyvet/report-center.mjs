@@ -144,6 +144,17 @@ export function toEzyvetDate(iso) {
   return `${m}-${d}-${y}`;
 }
 
+/** Reject `promise` if it hasn't settled within `ms`. */
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    }),
+  ]);
+}
+
 /** Click the first VISIBLE element whose exact text matches `label`. */
 export async function clickVisibleText(page, label) {
   const loc = page.getByText(label, { exact: true });
@@ -165,7 +176,7 @@ export async function openReporting(page, log = () => {}) {
     await page.waitForTimeout(3000);
   }
   log("opening Reporting");
-  await page.locator('text="Reporting"').first().click();
+  await page.locator('text="Reporting"').first().click({ timeout: 30000 });
   await page.waitForTimeout(4000);
 }
 
@@ -290,10 +301,19 @@ function csvRowRegex(reportName) {
 /** Click the (global) Report Queue tab within the Reporting section. */
 async function openReportQueue(page) {
   const tab = page.getByText("Report Queue", { exact: false }).first();
-  if (await tab.count()) {
+  if (await tab.count().catch(() => 0)) {
     await tab.click().catch(() => {});
     await page.waitForTimeout(2000);
   }
+  // Newer builds render the queue inline as "Complete and Scheduled Reports"
+  // (#reportingQueueList<tab>) with no tab to click — it arrives via AJAX, so
+  // wait for its rows before any caller reads the queue.
+  await page
+    .locator('[id^="reportingQueueList"] tr')
+    .first()
+    .waitFor({ state: "attached", timeout: 60_000 })
+    .catch(() => {});
+  await page.waitForTimeout(1500);
 }
 
 /**
@@ -338,7 +358,7 @@ async function queueRowSignatures(page, nameRe) {
  * file (this is what mis-assigned the per-location Referrer Revenue results:
  * a Van Nuys run picking up Venice's file, or an empty leftover).
  */
-async function snapshotQueue(page, reportName, log = () => {}) {
+export async function snapshotQueue(page, reportName, log = () => {}) {
   await openReporting(page, log);
   await openReportQueue(page);
   const before = new Set(await queueRowSignatures(page, csvRowRegex(reportName)));
@@ -353,43 +373,83 @@ async function snapshotQueue(page, reportName, log = () => {}) {
  * Returns the saved file path.
  */
 export async function runAndDownloadCsv(page, { downloadPath, reportName, before = new Set(), log = () => {} }) {
-  const nameRe = csvRowRegex(reportName);
-
   log("running report (Print)");
-  const startedAt = Date.now();
   await clickVisibleText(page, "Print");
   await page.waitForTimeout(4000);
+  return downloadNewQueueCsv(page, { downloadPath, reportName, before, log });
+}
+
+/**
+ * Poll the Report Queue until a CSV row appears that was NOT in `before`, then
+ * download it. Split out of runAndDownloadCsv so the Records-dashboard export
+ * (which queues its report from a modal, not a Print button) can reuse it.
+ *
+ * `validate(text)` lets the caller reject a file that isn't theirs — several
+ * agents generate reports under the SAME name (e.g. "Agenda"), so a scheduled
+ * run finishing mid-poll can otherwise be mistaken for ours. A rejected row is
+ * added to the ignore set and polling continues.
+ */
+export async function downloadNewQueueCsv(page, { downloadPath, reportName, before = new Set(), timeoutMs = 180_000, validate, log = () => {} }) {
+  const nameRe = csvRowRegex(reportName);
+  const ignore = new Set(before);
 
   // Poll for a NEW completed CSV — a row whose signature was not in the queue
-  // before we clicked Print. Reload each pass to refresh the queue (the on-page
+  // before the run started. Reload each pass to refresh the queue (the on-page
   // "Refresh" is a non-clickable div), reading the SAME global Report Queue
   // view as the baseline snapshot so the signatures are comparable.
-  const deadline = startedAt + 180_000; // up to 3 min for generation
-  let newIndex = -1;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await reloadReportQueue(page, log);
-    const sigs = await queueRowSignatures(page, nameRe);
-    newIndex = sigs.findIndex((sig) => !before.has(sig));
-    if (newIndex >= 0) break;
-    await page.waitForTimeout(3000);
-  }
-  if (newIndex < 0) {
-    await page
-      .screenshot({ path: `.secrets/ezyvet-probe/queue-no-new-${reportName.replace(/\s+/g, "_")}.png`, fullPage: true })
-      .catch(() => {});
-    throw new Error(`No freshly generated CSV appeared in the Report Queue for "${reportName}" within 3 min.`);
+    // page.evaluate has no default timeout, and ezyVet's Reporting page can wedge
+    // its JS loop while a big report generates — bound the whole pass so the
+    // poll always makes progress instead of hanging forever on one reload.
+    const sigs = await withTimeout(
+      (async () => {
+        await reloadReportQueue(page, log);
+        return queueRowSignatures(page, nameRe);
+      })(),
+      120_000,
+    ).catch((err) => {
+      log(`queue poll pass failed (${err?.message ?? err}) — retrying`);
+      return null;
+    });
+    if (!sigs) continue;
+    const newIndex = sigs.findIndex((sig) => !ignore.has(sig));
+    if (newIndex < 0) {
+      await page.waitForTimeout(3000);
+      continue;
+    }
+
+    log("downloading freshly generated CSV");
+    const link = page.locator("a").filter({ hasText: nameRe }).nth(newIndex);
+    const [download] = await Promise.all([
+      page.waitForEvent("download", { timeout: 60_000 }),
+      link.click(),
+    ]);
+    // Land candidates beside the target and only promote a validated one, so a
+    // rejected file can never be mistaken for this run's export on disk.
+    const candidate = validate ? `${downloadPath}.candidate` : downloadPath;
+    await download.saveAs(candidate);
+
+    if (validate) {
+      const problem = await validate(candidate);
+      if (problem) {
+        log(`rejecting queue row (${problem}) — not this run's file, still waiting`);
+        ignore.add(sigs[newIndex]);
+        await rm(candidate, { force: true });
+        continue;
+      }
+      await rename(candidate, downloadPath);
+    }
+    log(`saved CSV → ${downloadPath}`);
+    return downloadPath;
   }
 
-  log("downloading freshly generated CSV");
-  const link = page.locator("a").filter({ hasText: nameRe }).nth(newIndex);
-  const [download] = await Promise.all([
-    page.waitForEvent("download", { timeout: 60_000 }),
-    link.click(),
-  ]);
-  await download.saveAs(downloadPath);
-  log(`saved CSV → ${downloadPath}`);
-  return downloadPath;
+  await page
+    .screenshot({ path: `.secrets/ezyvet-probe/queue-no-new-${reportName.replace(/\s+/g, "_")}.png`, fullPage: true })
+    .catch(() => {});
+  throw new Error(`No freshly generated CSV appeared in the Report Queue for "${reportName}" within ${Math.round(timeoutMs / 1000)}s.`);
 }
+
 
 /**
  * High-level: run a Report-Center report end-to-end and return the CSV path.

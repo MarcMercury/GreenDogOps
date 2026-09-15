@@ -121,6 +121,27 @@ export const REPORT_DOCS: Record<string, ReportDoc> = {
       "for client-value and basket-size questions; matched on name/email since " +
       "the report does not export the contact code.",
   },
+  appointment_records: {
+    title: "Appointment Records (detailed)",
+    report: "Dashboard ▸ Records ▸ Appointment ▸ Export - Appointments",
+    purpose: "One row per booked appointment with its type, pet, owner and booking note.",
+    comment:
+      "THE appointment-level table: one row per appointment, covering every " +
+      "hospital, with appointment_type, appointment_group, the resource/column " +
+      "it was booked on, the free-text booking note (description), and the " +
+      "client and pet it belongs to. Pulled from the ezyVet Records dashboard " +
+      "(not the Report Center), so it carries detail the agenda counts do not. " +
+      "Join pet_code to ezyvet_animal.animal_code for species/breed/master " +
+      "problems/animal notes, and client_code to ezyvet_contact.contact_code " +
+      "for the client record. Rows with an empty client_code/pet_code are " +
+      "blocks and internal calendar entries, not real bookings — exclude them " +
+      "when counting appointments. Cancelled appointments ARE included (the " +
+      "export is run with 'include cancelled'), and there is no status column " +
+      "here, so use ezyvet_appointment_status or cancelled_appointments for " +
+      "status questions. The window is rebuilt on every pull, so re-running a " +
+      "date range is idempotent and reflects reschedules. Prefer the " +
+      "report_appointment_* views so answers match the Reporting page.",
+  },
   appointment_status: {
     title: "Appointment Status Timings",
     report: "Appointment Status",
