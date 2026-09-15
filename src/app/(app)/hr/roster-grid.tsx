@@ -770,9 +770,9 @@ export function RosterGrid({
       value: (r) => r.person_employment?.schedule_type ?? null,
     },
     {
-      key: "opportunity",
-      label: "Opportunity",
-      value: (r) => opportunityShortLabel(r.opportunity_type) || null,
+      key: "title",
+      label: "Title",
+      value: jobTitle,
     },
   ];
 
