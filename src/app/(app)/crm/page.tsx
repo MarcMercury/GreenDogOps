@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   CRM_SECTIONS,
+  isNonMedPartnerOrg,
   isRescueOrg,
   type OrgType,
   type ContactType,
@@ -14,7 +15,7 @@ export default async function CrmHubPage() {
   const supabase = await createClient();
 
   const [orgRes, contactRes] = await Promise.all([
-    supabase.from("crm_organization").select("org_type, subtype"),
+    supabase.from("crm_organization").select("org_type, subtype, category"),
     supabase.from("crm_contact").select("contact_type"),
   ]);
 
@@ -23,10 +24,24 @@ export default async function CrmHubPage() {
     .select("id", { count: "exact", head: true });
   const influencerCount = influencerRes.count ?? 0;
 
-  const orgRows = (orgRes.data ?? []) as { org_type: OrgType; subtype: string | null }[];
-  // Rescues are a marketing_partner subtype that now has its own CRM, so they
-  // are counted separately and excluded from the Vendor & Partner total.
+  const orgRows = (orgRes.data ?? []) as {
+    org_type: OrgType;
+    subtype: string | null;
+    category: string | null;
+  }[];
+  // Rescues are a marketing_partner subtype with their own CRM, and the rest of
+  // the vendor/partner org types split on category: 'marketing' = Non-Med
+  // Partners, everything else = Vendors & Supplies.
   const rescueCount = orgRows.filter((o) => isRescueOrg(o)).length;
+  const nonMedCount = orgRows.filter(
+    (o) => o.org_type !== "referral_clinic" && isNonMedPartnerOrg(o),
+  ).length;
+  const suppliesCount = orgRows.filter(
+    (o) =>
+      o.org_type !== "referral_clinic" &&
+      !isRescueOrg(o) &&
+      !isNonMedPartnerOrg(o),
+  ).length;
   const orgCounts: Record<string, number> = {};
   for (const o of orgRows) {
     if (isRescueOrg(o)) continue;
@@ -41,6 +56,8 @@ export default async function CrmHubPage() {
     const section = CRM_SECTIONS.find((s) => s.slug === slug);
     if (!section) return 0;
     if (section.slug === "rescue") return rescueCount;
+    if (section.slug === "vendor") return nonMedCount;
+    if (section.slug === "supplies") return suppliesCount;
     if (section.entity === "influencer") return influencerCount;
     if (section.entity === "organization") {
       return (section.orgTypes ?? []).reduce(

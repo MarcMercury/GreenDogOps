@@ -82,6 +82,7 @@ const MODULES_BOTTOM: NavItem[] = [
 const MED_OPS: NavItem[] = [
   { key: "med_boards", href: "/med-ops/medical-boards", label: "Medical Boards", icon: "🩺" },
   { key: "med_boards", href: "/med-ops/board-archive", label: "Board Archive", icon: "🗄️" },
+  crmSection("supplies"),
   { key: "ezyvet", href: "/ezyvet", label: "ezyVet Contacts", icon: "🐾" },
   { key: "ezyvet", href: "/ezyvet/patients", label: "ezyVet Patients", icon: "🐕" },
 ];

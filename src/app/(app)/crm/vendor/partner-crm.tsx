@@ -1,0 +1,1251 @@
+"use client";
+
+import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { PageHeader } from "../../_components/ui";
+import {
+  type CrmOrganization,
+  type CrmOrgVisit,
+  type OrgActivityLogEntry,
+  ORG_STATUS_OPTIONS,
+  ORG_TYPE_LABELS,
+  PARTNER_VISIT_TOPIC_OPTIONS,
+  agreementStatusLabel,
+  partnerVisitTopicLabel,
+  orgActivityActionLabel,
+  subtypeLabel,
+} from "@/lib/crm/types";
+import {
+  ZONE_DEFINITIONS,
+  getZoneDisplay,
+  formatDate,
+  statusClass,
+} from "@/lib/crm/referral-types";
+import { logPartnerVisit, deletePartnerOrg, sendPartnerEmail } from "./actions";
+import { PartnerMap } from "./partner-map";
+import { EmailComposeDialog } from "../_components/email-compose-dialog";
+import {
+  buildPartnerTemplateVars,
+  type EmailTemplate,
+} from "@/lib/crm/email-templates";
+import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
+
+type TabKey = "list" | "map" | "targeting" | "activity" | "reports";
+
+const TABS: { key: TabKey; label: string; icon: string }[] = [
+  { key: "list", label: "Partners", icon: "📋" },
+  { key: "map", label: "Map View", icon: "🗺️" },
+  { key: "targeting", label: "Targeting", icon: "🎯" },
+  { key: "activity", label: "Activity", icon: "🕑" },
+  { key: "reports", label: "Reports", icon: "📊" },
+];
+
+const fieldInput =
+  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+const fieldLabel = "text-xs font-medium text-slate-500";
+const selectClass =
+  "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+
+/** Areas in canonical order plus an "Unassigned" bucket last. */
+const UNASSIGNED = "__unassigned__";
+
+/** Display label for a partner's business type. */
+function typeLabel(p: CrmOrganization): string {
+  return p.subtype ? subtypeLabel(p.subtype) : ORG_TYPE_LABELS[p.org_type];
+}
+
+function daysSince(date: string | null | undefined): number | null {
+  if (!date) return null;
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86_400_000);
+}
+
+// Sort by last visit ASC with never-visited first (they are the highest
+// targeting priority). Stable-ish tiebreak on name.
+function compareByVisit(a: CrmOrganization, b: CrmOrganization): number {
+  const av = a.last_visit_date ?? "";
+  const bv = b.last_visit_date ?? "";
+  if (av === bv) return a.name.localeCompare(b.name);
+  if (!av) return -1;
+  if (!bv) return 1;
+  return av < bv ? -1 : 1;
+}
+
+export function PartnerCrm({
+  partners,
+  visits,
+  auditLog,
+  canEdit,
+  mapsApiKey,
+  templates,
+  senderName,
+  senderEmail,
+}: {
+  partners: CrmOrganization[];
+  visits: CrmOrgVisit[];
+  auditLog: OrgActivityLogEntry[];
+  canEdit: boolean;
+  mapsApiKey: string;
+  templates: EmailTemplate[];
+  senderName: string | null;
+  senderEmail: string | null;
+}) {
+  const router = useRouter();
+  const [tab, setTab] = useState<TabKey>("list");
+  const [search, setSearch] = useState("");
+  const [area, setArea] = useState("");
+  const [status, setStatus] = useState("");
+  const [type, setType] = useState("");
+
+  const [quickVisitFor, setQuickVisitFor] = useState<CrmOrganization | "any" | null>(null);
+  const [emailFor, setEmailFor] = useState<CrmOrganization | null>(null);
+  const [detail, setDetail] = useState<CrmOrganization | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+
+  function notify(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 4000);
+  }
+
+  const nameById = useMemo(
+    () => new Map(partners.map((p) => [p.id, p.name])),
+    [partners],
+  );
+
+  const typeOptions = useMemo(
+    () => [...new Set(partners.map(typeLabel))].filter(Boolean).sort(),
+    [partners],
+  );
+
+  const stats = useMemo(() => {
+    const total = partners.length;
+    const active = partners.filter(
+      (p) => (p.status || "").toLowerCase() === "active" || p.is_active,
+    ).length;
+    const neverVisited = partners.filter((p) => !p.last_visit_date).length;
+    const signed = partners.filter((p) => p.agreement_status === "signed").length;
+    const visited90 = partners.filter((p) => {
+      const d = daysSince(p.last_visit_date);
+      return d != null && d <= 90;
+    }).length;
+    return { total, active, neverVisited, signed, visited90 };
+  }, [partners]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return partners.filter((p) => {
+      if (q) {
+        const hay = `${p.name} ${p.contact_name ?? ""} ${p.email ?? ""} ${p.area ?? ""} ${typeLabel(p)}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      if (area && p.area !== area) return false;
+      if (status && (p.status || "").toLowerCase() !== status) return false;
+      if (type && typeLabel(p) !== type) return false;
+      return true;
+    });
+  }, [partners, search, area, status, type]);
+
+  function onDelete(p: CrmOrganization) {
+    if (!confirm(`Delete "${p.name}"? This also removes its visit log and attachments.`)) return;
+    startTransition(async () => {
+      const res = await deletePartnerOrg(p.id);
+      notify(res.ok ? "Partner deleted." : `Error: ${res.error}`);
+      if (res.ok) router.refresh();
+    });
+  }
+
+  function exportCsv() {
+    const cols = [
+      "Name", "Type", "Area", "Status", "Agreement",
+      "Contact", "Phone", "Email", "Address", "Last Visit", "Notes",
+    ];
+    const rows = filtered.map((p) => [
+      p.name, typeLabel(p), getZoneDisplay(p.area), p.status ?? "",
+      agreementStatusLabel(p.agreement_status),
+      p.contact_name ?? "", p.phone ?? "", p.email ?? "",
+      [p.address, p.city, p.state, p.zip].filter(Boolean).join(", "),
+      p.last_visit_date ?? "", (p.notes ?? "").replace(/\n/g, " "),
+    ]);
+    const csv = [cols, ...rows]
+      .map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "non-med-partners-export.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="space-y-6">
+      {!canEdit && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          You have read-only access to Non-Med Partners. Changes are disabled.
+        </div>
+      )}
+      <PageHeader
+        eyebrow="CRM"
+        title="Non-Med Partners"
+        description="Marketing & community business partners, visits, and outreach"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {canEdit && (
+              <button
+                onClick={() => setQuickVisitFor("any")}
+                className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700"
+              >
+                📍 Quick Visit
+              </button>
+            )}
+            <button
+              onClick={exportCsv}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              ⬇ Export
+            </button>
+            {canEdit && (
+              <Link
+                href="/crm/org/new?section=vendor"
+                className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
+              >
+                + Add Partner
+              </Link>
+            )}
+          </div>
+        }
+      />
+
+      {/* Tabs */}
+      <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-200 pb-px sm:flex-wrap">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`relative whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-medium transition ${
+              tab === t.key
+                ? "bg-white text-emerald-700 shadow-[inset_0_-2px_0_0_#059669]"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <span className="mr-1">{t.icon}</span>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "list" && (
+        <ListTab
+          partners={filtered}
+          stats={stats}
+          typeOptions={typeOptions}
+          search={search} setSearch={setSearch}
+          area={area} setArea={setArea}
+          status={status} setStatus={setStatus}
+          type={type} setType={setType}
+          canEdit={canEdit}
+          onView={(p) => setDetail(p)}
+          onQuickVisit={(p) => setQuickVisitFor(p)}
+          onEmail={(p) => setEmailFor(p)}
+          onDelete={onDelete}
+        />
+      )}
+      {tab === "map" && (
+        <PartnerMap
+          partners={partners}
+          mapsApiKey={mapsApiKey}
+          canEdit={canEdit}
+          onView={(p) => setDetail(p)}
+          onNotify={notify}
+        />
+      )}
+      {tab === "targeting" && (
+        <TargetingTab
+          partners={partners}
+          onFilterArea={(z) => { setArea(z); setTab("list"); }}
+        />
+      )}
+      {tab === "activity" && <ActivityTab visits={visits} auditLog={auditLog} nameById={nameById} />}
+      {tab === "reports" && <ReportsTab partners={partners} />}
+
+      {detail && (
+        <PartnerDetailDialog
+          partner={detail}
+          visits={visits.filter((v) => v.org_id === detail.id)}
+          canEdit={canEdit}
+          onClose={() => setDetail(null)}
+          onEdit={() => { const id = detail.id; setDetail(null); router.push(`/crm/org/${id}`); }}
+          onQuickVisit={() => { setQuickVisitFor(detail); setDetail(null); }}
+          onEmail={() => { setEmailFor(detail); setDetail(null); }}
+        />
+      )}
+
+      {quickVisitFor && (
+        <QuickVisitDialog
+          partner={quickVisitFor === "any" ? null : quickVisitFor}
+          partners={partners}
+          onClose={() => setQuickVisitFor(null)}
+          onSaved={(msg) => { setQuickVisitFor(null); notify(msg); router.refresh(); }}
+        />
+      )}
+
+      {emailFor && (
+        <EmailComposeDialog
+          accountName={emailFor.name}
+          defaultTo={emailFor.email ?? emailFor.secondary_contact_email ?? ""}
+          templates={templates}
+          vars={buildPartnerTemplateVars(emailFor, { name: senderName, email: senderEmail })}
+          fromNote="From: Green Dog Partners <partners@greendogops.com>"
+          sendAction={async ({ to, subject, body, templateName }) => {
+            const fd = new FormData();
+            fd.set("orgId", emailFor.id);
+            fd.set("to", to);
+            fd.set("subject", subject);
+            fd.set("body", body);
+            if (templateName) fd.set("templateName", templateName);
+            return sendPartnerEmail(fd);
+          }}
+          onClose={() => setEmailFor(null)}
+          onSent={(msg) => { setEmailFor(null); notify(msg); }}
+        />
+      )}
+
+      {toast && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Stat card
+// ===========================================================================
+function StatCard({ label, value, tone }: { label: string; value: string; tone: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+      <div className={`text-2xl font-bold ${tone}`}>{value}</div>
+      <div className="mt-0.5 text-xs font-medium text-slate-500">{label}</div>
+    </div>
+  );
+}
+
+function IconBtn({ children, title, onClick, danger }: { children: React.ReactNode; title: string; onClick: () => void; danger?: boolean }) {
+  return (
+    <button
+      title={title}
+      onClick={onClick}
+      className={`flex h-8 w-8 items-center justify-center rounded-lg border text-sm transition ${
+        danger ? "border-red-200 text-red-600 hover:bg-red-50" : "border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// ===========================================================================
+// Detail overlay
+// ===========================================================================
+function Modal({ children, onClose, wide }: { children: React.ReactNode; onClose: () => void; wide?: boolean }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
+      <div
+        className={`max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white shadow-xl sm:rounded-2xl ${wide ? "sm:max-w-3xl" : "sm:max-w-xl"}`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <dt className="text-[11px] font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd className="mt-0.5 text-sm text-slate-800">{value || "—"}</dd>
+    </div>
+  );
+}
+
+function PartnerDetailDialog({
+  partner, visits, canEdit, onClose, onEdit, onQuickVisit, onEmail,
+}: {
+  partner: CrmOrganization;
+  visits: CrmOrgVisit[];
+  canEdit: boolean;
+  onClose: () => void;
+  onEdit: () => void;
+  onQuickVisit: () => void;
+  onEmail: () => void;
+}) {
+  const [detailTab, setDetailTab] = useState<
+    "contact" | "details" | "agreement" | "activity"
+  >("contact");
+  const addr = [partner.address, partner.city, partner.state, partner.zip].filter(Boolean).join(", ");
+  return (
+    <Modal onClose={onClose} wide>
+      <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-4">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900">
+            {partner.name}
+            {partner.is_preferred && <span className="ml-1.5 text-amber-500">★</span>}
+          </h2>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${statusClass(partner.status)}`}>{partner.status || (partner.is_active ? "active" : "—")}</span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{typeLabel(partner)}</span>
+            {partner.agreement_status && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{agreementStatusLabel(partner.agreement_status)}</span>}
+            {partner.area && <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{getZoneDisplay(partner.area)}</span>}
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {canEdit && <button onClick={onEmail} className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-50">Send Email</button>}
+          {canEdit && <button onClick={onQuickVisit} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700">Log Visit</button>}
+          <button onClick={onEdit} className="rounded-lg bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-800">Edit</button>
+          <button onClick={onClose} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-slate-500 hover:bg-slate-50">✕</button>
+        </div>
+      </div>
+
+      <div className="space-y-6 p-5">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatCard label="Visits" value={visits.length.toLocaleString()} tone="text-sky-700" />
+          <StatCard label="Last Visit" value={formatDate(partner.last_visit_date)} tone="text-slate-700" />
+          <StatCard label="Last Contact" value={formatDate(partner.last_contact_date)} tone="text-slate-700" />
+          <StatCard label="Confirmed Leads" value={(partner.confirmed_leads ?? 0).toLocaleString()} tone="text-emerald-700" />
+        </div>
+
+        <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-100 pb-2">
+          {([
+            { key: "contact", label: "Contact" },
+            { key: "details", label: "Details" },
+            { key: "agreement", label: "Agreement" },
+            { key: "activity", label: "Activity" },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setDetailTab(t.key)}
+              className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${detailTab === t.key ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {detailTab === "contact" && (
+          <div className="space-y-6">
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Contact</h3>
+              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <DetailRow label="Contact" value={partner.contact_name} />
+                <DetailRow label="Title" value={partner.title} />
+                <DetailRow label="Phone" value={partner.phone ? <a className="text-emerald-700 hover:underline" href={`tel:${partner.phone}`}>{partner.phone}</a> : null} />
+                <DetailRow label="Alt Phone" value={partner.phone_alt} />
+                <DetailRow label="Email" value={partner.email ? <a className="text-emerald-700 hover:underline" href={`mailto:${partner.email}`}>{partner.email}</a> : null} />
+                <DetailRow label="Website" value={partner.website ? <a className="text-emerald-700 hover:underline" href={partner.website} target="_blank" rel="noreferrer">{partner.website}</a> : null} />
+                <DetailRow label="Instagram" value={partner.instagram} />
+                <DetailRow label="Address" value={addr || null} />
+              </dl>
+            </section>
+
+            {(partner.secondary_contact_name || partner.secondary_contact_email || partner.secondary_contact_phone) && (
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Secondary Contact</h3>
+                <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <DetailRow label="Name" value={partner.secondary_contact_name} />
+                  <DetailRow label="Title" value={partner.secondary_contact_title} />
+                  <DetailRow label="Phone" value={partner.secondary_contact_phone} />
+                  <DetailRow label="Email" value={partner.secondary_contact_email} />
+                </dl>
+              </section>
+            )}
+          </div>
+        )}
+
+        {detailTab === "details" && (
+          <section>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Type" value={typeLabel(partner)} />
+              <DetailRow label="Area" value={partner.area ? getZoneDisplay(partner.area) : null} />
+              <DetailRow label="Status" value={partner.status || (partner.is_active ? "active" : null)} />
+              <DetailRow label="Tier" value={partner.tier} />
+              <DetailRow label="Priority" value={partner.priority} />
+              <DetailRow label="Preferred" value={partner.is_preferred ? "Yes" : null} />
+              <DetailRow label="Services" value={partner.services} />
+              <DetailRow label="Membership Level" value={partner.membership_level} />
+              <DetailRow label="Account Rep" value={partner.account_rep} />
+            </dl>
+          </section>
+        )}
+
+        {detailTab === "agreement" && (
+          <section>
+            <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <DetailRow label="Agreement" value={agreementStatusLabel(partner.agreement_status)} />
+              <DetailRow label="Agreement Signed" value={formatDate(partner.agreement_signed_date)} />
+              <DetailRow label="Tax ID / W-9" value={partner.tax_id} />
+              <DetailRow label="Annual Fee" value={partner.annual_fee != null ? partner.annual_fee.toLocaleString() : null} />
+              <DetailRow label="Account Number" value={partner.account_number} />
+              <DetailRow label="Confirmed Leads" value={partner.confirmed_leads != null ? partner.confirmed_leads.toLocaleString() : null} />
+              <DetailRow label="Confirmed Clients" value={partner.confirmed_clients != null ? partner.confirmed_clients.toLocaleString() : null} />
+              <DetailRow label="Last Visit" value={formatDate(partner.last_visit_date)} />
+              <DetailRow label="Last Contact" value={formatDate(partner.last_contact_date)} />
+            </dl>
+          </section>
+        )}
+
+        {detailTab === "activity" && (
+          <div className="space-y-6">
+            <section>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Visit History</h3>
+              {visits.length === 0 ? (
+                <p className="text-sm text-slate-400">No visits logged yet.</p>
+              ) : (
+                <ol className="space-y-2">
+                  {visits.slice(0, 10).map((v) => (
+                    <li key={v.id} className="rounded-lg border border-slate-100 p-3">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium text-slate-700">{formatDate(v.visit_date)}</span>
+                        {v.spoke_to && <span className="text-xs text-slate-400">with {v.spoke_to}</span>}
+                      </div>
+                      {v.topics && v.topics.length > 0 && (
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {v.topics.map((t) => (
+                            <span key={t} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{partnerVisitTopicLabel(t)}</span>
+                          ))}
+                        </div>
+                      )}
+                      {v.visit_notes && <p className="mt-1 text-sm text-slate-600">{v.visit_notes}</p>}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+
+            {partner.notes && partner.notes.trim() && (
+              <section>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Notes</h3>
+                <p className="whitespace-pre-wrap rounded-lg border border-slate-100 p-3 text-sm text-slate-600">{partner.notes}</p>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ===========================================================================
+// List tab
+// ===========================================================================
+function ListTab({
+  partners, stats, typeOptions, search, setSearch, area, setArea, status, setStatus,
+  type, setType, canEdit, onView, onQuickVisit, onEmail, onDelete,
+}: {
+  partners: CrmOrganization[];
+  stats: { total: number; active: number; neverVisited: number; signed: number; visited90: number };
+  typeOptions: string[];
+  search: string; setSearch: (v: string) => void;
+  area: string; setArea: (v: string) => void;
+  status: string; setStatus: (v: string) => void;
+  type: string; setType: (v: string) => void;
+  canEdit: boolean;
+  onView: (p: CrmOrganization) => void;
+  onQuickVisit: (p: CrmOrganization) => void;
+  onEmail: (p: CrmOrganization) => void;
+  onDelete: (p: CrmOrganization) => void;
+}) {
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        <StatCard label="Total Partners" value={String(stats.total)} tone="text-emerald-700" />
+        <StatCard label="Active" value={String(stats.active)} tone="text-emerald-600" />
+        <StatCard label="Visited (90d)" value={String(stats.visited90)} tone="text-indigo-700" />
+        <StatCard label="Signed Agreements" value={String(stats.signed)} tone="text-sky-700" />
+        <StatCard label="Never Visited" value={String(stats.neverVisited)} tone="text-amber-600" />
+      </div>
+
+      <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search partners…"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:w-64"
+          />
+          <select value={area} onChange={(e) => setArea(e.target.value)} className={selectClass}>
+            <option value="">All Areas</option>
+            {ZONE_DEFINITIONS.map((z) => <option key={z.value} value={z.value}>{z.title}</option>)}
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
+            <option value="">All Statuses</option>
+            {ORG_STATUS_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+          <select value={type} onChange={(e) => setType(e.target.value)} className={selectClass}>
+            <option value="">All Types</option>
+            {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <PartnerTable partners={partners} canEdit={canEdit} onView={onView} onQuickVisit={onQuickVisit} onEmail={onEmail} onDelete={onDelete} />
+    </div>
+  );
+}
+
+type PartnerSortKey = "name" | "type" | "area" | "status" | "agreement" | "last_visit";
+
+function PartnerTable({
+  partners, canEdit, onView, onQuickVisit, onEmail, onDelete,
+}: {
+  partners: CrmOrganization[];
+  canEdit: boolean;
+  onView: (p: CrmOrganization) => void;
+  onQuickVisit: (p: CrmOrganization) => void;
+  onEmail: (p: CrmOrganization) => void;
+  onDelete: (p: CrmOrganization) => void;
+}) {
+  const [sortKey, setSortKey] = useState<PartnerSortKey>("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: PartnerSortKey) {
+    if (k === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(k);
+      // Date columns are most useful newest-first.
+      setSortDir(k === "last_visit" ? "desc" : "asc");
+    }
+  }
+
+  const sorted = useMemo(() => {
+    const value = (p: CrmOrganization): string | number => {
+      switch (sortKey) {
+        case "name": return (p.name ?? "").toLowerCase();
+        case "type": return typeLabel(p).toLowerCase();
+        case "area": return getZoneDisplay(p.area).toLowerCase();
+        case "status": return (p.status || (p.is_active ? "active" : "")).toLowerCase();
+        case "agreement": return (agreementStatusLabel(p.agreement_status) || "").toLowerCase();
+        case "last_visit": return p.last_visit_date ? new Date(p.last_visit_date).getTime() : 0;
+      }
+    };
+    const arr = [...partners].sort((a, b) => {
+      const av = value(a);
+      const bv = value(b);
+      if (av < bv) return -1;
+      if (av > bv) return 1;
+      return (a.name ?? "").localeCompare(b.name ?? "");
+    });
+    return sortDir === "desc" ? arr.reverse() : arr;
+  }, [partners, sortKey, sortDir]);
+
+  if (partners.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-500">
+        No partners match your filters.
+      </div>
+    );
+  }
+
+  const arrow = (k: PartnerSortKey) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+  const sortableTh = (k: PartnerSortKey, label: string, extra = "") => (
+    <th className={`px-3 py-3 ${extra}`}>
+      <button
+        type="button"
+        onClick={() => toggleSort(k)}
+        className={`inline-flex items-center gap-0.5 uppercase tracking-wide transition hover:text-slate-700 ${sortKey === k ? "text-slate-700" : ""}`}
+      >
+        {label}
+        <span className="text-[10px]">{arrow(k)}</span>
+      </button>
+    </th>
+  );
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="hidden max-h-[70vh] overflow-auto sm:block">
+      <table className="w-full text-sm">
+        <thead className="sticky top-0 z-10 bg-slate-50 shadow-[inset_0_-1px_0_rgb(226_232_240)]">
+          <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            {sortableTh("name", "Partner", "px-4")}
+            {sortableTh("type", "Type")}
+            {sortableTh("area", "Area")}
+            {sortableTh("status", "Status")}
+            {sortableTh("agreement", "Agreement")}
+            {sortableTh("last_visit", "Last Visit")}
+            <th className="px-3 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-200">
+          {sorted.map((p) => (
+            <tr key={p.id} className="group cursor-pointer transition hover:bg-emerald-50/40" onClick={() => onView(p)}>
+              <td className="px-4 py-3">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-slate-900">
+                    {p.name}
+                    {p.is_preferred && <span className="ml-1.5 text-amber-500">★</span>}
+                  </div>
+                  {p.contact_name && <div className="truncate text-xs text-slate-400">{p.contact_name}</div>}
+                </div>
+              </td>
+              <td className="px-3 py-3 text-xs text-slate-500">{typeLabel(p)}</td>
+              <td className="px-3 py-3 text-xs text-slate-500">{getZoneDisplay(p.area)}</td>
+              <td className="px-3 py-3">
+                <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${statusClass(p.status)}`}>
+                  {p.status || (p.is_active ? "active" : "—")}
+                </span>
+              </td>
+              <td className="px-3 py-3 text-xs text-slate-500">{agreementStatusLabel(p.agreement_status) || "—"}</td>
+              <td className="px-3 py-3 text-xs text-slate-500">{formatDate(p.last_visit_date)}</td>
+              <td className="px-3 py-3">
+                <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                  <IconBtn title="View" onClick={() => onView(p)}>👁</IconBtn>
+                  {canEdit && <IconBtn title="Send email" onClick={() => onEmail(p)}>✉️</IconBtn>}
+                  {canEdit && <IconBtn title="Quick visit" onClick={() => onQuickVisit(p)}>📍</IconBtn>}
+                  {canEdit && <IconBtn title="Delete" onClick={() => onDelete(p)} danger>🗑</IconBtn>}
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="divide-y divide-slate-100 sm:hidden">
+        {sorted.map((p) => (
+          <div key={p.id} className="p-4" onClick={() => onView(p)}>
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="truncate font-medium text-slate-900">{p.name}</div>
+                <div className="truncate text-xs text-slate-400">{typeLabel(p)} · {getZoneDisplay(p.area)}</div>
+              </div>
+              <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ${statusClass(p.status)}`}>{p.status || "—"}</span>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+              <span>{agreementStatusLabel(p.agreement_status) || "No agreement"}</span>
+              <span>Visit {formatDate(p.last_visit_date)}</span>
+            </div>
+            {canEdit && (
+              <div className="mt-2 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                <IconBtn title="Send email" onClick={() => onEmail(p)}>✉️</IconBtn>
+                <IconBtn title="Quick visit" onClick={() => onQuickVisit(p)}>📍</IconBtn>
+                <IconBtn title="Delete" onClick={() => onDelete(p)} danger>🗑</IconBtn>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Targeting tab — grouped by area, oldest→newest visit within each area
+// ===========================================================================
+function TargetingTab({
+  partners, onFilterArea,
+}: {
+  partners: CrmOrganization[];
+  onFilterArea: (z: string) => void;
+}) {
+  const groups = useMemo(() => {
+    const zoneOrder: string[] = ZONE_DEFINITIONS.map((z) => z.value);
+    const buckets = new Map<string, CrmOrganization[]>();
+    for (const p of partners) {
+      const key = p.area && zoneOrder.includes(p.area) ? p.area : UNASSIGNED;
+      const arr = buckets.get(key) ?? [];
+      arr.push(p);
+      buckets.set(key, arr);
+    }
+    const ordered: { value: string; title: string; list: CrmOrganization[] }[] = [];
+    for (const z of ZONE_DEFINITIONS) {
+      const list = buckets.get(z.value);
+      if (list && list.length) ordered.push({ value: z.value, title: z.title, list: [...list].sort(compareByVisit) });
+    }
+    const un = buckets.get(UNASSIGNED);
+    if (un && un.length) ordered.push({ value: UNASSIGNED, title: "Unassigned Area 📍", list: [...un].sort(compareByVisit) });
+    return ordered;
+  }, [partners]);
+
+  const [open, setOpen] = useState<string | null>(groups[0]?.value ?? null);
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-slate-500">
+        Partners grouped by area, then ordered from the <strong>oldest (or never) visited</strong> to the most recent — work top-down to keep every relationship warm.
+      </p>
+      {groups.length === 0 && (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-500">
+          No partners to target yet.
+        </div>
+      )}
+      {groups.map((g) => {
+        const isOpen = open === g.value;
+        const never = g.list.filter((p) => !p.last_visit_date).length;
+        return (
+          <div key={g.value} className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+            <button
+              onClick={() => setOpen(isOpen ? null : g.value)}
+              className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-slate-50"
+            >
+              <span className="font-medium text-slate-800">{g.title}</span>
+              <span className="flex items-center gap-2 text-xs">
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{g.list.length}</span>
+                {never > 0 && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-700">{never} never visited</span>}
+              </span>
+            </button>
+            {isOpen && (
+              <div className="border-t border-slate-100">
+                {g.value !== UNASSIGNED && (
+                  <button onClick={() => onFilterArea(g.value)} className="px-4 pt-2 text-xs font-medium text-emerald-700 hover:underline">
+                    Filter Partners by this area →
+                  </button>
+                )}
+                <AreaPartnerTable list={g.list} />
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AreaPartnerTable({ list }: { list: CrmOrganization[] }) {
+  const router = useRouter();
+  const sort = useTableSort(list, {
+    partner: (p) => p.name,
+    type: (p) => typeLabel(p),
+    lastVisit: (p) => p.last_visit_date,
+    daysSince: (p) => daysSince(p.last_visit_date) ?? Number.MAX_SAFE_INTEGER,
+  });
+  return (
+    <table className="mt-1 w-full text-sm">
+      <thead className={stickyHeadClass}>
+        <tr className="border-b border-slate-100 text-left text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <SortHeader label="Partner" sortKey="partner" sort={sort} className="px-4 py-2" />
+          <SortHeader label="Type" sortKey="type" sort={sort} className="px-3 py-2" />
+          <SortHeader label="Last Visit" sortKey="lastVisit" sort={sort} className="px-3 py-2" />
+          <SortHeader label="Days Since" sortKey="daysSince" sort={sort} align="right" className="px-3 py-2" />
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-slate-100">
+        {sort.sorted.map((p) => {
+          const d = daysSince(p.last_visit_date);
+          return (
+            <tr key={p.id} className="cursor-pointer hover:bg-slate-50" onClick={() => router.push(`/crm/org/${p.id}`)}>
+              <td className="px-4 py-2 text-slate-700">{p.name}</td>
+              <td className="px-3 py-2 text-xs text-slate-500">{typeLabel(p)}</td>
+              <td className="px-3 py-2 text-xs text-slate-500">{formatDate(p.last_visit_date)}</td>
+              <td className="px-3 py-2 text-right text-xs">
+                {p.last_visit_date ? (
+                  <span className={d != null && d > 180 ? "font-medium text-red-600" : "text-slate-500"}>{d}d</span>
+                ) : (
+                  <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-700">never</span>
+                )}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+// ===========================================================================
+// Activity tab — full audit feed + rich visit detail across all partners
+// ===========================================================================
+function activityInitials(name: string | null, email: string | null): string {
+  const source = (name || email || "?").trim();
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  const letters = parts.slice(0, 2).map((w) => w[0]).join("");
+  return (letters || source[0] || "?").toUpperCase();
+}
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diff = Date.now() - then;
+  const min = Math.round(diff / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function ActivityTab({
+  visits,
+  auditLog,
+  nameById,
+}: {
+  visits: CrmOrgVisit[];
+  auditLog: OrgActivityLogEntry[];
+  nameById: Map<string, string>;
+}) {
+  const router = useRouter();
+  const [actorFilter, setActorFilter] = useState("");
+  const [logOpen, setLogOpen] = useState(false);
+
+  const actors = useMemo(() => {
+    const set = new Set<string>();
+    for (const e of auditLog) {
+      const label = e.actor_name || e.actor_email;
+      if (label) set.add(label);
+    }
+    return [...set].sort();
+  }, [auditLog]);
+
+  const filtered = useMemo(() => {
+    if (!actorFilter) return auditLog;
+    return auditLog.filter((e) => (e.actor_name || e.actor_email) === actorFilter);
+  }, [auditLog, actorFilter]);
+
+  return (
+    <div className="space-y-6">
+      {/* Full activity log — every user action across every partner record */}
+      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+        <button
+          type="button"
+          onClick={() => setLogOpen((o) => !o)}
+          className={`flex w-full items-center justify-between gap-2 px-4 py-3 text-left ${logOpen ? "border-b border-slate-100" : ""}`}
+        >
+          <span className="text-sm font-semibold text-slate-800">
+            Activity Log
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              {auditLog.length} action{auditLog.length === 1 ? "" : "s"}
+            </span>
+          </span>
+          <span className={`text-xs text-slate-400 transition-transform ${logOpen ? "rotate-180" : ""}`}>▼</span>
+        </button>
+        {logOpen && (
+          <>
+            {actors.length > 0 && (
+              <div className="flex items-center justify-end border-b border-slate-100 px-4 py-2">
+                <select
+                  value={actorFilter}
+                  onChange={(e) => setActorFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                >
+                  <option value="">All users</option>
+                  {actors.map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <div className="p-10 text-center text-sm text-slate-500">No activity recorded yet.</div>
+            ) : (
+              <ol className="divide-y divide-slate-100">
+                {filtered.map((e) => {
+                  const who = e.actor_name || e.actor_email || "System";
+                  const target = e.entity_id ? nameById.get(e.entity_id) : null;
+                  return (
+                    <li
+                      key={e.id}
+                      className={`flex items-start gap-3 px-4 py-3 ${e.entity_id && target ? "cursor-pointer transition hover:bg-slate-50" : ""}`}
+                      onClick={() => {
+                        if (e.entity_id && target) router.push(`/crm/org/${e.entity_id}`);
+                      }}
+                    >
+                      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-[11px] font-semibold text-emerald-700">
+                        {activityInitials(e.actor_name, e.actor_email)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm text-slate-800">
+                            <span className="font-medium text-slate-900">{who}</span>{" "}
+                            {orgActivityActionLabel(e.action).toLowerCase()}
+                            {target && <span className="font-medium text-slate-900"> {target}</span>}
+                          </p>
+                          <span
+                            className="shrink-0 text-xs text-slate-400"
+                            title={new Date(e.created_at).toLocaleString()}
+                          >
+                            {relativeTime(e.created_at)}
+                          </span>
+                        </div>
+                        {e.summary && <p className="mt-0.5 text-xs text-slate-500">{e.summary}</p>}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Recent partner visits — richer detail (topics, notes) */}
+      {visits.length > 0 && (
+        <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Recent Partner Visits</div>
+          <ol className="divide-y divide-slate-100">
+            {visits.slice(0, 100).map((v) => (
+              <li
+                key={v.id}
+                className="cursor-pointer px-4 py-3 transition hover:bg-slate-50"
+                onClick={() => router.push(`/crm/org/${v.org_id}`)}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-slate-900">{nameById.get(v.org_id) ?? "Partner"}</span>
+                  <span className="text-xs text-slate-400">{formatDate(v.visit_date)}</span>
+                </div>
+                {v.spoke_to && <p className="mt-0.5 text-xs text-slate-500">Spoke with: {v.spoke_to}</p>}
+                {v.topics && v.topics.length > 0 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {v.topics.map((t) => (
+                      <span key={t} className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                        {partnerVisitTopicLabel(t)}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {v.visit_notes && <p className="mt-1.5 text-sm text-slate-600">{v.visit_notes}</p>}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Reports tab
+// ===========================================================================
+function Breakdown({ title, rows, total }: { title: string; rows: { label: string; count: number }[]; total: number }) {
+  return (
+    <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">{title}</div>
+      <ol className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+            <span className="truncate text-slate-700">{r.label}</span>
+            <span className="flex items-center gap-2">
+              <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full bg-emerald-500" style={{ width: `${total ? (r.count / total) * 100 : 0}%` }} />
+              </div>
+              <span className="w-8 text-right tabular-nums text-slate-600">{r.count}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+function ReportsTab({ partners }: { partners: CrmOrganization[] }) {
+  const total = partners.length;
+  const byArea = useMemo(() => {
+    const rows: { label: string; count: number }[] = ZONE_DEFINITIONS.map((z) => ({
+      label: z.title as string,
+      count: partners.filter((p) => p.area === z.value).length,
+    }));
+    const unassigned = partners.filter(
+      (p) => !p.area || !ZONE_DEFINITIONS.some((z) => z.value === p.area),
+    ).length;
+    if (unassigned) rows.push({ label: "Unassigned", count: unassigned });
+    return rows.filter((r) => r.count > 0);
+  }, [partners]);
+
+  const byStatus = useMemo(
+    () =>
+      ORG_STATUS_OPTIONS.map((s) => ({
+        label: s.label,
+        count: partners.filter((p) => (p.status || "").toLowerCase() === s.value).length,
+      })).filter((r) => r.count > 0),
+    [partners],
+  );
+
+  const byType = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of partners) {
+      const key = typeLabel(p);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [partners]);
+
+  const byAgreement = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of partners) {
+      const key = p.agreement_status || "none";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label: agreementStatusLabel(label) || "No agreement", count }))
+      .sort((a, b) => b.count - a.count);
+  }, [partners]);
+
+  const neverVisited = partners.filter((p) => !p.last_visit_date).sort((a, b) => a.name.localeCompare(b.name));
+  const overdue = [...partners]
+    .filter((p) => {
+      const d = daysSince(p.last_visit_date);
+      return d != null && d > 180;
+    })
+    .sort((a, b) => (a.last_visit_date ?? "").localeCompare(b.last_visit_date ?? ""))
+    .slice(0, 20);
+  const visited90 = partners.filter((p) => {
+    const d = daysSince(p.last_visit_date);
+    return d != null && d <= 90;
+  }).length;
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Total Partners" value={String(total)} tone="text-emerald-700" />
+        <StatCard label="Visited (90d)" value={String(visited90)} tone="text-indigo-700" />
+        <StatCard label="Signed Agreements" value={String(partners.filter((p) => p.agreement_status === "signed").length)} tone="text-sky-700" />
+        <StatCard label="Never Visited" value={String(neverVisited.length)} tone="text-amber-600" />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Breakdown title="Partners by Area" rows={byArea} total={total} />
+        <Breakdown title="Partners by Type" rows={byType} total={total} />
+        <Breakdown title="Partners by Status" rows={byStatus} total={total} />
+        <Breakdown title="Partners by Agreement" rows={byAgreement} total={total} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Overdue — no visit in 180+ days</div>
+          {overdue.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-emerald-600">✓ No partner is more than 180 days overdue.</p>
+          ) : (
+            <ol className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+              {overdue.map((p) => (
+                <li key={p.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                  <span className="truncate text-slate-700">{p.name}</span>
+                  <span className="text-xs text-slate-400">{daysSince(p.last_visit_date)}d</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+        <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">Never Visited</div>
+          {neverVisited.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-emerald-600">✓ Every partner has a logged visit.</p>
+          ) : (
+            <ol className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+              {neverVisited.map((p) => (
+                <li key={p.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                  <span className="truncate text-slate-700">{p.name}</span>
+                  <span className="text-xs text-slate-400">{getZoneDisplay(p.area)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Quick Visit dialog
+// ===========================================================================
+function QuickVisitDialog({
+  partner, partners, onClose, onSaved,
+}: {
+  partner: CrmOrganization | null;
+  partners: CrmOrganization[];
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+}) {
+  const [orgId, setOrgId] = useState(partner?.id ?? "");
+  const [topics, setTopics] = useState<string[]>([]);
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function toggleTopic(v: string) {
+    setTopics((prev) => (prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v]));
+  }
+
+  function submit(formData: FormData) {
+    setError(null);
+    if (!orgId) {
+      setError("Please choose a partner.");
+      return;
+    }
+    formData.set("org_id", orgId);
+    topics.forEach((t) => formData.append("topics", t));
+    startTransition(async () => {
+      const res = await logPartnerVisit(formData);
+      if (res.ok) onSaved(res.message ?? "Visit logged.");
+      else setError(res.error);
+    });
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Log a Visit</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <form action={submit} className="mt-4 space-y-3">
+          <label className="flex flex-col gap-1">
+            <span className={fieldLabel}>Partner</span>
+            {partner ? (
+              <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">{partner.name}</div>
+            ) : (
+              <select value={orgId} onChange={(e) => setOrgId(e.target.value)} className={fieldInput}>
+                <option value="">Select a partner…</option>
+                {partners.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={fieldLabel}>Visit date</span>
+            <input type="date" name="visit_date" defaultValue={today} className={fieldInput} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className={fieldLabel}>Spoke with</span>
+            <input name="spoke_to" placeholder="Name of contact" className={fieldInput} />
+          </label>
+          <div className="flex flex-col gap-1">
+            <span className={fieldLabel}>Topics discussed</span>
+            <div className="mt-0.5 flex flex-wrap gap-1.5">
+              {PARTNER_VISIT_TOPIC_OPTIONS.map((o) => (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => toggleTopic(o.value)}
+                  className={`rounded-full px-3 py-1 text-xs font-medium transition ${topics.includes(o.value) ? "bg-emerald-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="flex flex-col gap-1">
+            <span className={fieldLabel}>Notes</span>
+            <textarea name="visit_notes" rows={3} placeholder="What was discussed?" className={fieldInput} />
+          </label>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+            <button type="submit" disabled={pending} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+              {pending ? "Saving…" : "Log Visit"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

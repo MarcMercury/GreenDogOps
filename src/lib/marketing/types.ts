@@ -577,7 +577,8 @@ export interface AppDestination {
 
 export const APP_DESTINATIONS: AppDestination[] = [
   { label: "Referral CRM", url: "/crm/referral", icon: "🏥", keywords: ["referral", "clinic", "hospital", "medical"] },
-  { label: "Vendor & Partner CRM", url: "/crm/vendor", icon: "🤝", keywords: ["vendor", "partner", "chamber", "business", "grooming", "media", "dog ppl", "sponsor"] },
+  { label: "Non-Med Partners", url: "/crm/vendor", icon: "🤝", keywords: ["partner", "chamber", "business", "grooming", "media", "dog ppl", "sponsor"] },
+  { label: "Vendors & Supplies", url: "/crm/supplies", icon: "📦", keywords: ["vendor", "supplier", "supply", "equipment", "pharmacy", "distributor", "maintenance"] },
   { label: "Rescue / Shelter CRM", url: "/crm/rescue", icon: "🐕", keywords: ["rescue", "shelter", "adopt", "adoption"] },
   { label: "Influencer CRM", url: "/crm/influencer", icon: "⭐", keywords: ["influencer", "social", "content", "collab", "tiktok", "instagram"] },
   { label: "CE Leads / Events", url: "/crm/ce", icon: "📋", keywords: ["ce", "continuing education", "outreach", "dvm", "conference", "wet lab"] },
@@ -650,7 +651,7 @@ export const MARKETING_CHANNELS: {
   description: string;
 }[] = [
   { slug: "referral", label: "Referral CRM", icon: "🏥", href: "/crm/referral", description: "Referring clinics & hospitals" },
-  { slug: "vendor", label: "Vendor & Partner", icon: "🤝", href: "/crm/vendor", description: "Vendors, chambers & partners" },
+  { slug: "vendor", label: "Non-Med Partners", icon: "🤝", href: "/crm/vendor", description: "Marketing & community business partners" },
   { slug: "rescue", label: "Rescue / Shelter", icon: "🐕", href: "/crm/rescue", description: "Rescue & shelter partners" },
   { slug: "influencer", label: "Influencers", icon: "⭐", href: "/crm/influencer", description: "Influencer partnerships" },
   { slug: "ce", label: "CE Leads/Events", icon: "📋", href: "/crm/ce", description: "Continuing-education outreach" },

@@ -192,9 +192,15 @@ export function orgActivityActionLabel(action: string): string {
     "rescue.record.delete": "Deleted rescue",
     "rescue.geocode": "Geocoded rescue addresses",
     "rescue.ezyvet.sync": "Synced ezyVet rescue partners",
+    "partner.visit.log": "Logged visit",
+    "partner.record.delete": "Deleted partner",
+    "partner.geocode": "Geocoded partner addresses",
+    "partner.email.sent": "Sent an email",
   };
   if (map[action]) return map[action];
-  const cleaned = action.replace(/^(crm\.org\.|rescue\.)/, "").replace(/[._]/g, " ");
+  const cleaned = action
+    .replace(/^(crm\.org\.|rescue\.|partner\.)/, "")
+    .replace(/[._]/g, " ");
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
@@ -216,6 +222,27 @@ export const RESCUE_VISIT_TOPIC_OPTIONS = [
 
 export function rescueVisitTopicLabel(value: string): string {
   return RESCUE_VISIT_TOPIC_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+// Subjects discussed on a Non-Med Partner visit. Same mechanic as the rescue
+// topics (stored in crm_org_visit.topics), worded for business partners.
+export const PARTNER_VISIT_TOPIC_OPTIONS = [
+  { value: "intro_meeting", label: "Intro Meeting" },
+  { value: "drop_off", label: "Collateral Drop-off" },
+  { value: "cross_referral", label: "Cross-Referral" },
+  { value: "event_planning", label: "Event Planning" },
+  { value: "pop_up", label: "Pop-up / Booth" },
+  { value: "sponsorship", label: "Sponsorship" },
+  { value: "promo_swap", label: "Promo Swap" },
+  { value: "membership", label: "Membership / Chamber" },
+  { value: "agreement", label: "Agreement" },
+  { value: "gdd_event", label: "GDD Event" },
+  { value: "follow_up", label: "Follow-up" },
+  { value: "other", label: "Other" },
+] as const;
+
+export function partnerVisitTopicLabel(value: string): string {
+  return PARTNER_VISIT_TOPIC_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
 /** An uploaded document attached to a CRM organization record. */
@@ -672,6 +699,7 @@ export const COMPENSATION_TYPE_OPTIONS: CrmOption[] = [
 export type CrmSlug =
   | "referral"
   | "vendor"
+  | "supplies"
   | "rescue"
   | "student"
   | "ce"
@@ -692,10 +720,25 @@ export interface CrmSection {
    * subtype-filtered slice of the marketing_partner org type.
    */
   subtype?: string;
+  /**
+   * Restricts an organization-backed section to records with this `category`.
+   * Non-Med Partners take category='marketing'; Vendors & Supplies take every
+   * other category.
+   */
+  category?: string;
+  /** Inverts `category` — the section takes every category EXCEPT that one. */
+  categoryExcluded?: boolean;
 }
 
 /** Canonical subtype value that identifies a rescue / shelter record. */
 export const RESCUE_SUBTYPE = "rescue";
+
+/**
+ * Category that splits the old Vendor & Partner CRM in two: 'marketing' records
+ * are Non-Med Partners (community/marketing relationships we visit), everything
+ * else is a Vendor & Supplies record (med, facility & office purchasing).
+ */
+export const NON_MED_CATEGORY = "marketing";
 
 export const CRM_SECTIONS: CrmSection[] = [
   {
@@ -709,9 +752,10 @@ export const CRM_SECTIONS: CrmSection[] = [
   },
   {
     slug: "vendor",
-    title: "Vendor & Partner CRM",
-    label: "Vendor & Partner CRM",
-    description: "Vendors, suppliers & business partners in one directory.",
+    title: "Non-Med Partners",
+    label: "Non-Med Partners",
+    description:
+      "Marketing & community business partners — visits, targeting & activity.",
     icon: "🤝",
     entity: "organization",
     orgTypes: [
@@ -720,6 +764,24 @@ export const CRM_SECTIONS: CrmSection[] = [
       "med_ops",
       "office_marketing",
     ],
+    category: NON_MED_CATEGORY,
+  },
+  {
+    slug: "supplies",
+    title: "Vendors & Supplies",
+    label: "Vendors & Supplies",
+    description:
+      "Medical, facility & office vendors, suppliers and service providers.",
+    icon: "📦",
+    entity: "organization",
+    orgTypes: [
+      "med_ops",
+      "facility_resource",
+      "office_marketing",
+      "marketing_partner",
+    ],
+    category: NON_MED_CATEGORY,
+    categoryExcluded: true,
   },
   {
     slug: "rescue",
@@ -730,6 +792,7 @@ export const CRM_SECTIONS: CrmSection[] = [
     entity: "organization",
     orgTypes: ["marketing_partner"],
     subtype: RESCUE_SUBTYPE,
+    category: NON_MED_CATEGORY,
   },
   {
     slug: "student",
@@ -763,28 +826,36 @@ export function crmSectionBySlug(slug: string): CrmSection | undefined {
   return CRM_SECTIONS.find((s) => s.slug === slug);
 }
 
-export function crmSlugForOrgType(t: OrgType): CrmSlug {
-  return (
-    CRM_SECTIONS.find((s) => s.orgTypes?.includes(t))?.slug ?? "vendor"
-  );
-}
-
 /** True when an organization is a rescue / shelter record. */
 export function isRescueOrg(org: { subtype: string | null }): boolean {
   return (org.subtype ?? "").trim().toLowerCase() === RESCUE_SUBTYPE;
 }
 
+/** True when an organization is a Non-Med Partner (category = 'marketing'). */
+export function isNonMedPartnerOrg(org: {
+  subtype: string | null;
+  category: string | null;
+}): boolean {
+  if (isRescueOrg(org)) return false;
+  return (org.category ?? "").trim().toLowerCase() === NON_MED_CATEGORY;
+}
+
 /**
  * Resolve the owning CRM section slug for a specific organization record.
- * Rescues live under their own Rescue/Shelter CRM even though they share the
- * `marketing_partner` org type with the Vendor & Partner CRM.
+ * Rescues live under their own Rescue/Shelter CRM, and the remaining
+ * vendor/partner org types split on `category`: 'marketing' → Non-Med Partners,
+ * everything else → Vendors & Supplies.
  */
 export function crmSlugForOrg(org: {
   org_type: OrgType;
   subtype: string | null;
+  category?: string | null;
 }): CrmSlug {
   if (isRescueOrg(org)) return "rescue";
-  return crmSlugForOrgType(org.org_type);
+  if (org.org_type === "referral_clinic") return "referral";
+  return (org.category ?? "").trim().toLowerCase() === NON_MED_CATEGORY
+    ? "vendor"
+    : "supplies";
 }
 
 export function crmSlugForContactType(t: ContactType): CrmSlug {

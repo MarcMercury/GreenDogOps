@@ -5,6 +5,7 @@ import { Panel } from "../admin/_components";
 import {
   REFERRAL_TEMPLATE_VARIABLES,
   RESCUE_TEMPLATE_VARIABLES,
+  PARTNER_TEMPLATE_VARIABLES,
   TEMPLATE_CATEGORIES,
   templateCategoryLabel,
   type TemplateVariable,
@@ -24,6 +25,7 @@ const CATEGORY_OPTIONS = TEMPLATE_CATEGORIES;
 /** Variable reference depends on which partner type the template targets. */
 function variablesForCategory(category: string): TemplateVariable[] {
   if (category === "rescue") return RESCUE_TEMPLATE_VARIABLES;
+  if (category === "partner") return PARTNER_TEMPLATE_VARIABLES;
   return REFERRAL_TEMPLATE_VARIABLES;
 }
 

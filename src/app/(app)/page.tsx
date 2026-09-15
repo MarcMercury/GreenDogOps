@@ -104,8 +104,8 @@ const GROUPS: Group[] = [
       },
       {
         href: "/crm/vendor",
-        title: "Vendor & Partner CRM",
-        desc: "Vendors, suppliers & business partners.",
+        title: "Non-Med Partners",
+        desc: "Marketing & community business partners, visits & targeting.",
         icon: "🤝",
         dot: "bg-violet-500",
         module: "crm_vendor",
@@ -144,6 +144,14 @@ const GROUPS: Group[] = [
   {
     title: "Biz Dev",
     cards: [
+      {
+        href: "/crm/supplies",
+        title: "Vendors & Supplies",
+        desc: "Medical, facility & office vendors and suppliers.",
+        icon: "📦",
+        dot: "bg-teal-500",
+        module: "crm_supplies",
+      },
       {
         href: "/ezyvet",
         title: "ezyVet CRM",
@@ -219,6 +227,7 @@ const MODULE_ICONS: Record<ModuleKey, string> = {
   marketing: "📣",
   crm_referral: "🏥",
   crm_vendor: "🤝",
+  crm_supplies: "📦",
   crm_rescue: "🐕",
   crm_business: "🤝",
   crm_student: "🎓",
@@ -256,6 +265,7 @@ function moduleForActivity(action: string, entity: string | null): ModuleKey {
   if (a.startsWith("student")) return "crm_student";
   if (a.startsWith("ce.")) return "crm_ce";
   if (a.startsWith("vendor")) return "crm_vendor";
+  if (a.startsWith("partner.")) return "crm_vendor";
   if (a.startsWith("resource.")) return "resources";
   if (a.startsWith("ats.")) return "ats";
   if (a.startsWith("hr.")) return "hr";

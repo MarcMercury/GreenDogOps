@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureEditor, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { logProfileTransition } from "@/lib/shared/transition-log";
 import {
-  crmSlugForOrgType,
+  crmSlugForOrg,
   crmSlugForContactType,
   ORG_TYPE_LABELS,
   CONTACT_TYPE_LABELS,
@@ -685,7 +685,7 @@ export async function deleteOrganization(id: string): Promise<SaveResult> {
   const supabase = await createClient();
   const { data: org } = await supabase
     .from("crm_organization")
-    .select("org_type, name")
+    .select("org_type, subtype, category, name")
     .eq("id", id)
     .maybeSingle();
   const { error } = await supabase
@@ -702,7 +702,9 @@ export async function deleteOrganization(id: string): Promise<SaveResult> {
     summary: `Deleted record ${(org as { name?: string } | null)?.name ?? ""}`.trim(),
   });
   const slug = org
-    ? crmSlugForOrgType((org as { org_type: OrgType }).org_type)
+    ? crmSlugForOrg(
+        org as { org_type: OrgType; subtype: string | null; category: string | null },
+      )
     : null;
   revalidatePath("/crm", "layout");
   redirect(slug ? `/crm/${slug}` : "/crm");

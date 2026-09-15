@@ -97,7 +97,7 @@ jobs:
       # the two never hold two ezyVet logins for the same user at once. Runs
       # even if a Report Center report failed above.
       - name: Run ezyVet appointment-records worker
-        if: always()
+        if: ${{ !cancelled() }}
         env:
           EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
           EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}

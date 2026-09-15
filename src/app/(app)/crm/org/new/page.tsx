@@ -46,9 +46,11 @@ export default async function NewOrganizationPage({
     label: ORG_TYPE_LABELS[t],
   }));
   const defaultOrgType: OrgType = section.orgTypes[0];
-  // Rescue/Shelter records are a marketing_partner subtype; pre-fill so a new
-  // record lands in the Rescue CRM without the user having to remember.
-  const defaultCategory = section.slug === "rescue" ? "marketing" : undefined;
+  // Rescue/Shelter and Non-Med Partner records are identified by category
+  // (and, for rescues, subtype) — pre-fill so a new record lands in the CRM the
+  // user started from. Vendors & Supplies is the "everything else" bucket, so
+  // it gets no default and the user picks a category on the form.
+  const defaultCategory = section.categoryExcluded ? undefined : section.category;
 
   return (
     <div className="mx-auto max-w-4xl">

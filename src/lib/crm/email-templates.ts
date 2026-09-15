@@ -17,7 +17,7 @@ import {
   getZoneDisplay,
   type ReferralPartner,
 } from "./referral-types";
-import type { CrmOrganization } from "./types";
+import { type CrmOrganization, subtypeLabel } from "./types";
 
 export interface EmailTemplate {
   id: string;
@@ -42,6 +42,7 @@ export interface EmailTemplate {
 export const TEMPLATE_CATEGORIES: { value: string; label: string }[] = [
   { value: "referral", label: "Referral Partners" },
   { value: "rescue", label: "Rescues & Shelters" },
+  { value: "partner", label: "Non-Med Partners" },
   { value: "general", label: "General" },
 ];
 
@@ -162,6 +163,55 @@ export function buildRescueTemplateVars(
     address: org.address ?? "",
     area: org.area ? getZoneDisplay(org.area) : "",
     verified_adoptions: (org.verified_adoptions ?? 0).toLocaleString(),
+    agreement_status: org.agreement_status ?? "",
+    last_visit_date: formatDate(org.last_visit_date),
+    last_contact_date: formatDate(org.last_contact_date),
+    sender_name: sender.name ?? "",
+    sender_email: sender.email ?? "",
+    today: formatDate(new Date().toISOString().slice(0, 10)),
+  };
+}
+
+/**
+ * Variables available to Non-Med Partner templates (marketing / community
+ * business partners held on crm_organization).
+ */
+export const PARTNER_TEMPLATE_VARIABLES: TemplateVariable[] = [
+  { token: "account_name", label: "Partner name", description: "The partner business name." },
+  { token: "contact_name", label: "Contact name", description: "Primary contact's full name (falls back to “there”)." },
+  { token: "contact_first_name", label: "Contact first name", description: "Primary contact's first name (falls back to “there”)." },
+  { token: "contact_email", label: "Contact email", description: "Primary contact email on file." },
+  { token: "phone", label: "Phone", description: "Partner phone number." },
+  { token: "website", label: "Website", description: "Partner website." },
+  { token: "address", label: "Address", description: "Partner address." },
+  { token: "area", label: "Area", description: "Geographic area / zone." },
+  { token: "partner_type", label: "Partner type", description: "Business type (subtype) on file." },
+  { token: "agreement_status", label: "Agreement status", description: "Partnership agreement status." },
+  { token: "last_visit_date", label: "Last visit date", description: "Date of the most recent logged visit." },
+  { token: "last_contact_date", label: "Last contact date", description: "Date of the most recent contact." },
+  { token: "sender_name", label: "Sender name", description: "Your name (the signed-in user)." },
+  { token: "sender_email", label: "Sender email", description: "Your email." },
+  { token: "today", label: "Today's date", description: "Today's date." },
+];
+
+/** Build the template variable map for a Non-Med Partner account. */
+export function buildPartnerTemplateVars(
+  org: CrmOrganization,
+  sender: { name?: string | null; email?: string | null },
+): TemplateVars {
+  const contactFull = (org.contact_name || "").trim();
+  const firstName = contactFull ? contactFull.split(/\s+/)[0] : "there";
+
+  return {
+    account_name: org.name ?? "",
+    contact_name: contactFull || "there",
+    contact_first_name: firstName,
+    contact_email: org.email ?? "",
+    phone: org.phone ?? "",
+    website: org.website ?? "",
+    address: [org.address, org.city, org.state, org.zip].filter(Boolean).join(", "),
+    area: org.area ? getZoneDisplay(org.area) : "",
+    partner_type: subtypeLabel(org.subtype),
     agreement_status: org.agreement_status ?? "",
     last_visit_date: formatDate(org.last_visit_date),
     last_contact_date: formatDate(org.last_contact_date),

@@ -409,7 +409,11 @@ export async function downloadNewQueueCsv(page, { downloadPath, reportName, befo
       })(),
       120_000,
     ).catch((err) => {
-      log(`queue poll pass failed (${err?.message ?? err}) — retrying`);
+      const message = err?.message ?? String(err);
+      // A dead page/browser never recovers — bail so the caller can reopen the
+      // session instead of burning the whole poll window on it.
+      if (/crash|has been closed|Target closed/i.test(message)) throw err;
+      log(`queue poll pass failed (${message}) — retrying`);
       return null;
     });
     if (!sigs) continue;

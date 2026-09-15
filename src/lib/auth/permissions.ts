@@ -53,6 +53,7 @@ export type ModuleKey =
   | "marketing"
   | "crm_referral"
   | "crm_vendor"
+  | "crm_supplies"
   | "crm_rescue"
   | "crm_business"
   | "crm_student"
@@ -81,9 +82,10 @@ export const MODULES: ModuleDef[] = [
   { key: "ats", label: "Recruiting (ATS)", href: "/ats" },
   { key: "marketing", label: "Marketing Management", href: "/marketing" },
   { key: "crm_referral", label: "Referral CRM", href: "/crm/referral" },
-  { key: "crm_vendor", label: "Vendor & Partner CRM", href: "/crm/vendor" },
+  { key: "crm_vendor", label: "Non-Med Partners", href: "/crm/vendor" },
+  { key: "crm_supplies", label: "Vendors & Supplies", href: "/crm/supplies" },
   { key: "crm_rescue", label: "Rescue/Shelter CRM", href: "/crm/rescue" },
-  { key: "crm_business", label: "Business CRM (merged → Vendor & Partner)", href: "/crm/vendor" },
+  { key: "crm_business", label: "Business CRM (merged → Non-Med Partners)", href: "/crm/vendor" },
   { key: "crm_student", label: "Student CRM", href: "/crm/student" },
   { key: "crm_ce", label: "CE/GDU Mgmt", href: "/crm/ce" },
   { key: "crm_influencer", label: "Influencer CRM", href: "/crm/influencer" },
@@ -280,6 +282,7 @@ const ROUTE_MODULES: ReadonlyArray<readonly [string, ModuleKey]> = [
   ["/crm/referral", "crm_referral"],
   ["/crm/rescue", "crm_rescue"],
   ["/crm/student", "crm_student"],
+  ["/crm/supplies", "crm_supplies"],
   ["/crm/vendor", "crm_vendor"],
   ["/email-templates", "email_templates"],
   ["/emp-reporting", "emp_reporting"],
