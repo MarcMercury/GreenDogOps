@@ -7,7 +7,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { ensureEditor, recordAudit } from "@/lib/auth/session";
 import { sendEmail } from "@/lib/shared/email";
 import { textToHtml } from "@/lib/crm/email-templates";
-import { NON_MED_CATEGORY, RESCUE_SUBTYPE } from "@/lib/crm/types";
+import { NON_MED_CATEGORY, RESCUE_SUBTYPE, RETAIL_LEAD_STATUS_OPTIONS } from "@/lib/crm/types";
 
 export type ActionResult =
   | { ok: true; message?: string }
@@ -270,6 +270,56 @@ export async function geocodePartnerOrgs(): Promise<GeocodeResult> {
         ? `Geocoded ${geocoded} partner${geocoded === 1 ? "" : "s"}.${failNote} ${remaining} still pending — run again to continue.`
         : `Geocoded ${geocoded} partner${geocoded === 1 ? "" : "s"}.${failNote} Map is up to date.`,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Retail leads — rows captured by the public /lead/<qr_token> form.
+// ---------------------------------------------------------------------------
+export async function updateRetailLead(formData: FormData): Promise<ActionResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const leadId = str(formData.get("lead_id"));
+  if (!leadId) return { ok: false, error: "Missing lead." };
+
+  const status = str(formData.get("status"));
+  if (status && !RETAIL_LEAD_STATUS_OPTIONS.some((o) => o.value === status)) {
+    return { ok: false, error: "Unknown lead status." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_retail_lead")
+    .update({
+      ...(status ? { status } : {}),
+      notes: str(formData.get("notes")),
+    })
+    .eq("id", leadId);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/crm/vendor");
+  return { ok: true, message: "Lead updated." };
+}
+
+export async function deleteRetailLead(leadId: string): Promise<ActionResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("crm_retail_lead").delete().eq("id", leadId);
+  if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "partner.lead.delete",
+    entity: "crm_retail_lead",
+    entityId: leadId,
+    summary: "Deleted a retail lead",
+  });
+
+  revalidatePath("/crm/vendor");
+  return { ok: true, message: "Lead deleted." };
 }
 
 // ---------------------------------------------------------------------------

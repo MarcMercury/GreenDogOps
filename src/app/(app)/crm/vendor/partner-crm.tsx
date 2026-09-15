@@ -1,19 +1,24 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { QRCodeCanvas } from "qrcode.react";
 import { PageHeader } from "../../_components/ui";
 import {
   type CrmOrganization,
   type CrmOrgVisit,
+  type CrmRetailLead,
   type OrgActivityLogEntry,
   ORG_STATUS_OPTIONS,
   ORG_TYPE_LABELS,
   PARTNER_VISIT_TOPIC_OPTIONS,
+  RETAIL_LEAD_STATUS_OPTIONS,
   agreementStatusLabel,
+  partnerLeadUrl,
   partnerVisitTopicLabel,
   orgActivityActionLabel,
+  retailLeadStatusLabel,
   subtypeLabel,
 } from "@/lib/crm/types";
 import {
@@ -22,7 +27,13 @@ import {
   formatDate,
   statusClass,
 } from "@/lib/crm/referral-types";
-import { logPartnerVisit, deletePartnerOrg, sendPartnerEmail } from "./actions";
+import {
+  logPartnerVisit,
+  deletePartnerOrg,
+  sendPartnerEmail,
+  updateRetailLead,
+  deleteRetailLead,
+} from "./actions";
 import { PartnerMap } from "./partner-map";
 import { EmailComposeDialog } from "../_components/email-compose-dialog";
 import {
@@ -31,12 +42,13 @@ import {
 } from "@/lib/crm/email-templates";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
-type TabKey = "list" | "map" | "targeting" | "activity" | "reports";
+type TabKey = "list" | "map" | "targeting" | "leads" | "activity" | "reports";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "list", label: "Partners", icon: "📋" },
   { key: "map", label: "Map View", icon: "🗺️" },
   { key: "targeting", label: "Targeting", icon: "🎯" },
+  { key: "leads", label: "Retail Leads", icon: "📇" },
   { key: "activity", label: "Activity", icon: "🕑" },
   { key: "reports", label: "Reports", icon: "📊" },
 ];
@@ -62,6 +74,12 @@ function daysSince(date: string | null | undefined): number | null {
   return Math.floor((Date.now() - d.getTime()) / 86_400_000);
 }
 
+/** True when `date` falls within the last `days` days. */
+function withinDays(date: string | null | undefined, days: number): boolean {
+  const d = daysSince(date);
+  return d != null && d <= days;
+}
+
 // Sort by last visit ASC with never-visited first (they are the highest
 // targeting priority). Stable-ish tiebreak on name.
 function compareByVisit(a: CrmOrganization, b: CrmOrganization): number {
@@ -76,6 +94,7 @@ function compareByVisit(a: CrmOrganization, b: CrmOrganization): number {
 export function PartnerCrm({
   partners,
   visits,
+  retailLeads,
   auditLog,
   canEdit,
   mapsApiKey,
@@ -85,6 +104,7 @@ export function PartnerCrm({
 }: {
   partners: CrmOrganization[];
   visits: CrmOrgVisit[];
+  retailLeads: CrmRetailLead[];
   auditLog: OrgActivityLogEntry[];
   canEdit: boolean;
   mapsApiKey: string;
@@ -269,13 +289,22 @@ export function PartnerCrm({
           onFilterArea={(z) => { setArea(z); setTab("list"); }}
         />
       )}
+      {tab === "leads" && (
+        <RetailLeadsTab
+          leads={retailLeads}
+          partners={partners}
+          canEdit={canEdit}
+          onNotify={notify}
+        />
+      )}
       {tab === "activity" && <ActivityTab visits={visits} auditLog={auditLog} nameById={nameById} />}
-      {tab === "reports" && <ReportsTab partners={partners} />}
+      {tab === "reports" && <ReportsTab partners={partners} leads={retailLeads} />}
 
       {detail && (
         <PartnerDetailDialog
           partner={detail}
           visits={visits.filter((v) => v.org_id === detail.id)}
+          leads={retailLeads.filter((l) => l.org_id === detail.id)}
           canEdit={canEdit}
           onClose={() => setDetail(null)}
           onEdit={() => { const id = detail.id; setDetail(null); router.push(`/crm/org/${id}`); }}
@@ -375,10 +404,11 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function PartnerDetailDialog({
-  partner, visits, canEdit, onClose, onEdit, onQuickVisit, onEmail,
+  partner, visits, leads, canEdit, onClose, onEdit, onQuickVisit, onEmail,
 }: {
   partner: CrmOrganization;
   visits: CrmOrgVisit[];
+  leads: CrmRetailLead[];
   canEdit: boolean;
   onClose: () => void;
   onEdit: () => void;
@@ -386,7 +416,7 @@ function PartnerDetailDialog({
   onEmail: () => void;
 }) {
   const [detailTab, setDetailTab] = useState<
-    "contact" | "details" | "agreement" | "activity"
+    "contact" | "details" | "agreement" | "qr" | "activity"
   >("contact");
   const addr = [partner.address, partner.city, partner.state, partner.zip].filter(Boolean).join(", ");
   return (
@@ -416,7 +446,7 @@ function PartnerDetailDialog({
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard label="Visits" value={visits.length.toLocaleString()} tone="text-sky-700" />
           <StatCard label="Last Visit" value={formatDate(partner.last_visit_date)} tone="text-slate-700" />
-          <StatCard label="Last Contact" value={formatDate(partner.last_contact_date)} tone="text-slate-700" />
+          <StatCard label="QR Leads" value={leads.length.toLocaleString()} tone="text-fuchsia-700" />
           <StatCard label="Confirmed Leads" value={(partner.confirmed_leads ?? 0).toLocaleString()} tone="text-emerald-700" />
         </div>
 
@@ -425,6 +455,7 @@ function PartnerDetailDialog({
             { key: "contact", label: "Contact" },
             { key: "details", label: "Details" },
             { key: "agreement", label: "Agreement" },
+            { key: "qr", label: "QR Code" },
             { key: "activity", label: "Activity" },
           ] as const).map((t) => (
             <button
@@ -499,6 +530,10 @@ function PartnerDetailDialog({
           </section>
         )}
 
+        {detailTab === "qr" && (
+          <PartnerQrPanel partner={partner} leads={leads} />
+        )}
+
         {detailTab === "activity" && (
           <div className="space-y-6">
             <section>
@@ -543,6 +578,372 @@ function PartnerDetailDialog({
 // ===========================================================================
 // List tab
 // ===========================================================================
+// ===========================================================================
+// QR code panel — the scannable handle printed for a retail partner
+// ===========================================================================
+/**
+ * Each partner's QR code encodes the public /lead/<qr_token> capture form. The
+ * token is assigned by the database on insert, so a brand-new partner already
+ * has a working code the moment it is saved.
+ */
+function PartnerQrPanel({
+  partner,
+  leads,
+}: {
+  partner: CrmOrganization;
+  leads: CrmRetailLead[];
+}) {
+  const [origin, setOrigin] = useState("");
+  const [copied, setCopied] = useState(false);
+  const qrWrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Reads a browser-only value on mount to avoid an SSR hydration mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOrigin(window.location.origin);
+  }, []);
+
+  if (!partner.qr_token) {
+    return (
+      <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        This partner has no QR token yet. Re-save the record to generate one.
+      </p>
+    );
+  }
+
+  const url = origin ? partnerLeadUrl(origin, partner.qr_token) : "";
+
+  async function copy() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — the field is selectable as a fallback.
+    }
+  }
+
+  function download() {
+    const canvas = qrWrapRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    const slug = partner.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "partner";
+    const link = document.createElement("a");
+    link.download = `${slug}-lead-qr.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+
+  return (
+    <section className="space-y-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div
+          ref={qrWrapRef}
+          className="mx-auto shrink-0 rounded-lg border border-slate-200 bg-white p-2 sm:mx-0"
+        >
+          {url ? (
+            <QRCodeCanvas value={url} size={160} marginSize={2} level="M" />
+          ) : (
+            <div className="h-[160px] w-[160px]" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-800">Retail lead QR code</p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Unique to {partner.name}. Print it for their counter — every scan opens a
+            short form (name, email, phone, pet name) and lands in Retail Leads
+            tagged to this partner and the date it was scanned.
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              readOnly
+              value={url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700 shadow-sm"
+            />
+            <button
+              type="button"
+              onClick={copy}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              {copied ? "Copied!" : "Copy link"}
+            </button>
+            <button
+              type="button"
+              onClick={download}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+            >
+              Download QR
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Recent scans ({leads.length})
+        </h3>
+        {leads.length === 0 ? (
+          <p className="text-sm text-slate-400">No leads scanned at this partner yet.</p>
+        ) : (
+          <ol className="divide-y divide-slate-100 rounded-lg border border-slate-100">
+            {leads.slice(0, 10).map((l) => (
+              <li key={l.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <div className="truncate font-medium text-slate-800">
+                    {l.full_name}
+                    {l.pet_name && <span className="ml-1.5 text-xs text-slate-400">🐾 {l.pet_name}</span>}
+                  </div>
+                  <div className="truncate text-xs text-slate-400">
+                    {[l.email, l.phone].filter(Boolean).join(" · ") || "—"}
+                  </div>
+                </div>
+                <span className="shrink-0 text-xs text-slate-400">{formatDate(l.scanned_at)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </section>
+  );
+}
+
+// ===========================================================================
+// Retail Leads tab — QR-scan captures across every Non-Med Partner
+// ===========================================================================
+function RetailLeadsTab({
+  leads,
+  partners,
+  canEdit,
+  onNotify,
+}: {
+  leads: CrmRetailLead[];
+  partners: CrmOrganization[];
+  canEdit: boolean;
+  onNotify: (msg: string) => void;
+}) {
+  const router = useRouter();
+  const [search, setSearch] = useState("");
+  const [orgId, setOrgId] = useState("");
+  const [status, setStatus] = useState("");
+  const [days, setDays] = useState("");
+  const [, startTransition] = useTransition();
+
+  const partnerName = useMemo(
+    () => new Map(partners.map((p) => [p.id, p.name])),
+    [partners],
+  );
+
+  const stats = useMemo(() => {
+    const within = (d: number) => leads.filter((l) => withinDays(l.scanned_at, d)).length;
+    return {
+      total: leads.length,
+      last30: within(30),
+      last7: within(7),
+      partners: new Set(leads.map((l) => l.org_id)).size,
+    };
+  }, [leads]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return leads.filter((l) => {
+      if (orgId && l.org_id !== orgId) return false;
+      if (status && l.status !== status) return false;
+      if (days && !withinDays(l.scanned_at, Number(days))) return false;
+      if (q) {
+        const hay = `${l.full_name} ${l.email ?? ""} ${l.phone ?? ""} ${l.pet_name ?? ""} ${
+          partnerName.get(l.org_id) ?? ""
+        }`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [leads, search, orgId, status, days, partnerName]);
+
+  const sort = useTableSort<CrmRetailLead>(
+    filtered,
+    {
+      scanned: (l) => l.scanned_at,
+      name: (l) => l.full_name,
+      pet: (l) => l.pet_name ?? "",
+      contact: (l) => l.email ?? l.phone ?? "",
+      partner: (l) => partnerName.get(l.org_id) ?? "",
+      status: (l) => l.status,
+    },
+    { key: "scanned", dir: "desc" },
+  );
+
+  // Partners that have produced at least one lead — the only useful filter set.
+  const scannedPartners = useMemo(
+    () =>
+      [...new Set(leads.map((l) => l.org_id))]
+        .map((id) => ({ id, name: partnerName.get(id) ?? "(deleted partner)" }))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [leads, partnerName],
+  );
+
+  function onStatusChange(lead: CrmRetailLead, next: string) {
+    const fd = new FormData();
+    fd.set("lead_id", lead.id);
+    fd.set("status", next);
+    if (lead.notes) fd.set("notes", lead.notes);
+    startTransition(async () => {
+      const res = await updateRetailLead(fd);
+      onNotify(res.ok ? "Lead updated." : `Error: ${res.error}`);
+      if (res.ok) router.refresh();
+    });
+  }
+
+  function onDelete(lead: CrmRetailLead) {
+    if (!confirm(`Delete the lead from ${lead.full_name}?`)) return;
+    startTransition(async () => {
+      const res = await deleteRetailLead(lead.id);
+      onNotify(res.ok ? "Lead deleted." : `Error: ${res.error}`);
+      if (res.ok) router.refresh();
+    });
+  }
+
+  function exportCsv() {
+    const cols = ["Scanned", "Name", "Pet", "Email", "Phone", "Partner", "Status", "Notes"];
+    const rows = sort.sorted.map((l) => [
+      l.scanned_at,
+      l.full_name,
+      l.pet_name ?? "",
+      l.email ?? "",
+      l.phone ?? "",
+      partnerName.get(l.org_id) ?? "",
+      retailLeadStatusLabel(l.status),
+      (l.notes ?? "").replace(/\n/g, " "),
+    ]);
+    const csv = [cols, ...rows]
+      .map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "retail-leads-export.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="Total QR Leads" value={String(stats.total)} tone="text-fuchsia-700" />
+        <StatCard label="Last 30 Days" value={String(stats.last30)} tone="text-emerald-700" />
+        <StatCard label="Last 7 Days" value={String(stats.last7)} tone="text-indigo-700" />
+        <StatCard label="Partners Producing" value={String(stats.partners)} tone="text-sky-700" />
+      </div>
+
+      <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search leads…"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 sm:w-64"
+          />
+          <select value={orgId} onChange={(e) => setOrgId(e.target.value)} className={selectClass}>
+            <option value="">All Partners</option>
+            {scannedPartners.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+          <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
+            <option value="">All Statuses</option>
+            {RETAIL_LEAD_STATUS_OPTIONS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+          <select value={days} onChange={(e) => setDays(e.target.value)} className={selectClass}>
+            <option value="">All Time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last 12 months</option>
+          </select>
+          <button
+            onClick={exportCsv}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            ⬇ Export
+          </button>
+        </div>
+      </div>
+
+      {sort.sorted.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 p-10 text-center text-sm text-slate-500">
+          {leads.length === 0
+            ? "No retail leads yet. Open a partner and print its QR code to start capturing scans."
+            : "No leads match your filters."}
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
+          <div className="max-h-[70vh] overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className={`${stickyHeadClass} border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500`}>
+                  <SortHeader label="Date Scanned" sortKey="scanned" sort={sort} className="px-4 py-3" />
+                  <SortHeader label="Lead" sortKey="name" sort={sort} className="px-3 py-3" />
+                  <SortHeader label="Pet" sortKey="pet" sort={sort} className="px-3 py-3" />
+                  <SortHeader label="Contact" sortKey="contact" sort={sort} className="px-3 py-3" />
+                  <SortHeader label="Partner" sortKey="partner" sort={sort} className="px-3 py-3" />
+                  <SortHeader label="Status" sortKey="status" sort={sort} className="px-3 py-3" />
+                  <th className="px-3 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {sort.sorted.map((l) => (
+                  <tr key={l.id} className="transition hover:bg-emerald-50/40">
+                    <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{formatDate(l.scanned_at)}</td>
+                    <td className="px-3 py-3 font-medium text-slate-900">{l.full_name}</td>
+                    <td className="px-3 py-3 text-xs text-slate-500">{l.pet_name || "—"}</td>
+                    <td className="px-3 py-3 text-xs text-slate-500">
+                      {l.email && (
+                        <a className="block truncate text-emerald-700 hover:underline" href={`mailto:${l.email}`}>{l.email}</a>
+                      )}
+                      {l.phone && (
+                        <a className="block text-slate-500 hover:underline" href={`tel:${l.phone}`}>{l.phone}</a>
+                      )}
+                      {!l.email && !l.phone && "—"}
+                    </td>
+                    <td className="px-3 py-3 text-xs">
+                      <Link href={`/crm/org/${l.org_id}`} className="text-emerald-700 hover:underline">
+                        {partnerName.get(l.org_id) ?? "(deleted partner)"}
+                      </Link>
+                    </td>
+                    <td className="px-3 py-3">
+                      {canEdit ? (
+                        <select
+                          value={l.status}
+                          onChange={(e) => onStatusChange(l, e.target.value)}
+                          className="rounded-lg border border-slate-300 px-2 py-1 text-xs shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        >
+                          {RETAIL_LEAD_STATUS_OPTIONS.map((s) => (
+                            <option key={s.value} value={s.value}>{s.label}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="text-xs text-slate-500">{retailLeadStatusLabel(l.status)}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        {canEdit && <IconBtn title="Delete lead" onClick={() => onDelete(l)} danger>🗑</IconBtn>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ListTab({
   partners, stats, typeOptions, search, setSearch, area, setArea, status, setStatus,
   type, setType, canEdit, onView, onQuickVisit, onEmail, onDelete,
@@ -1044,7 +1445,13 @@ function Breakdown({ title, rows, total }: { title: string; rows: { label: strin
   );
 }
 
-function ReportsTab({ partners }: { partners: CrmOrganization[] }) {
+function ReportsTab({
+  partners,
+  leads,
+}: {
+  partners: CrmOrganization[];
+  leads: CrmRetailLead[];
+}) {
   const total = partners.length;
   const byArea = useMemo(() => {
     const rows: { label: string; count: number }[] = ZONE_DEFINITIONS.map((z) => ({
@@ -1102,6 +1509,65 @@ function ReportsTab({ partners }: { partners: CrmOrganization[] }) {
     return d != null && d <= 90;
   }).length;
 
+  // --- QR retail lead analytics -------------------------------------------
+  const leadStats = useMemo(() => {
+    const within = (d: number) => leads.filter((l) => withinDays(l.scanned_at, d)).length;
+    const converted = leads.filter((l) => l.status === "client").length;
+    return {
+      total: leads.length,
+      last30: within(30),
+      last7: within(7),
+      producing: new Set(leads.map((l) => l.org_id)).size,
+      converted,
+      conversionRate: leads.length ? Math.round((converted / leads.length) * 100) : 0,
+    };
+  }, [leads]);
+
+  const leadsByStatus = useMemo(
+    () =>
+      RETAIL_LEAD_STATUS_OPTIONS.map((s) => ({
+        label: s.label,
+        count: leads.filter((l) => l.status === s.value).length,
+      })).filter((r) => r.count > 0),
+    [leads],
+  );
+
+  const leadsByPartner = useMemo(() => {
+    const nameById = new Map(partners.map((p) => [p.id, p.name]));
+    const counts = new Map<string, number>();
+    for (const l of leads) {
+      const key = nameById.get(l.org_id) ?? "(deleted partner)";
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [leads, partners]);
+
+  // Last 6 calendar months of scan volume, oldest → newest.
+  const leadsByMonth = useMemo(() => {
+    const buckets: { label: string; count: number }[] = [];
+    const now = new Date();
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      buckets.push({
+        label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        count: leads.filter((l) => l.scanned_at.slice(0, 7) === key).length,
+      });
+    }
+    return buckets;
+  }, [leads]);
+
+  // Partners with a signed agreement that have never produced a scan — the
+  // actionable "is the QR code actually on their counter?" list.
+  const silentPartners = useMemo(() => {
+    const producing = new Set(leads.map((l) => l.org_id));
+    return partners
+      .filter((p) => !producing.has(p.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [leads, partners]);
+
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -1149,6 +1615,52 @@ function ReportsTab({ partners }: { partners: CrmOrganization[] }) {
             </ol>
           )}
         </div>
+      </div>
+
+      {/* ---------------- QR retail leads ---------------- */}
+      <div className="pt-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+          📇 QR Retail Leads
+        </h2>
+        <p className="mt-0.5 text-xs text-slate-400">
+          Consumer leads captured by scanning a partner&apos;s QR code.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <StatCard label="Total QR Leads" value={String(leadStats.total)} tone="text-fuchsia-700" />
+        <StatCard label="Last 30 Days" value={String(leadStats.last30)} tone="text-emerald-700" />
+        <StatCard label="Last 7 Days" value={String(leadStats.last7)} tone="text-indigo-700" />
+        <StatCard label="Partners Producing" value={`${leadStats.producing} / ${total}`} tone="text-sky-700" />
+        <StatCard label="Became Clients" value={`${leadStats.converted} (${leadStats.conversionRate}%)`} tone="text-emerald-700" />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Breakdown title="Leads by Partner" rows={leadsByPartner} total={leadStats.total} />
+        <Breakdown title="Leads by Status" rows={leadsByStatus} total={leadStats.total} />
+        <Breakdown
+          title="Leads by Month (last 6)"
+          rows={leadsByMonth}
+          total={Math.max(1, ...leadsByMonth.map((m) => m.count))}
+        />
+      </div>
+
+      <div className="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+        <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-800">
+          No QR leads yet — check the code is displayed
+        </div>
+        {silentPartners.length === 0 ? (
+          <p className="px-4 py-6 text-center text-sm text-emerald-600">✓ Every partner has produced at least one lead.</p>
+        ) : (
+          <ol className="max-h-80 divide-y divide-slate-100 overflow-y-auto">
+            {silentPartners.map((p) => (
+              <li key={p.id} className="flex items-center justify-between px-4 py-2 text-sm">
+                <span className="truncate text-slate-700">{p.name}</span>
+                <span className="text-xs text-slate-400">{getZoneDisplay(p.area)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </div>
   );

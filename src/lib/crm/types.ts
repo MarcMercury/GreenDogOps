@@ -140,6 +140,8 @@ export interface CrmOrganization {
   external_id: string | null;
   // ezyVet "Rescue Partners" contact this record was assimilated from (daily sync).
   ezyvet_contact_id: string | null;
+  // Public handle encoded in this record's QR code (/lead/<qr_token>).
+  qr_token: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -243,6 +245,43 @@ export const PARTNER_VISIT_TOPIC_OPTIONS = [
 
 export function partnerVisitTopicLabel(value: string): string {
   return PARTNER_VISIT_TOPIC_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+/**
+ * A consumer lead captured by scanning a Non-Med Partner's QR code. Written by
+ * the public /lead/<token> form; read by the Retail Leads tab.
+ */
+export interface CrmRetailLead {
+  id: string;
+  org_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  pet_name: string | null;
+  scanned_at: string;
+  status: string;
+  notes: string | null;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export const RETAIL_LEAD_STATUS_OPTIONS = [
+  { value: "new", label: "New" },
+  { value: "contacted", label: "Contacted" },
+  { value: "booked", label: "Booked" },
+  { value: "client", label: "Became Client" },
+  { value: "invalid", label: "Invalid" },
+] as const;
+
+export function retailLeadStatusLabel(value: string | null | undefined): string {
+  if (!value) return "New";
+  return RETAIL_LEAD_STATUS_OPTIONS.find((o) => o.value === value)?.label ?? value;
+}
+
+/** Public URL a partner's QR code points at. */
+export function partnerLeadUrl(origin: string, token: string): string {
+  return `${origin.replace(/\/$/, "")}/lead/${token}`;
 }
 
 /** An uploaded document attached to a CRM organization record. */

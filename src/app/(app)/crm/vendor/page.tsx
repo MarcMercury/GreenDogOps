@@ -6,6 +6,7 @@ import { canEditModule } from "@/lib/auth/permissions";
 import {
   type CrmOrganization,
   type CrmOrgVisit,
+  type CrmRetailLead,
   type OrgActivityLogEntry,
   NON_MED_CATEGORY,
   RESCUE_SUBTYPE,
@@ -69,6 +70,25 @@ export default async function NonMedPartnerCrmPage() {
       if (data) visits.push(...data);
     }
     visits.sort((a, b) => (a.visit_date < b.visit_date ? 1 : -1));
+  }
+
+  // QR-scan leads captured at these partners (same chunking rationale).
+  const retailLeads: CrmRetailLead[] = [];
+  if (orgIds.length > 0) {
+    const CHUNK = 200;
+    for (let i = 0; i < orgIds.length; i += CHUNK) {
+      const slice = orgIds.slice(i, i + CHUNK);
+      const { data } = await fetchAllRows<CrmRetailLead>((from, to) =>
+        supabase
+          .from("crm_retail_lead")
+          .select("*")
+          .in("org_id", slice)
+          .order("scanned_at", { ascending: false })
+          .range(from, to),
+      );
+      if (data) retailLeads.push(...data);
+    }
+    retailLeads.sort((a, b) => (a.scanned_at < b.scanned_at ? 1 : -1));
   }
 
   // `||` (not `??`): an env var defined as an empty string must still fall back.
@@ -173,6 +193,7 @@ export default async function NonMedPartnerCrmPage() {
     <PartnerCrm
       partners={partners}
       visits={visits}
+      retailLeads={retailLeads}
       auditLog={auditLog}
       canEdit={canEdit}
       mapsApiKey={mapsApiKey}

@@ -55,6 +55,9 @@ export async function updateSession(request: NextRequest) {
     pathname === "/login" ||
     pathname.startsWith("/auth") ||
     pathname.startsWith("/ce/signup") ||
+    // Retail lead capture form behind a Non-Med Partner's QR code. Gated by the
+    // opaque qr_token in the path, not by a session.
+    pathname.startsWith("/lead/") ||
     // Public legal pages (linked from the Google OAuth consent screen).
     pathname === "/privacy" ||
     pathname === "/terms" ||
