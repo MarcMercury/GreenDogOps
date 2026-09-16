@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, recordAudit } from "@/lib/auth/session";
 import { dispatchAgentWorker } from "@/lib/admin/agent-runner";
+import { runSheetSync } from "@/lib/sheets/sync";
 import type { Agent } from "@/lib/admin/agents";
 
 type ActionResult = { ok: true; message: string } | { ok: false; error: string };
@@ -52,6 +53,36 @@ export async function runAgentNow(agentId: string): Promise<ActionResult> {
   }
 
   const targetDate = previousDayLA();
+
+  // Inline agents (the spreadsheet sync) run inside the app rather than on the
+  // off-Vercel browser worker, and record their own agent_run row.
+  if ((agent.config as Record<string, unknown> | null)?.runner === "inline") {
+    const result = await runSheetSync({
+      trigger: "manual",
+      force: true,
+      triggeredBy: current.authId,
+      triggeredByEmail: current.email,
+    });
+
+    await recordAudit({
+      actorId: current.authId,
+      actorEmail: current.email,
+      action: "agent.run_triggered",
+      entity: "agent",
+      entityId: agentId,
+      summary: `Manually ran ${agent.name}`,
+      metadata: { runId: result.runId, sources: result.sources },
+    });
+
+    revalidatePath("/admin/agents");
+    const summary = Object.entries(result.sources)
+      .map(([key, o]) => `${key}: ${o.status}`)
+      .join(", ");
+    return result.ok
+      ? { ok: true, message: `Sync finished — ${summary}.` }
+      : { ok: false, error: `Sync finished with errors — ${summary}.` };
+  }
+
   const { data: run, error: runErr } = await admin
     .from("agent_run")
     .insert({
@@ -122,4 +153,42 @@ export async function setAgentEnabled(
 
   revalidatePath("/admin/agents");
   return { ok: true, message: enabled ? "Agent enabled." : "Agent disabled." };
+}
+
+/**
+ * Close a spreadsheet-sync review item.
+ *
+ * "resolved" means the sheet was fixed — the next run re-opens it if it wasn't.
+ * "ignored" is sticky: the nightly reconcile never re-opens an ignored item, so
+ * it's for the permanent exceptions (the 1099s who will never be on the HR
+ * comp sheet, externs who will never be in the roster).
+ */
+export async function setSheetSyncIssueStatus(
+  issueId: string,
+  status: "resolved" | "ignored" | "open",
+): Promise<ActionResult> {
+  const current = await requireAdmin();
+  const admin = createAdminClient();
+
+  const { error } = await admin
+    .from("sheet_sync_issue")
+    .update({
+      status,
+      resolved_at: status === "open" ? null : new Date().toISOString(),
+      resolved_by_email: status === "open" ? null : current.email,
+    })
+    .eq("id", issueId);
+  if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "sheet_sync.issue_status",
+    entity: "sheet_sync_issue",
+    entityId: issueId,
+    summary: `Marked spreadsheet sync issue ${status}`,
+  });
+
+  revalidatePath("/admin/agents");
+  return { ok: true, message: `Marked ${status}.` };
 }
