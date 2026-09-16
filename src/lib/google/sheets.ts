@@ -1,6 +1,15 @@
 import "server-only";
 import { google } from "googleapis";
-import type { OAuth2Client } from "google-auth-library";
+
+/**
+ * googleapis bundles its own copy of google-auth-library, and the two copies'
+ * classes are structurally incompatible (private fields). Deriving the type
+ * from the `google.auth` namespace keeps it identical to what the API clients
+ * actually accept.
+ */
+type GoogleAuthClient =
+  | InstanceType<typeof google.auth.OAuth2>
+  | InstanceType<typeof google.auth.JWT>;
 
 /**
  * Server-side Google reader for the connected spreadsheets.
@@ -28,10 +37,10 @@ const TOKEN_SLOTS: Record<string, string> = {
 
 export interface GoogleIdentity {
   mode: string;
-  auth: OAuth2Client;
+  auth: GoogleAuthClient;
 }
 
-function userAuth(slot: string): OAuth2Client | null {
+function userAuth(slot: string): GoogleAuthClient | null {
   const refreshToken = process.env[TOKEN_SLOTS[slot]];
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
@@ -41,7 +50,7 @@ function userAuth(slot: string): OAuth2Client | null {
   return client;
 }
 
-function serviceAuth(): OAuth2Client | null {
+function serviceAuth(): GoogleAuthClient | null {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) return null;
   const creds = JSON.parse(raw) as { client_email: string; private_key: string };
@@ -49,7 +58,7 @@ function serviceAuth(): OAuth2Client | null {
     email: creds.client_email,
     key: creds.private_key.replace(/\\n/g, "\n"),
     scopes: READ_SCOPES,
-  }) as unknown as OAuth2Client;
+  });
 }
 
 function identities(): GoogleIdentity[] {
@@ -81,7 +90,7 @@ function isAccessError(err: unknown): boolean {
  * Run `fn` against each identity in turn, returning the first that can see the
  * file. Non-access errors (bad range, quota, network) fail immediately.
  */
-async function withIdentity<T>(fn: (auth: OAuth2Client) => Promise<T>): Promise<{ value: T; mode: string }> {
+async function withIdentity<T>(fn: (auth: GoogleAuthClient) => Promise<T>): Promise<{ value: T; mode: string }> {
   const list = identities();
   let lastError: unknown;
   for (const { auth, mode } of list) {

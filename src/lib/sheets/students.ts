@@ -200,7 +200,7 @@ export async function syncStudentGrid(
       // Later tabs fill in / override with non-empty values.
       for (const [field, value] of Object.entries(parsed) as [keyof StudentRecord, unknown][]) {
         if (value !== null && value !== "") {
-          (existing as Record<string, unknown>)[field] = value;
+          (existing as unknown as Record<string, unknown>)[field] = value;
         }
       }
     }
