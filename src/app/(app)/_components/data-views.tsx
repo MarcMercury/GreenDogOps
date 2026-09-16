@@ -530,28 +530,40 @@ export function DataTable<T extends { id: string }>({
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
-  const [active, setActive] = useState<Record<string, string>>(initialActive ?? {});
+  const [active, setActive] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      Object.entries(initialActive ?? {}).map(([k, v]) => [k, v.toLowerCase()]),
+    ),
+  );
 
   // Build filter dropdowns: only keep filters that have 2+ distinct values.
+  // Options are keyed case-insensitively so "GREEN" and "green" collapse into
+  // one choice; the first-seen spelling is used as the display label.
   const filterOptions = useMemo(() => {
     return filters
       .map((f) => {
-        const seen = new Map<string, number>();
+        const seen = new Map<string, { display: string; count: number }>();
         for (const r of rows) {
           const v = f.value(r);
           if (v === null || v === undefined || v === "") continue;
           const tokens = f.multi ? splitFilterTokens(v) : [v];
           for (const t of tokens) {
-            seen.set(t, (seen.get(t) ?? 0) + 1);
+            const key = t.toLowerCase();
+            const prev = seen.get(key);
+            if (prev) prev.count += 1;
+            else seen.set(key, { display: t, count: 1 });
           }
         }
         const dir = f.optionSort === "desc" ? -1 : 1;
         const options = [...seen.entries()]
-          .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }) * dir)
-          .map(([value, count]) => ({
+          .sort(
+            (a, b) =>
+              a[1].display.localeCompare(b[1].display, undefined, { numeric: true }) * dir,
+          )
+          .map(([value, { display, count }]) => ({
             value,
             count,
-            label: f.formatOption ? f.formatOption(value) : value,
+            label: f.formatOption ? f.formatOption(display) : display,
           }));
         return { def: f, options };
       })
@@ -564,10 +576,11 @@ export function DataTable<T extends { id: string }>({
       for (const f of filters) {
         const sel = active[f.key];
         if (!sel || sel === "all") continue;
+        const selLc = sel.toLowerCase();
         const raw = f.value(r) ?? "";
         if (f.multi) {
-          if (!splitFilterTokens(raw).includes(sel)) return false;
-        } else if (raw !== sel) {
+          if (!splitFilterTokens(raw).some((t) => t.toLowerCase() === selLc)) return false;
+        } else if (raw.toLowerCase() !== selLc) {
           return false;
         }
       }
