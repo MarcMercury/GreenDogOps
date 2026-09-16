@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { type CrmOrganization, ORG_STATUS_OPTIONS } from "@/lib/crm/types";
+import { type CrmOrganization, ORG_STATUS_OPTIONS, subtypeLabel } from "@/lib/crm/types";
 import { ZONE_DEFINITIONS, VISIT_HEAT_LEVELS, visitHeat } from "@/lib/crm/referral-types";
 import { geocodePartnerOrgs } from "./actions";
 
@@ -178,7 +178,17 @@ export function PartnerMap({
 
   const [zone, setZone] = useState("");
   const [partnerStatus, setPartnerStatus] = useState("");
+  const [subtype, setSubtype] = useState("");
   const [search, setSearch] = useState("");
+
+  // Only offer types that actually exist in this partner set.
+  const subtypeOptions = useMemo(() => {
+    const seen = new Set<string>();
+    for (const p of partners) if (p.subtype) seen.add(p.subtype);
+    return [...seen]
+      .map((value) => ({ value, label: subtypeLabel(value) }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [partners]);
 
   const [geocoding, startGeocode] = useTransition();
 
@@ -208,13 +218,14 @@ export function PartnerMap({
       if (!hasCoords(p)) return false;
       if (zone && p.area !== zone) return false;
       if (partnerStatus && (p.status || "").toLowerCase() !== partnerStatus) return false;
+      if (subtype && p.subtype !== subtype) return false;
       if (q) {
         const hay = `${p.name} ${p.address ?? ""} ${p.area ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [partners, hasCoords, zone, partnerStatus, search]);
+  }, [partners, hasCoords, zone, partnerStatus, subtype, search]);
 
   // ----- Load map once -----
   useEffect(() => {
@@ -329,7 +340,7 @@ export function PartnerMap({
     });
   }
 
-  const filtersActive = zone || partnerStatus || search;
+  const filtersActive = zone || partnerStatus || subtype || search;
 
   return (
     <div className="space-y-4">
@@ -348,6 +359,12 @@ export function PartnerMap({
               <option key={z.value} value={z.value}>{z.title}</option>
             ))}
           </select>
+          <select value={subtype} onChange={(e) => setSubtype(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none">
+            <option value="">All types</option>
+            {subtypeOptions.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
           <select value={partnerStatus} onChange={(e) => setPartnerStatus(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none">
             <option value="">All statuses</option>
             {ORG_STATUS_OPTIONS.map((s) => (
@@ -356,7 +373,7 @@ export function PartnerMap({
           </select>
           {filtersActive && (
             <button
-              onClick={() => { setZone(""); setPartnerStatus(""); setSearch(""); }}
+              onClick={() => { setZone(""); setPartnerStatus(""); setSubtype(""); setSearch(""); }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
               Clear
