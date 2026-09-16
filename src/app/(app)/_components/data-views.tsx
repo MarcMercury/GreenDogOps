@@ -772,7 +772,7 @@ export function DataTable<T extends { id: string }>({
     <>
       {/* Toolbar: prominent search + adaptive filter dropdowns */}
       <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white/70 p-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
-        <div className="relative flex-1 sm:min-w-64">
+        <div className="relative flex-1 sm:max-w-xs">
           <span
             aria-hidden
             className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
