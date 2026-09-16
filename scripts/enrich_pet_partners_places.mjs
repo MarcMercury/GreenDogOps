@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /**
- * Fill missing phone / address and plot map coordinates for the Non-Med Partner
- * pet businesses (groomers, pet retail, daycare & boarding) via the Google
- * Places API (v1 searchText).
+ * Fill missing phone / address / website and plot map coordinates for EVERY
+ * Non-Med Partner record via the Google Places API (v1 searchText).
  *
  *   node scripts/enrich_pet_partners_places.mjs            # dry run, prints a report
  *   node scripts/enrich_pet_partners_places.mjs --apply    # writes to the database
  *   node scripts/enrich_pet_partners_places.mjs --subtype groomer --limit 20
+ *
+ * Scope is every category='marketing' org except rescues (they have their own
+ * CRM). Pass --subtype to narrow it.
  *
  * Why Places and not a scraper: these are physical storefronts, so Places
  * returns an authoritative phone, street address AND lat/lng in a single call —
@@ -38,9 +40,7 @@ const ONLY_SUBTYPE = argOf("--subtype");
 /** Re-query records the cache recorded as a miss (after tuning the matcher). */
 const RETRY = process.argv.includes("--retry");
 
-const SUBTYPES = ONLY_SUBTYPE
-  ? [ONLY_SUBTYPE]
-  : ["groomer", "pet_retail", "daycare_boarding"];
+const SUBTYPES = ONLY_SUBTYPE ? [ONLY_SUBTYPE] : null; // null = every non-rescue subtype
 
 const CACHE_FILE = path.join(ROOT, ".data", "_pet_partner_places.json");
 const SEARCH_URL = "https://places.googleapis.com/v1/places:searchText";
@@ -70,7 +70,23 @@ const SUBTYPE_HINT = {
   groomer: "pet grooming",
   pet_retail: "pet store",
   daycare_boarding: "dog daycare boarding",
+  pet_business: "pet",
+  exotic_shop: "exotic pet store",
+  food_vendor: "restaurant",
+  chamber: "chamber of commerce",
+  local_business: "business",
 };
+
+// Subtypes whose records are always animal businesses — only these get the
+// "the match must also be a pet business" guard. A chamber of commerce or a
+// coffee shop would fail it outright.
+const PET_SUBTYPES = new Set([
+  "groomer",
+  "pet_retail",
+  "daycare_boarding",
+  "pet_business",
+  "exotic_shop",
+]);
 
 // Google place types that are unambiguously about animals.
 const PET_TYPES = new Set([
@@ -179,6 +195,24 @@ function isNamePrefix(a, b) {
 function hasPetWord(name) {
   const words = new Set(tokens(name));
   return PET_WORDS.some((w) => words.has(w));
+}
+
+/**
+ * Distinctive words the RECORD has that the Places result dropped. "Orange
+ * County Veterinary Medical Association" must not match "Orange County Medical
+ * Association", nor "Reservoir Dogs of Silver Lake" match "Silver Lake Dog
+ * Park". Records that merely tack a descriptor onto the listing's name
+ * ("Fancy Tails Company - Dog Walking") are exempted via isNamePrefix.
+ */
+function missingTokens(row, place) {
+  const have = new Set(coreTokens(place.displayName));
+  return coreTokens(row.name).filter((t) => t.length >= 4 && !have.has(t));
+}
+
+/** Re-checkable guard — also applied to cached matches from earlier runs. */
+function matchIsAcceptable(row, match) {
+  if (isNamePrefix(row.name, match.displayName)) return true;
+  return missingTokens(row, match).length === 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,22 +330,31 @@ async function coordsForCity(city, state) {
 
 /** Best candidate for a record, or a reason string explaining the rejection. */
 function pickMatch(row, candidates, cityPoint) {
+  const petScoped = PET_SUBTYPES.has(row.subtype ?? "");
+  // Pet records are also screened by isPetBusiness(); everything else has only
+  // the name to go on, so it has to match nearly all of the record's words.
+  const minScore = petScoped ? 0.6 : 0.8;
   const wantCity = blank(row.city) ? null : normalize(row.city);
   let best = null;
   let bestScore = 0;
   let sawCa = false;
   let sawNonPet = false;
+  let sawDropped = false;
   let sawStray = false;
   let sawFar = false;
   for (const c of candidates) {
     if (c.state !== "CA") continue;
     sawCa = true;
     const score = nameScore(row.name, c.displayName);
-    if (score < 0.6) continue;
+    if (score < minScore) continue;
     // The record is a pet business, so the match has to be one too — unless
     // neither name says so, in which case only an exact name carries it.
-    if (!isPetBusiness(c) && (hasPetWord(row.name) || score < 1)) {
+    if (!isPetBusiness(c) && petScoped && (hasPetWord(row.name) || score < 1)) {
       sawNonPet = true;
+      continue;
+    }
+    if (!matchIsAcceptable(row, c)) {
+      sawDropped = true;
       continue;
     }
     // A second distinctive word, or no foreign words, keeps single-token
@@ -344,6 +387,7 @@ function pickMatch(row, candidates, cityPoint) {
   if (!candidates.length) return { reason: "no Places result" };
   if (!sawCa) return { reason: "result outside California" };
   if (sawNonPet) return { reason: "same-name business in another industry" };
+  if (sawDropped) return { reason: "result drops a distinctive word from the name" };
   if (sawStray) return { reason: "name match too weak (one shared word)" };
   if (sawFar) return { reason: `match too far from ${row.city || "Los Angeles"}` };
   return { reason: "no confident name match" };
@@ -364,17 +408,20 @@ async function main() {
     db: { schema: "greendogops" },
   });
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("crm_organization")
     .select("id, name, subtype, phone, website, address, city, state, zip, latitude, longitude, geocoded_address")
     .eq("category", "marketing")
-    .in("subtype", SUBTYPES)
     .order("name");
+  query = SUBTYPES
+    ? query.in("subtype", SUBTYPES)
+    : query.or("subtype.is.null,subtype.neq.rescue");
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
 
   let rows = data ?? [];
   if (LIMIT > 0) rows = rows.slice(0, LIMIT);
-  console.log(`${rows.length} records across ${SUBTYPES.join(", ")}\n`);
+  console.log(`${rows.length} records across ${SUBTYPES ? SUBTYPES.join(", ") : "all Non-Med Partner subtypes"}\n`);
 
   fs.mkdirSync(path.dirname(CACHE_FILE), { recursive: true });
   const cache = fs.existsSync(CACHE_FILE)
@@ -389,10 +436,11 @@ async function main() {
     let result = cache[row.id];
     if (!result || (RETRY && !result.match)) {
       const hint = blank(row.city) ? "Los Angeles, CA" : `${row.city}, ${row.state || "CA"}`;
-      const kind = SUBTYPE_HINT[row.subtype] ?? "pet";
+      const kind = SUBTYPE_HINT[row.subtype] ?? "";
       // The bare name is the most precise query; the category hint is a
       // fallback for names too generic for Places to rank on their own.
-      const queries = [`${row.name} ${hint}`, `${row.name} ${kind} ${hint}`];
+      const queries = [`${row.name} ${hint}`];
+      if (kind) queries.push(`${row.name} ${kind} ${hint}`);
       try {
         const cityPoint = blank(row.city) ? null : await coordsForCity(row.city, row.state);
         for (const q of queries) {
@@ -411,6 +459,11 @@ async function main() {
 
     if (!result.match) {
       skipped.push(`${row.name} [${row.subtype}] — ${result.reason}`);
+      continue;
+    }
+    // Cached matches predate later tightenings of the matcher — re-check.
+    if (!matchIsAcceptable(row, result.match)) {
+      skipped.push(`${row.name} [${row.subtype}] — result drops a distinctive word from the name`);
       continue;
     }
     const m = result.match;

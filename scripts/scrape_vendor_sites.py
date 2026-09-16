@@ -50,7 +50,8 @@ ADDR_RE = re.compile(
     r"(\d{1,6}\s+[A-Za-z0-9 .,'#\-]{3,60}?),\s*([A-Za-z .'\-]{2,40}),\s*([A-Z]{2})\.?\s+(\d{5})(?:-\d{4})?"
 )
 
-BAD_EMAIL_HINT = re.compile(r"(sentry|example\.com|\.png|\.jpg|\.jpeg|\.gif|\.svg|@2x|wixpress|godaddy|domain\.com|email@|yourname|@sentry)", re.I)
+# no-reply senders are unmonitored, so they are worse than a blank contact field.
+BAD_EMAIL_HINT = re.compile(r"(sentry|example\.com|\.png|\.jpg|\.jpeg|\.gif|\.svg|@2x|wixpress|godaddy|domain\.com|email@|yourname|@sentry|no-?reply|donotreply|do-not-reply)", re.I)
 CONTACT_PATHS = ("", "contact", "contact-us", "contactus", "about", "about-us", "adopt")
 
 
