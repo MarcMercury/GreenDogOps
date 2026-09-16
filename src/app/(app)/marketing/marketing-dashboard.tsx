@@ -64,6 +64,9 @@ import { OwnerSelect } from "./owner-select";
 // ---------------------------------------------------------------------------
 const fieldInput =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+// Filter-bar variants carry no width so the flex row can size them.
+const filterInput =
+  "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 const filterSelect =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 const fieldLabel = "mb-1 block text-xs font-medium text-slate-500";
@@ -1318,9 +1321,13 @@ function ResourcesTab({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search resources…"
-          className={`${fieldInput} w-64`}
+          className={`${filterInput} min-w-0 grow basis-56`}
         />
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className={`${fieldInput} w-auto`}>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className={`${filterSelect} min-w-0 grow basis-56`}
+        >
           <option value="">All categories</option>
           {RESOURCE_CATEGORIES.filter((c) => cats.has(c.value)).map((c) => (
             <option key={c.value} value={c.value}>
@@ -1328,9 +1335,9 @@ function ResourcesTab({
             </option>
           ))}
         </select>
-        <span className="text-sm text-slate-400">{filtered.length} shown</span>
+        <span className="shrink-0 text-sm text-slate-400">{filtered.length} shown</span>
         {canEdit && (
-          <button type="button" className={`${btnPrimary} ml-auto`} onClick={() => setEditing("new")}>
+          <button type="button" className={`${btnPrimary} shrink-0`} onClick={() => setEditing("new")}>
             + Resource
           </button>
         )}
@@ -1509,9 +1516,13 @@ function MarketingVendorsPanel({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search vendors…"
-          className={`${fieldInput} w-64`}
+          className={`${filterInput} min-w-0 grow basis-56`}
         />
-        <select value={type} onChange={(e) => setType(e.target.value)} className={`${fieldInput} w-auto`}>
+        <select
+          value={type}
+          onChange={(e) => setType(e.target.value)}
+          className={`${filterSelect} min-w-0 grow basis-56`}
+        >
           <option value="">All types</option>
           {types.map(([label, n]) => (
             <option key={label} value={label}>
@@ -1519,9 +1530,9 @@ function MarketingVendorsPanel({
             </option>
           ))}
         </select>
-        <span className="text-sm text-slate-400">{filtered.length} shown</span>
+        <span className="shrink-0 text-sm text-slate-400">{filtered.length} shown</span>
         {canEdit && (
-          <Link href="/crm/org/new?section=marketing-vendor" className={`${btnPrimary} ml-auto`}>
+          <Link href="/crm/org/new?section=marketing-vendor" className={`${btnPrimary} shrink-0`}>
             + Vendor
           </Link>
         )}
