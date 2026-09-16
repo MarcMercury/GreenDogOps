@@ -597,6 +597,10 @@ export interface BizDevApptTypeRow {
   sort_order: number;
   matched_paid: number;
   days_observed: number;
+  /** User typed this avg_value — the daily refresh leaves it alone. */
+  value_overridden: boolean;
+  /** User typed this avg_per_day — the daily refresh leaves it alone. */
+  per_day_overridden: boolean;
 }
 
 /** Day-of-week volume multipliers vs a typical weekday (1.0 = normal weekday). */
@@ -641,6 +645,8 @@ export interface BizDevLocation {
   hours: BizDevHours;
   /** Realized average booked appointments by hour-of-day (0..23) on a typical day. */
   hour_demand: { hour: number; avg_per_open_day: number }[];
+  /** ISO timestamp of the last daily rebuild of the derived base numbers. */
+  metrics_refreshed_at: string | null;
   types: BizDevApptTypeRow[];
 }
 

@@ -722,7 +722,6 @@ export function ContactListView({
         rows={contacts}
         columns={columns}
         filters={filters}
-        compactFilters={variant === "student"}
         dense={variant === "student"}
         searchPlaceholder="Search by name, email, phone…"
         searchExtra={(c) => [

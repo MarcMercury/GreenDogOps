@@ -13,6 +13,8 @@ import {
   saveBizDevHours,
   addBizDevApptType,
   deleteBizDevApptType,
+  refreshBizDevMetrics,
+  resetBizDevMetricOverrides,
 } from "../reporting/actions";
 
 export interface BizDevPatch {
@@ -35,6 +37,12 @@ export interface BizDevData {
   saveHours: (locId: string, hours: BizDevHours) => void;
   addType: (locId: string, name: string, value: number) => void;
   removeType: (locId: string, typeId: string) => void;
+  /** Re-derive avg/day + avg value from the latest ezyVet data. */
+  refreshMetrics: () => void;
+  /** Drop a clinic's hand-edited base numbers and re-derive them. */
+  resetOverrides: (locId: string) => void;
+  /** True while a refresh is in flight. */
+  refreshing: boolean;
 }
 
 /**
@@ -45,6 +53,7 @@ export interface BizDevData {
 export function useBizDevData(): BizDevData {
   const [locations, setLocations] = useState<BizDevLocation[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [, startTransition] = useTransition();
 
   useEffect(() => {
@@ -153,5 +162,47 @@ export function useBizDevData(): BizDevData {
     });
   }, []);
 
-  return { locations, error, patchType, toggleDay, saveHours, addType, removeType };
+  const reload = useCallback(
+    async (run: () => Promise<{ ok: boolean; error?: string }>) => {
+      setRefreshing(true);
+      try {
+        const res = await run();
+        if (!res.ok) {
+          setError(res.error ?? "Refresh failed.");
+          return;
+        }
+        setError(null);
+        setLocations(await getBusinessDevelopmentData());
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : "Refresh failed.");
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [],
+  );
+
+  const refreshMetrics = useCallback(() => {
+    void reload(() => refreshBizDevMetrics());
+  }, [reload]);
+
+  const resetOverrides = useCallback(
+    (locId: string) => {
+      void reload(() => resetBizDevMetricOverrides(locId));
+    },
+    [reload],
+  );
+
+  return {
+    locations,
+    error,
+    patchType,
+    toggleDay,
+    saveHours,
+    addType,
+    removeType,
+    refreshMetrics,
+    resetOverrides,
+    refreshing,
+  };
 }

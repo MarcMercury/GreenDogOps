@@ -30,6 +30,9 @@ export function BizDevWorkspace({
     saveHours,
     addType,
     removeType,
+    refreshMetrics,
+    resetOverrides,
+    refreshing,
   } = useBizDevData();
 
   return (
@@ -84,6 +87,9 @@ export function BizDevWorkspace({
             onSaveHours={saveHours}
             onAddType={addType}
             onRemoveType={removeType}
+            onRefreshMetrics={refreshMetrics}
+            onResetOverrides={resetOverrides}
+            refreshing={refreshing}
           />
         </div>
       ) : locations ? (

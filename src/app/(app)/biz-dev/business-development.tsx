@@ -12,6 +12,23 @@ import { minutesToInput, minutesToLabel, parseMinutes } from "@/lib/planning/typ
 import { StatCard, SectionCard, fmtCurrency } from "../reporting/charts";
 import type { BizDevPatch } from "./use-bizdev-data";
 
+/** "Today 5:31 AM" / "Sep 15, 5:31 AM" in clinic (Los Angeles) time. */
+function fmtRefreshed(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "unknown";
+  const opts: Intl.DateTimeFormatOptions = {
+    timeZone: "America/Los_Angeles",
+    hour: "numeric",
+    minute: "2-digit",
+  };
+  const dayOf = (x: Date) =>
+    x.toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" });
+  const time = d.toLocaleTimeString("en-US", opts);
+  return dayOf(d) === dayOf(new Date())
+    ? `today ${time}`
+    : `${d.toLocaleDateString("en-US", { timeZone: "America/Los_Angeles", month: "short", day: "numeric" })}, ${time}`;
+}
+
 /** Per-weekday opening hours. The Planning Guide fills exactly this window. */
 function ClinicHours({
   loc,
@@ -281,6 +298,7 @@ function LocationPlanner({
   onSaveHours,
   onAddType,
   onRemoveType,
+  onResetOverrides,
 }: {
   loc: BizDevLocation;
   canEdit: boolean;
@@ -289,6 +307,7 @@ function LocationPlanner({
   onSaveHours: (hours: BizDevHours) => void;
   onAddType: (name: string, value: number) => void;
   onRemoveType: (typeId: string) => void;
+  onResetOverrides: () => void;
 }) {
   const totals = useMemo(() => computeTotals(loc), [loc]);
   const [newName, setNewName] = useState("");
@@ -300,6 +319,13 @@ function LocationPlanner({
 
   const hiddenCount = useMemo(
     () => loc.types.filter((t) => t.hidden).length,
+    [loc.types],
+  );
+
+  // Cells someone typed by hand: they are pinned and no longer follow the data.
+  const overrideCount = useMemo(
+    () =>
+      loc.types.filter((t) => t.value_overridden || t.per_day_overridden).length,
     [loc.types],
   );
 
@@ -499,6 +525,7 @@ function LocationPlanner({
                       value={t.avg_per_day}
                       disabled={!canEdit}
                       step={0.5}
+                      className={t.per_day_overridden ? "text-amber-600" : ""}
                       onCommit={(n) => onPatchType(t.id, { avg_per_day: n })}
                     />
                   </td>
@@ -535,6 +562,7 @@ function LocationPlanner({
                       disabled={!canEdit}
                       prefix="$"
                       step={10}
+                      className={t.value_overridden ? "text-amber-600" : ""}
                       onCommit={(n) => onPatchType(t.id, { avg_value: n })}
                     />
                   </td>
@@ -638,6 +666,23 @@ function LocationPlanner({
         </button>
       ) : null}
 
+      {overrideCount > 0 ? (
+        <p className="mt-2 text-xs text-amber-600">
+          {overrideCount} {overrideCount === 1 ? "type has" : "types have"} a
+          hand-typed avg/day or avg value (shown in amber). Those cells stay put
+          and no longer follow the daily data.
+          {canEdit ? (
+            <button
+              type="button"
+              onClick={onResetOverrides}
+              className="ml-1.5 font-semibold underline underline-offset-2 hover:text-amber-700"
+            >
+              Revert to live data
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <MiniStat
           label="Proj. $/day"
@@ -708,6 +753,9 @@ export function BusinessDevelopment({
   onSaveHours,
   onAddType,
   onRemoveType,
+  onRefreshMetrics,
+  onResetOverrides,
+  refreshing,
 }: {
   canEdit: boolean;
   /** null while the planner is still loading. */
@@ -718,6 +766,9 @@ export function BusinessDevelopment({
   onSaveHours: (locId: string, hours: BizDevHours) => void;
   onAddType: (locId: string, name: string, value: number) => void;
   onRemoveType: (locId: string, typeId: string) => void;
+  onRefreshMetrics: () => void;
+  onResetOverrides: (locId: string) => void;
+  refreshing: boolean;
 }) {
   if (error && !locations) {
     return (
@@ -746,8 +797,41 @@ export function BusinessDevelopment({
   );
   const uplift = grand.projMonthly - grand.currentMonthly;
 
+  // Newest stamp across the clinics — the whole refresh runs as one job.
+  const refreshedAt = locations.reduce<string | null>(
+    (latest, l) =>
+      l.metrics_refreshed_at && (!latest || l.metrics_refreshed_at > latest)
+        ? l.metrics_refreshed_at
+        : latest,
+    null,
+  );
+
   return (
     <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200/80 bg-slate-50/60 px-3.5 py-2">
+        <p className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-600">Live base numbers</span>{" "}
+          — avg appointments/day and avg value per type rebuild automatically
+          every morning from the latest Agenda bookings and invoices.{" "}
+          {refreshedAt ? (
+            <span className="text-slate-400">
+              Last refreshed {fmtRefreshed(refreshedAt)}.
+            </span>
+          ) : (
+            <span className="text-slate-400">Not refreshed yet.</span>
+          )}
+        </p>
+        {canEdit ? (
+          <button
+            type="button"
+            onClick={onRefreshMetrics}
+            disabled={refreshing}
+            className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            {refreshing ? "Refreshing…" : "Refresh now"}
+          </button>
+        ) : null}
+      </div>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard
           label="Projected monthly revenue"
@@ -813,6 +897,7 @@ export function BusinessDevelopment({
           onSaveHours={(hours) => onSaveHours(loc.location_id, hours)}
           onAddType={(name, value) => onAddType(loc.location_id, name, value)}
           onRemoveType={(typeId) => onRemoveType(loc.location_id, typeId)}
+          onResetOverrides={() => onResetOverrides(loc.location_id)}
         />
       ))}
     </div>

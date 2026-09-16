@@ -507,6 +507,15 @@ const BIZDEV_LOCATION_ORDER: LocationKey[] = ["sherman_oaks", "van_nuys", "venic
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Clinic-local (Los Angeles) calendar day of an instant, as YYYY-MM-DD. */
+const LA_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Los_Angeles",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const laDay = (d: Date): string => LA_DAY_FMT.format(d);
+
 interface DailyAvgRow {
   location_id: string;
   appt_type: string;
@@ -549,6 +558,52 @@ interface BizDevApptTypeDbRow {
   hidden: boolean;
   is_custom: boolean;
   sort_order: number;
+  value_overridden: boolean;
+  per_day_overridden: boolean;
+}
+
+/** Columns of one planner row, shared by every read of bizdev_appt_type. */
+const BIZDEV_TYPE_COLS =
+  "id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, " +
+  "cadence, max_per_day, included, hidden, is_custom, sort_order, value_overridden, per_day_overridden";
+
+/**
+ * Rebuild the planner's derived base numbers (avg appointments/day + avg value
+ * per clinic & appointment type) from the latest Agenda snapshots and invoices.
+ * Cells the user typed by hand are preserved; the scenario columns are never
+ * touched. Idempotent. Run every morning by /api/agents/bizdev/refresh and
+ * on-demand from the planner.
+ */
+export async function refreshBizDevMetrics(): Promise<ActionResult> {
+  await requireReportingEditor();
+  const admin = createAdminClient();
+  const { error } = await admin.rpc("bizdev_refresh_metrics");
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, message: "Base numbers refreshed from the latest data." };
+}
+
+/**
+ * Clear the hand-edited flags on a clinic's rows so the next refresh puts the
+ * derived numbers back, then refresh immediately.
+ */
+export async function resetBizDevMetricOverrides(
+  locationId: string,
+): Promise<ActionResult> {
+  await requireReportingEditor();
+  if (!UUID_RE.test(locationId)) return { ok: false, error: "Invalid clinic." };
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("bizdev_appt_type")
+    .update({
+      value_overridden: false,
+      per_day_overridden: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("location_id", locationId);
+  if (error) return { ok: false, error: error.message };
+  const { error: rpcError } = await admin.rpc("bizdev_refresh_metrics");
+  if (rpcError) return { ok: false, error: rpcError.message };
+  return { ok: true, message: "Reverted to the live data." };
 }
 
 /**
@@ -571,6 +626,21 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     .in("name", Object.keys(BIZDEV_NAME_TO_KEY));
   const locations = (locData ?? []) as { id: string; name: string }[];
   if (locations.length === 0) return [];
+
+  // Keep the derived base numbers current. The morning cron normally does this;
+  // refreshing here as well means a missed run never leaves the planner showing
+  // yesterday's averages. Once a day is enough — the source data only changes
+  // when the overnight ezyVet ingest lands.
+  const { data: stampData } = await admin
+    .from("bizdev_location_config")
+    .select("metrics_refreshed_at")
+    .order("metrics_refreshed_at", { ascending: false, nullsFirst: false })
+    .limit(1);
+  const lastRefresh = ((stampData ?? []) as { metrics_refreshed_at: string | null }[])[0]
+    ?.metrics_refreshed_at ?? null;
+  if (!lastRefresh || laDay(new Date(lastRefresh)) !== laDay(new Date())) {
+    await admin.rpc("bizdev_refresh_metrics");
+  }
 
   // Blended average appointment value per clinic, from the latest report year.
   const { data: yearData } = await admin.from("report_years").select("year");
@@ -638,9 +708,9 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   // Existing planner rows.
   const { data: existingData } = await admin
     .from("bizdev_appt_type")
-    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, included, hidden, is_custom, sort_order")
+    .select(BIZDEV_TYPE_COLS)
     .in("location_id", locationIds);
-  const existing = (existingData ?? []) as BizDevApptTypeDbRow[];
+  const existing = (existingData ?? []) as unknown as BizDevApptTypeDbRow[];
   const existingKeys = new Set(existing.map((r) => `${r.location_id}|${r.appt_type}`));
 
   // Full catalog of appointment types seen ANYWHERE (across all clinics), so the
@@ -704,7 +774,8 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     "location_id, open_sun, open_mon, open_tue, open_wed, open_thu, open_fri, open_sat, " +
     "factor_sun, factor_mon, factor_tue, factor_wed, factor_thu, factor_fri, factor_sat, " +
     "open_min_sun, open_min_mon, open_min_tue, open_min_wed, open_min_thu, open_min_fri, open_min_sat, " +
-    "close_min_sun, close_min_mon, close_min_tue, close_min_wed, close_min_thu, close_min_fri, close_min_sat";
+    "close_min_sun, close_min_mon, close_min_tue, close_min_wed, close_min_thu, close_min_fri, close_min_sat, " +
+    "metrics_refreshed_at";
   interface CfgDbRow extends BizDevOpenDays, Partial<BizDevHours> {
     location_id: string;
     factor_sun: number | string;
@@ -714,6 +785,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
     factor_thu: number | string;
     factor_fri: number | string;
     factor_sat: number | string;
+    metrics_refreshed_at: string | null;
   }
   const { data: cfgData } = await admin
     .from("bizdev_location_config")
@@ -826,9 +898,9 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
   // Re-read the (now seeded) planner rows.
   const { data: allRowsData } = await admin
     .from("bizdev_appt_type")
-    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, included, hidden, is_custom, sort_order")
+    .select(BIZDEV_TYPE_COLS)
     .in("location_id", locationIds);
-  const allRows = (allRowsData ?? []) as BizDevApptTypeDbRow[];
+  const allRows = (allRowsData ?? []) as unknown as BizDevApptTypeDbRow[];
 
   const result: BizDevLocation[] = [];
   for (const loc of locations) {
@@ -855,6 +927,8 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
           sort_order: r.sort_order,
           matched_paid: derived ? Number(derived.matched_paid ?? 0) : 0,
           days_observed: avg ? Number(avg.days_observed ?? 0) : 0,
+          value_overridden: !!r.value_overridden,
+          per_day_overridden: !!r.per_day_overridden,
         };
       })
       .sort(
@@ -871,6 +945,7 @@ export async function getBusinessDevelopmentData(): Promise<BizDevLocation[]> {
       weekday_factors: factorsFrom(cfgById.get(loc.id)),
       hours: hoursFrom(cfgById.get(loc.id)),
       hour_demand: hourByLoc.get(loc.id) ?? [],
+      metrics_refreshed_at: cfgById.get(loc.id)?.metrics_refreshed_at ?? null,
       types: rows,
     });
   }
@@ -902,9 +977,12 @@ export async function updateBizDevApptType(
   const update: Record<string, number | boolean | string> = { updated_at: new Date().toISOString() };
   if (typeof patch.avg_value === "number" && Number.isFinite(patch.avg_value)) {
     update.avg_value = Math.max(0, Math.round(patch.avg_value * 100) / 100);
+    // Hand-typed base numbers survive the daily refresh from now on.
+    update.value_overridden = true;
   }
   if (typeof patch.avg_per_day === "number" && Number.isFinite(patch.avg_per_day)) {
     update.avg_per_day = Math.max(0, Math.round(patch.avg_per_day * 100) / 100);
+    update.per_day_overridden = true;
   }
   if (typeof patch.planned_per_day === "number" && Number.isFinite(patch.planned_per_day)) {
     update.planned_per_day = Math.max(0, Math.round(patch.planned_per_day * 100) / 100);
@@ -1035,13 +1113,13 @@ export async function addBizDevApptType(
       is_custom: true,
       sort_order: 900,
     })
-    .select("id, location_id, appt_type, avg_value, avg_per_day, planned_per_day, planned_per_week, cadence, max_per_day, included, hidden, is_custom, sort_order")
+    .select(BIZDEV_TYPE_COLS)
     .single();
   if (error) {
     if (error.code === "23505") return { ok: false, error: "That appointment type already exists here." };
     return { ok: false, error: error.message };
   }
-  const r = data as BizDevApptTypeDbRow;
+  const r = data as unknown as BizDevApptTypeDbRow;
   return {
     ok: true,
     row: {
@@ -1060,6 +1138,8 @@ export async function addBizDevApptType(
       sort_order: r.sort_order,
       matched_paid: 0,
       days_observed: 0,
+      value_overridden: !!r.value_overridden,
+      per_day_overridden: !!r.per_day_overridden,
     },
   };
 }

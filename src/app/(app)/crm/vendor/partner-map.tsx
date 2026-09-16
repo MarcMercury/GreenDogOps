@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { type CrmOrganization, ORG_STATUS_OPTIONS, subtypeLabel } from "@/lib/crm/types";
+import { type CrmOrganization, subtypeLabel } from "@/lib/crm/types";
 import { ZONE_DEFINITIONS, VISIT_HEAT_LEVELS, visitHeat } from "@/lib/crm/referral-types";
 import { geocodePartnerOrgs } from "./actions";
 
@@ -177,7 +177,6 @@ export function PartnerMap({
   }, []);
 
   const [zone, setZone] = useState("");
-  const [partnerStatus, setPartnerStatus] = useState("");
   const [subtype, setSubtype] = useState("");
   const [search, setSearch] = useState("");
 
@@ -217,7 +216,6 @@ export function PartnerMap({
     return partners.filter((p) => {
       if (!hasCoords(p)) return false;
       if (zone && p.area !== zone) return false;
-      if (partnerStatus && (p.status || "").toLowerCase() !== partnerStatus) return false;
       if (subtype && p.subtype !== subtype) return false;
       if (q) {
         const hay = `${p.name} ${p.address ?? ""} ${p.area ?? ""}`.toLowerCase();
@@ -225,7 +223,7 @@ export function PartnerMap({
       }
       return true;
     });
-  }, [partners, hasCoords, zone, partnerStatus, subtype, search]);
+  }, [partners, hasCoords, zone, subtype, search]);
 
   // ----- Load map once -----
   useEffect(() => {
@@ -340,7 +338,7 @@ export function PartnerMap({
     });
   }
 
-  const filtersActive = zone || partnerStatus || subtype || search;
+  const filtersActive = zone || subtype || search;
 
   return (
     <div className="space-y-4">
@@ -351,7 +349,7 @@ export function PartnerMap({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search partners…"
-            className="min-w-[150px] flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="w-48 rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
           <select value={zone} onChange={(e) => setZone(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none">
             <option value="">All areas</option>
@@ -365,15 +363,9 @@ export function PartnerMap({
               <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
-          <select value={partnerStatus} onChange={(e) => setPartnerStatus(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none">
-            <option value="">All statuses</option>
-            {ORG_STATUS_OPTIONS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
           {filtersActive && (
             <button
-              onClick={() => { setZone(""); setPartnerStatus(""); setSubtype(""); setSearch(""); }}
+              onClick={() => { setZone(""); setSubtype(""); setSearch(""); }}
               className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
               Clear
