@@ -8,6 +8,7 @@ import { ensureCanEdit, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
+import { normalizeJobTitle } from "@/lib/hr/job-titles";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import * as XLSX from "xlsx";
 
@@ -41,6 +42,11 @@ function bool(v: FormDataEntryValue | null): boolean {
 /** Reads a form field and normalizes it to the app-wide phone format. */
 function phone(v: FormDataEntryValue | null): string | null {
   return formatPhoneNumber(str(v));
+}
+
+/** Reads a form field and maps it onto its canonical job title. */
+function title(v: FormDataEntryValue | null): string | null {
+  return normalizeJobTitle(str(v));
 }
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -151,8 +157,8 @@ export async function createEmployee(
 
   const empInsert = {
     person_id: personId,
-    adp_job_title: str(formData.get("adp_job_title")),
-    offer_title: str(formData.get("offer_title")),
+    adp_job_title: title(formData.get("adp_job_title")),
+    offer_title: title(formData.get("offer_title")),
     flsa_status: str(formData.get("flsa_status")),
     work_schedule: str(formData.get("work_schedule")),
     schedule_type: str(formData.get("schedule_type")),
@@ -258,8 +264,8 @@ export async function updateEmployee(
   }
 
   const empPatch = {
-    adp_job_title: str(formData.get("adp_job_title")),
-    offer_title: str(formData.get("offer_title")),
+    adp_job_title: title(formData.get("adp_job_title")),
+    offer_title: title(formData.get("offer_title")),
     preferred_location_id: str(formData.get("preferred_location_id")),
     flsa_status: str(formData.get("flsa_status")),
     work_schedule: str(formData.get("work_schedule")),
@@ -301,7 +307,14 @@ export async function updateEmployee(
 // Inline roster-grid editing
 // ---------------------------------------------------------------------------
 
-type FieldKind = "text" | "date" | "number" | "money" | "boolean" | "phone";
+type FieldKind =
+  | "text"
+  | "date"
+  | "number"
+  | "money"
+  | "boolean"
+  | "phone"
+  | "title";
 
 /** Editable columns living on the `person` table, keyed to their value kind. */
 const PERSON_EDIT_FIELDS: Record<string, FieldKind> = {
@@ -322,8 +335,8 @@ const PERSON_EDIT_FIELDS: Record<string, FieldKind> = {
 
 /** Editable non-compensation columns on the `person_employment` table. */
 const EMPLOYMENT_EDIT_FIELDS: Record<string, FieldKind> = {
-  adp_job_title: "text",
-  offer_title: "text",
+  adp_job_title: "title",
+  offer_title: "title",
   flsa_status: "text",
   work_schedule: "text",
   schedule_type: "text",
@@ -363,6 +376,8 @@ function coerceFieldValue(
       return num(raw);
     case "phone":
       return phone(raw);
+    case "title":
+      return title(raw);
     default:
       return str(raw);
   }
@@ -586,8 +601,12 @@ export async function importRosterFile(formData: FormData): Promise<ImportRoster
       }
 
       const empPatch: Record<string, unknown> = { person_id: personId };
-      addIfPresent(empPatch, "adp_job_title", rowValue(row, ["adp_job_title", "job_title", "title"]));
-      addIfPresent(empPatch, "offer_title", rowValue(row, ["offer_title"]));
+      addIfPresent(
+        empPatch,
+        "adp_job_title",
+        normalizeJobTitle(rowValue(row, ["adp_job_title", "job_title", "title"])),
+      );
+      addIfPresent(empPatch, "offer_title", normalizeJobTitle(rowValue(row, ["offer_title"])));
       addIfPresent(empPatch, "flsa_status", rowValue(row, ["flsa_status", "flsa"]));
       addIfPresent(empPatch, "work_schedule", rowValue(row, ["work_schedule", "schedule"]));
       addIfPresent(empPatch, "schedule_type", rowValue(row, ["schedule_type"]));
