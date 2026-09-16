@@ -18,6 +18,7 @@ import {
   type PersonOption,
   type MarketingActivity,
   type CrmOrgRef,
+  type MarketingVendorRef,
   type InitiativeLink,
   INITIATIVE_CATEGORIES,
   INITIATIVE_STATUSES,
@@ -39,6 +40,7 @@ import { MarketingTree } from "./marketing-tree";
 import { EventsTab } from "./marketing-events";
 import { TemplatesView } from "../email-templates/templates-view";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
+import { subtypeLabel } from "@/lib/crm/types";
 import {
   saveGoal,
   deleteGoal,
@@ -248,6 +250,7 @@ export function MarketingDashboard({
   people,
   activity,
   crmOrgs,
+  marketingVendors,
   emailTemplates,
   canManageEmailTemplates,
   initialTab,
@@ -268,6 +271,7 @@ export function MarketingDashboard({
   people: PersonOption[];
   activity: MarketingActivity[];
   crmOrgs: CrmOrgRef[];
+  marketingVendors: MarketingVendorRef[];
   emailTemplates: EmailTemplate[];
   canManageEmailTemplates: boolean;
   initialTab?: string;
@@ -382,7 +386,7 @@ export function MarketingDashboard({
         />
       )}
       {tab === "resources" && (
-        <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} people={people} crmOrgs={crmOrgs} run={run} />
+        <ResourcesTab canEdit={canEdit} canViewCredentials={canViewCredentials} resources={resources} people={people} crmOrgs={crmOrgs} vendors={marketingVendors} run={run} />
       )}
       {tab === "email_templates" && canManageEmailTemplates && (
         <TemplatesView templates={emailTemplates} />
@@ -1227,6 +1231,7 @@ function ResourcesTab({
   resources,
   people,
   crmOrgs,
+  vendors,
   run,
 }: {
   canEdit: boolean;
@@ -1234,8 +1239,10 @@ function ResourcesTab({
   resources: MarketingResource[];
   people: PersonOption[];
   crmOrgs: CrmOrgRef[];
+  vendors: MarketingVendorRef[];
   run: Run;
 }) {
+  const [view, setView] = useState<"tools" | "vendors">("tools");
   const [editing, setEditing] = useState<MarketingResource | "new" | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
@@ -1285,8 +1292,27 @@ function ResourcesTab({
 
   const sortArrow = (k: string) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
 
+  const switcher = (
+    <ResourcesViewSwitcher
+      view={view}
+      onChange={setView}
+      toolCount={resources.length}
+      vendorCount={vendors.length}
+    />
+  );
+
+  if (view === "vendors") {
+    return (
+      <section className="space-y-4">
+        {switcher}
+        <MarketingVendorsPanel vendors={vendors} canEdit={canEdit} />
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-4">
+      {switcher}
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
@@ -1382,6 +1408,180 @@ function ResourcesTab({
         />
       )}
     </section>
+  );
+}
+
+function ResourcesViewSwitcher({
+  view,
+  onChange,
+  toolCount,
+  vendorCount,
+}: {
+  view: "tools" | "vendors";
+  onChange: (v: "tools" | "vendors") => void;
+  toolCount: number;
+  vendorCount: number;
+}) {
+  const views = [
+    { key: "tools", label: "Tools & Logins", icon: "🧰", count: toolCount },
+    { key: "vendors", label: "Marketing Vendors", icon: "🧾", count: vendorCount },
+  ] as const;
+  return (
+    <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-200 pb-px">
+      {views.map((v) => (
+        <button
+          key={v.key}
+          type="button"
+          onClick={() => onChange(v.key)}
+          className={`whitespace-nowrap rounded-t-lg px-3 py-2 text-sm font-medium transition ${
+            view === v.key
+              ? "bg-white text-emerald-700 shadow-[inset_0_-2px_0_0_#059669]"
+              : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          <span className="mr-1">{v.icon}</span>
+          {v.label}
+          <span className="ml-1.5 text-xs font-normal text-slate-400">{v.count}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Marketing Vendors — the purchased-service side of Resources (printing, media,
+// merch, client comms). Records live in the CRM; this is the read/link surface.
+function MarketingVendorsPanel({
+  vendors,
+  canEdit,
+}: {
+  vendors: MarketingVendorRef[];
+  canEdit: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [type, setType] = useState("");
+  const [sortKey, setSortKey] = useState<"name" | "type" | "contact">("name");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function toggleSort(k: "name" | "type" | "contact") {
+    if (k === sortKey) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else {
+      setSortKey(k);
+      setSortDir("asc");
+    }
+  }
+
+  const types = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const v of vendors) {
+      const label = subtypeLabel(v.subtype) || "Other";
+      m.set(label, (m.get(label) ?? 0) + 1);
+    }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [vendors]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const val = (v: MarketingVendorRef): string => {
+      if (sortKey === "type") return (subtypeLabel(v.subtype) || "").toLowerCase();
+      if (sortKey === "contact") return (v.contact_name ?? "").toLowerCase();
+      return v.name.toLowerCase();
+    };
+    return vendors
+      .filter((v) => {
+        if (type && (subtypeLabel(v.subtype) || "Other") !== type) return false;
+        if (!q) return true;
+        return `${v.name} ${v.contact_name ?? ""} ${v.email ?? ""} ${v.website ?? ""} ${v.notes ?? ""}`
+          .toLowerCase()
+          .includes(q);
+      })
+      .sort((a, b) => {
+        const cmp = val(a).localeCompare(val(b));
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+  }, [vendors, query, type, sortKey, sortDir]);
+
+  const sortArrow = (k: string) => (sortKey === k ? (sortDir === "asc" ? " ▲" : " ▼") : "");
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search vendors…"
+          className={`${fieldInput} w-64`}
+        />
+        <select value={type} onChange={(e) => setType(e.target.value)} className={`${fieldInput} w-auto`}>
+          <option value="">All types</option>
+          {types.map(([label, n]) => (
+            <option key={label} value={label}>
+              {label} ({n})
+            </option>
+          ))}
+        </select>
+        <span className="text-sm text-slate-400">{filtered.length} shown</span>
+        {canEdit && (
+          <Link href="/crm/org/new?section=marketing-vendor" className={`${btnPrimary} ml-auto`}>
+            + Vendor
+          </Link>
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <EmptyRow label="No marketing vendors match." />
+      ) : (
+        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("name")}>Vendor{sortArrow("name")}</th>
+                <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("type")}>Type{sortArrow("type")}</th>
+                <th className="cursor-pointer select-none px-4 py-2.5 font-semibold" onClick={() => toggleSort("contact")}>Contact{sortArrow("contact")}</th>
+                <th className="px-4 py-2.5 font-semibold">Phone</th>
+                <th className="px-4 py-2.5 font-semibold">Email</th>
+                <th className="px-4 py-2.5 font-semibold">Account</th>
+                <th className="px-4 py-2.5 font-semibold">Link</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map((v) => (
+                <tr key={v.id} className="align-top transition hover:bg-slate-50">
+                  <td className="px-4 py-2.5">
+                    <Link href={`/crm/org/${v.id}`} className="font-medium text-slate-900 hover:text-emerald-700">
+                      {v.name}
+                    </Link>
+                    {v.notes && <div className="mt-0.5 line-clamp-2 text-xs text-slate-400">{v.notes}</div>}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5"><Badge>{subtypeLabel(v.subtype) || "Other"}</Badge></td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">
+                    {v.contact_name ?? v.account_rep ?? "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">
+                    {v.phone ? <a href={`tel:${v.phone}`} className="hover:text-emerald-700">{v.phone}</a> : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">
+                    {v.email ? <a href={`mailto:${v.email}`} className="hover:text-emerald-700">{v.email}</a> : "—"}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-slate-500">{v.account_number ?? "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5">
+                    {v.website ? (
+                      <a
+                        href={v.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-emerald-700 hover:text-emerald-800"
+                      >
+                        Open ↗
+                      </a>
+                    ) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

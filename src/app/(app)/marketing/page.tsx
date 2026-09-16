@@ -17,7 +17,9 @@ import type {
   PersonOption,
   MarketingActivity,
   CrmOrgRef,
+  MarketingVendorRef,
 } from "@/lib/marketing/types";
+import { MARKETING_VENDOR_CATEGORY } from "@/lib/crm/types";
 import { MarketingDashboard } from "./marketing-dashboard";
 
 export const dynamic = "force-dynamic";
@@ -123,6 +125,16 @@ export default async function MarketingManagementPage({
     ])
     .order("name", { ascending: true });
 
+  // Marketing Vendors (printing, media, merch, client comms) live in the
+  // Resources tab rather than their own nav entry.
+  const vendorsRes = await supabase
+    .from("crm_organization")
+    .select(
+      "id, name, subtype, status, contact_name, phone, email, website, account_number, account_rep, notes",
+    )
+    .eq("category", MARKETING_VENDOR_CATEGORY)
+    .order("name", { ascending: true });
+
   // Budget is admin-only. Non-admins never receive the rows.
   const [periodRes, entriesRes] = isAdmin
     ? await Promise.all([
@@ -151,7 +163,8 @@ export default async function MarketingManagementPage({
     sourcesRes.error ||
     attendeesRes.error ||
     promotionsRes.error ||
-    crmOrgsRes.error;
+    crmOrgsRes.error ||
+    vendorsRes.error;
 
   if (firstError) {
     return (
@@ -184,6 +197,7 @@ export default async function MarketingManagementPage({
       people={(peopleRes.data ?? []) as PersonOption[]}
       activity={(activityRes.data ?? []) as MarketingActivity[]}
       crmOrgs={(crmOrgsRes.data ?? []) as CrmOrgRef[]}
+      marketingVendors={(vendorsRes.data ?? []) as MarketingVendorRef[]}
       emailTemplates={emailTemplates}
       canManageEmailTemplates={canManageEmailTemplates}
       initialTab={initialTab}

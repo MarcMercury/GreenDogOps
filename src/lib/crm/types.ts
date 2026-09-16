@@ -767,6 +767,12 @@ export interface CrmSection {
   category?: string;
   /** Inverts `category` — the section takes every category EXCEPT that one. */
   categoryExcluded?: boolean;
+  /**
+   * The section still owns its records and routes, but is surfaced somewhere
+   * else in the app instead of the CRM hub — Marketing Vendors lives in
+   * Marketing Management → Resources. Links here point at that home.
+   */
+  homeHref?: string;
 }
 
 /** Canonical subtype value that identifies a rescue / shelter record. */
@@ -844,6 +850,7 @@ export const CRM_SECTIONS: CrmSection[] = [
       "facility_resource",
     ],
     category: MARKETING_VENDOR_CATEGORY,
+    homeHref: "/marketing?tab=resources",
   },
   {
     slug: "rescue",

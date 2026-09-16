@@ -145,6 +145,25 @@ export interface CrmOrgRef {
   subtype: string | null;
 }
 
+/**
+ * A Marketing Vendor (crm_organization, category='marketing_vendor') as shown
+ * in the Resources tab — printing, media, merch and other purchased marketing
+ * services. The full record still lives on the CRM org page.
+ */
+export interface MarketingVendorRef {
+  id: string;
+  name: string;
+  subtype: string | null;
+  status: string | null;
+  contact_name: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  account_number: string | null;
+  account_rep: string | null;
+  notes: string | null;
+}
+
 export interface MarketingEventAttendee {
   id: string;
   event_id: string;

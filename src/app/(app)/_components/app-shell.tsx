@@ -69,7 +69,6 @@ const MARKETING: NavItem[] = [
   crmSection("referral"),
   crmSection("rescue"),
   crmSection("vendor"),
-  crmSection("marketing-vendor", "crm_marketing_vendor"),
 ];
 
 /** Operations modules. */

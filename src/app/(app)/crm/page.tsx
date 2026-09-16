@@ -90,7 +90,7 @@ export default async function CrmHubPage() {
         {CRM_SECTIONS.map((s) => (
           <Link
             key={s.slug}
-            href={`/crm/${s.slug}`}
+            href={s.homeHref ?? `/crm/${s.slug}`}
             className="group relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/80 p-5 shadow-sm backdrop-blur-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-300/70 hover:shadow-md hover:shadow-emerald-600/5"
           >
             <div className="relative flex items-start justify-between">

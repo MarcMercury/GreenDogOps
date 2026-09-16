@@ -100,7 +100,7 @@ export default async function OrganizationDetailPage({
   return (
     <div className="mx-auto max-w-4xl">
       <Link
-        href={section ? `/crm/${section.slug}` : "/crm"}
+        href={section ? section.homeHref ?? `/crm/${section.slug}` : "/crm"}
         className="text-sm text-emerald-700 hover:text-emerald-900"
       >
         ← Back to {section?.title ?? "CRM"}
