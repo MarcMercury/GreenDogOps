@@ -506,6 +506,7 @@ export function DataTable<T extends { id: string }>({
   initialActive,
   stickyScroll = false,
   dense = false,
+  compactFilters = false,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -526,6 +527,11 @@ export function DataTable<T extends { id: string }>({
   stickyScroll?: boolean;
   /** Tighter horizontal cell padding so more columns fit without scrolling. */
   dense?: boolean;
+  /**
+   * Renders filters as stackable "category + value" pairs on one line instead
+   * of one labelled dropdown per filter. Use for grids with many filters.
+   */
+  compactFilters?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -535,6 +541,12 @@ export function DataTable<T extends { id: string }>({
       Object.entries(initialActive ?? {}).map(([k, v]) => [k, v.toLowerCase()]),
     ),
   );
+  // Compact mode only: one entry per visible category/value dropdown pair.
+  // "" = an empty slot whose category hasn't been chosen yet.
+  const [filterSlots, setFilterSlots] = useState<string[]>(() => {
+    const keys = Object.keys(initialActive ?? {});
+    return keys.length > 0 ? keys : [""];
+  });
 
   // Build filter dropdowns: only keep filters that have 2+ distinct values.
   // Options are keyed case-insensitively so "GREEN" and "green" collapse into
@@ -621,6 +633,43 @@ export function DataTable<T extends { id: string }>({
 
   const hasActiveFilters =
     Object.values(active).some((v) => v && v !== "all") || query.trim() !== "";
+
+  // Swap a slot's category, dropping the value selected under the old one.
+  function setSlotCategory(index: number, nextKey: string) {
+    const prevKey = filterSlots[index];
+    if (prevKey && prevKey !== nextKey) {
+      setActive((s) => {
+        const next = { ...s };
+        delete next[prevKey];
+        return next;
+      });
+    }
+    setFilterSlots((slots) => slots.map((k, i) => (i === index ? nextKey : k)));
+  }
+
+  function removeSlot(index: number) {
+    const key = filterSlots[index];
+    if (key) {
+      setActive((s) => {
+        const next = { ...s };
+        delete next[key];
+        return next;
+      });
+    }
+    setFilterSlots((slots) => {
+      const next = slots.filter((_, i) => i !== index);
+      return next.length > 0 ? next : [""];
+    });
+  }
+
+  function clearAll() {
+    setQuery("");
+    setActive({});
+    setFilterSlots([""]);
+  }
+
+  const canAddSlot =
+    filterSlots.every((k) => k !== "") && filterSlots.length < filterOptions.length;
 
   // Pinned-scrollbar plumbing for the sticky-scroll variant. The top scrollbar
   // is a thin element whose inner spacer mirrors the table width; scrolling
@@ -739,30 +788,96 @@ export function DataTable<T extends { id: string }>({
           />
         </div>
 
-        {filterOptions.map(({ def, options }) => (
-          <div key={def.key} className="flex items-center gap-1.5">
-            <label className="shrink-0 text-xs font-medium text-slate-500">{def.label}</label>
-            <select
-              value={active[def.key] ?? "all"}
-              onChange={(e) => setActive((s) => ({ ...s, [def.key]: e.target.value }))}
-              className="max-w-[9rem] truncate rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="all">All ({rows.length})</option>
-              {options.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label} ({o.count})
-                </option>
-              ))}
-            </select>
-          </div>
-        ))}
+        {compactFilters
+          ? filterOptions.length > 0 && (
+              <>
+                {filterSlots.map((slotKey, i) => {
+                  const picked = filterOptions.find((f) => f.def.key === slotKey);
+                  return (
+                    <div key={`${slotKey}-${i}`} className="flex items-center gap-1">
+                      <select
+                        value={slotKey}
+                        onChange={(e) => setSlotCategory(i, e.target.value)}
+                        className="max-w-[10rem] truncate rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-2 text-sm font-medium text-slate-600 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        aria-label="Filter category"
+                      >
+                        <option value="">Filter by…</option>
+                        {filterOptions
+                          .filter(
+                            ({ def }) =>
+                              def.key === slotKey || !filterSlots.includes(def.key),
+                          )
+                          .map(({ def }) => (
+                            <option key={def.key} value={def.key}>
+                              {def.label}
+                            </option>
+                          ))}
+                      </select>
+                      <select
+                        value={slotKey ? active[slotKey] ?? "all" : "all"}
+                        disabled={!picked}
+                        onChange={(e) =>
+                          setActive((s) => ({ ...s, [slotKey]: e.target.value }))
+                        }
+                        className="max-w-[11rem] truncate rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm shadow-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                        aria-label={picked ? `${picked.def.label} value` : "Filter value"}
+                      >
+                        <option value="all">
+                          {picked ? `All (${rows.length})` : "—"}
+                        </option>
+                        {picked?.options.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label} ({o.count})
+                          </option>
+                        ))}
+                      </select>
+                      {(filterSlots.length > 1 || slotKey !== "") && (
+                        <button
+                          type="button"
+                          onClick={() => removeSlot(i)}
+                          aria-label="Remove filter"
+                          className="rounded-lg px-1.5 py-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                {canAddSlot && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterSlots((s) => [...s, ""])}
+                    className="rounded-lg border border-dashed border-slate-300 px-2.5 py-2 text-sm font-medium text-slate-500 hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-700"
+                  >
+                    + Filter
+                  </button>
+                )}
+              </>
+            )
+          : filterOptions.map(({ def, options }) => (
+              <div key={def.key} className="flex items-center gap-1.5">
+                <label className="shrink-0 text-xs font-medium text-slate-500">
+                  {def.label}
+                </label>
+                <select
+                  value={active[def.key] ?? "all"}
+                  onChange={(e) => setActive((s) => ({ ...s, [def.key]: e.target.value }))}
+                  className="max-w-[9rem] truncate rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                >
+                  <option value="all">All ({rows.length})</option>
+                  {options.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label} ({o.count})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
 
         {hasActiveFilters && (
           <button
-            onClick={() => {
-              setQuery("");
-              setActive({});
-            }}
+            onClick={clearAll}
             className="rounded-lg px-2.5 py-2 text-sm font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
           >
             Clear
