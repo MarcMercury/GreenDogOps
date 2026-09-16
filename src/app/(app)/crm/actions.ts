@@ -11,6 +11,7 @@ import {
   crmSlugForContactType,
   ORG_TYPE_LABELS,
   CONTACT_TYPE_LABELS,
+  normalizeRecommendationLevel,
   type OrgType,
   type ContactType,
 } from "@/lib/crm/types";
@@ -399,7 +400,9 @@ function contactPatch(formData: FormData) {
         .map((v) => String(v).trim())
         .filter(Boolean)
         .join(", ") || null,
-    doc_recommendation: str(formData.get("doc_recommendation")),
+    doc_recommendation: normalizeRecommendationLevel(
+      str(formData.get("doc_recommendation")),
+    ),
     degree_type: str(formData.get("degree_type")),
     hire_interest: str(formData.get("hire_interest")),
     grad_year: str(formData.get("grad_year")),
@@ -488,6 +491,28 @@ export async function updateContactStatus(
   const { error } = await supabase
     .from("crm_contact")
     .update({ status: str(status) })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/crm/contact/${id}`);
+  revalidatePath("/crm", "layout");
+  return { ok: true };
+}
+
+/**
+ * Inline single-field recommendation-level update used by the Student CRM grid.
+ * Values are stored lowercase (green/yellow/red) so filtering and display never
+ * have to care about casing; anything else clears the field.
+ */
+export async function updateContactRecommendation(
+  id: string,
+  level: string,
+): Promise<SaveResult> {
+  const gate = await ensureEditor();
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("crm_contact")
+    .update({ doc_recommendation: normalizeRecommendationLevel(level) })
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/crm/contact/${id}`);

@@ -11,6 +11,8 @@ import {
   subtypeLabel,
   categoryLabel,
   RECOMMENDATION_LEVEL_OPTIONS,
+  RECOMMENDATION_LEVEL_STYLES,
+  normalizeRecommendationLevel,
   CONTACT_STATUS_OPTIONS,
   programNameColor,
 } from "@/lib/crm/types";
@@ -18,6 +20,7 @@ import {
   logOrgQuickNote,
   importContacts,
   updateContactStatus,
+  updateContactRecommendation,
   type ImportContactRow,
 } from "./actions";
 import {
@@ -44,10 +47,9 @@ const RECOMMENDATION_PILL_STYLES: Record<string, string> = {
 };
 
 function recommendationLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-  return (
-    RECOMMENDATION_LEVEL_OPTIONS.find((o) => o.value === value)?.label ?? value
-  );
+  const level = normalizeRecommendationLevel(value);
+  if (!level) return null;
+  return RECOMMENDATION_LEVEL_OPTIONS.find((o) => o.value === level)?.label ?? level;
 }
 
 function statusLabel(value: string | null | undefined): string {
@@ -100,6 +102,67 @@ function StatusCell({
     >
       <option value="">—</option>
       {CONTACT_STATUS_OPTIONS.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/**
+ * Inline Rec Level editor used in the student grid — Blank / Red / Yellow /
+ * Green only, written straight back to the contact record. Read-only pill when
+ * the viewer can't edit.
+ */
+function RecommendationCell({
+  contact,
+  canEdit,
+}: {
+  contact: CrmContact;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [value, setValue] = useState(
+    normalizeRecommendationLevel(contact.doc_recommendation) ?? "",
+  );
+  const [pending, startTransition] = useTransition();
+
+  if (!canEdit) {
+    return value ? (
+      <Pill text={recommendationLabel(value) ?? ""} styles={RECOMMENDATION_PILL_STYLES} />
+    ) : (
+      <span className="text-slate-400">—</span>
+    );
+  }
+
+  function onChange(next: string) {
+    const prev = value;
+    setValue(next);
+    startTransition(async () => {
+      const result = await updateContactRecommendation(contact.id, next);
+      if (!result.ok) {
+        setValue(prev);
+        window.alert(`Could not update recommendation: ${result.error}`);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <select
+      value={value}
+      disabled={pending}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => onChange(e.target.value)}
+      className={`max-w-[7rem] rounded-lg border px-2 py-1 text-xs font-medium shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-50 ${
+        RECOMMENDATION_LEVEL_STYLES[value]?.select ??
+        "border-slate-300 bg-white text-slate-700"
+      }`}
+    >
+      <option value="">—</option>
+      {RECOMMENDATION_LEVEL_OPTIONS.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
@@ -539,15 +602,7 @@ export function ContactListView({
             header: "Rec Level",
             value: (c) => recommendationLabel(c.doc_recommendation),
             className: "whitespace-nowrap",
-            render: (c) =>
-              c.doc_recommendation ? (
-                <Pill
-                  text={recommendationLabel(c.doc_recommendation) ?? ""}
-                  styles={RECOMMENDATION_PILL_STYLES}
-                />
-              ) : (
-                <span className="text-slate-400">—</span>
-              ),
+            render: (c) => <RecommendationCell contact={c} canEdit={canEdit} />,
           },
           { key: "status", header: "Status", value: (c) => c.status,
             className: "whitespace-nowrap",
@@ -595,7 +650,8 @@ export function ContactListView({
           {
             key: "doc_rec",
             label: "Recommendation",
-            value: (c) => c.doc_recommendation,
+            value: (c) => normalizeRecommendationLevel(c.doc_recommendation),
+            formatOption: (v) => recommendationLabel(v) ?? v,
           },
           {
             key: "hire_interest",

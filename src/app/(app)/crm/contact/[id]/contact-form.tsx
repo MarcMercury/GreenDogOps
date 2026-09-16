@@ -11,6 +11,7 @@ import {
   DEGREE_TYPE_OPTIONS,
   RECOMMENDATION_LEVEL_OPTIONS,
   RECOMMENDATION_LEVEL_STYLES,
+  normalizeRecommendationLevel,
   PROGRAM_TYPE_OPTIONS,
 } from "@/lib/crm/types";
 import type { StudentFormOptions } from "@/lib/crm/student-form-data";
@@ -155,7 +156,7 @@ export function ContactForm({
           <RecommendationLevelField
             label="Recommendation Level"
             name="doc_recommendation"
-            defaultValue={contact?.doc_recommendation}
+            defaultValue={normalizeRecommendationLevel(contact?.doc_recommendation)}
             options={RECOMMENDATION_LEVEL_OPTIONS}
             styles={RECOMMENDATION_LEVEL_STYLES}
           />

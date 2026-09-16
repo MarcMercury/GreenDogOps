@@ -150,7 +150,8 @@ function parseRow(row: string[]): StudentRecord | null {
     const notes: string[] = [];
     for (const c of cells.slice(6, midEnd)) {
       if (!c || NUMERIC_RE.test(c)) continue;
-      if (COLORS.has(c.toLowerCase()) && !rec.doc_recommendation) rec.doc_recommendation = c;
+      if (COLORS.has(c.toLowerCase()) && !rec.doc_recommendation)
+        rec.doc_recommendation = c.toLowerCase();
       else if (c.toLowerCase().includes("hire") && !rec.hire_interest) rec.hire_interest = c;
       else notes.push(c);
     }

@@ -611,14 +611,27 @@ export const DEGREE_TYPE_OPTIONS: CrmOption[] = [
 export type RecommendationLevel = "green" | "yellow" | "red";
 
 export const RECOMMENDATION_LEVEL_OPTIONS: CrmOption[] = [
-  { value: "green", label: "Green" },
-  { value: "yellow", label: "Yellow" },
   { value: "red", label: "Red" },
+  { value: "yellow", label: "Yellow" },
+  { value: "green", label: "Green" },
 ];
+
+/**
+ * Coerce any stored recommendation value to the canonical lowercase level.
+ * Legacy rows (and the Google Sheet sync) contain "GREEN"/"Green"/"green", so
+ * comparison is always case-insensitive. Unrecognized values become null.
+ */
+export function normalizeRecommendationLevel(
+  value: string | null | undefined,
+): RecommendationLevel | null {
+  const v = value?.trim().toLowerCase();
+  if (v === "green" || v === "yellow" || v === "red") return v;
+  return null;
+}
 
 /** Tailwind classes for a recommendation-level swatch/select background. */
 export const RECOMMENDATION_LEVEL_STYLES: Record<
-  RecommendationLevel,
+  string,
   { swatch: string; select: string }
 > = {
   green: { swatch: "bg-emerald-500", select: "bg-emerald-50 text-emerald-800 border-emerald-300" },
