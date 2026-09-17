@@ -1,10 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser, requireAdmin } from "@/lib/auth/session";
+import { requireUser, requireAdmin, recordAudit } from "@/lib/auth/session";
 import { canEditModule, canAccessModule } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { buildReportingDigest } from "@/lib/reporting/digest";
+import { postSlackMessage } from "@/lib/slack/client";
 import type {
   InvoiceLineInput,
   StaffBreakdown,
@@ -46,6 +48,33 @@ async function requireReportingAccess() {
     throw new Error("You do not have access to reporting data.");
   }
   return current;
+}
+
+/**
+ * Post the weekly digest to the Ops Reporting Slack channel on demand — the
+ * same message the Monday cron sends. The body is rebuilt server-side from the
+ * report_* views; nothing about it comes from the browser.
+ */
+export async function postReportingDigestToSlack(): Promise<ActionResult> {
+  const current = await requireReportingEditor();
+  const digest = await buildReportingDigest();
+  const result = await postSlackMessage({
+    channelKey: "opsReporting",
+    text: digest.text,
+    username: current.appUser.full_name ?? "Green Dog Ops Reporting",
+  });
+  if (!result.ok) {
+    return { ok: false, error: result.error ?? "Slack post failed." };
+  }
+  await recordAudit({
+    actorId: current.appUser.id,
+    actorEmail: current.email,
+    action: "slack.post",
+    entity: "reporting",
+    summary: `Posted the weekly reporting digest (${digest.weekStart} – ${digest.weekEnd}) to Slack`,
+    metadata: { channel: result.channel, ts: result.ts },
+  });
+  return { ok: true, message: "Posted to the Ops Reporting channel." };
 }
 
 /**

@@ -31,6 +31,10 @@
     {
       "path": "/api/agents/bizdev/refresh",
       "schedule": "30 15,16 * * *"
+    },
+    {
+      "path": "/api/agents/reporting/slack-digest",
+      "schedule": "0 16 * * 1"
     }
   ]
 }

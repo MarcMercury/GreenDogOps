@@ -1,5 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
+import { isSlackConfigured } from "@/lib/slack/client";
 import {
   isAdminRole,
   canEditModule,
@@ -32,7 +33,8 @@ import { InvoiceUploader } from "./invoice-uploader";
 import { ReportingTabs } from "./reporting-tabs";
 import { YearToggle } from "./year-toggle";
 import { ReportingAutoRefresh } from "./auto-refresh";
-import { getReportingRefreshedAt } from "./actions";
+import { PostToSlackButton } from "../ats/[id]/post-to-slack";
+import { getReportingRefreshedAt, postReportingDigestToSlack } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -180,6 +182,7 @@ export default async function ReportingPage({
   const hasInvoiceData = (overview?.total_lines ?? 0) > 0;
   const hasClientData = (clientSummary?.total_contacts ?? 0) > 0;
   const refreshedAt = await getReportingRefreshedAt();
+  const slackEnabled = canEdit && isSlackConfigured();
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -189,7 +192,16 @@ export default async function ReportingPage({
           title="Reporting"
           description="Appointments, revenue, and client trends derived from your ezyVet invoice and contact exports."
         />
-        <ReportingAutoRefresh initialRefreshedAt={refreshedAt} />
+        <div className="flex flex-wrap items-center gap-3">
+          {slackEnabled ? (
+            <PostToSlackButton
+              onPost={postReportingDigestToSlack}
+              label="Post digest to Slack"
+              confirmMessage="Post this week's reporting digest to the Ops Reporting channel? Everyone in the channel will see it."
+            />
+          ) : null}
+          <ReportingAutoRefresh initialRefreshedAt={refreshedAt} />
+        </div>
       </div>
 
       {canEdit ? <InvoiceUploader /> : null}

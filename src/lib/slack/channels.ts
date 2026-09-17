@@ -9,19 +9,22 @@ import "server-only";
 // without a deploy.
 //
 // Env values may be a channel id (`C01ABCDEF`, preferred — survives renames) or
-// a `#channel-name`.
+// a `#channel-name`. Private channels MUST use the id: Slack only resolves
+// `#name` for public channels.
 // ---------------------------------------------------------------------------
 
-export const SLACK_CHANNEL_KEYS = ["hiring"] as const;
+export const SLACK_CHANNEL_KEYS = ["hiring", "opsReporting"] as const;
 
 export type SlackChannelKey = (typeof SLACK_CHANNEL_KEYS)[number];
 
 const CHANNEL_ENV: Record<SlackChannelKey, string> = {
   hiring: "SLACK_CHANNEL_HIRING",
+  opsReporting: "SLACK_CHANNEL_OPS_REPORTING",
 };
 
 export const SLACK_CHANNEL_LABELS: Record<SlackChannelKey, string> = {
   hiring: "Hiring",
+  opsReporting: "Ops Reporting",
 };
 
 export function isSlackChannelKey(value: string): value is SlackChannelKey {
