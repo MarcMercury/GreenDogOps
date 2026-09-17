@@ -29,7 +29,6 @@ import type {
 } from "@/lib/reporting/types";
 import { PageHeader } from "../_components/ui";
 import { SectionCard, fmtNumber, fmtDate } from "./charts";
-import { InvoiceUploader } from "./invoice-uploader";
 import { ReportingTabs } from "./reporting-tabs";
 import { YearToggle } from "./year-toggle";
 import { ReportingAutoRefresh } from "./auto-refresh";
@@ -211,18 +210,16 @@ export default async function ReportingPage({
         </div>
       </div>
 
-      {canEdit ? <InvoiceUploader /> : null}
-
       {!hasInvoiceData ? (
         <SectionCard
           title="No invoice data yet"
-          description="Upload a monthly Invoice Lines export to populate appointment and revenue reporting."
+          description="The daily ezyVet ingest has not loaded any Invoice Lines yet."
         >
           <p className="text-sm text-slate-500">
             Each invoice line for the same client on the same day at one clinic
             is rolled up into a single appointment. Days whose only lines are a
-            Deposit or Refund are not counted as appointments. Once you upload,
-            this page fills with appointment volume, revenue trends, and a
+            Deposit or Refund are not counted as appointments. Once the ingest
+            runs, this page fills with appointment volume, revenue trends, and a
             breakdown by location and species.
           </p>
         </SectionCard>
