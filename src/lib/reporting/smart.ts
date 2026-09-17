@@ -273,6 +273,27 @@ async function getSchemaCatalog(
 }
 
 const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles hospitals):
+
+⚠️ HOW FAR BACK EACH KIND OF HISTORY GOES. Check this BEFORE writing any query with a date
+window — the practice has been open since 2014, but the imports have not. Filtering a table by a
+window it does not cover returns ZERO ROWS, which reads like "this never happened" and is the
+single worst failure this report can produce:
+- APPOINTMENT TYPE and per-appointment rows (ezyvet_appointment_record, report_appointment_detail,
+  report_appointment_type_volume, report_appointment_type_by_species): 2026-01-01 onwards ONLY.
+  There is NO appointment type, resource or booking note for ANY date before 2026.
+- BILLED LINES, visit days and every revenue/appointment roll-up (ezyvet_invoice_line,
+  the ezyvet_appointment matview, all report_* revenue views): 2025-01-02 onwards ONLY.
+- LAST VISIT DATE per client and per pet (ezyvet_contact.last_invoiced,
+  ezyvet_animal.last_visit): back to 2014. This is the ONLY history that predates 2025.
+- The pet and client records themselves (ezyvet_animal, ezyvet_contact, master_problems,
+  contact details) are a CURRENT snapshot with no date limit at all.
+RULES that follow from this, and they override everything else:
+- NEVER put a date filter earlier than 2026-01-01 on an appointment-type table, and never put one
+  earlier than 2025-01-02 on invoice/visit tables. Use the source that covers the window instead.
+- If the user asks for a field that only exists in a window their question predates (most often
+  the appointment TYPE for a pre-2026 date), DROP THAT COLUMN, answer the rest of the question
+  with the source that does cover the period, and state the omission in "note". Returning zero
+  rows because one requested column has no history is never the right answer.
 - ezyvet_invoice_line = every billed line. Revenue = sum(total_incl) (total_excl is pre-tax).
   Use line_date for "when the service happened" and invoice_date for billing date.
   location_key is one of sherman_oaks, van_nuys, venice, other. case_owner is the
@@ -887,7 +908,7 @@ export async function askSmartReport(
       attempts.push({
         sql,
         error:
-          "The query ran but returned no usable data (no rows, or every value was NULL or zero). A zero is almost always a filter that matched nothing, not a real answer — this is a busy three-hospital practice. Check every literal against the \"Common column values\" list, drop the most suspect filter, and try again with looser matching (ILIKE '%fragment%', no date window). If the column really is empty, answer with the same query.",
+          "The query ran but returned no usable data (no rows, or every value was NULL or zero). A zero is almost always a filter that matched nothing, not a real answer — this is a busy three-hospital practice. FIRST check the date window against the coverage list: appointment-type tables hold 2026 onwards only and invoice/visit tables 2025-01-02 onwards, so any earlier window on them returns nothing — rebuild the query on ezyvet_contact.last_invoiced / ezyvet_animal.last_visit (back to 2014) and drop the columns that do not exist that far back, noting the omission. Otherwise check every literal against the \"Common column values\" list, drop the most suspect filter, and try again with looser matching (ILIKE '%fragment%').",
       });
       rows = [];
       sql = null;
