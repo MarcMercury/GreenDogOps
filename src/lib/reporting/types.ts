@@ -273,6 +273,15 @@ export interface LocationRow {
   avg_appointment_value: number;
 }
 
+/** One clinic's totals for an arbitrary date range, from report_location_period(). */
+export interface LocationPeriodRow {
+  location_key: LocationKey;
+  location_label: string;
+  appointments: number;
+  revenue: number;
+  unique_clients: number;
+}
+
 export interface SpeciesRow {
   species_group: string;
   appointments: number;

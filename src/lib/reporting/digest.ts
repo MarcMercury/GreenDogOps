@@ -3,11 +3,20 @@ import "server-only";
 // ---------------------------------------------------------------------------
 // Weekly Ops reporting digest for Slack.
 //
-// Reads the same `report_*` materialized views the Reporting page renders, plus
-// the appointment-review / cancellation RPCs for the completed week, and
-// flattens them into a short Slack mrkdwn message that ends with a deep link
-// back to the Ops site. The digest is deliberately a teaser: headline numbers
-// only, with the detail left on /reporting.
+// Three sections, in this order:
+//   1. Appointments per clinic, month-to-date vs the prior month through the
+//      SAME day of the month (so a partial month is never compared against a
+//      full one).
+//   2. Revenue per clinic, on the same month-to-date basis.
+//   3. Appointment TYPE breakdown per clinic for the last complete week vs the
+//      week before it.
+// Then a deep link back to /reporting. Cancellations are deliberately not
+// reported here.
+//
+// Month-to-date numbers come from report_location_period() (migration 0192),
+// which wraps the day-grain ezyvet_appointment matview — report_by_location and
+// report_location_monthly only offer year and month grains. Type numbers come
+// from appointment_review_by_type() over the Agenda snapshots.
 //
 // Everything runs through the service-role client because migration 0164
 // revoked the report_* views from `authenticated`. Callers MUST do their own
@@ -17,17 +26,11 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { todayLA } from "@/lib/sheets/common";
-import type {
-  ReportOverview,
-  MonthlyRow,
-  LocationRow,
-  ClientSummary,
-  ClientsByMonthRow,
-  AppointmentReviewRow,
-  CancelledApptTypeRow,
-} from "./types";
+import type { LocationPeriodRow, AppointmentReviewTypeRow } from "./types";
 
 const DAY_MS = 86_400_000;
+/** Appointment types listed per clinic before the rest are rolled up. */
+const TYPES_PER_LOCATION = 5;
 
 export interface ReportingDigest {
   /** Slack mrkdwn body. */
@@ -36,6 +39,13 @@ export interface ReportingDigest {
   weekStart: string;
   /** Sunday of the reported week, YYYY-MM-DD. */
   weekEnd: string;
+  /** Last day included in the month-to-date numbers, YYYY-MM-DD. */
+  asOf: string;
+}
+
+interface Range {
+  start: string;
+  end: string;
 }
 
 /** Public origin for links back into the app, without a trailing slash. */
@@ -49,16 +59,45 @@ function appBaseUrl(): string {
   return raw.replace(/\/+$/, "");
 }
 
+function addDays(iso: string, n: number): string {
+  return new Date(Date.parse(`${iso}T00:00:00Z`) + n * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
 /**
  * The most recent complete Monday–Sunday week, relative to today in the
  * clinics' timezone. Run on a Monday this is "last week".
  */
-function lastCompleteWeek(): { start: string; end: string } {
+function lastCompleteWeek(): Range {
   const today = Date.parse(`${todayLA()}T00:00:00Z`);
   const dow = new Date(today).getUTCDay(); // 0 = Sunday
-  const end = today - (dow === 0 ? 7 : dow) * DAY_MS;
-  const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-  return { start: iso(end - 6 * DAY_MS), end: iso(end) };
+  const end = new Date(today - (dow === 0 ? 7 : dow) * DAY_MS)
+    .toISOString()
+    .slice(0, 10);
+  return { start: addDays(end, -6), end };
+}
+
+/**
+ * Month-to-date through `asOf`, and the prior month through the same day of the
+ * month. The day is clamped to the prior month's length, so Mar 31 compares
+ * against Feb 28.
+ */
+function monthToDateRanges(asOf: string): { current: Range; prior: Range } {
+  const year = Number(asOf.slice(0, 4));
+  const month = Number(asOf.slice(5, 7));
+  const day = Number(asOf.slice(8, 10));
+  const priorMonth = month === 1 ? 12 : month - 1;
+  const priorYear = month === 1 ? year - 1 : year;
+  const daysInPrior = new Date(Date.UTC(priorYear, priorMonth, 0)).getUTCDate();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    current: { start: `${asOf.slice(0, 8)}01`, end: asOf },
+    prior: {
+      start: `${priorYear}-${pad(priorMonth)}-01`,
+      end: `${priorYear}-${pad(priorMonth)}-${pad(Math.min(day, daysInPrior))}`,
+    },
+  };
 }
 
 function fmtMoney(n: number | null | undefined): string {
@@ -72,28 +111,48 @@ function fmtNum(n: number | null | undefined): string {
   return Math.round(Number(n ?? 0)).toLocaleString("en-US");
 }
 
-/** Signed percentage change, or null when there is no comparable baseline. */
-function pctChange(current: number, prior: number): string | null {
-  if (!prior) return null;
+/** `▲ 4.2%`, or `new` when there is no baseline to compare against. */
+function delta(current: number, prior: number): string {
+  if (!prior) return current ? "new" : "—";
   const pct = ((current - prior) / prior) * 100;
-  const arrow = pct >= 0 ? "▲" : "▼";
-  return `${arrow} ${Math.abs(pct).toFixed(1)}%`;
+  if (Math.abs(pct) < 0.05) return "flat";
+  return `${pct >= 0 ? "▲" : "▼"} ${Math.abs(pct).toFixed(1)}%`;
 }
 
-function fmtMonthLabel(iso: string): string {
-  return new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString("en-US", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
-
-function fmtDayLabel(iso: string): string {
+function monthDay(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     timeZone: "UTC",
   });
+}
+
+function rangeLabel(r: Range): string {
+  return r.start.slice(0, 7) === r.end.slice(0, 7)
+    ? `${monthDay(r.start)}–${Number(r.end.slice(8, 10))}`
+    : `${monthDay(r.start)} – ${monthDay(r.end)}`;
+}
+
+/** Booked appointments per (location, type). Booked = scheduled + pending. */
+function bookedByLocationType(
+  rows: AppointmentReviewTypeRow[],
+): Map<string, Map<string, number>> {
+  const out = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    const location = row.location_name || "Unassigned";
+    const booked = Number(row.scheduled ?? 0) + Number(row.pending ?? 0);
+    if (booked === 0) continue;
+    const types = out.get(location) ?? new Map<string, number>();
+    types.set(row.appt_type, (types.get(row.appt_type) ?? 0) + booked);
+    out.set(location, types);
+  }
+  return out;
+}
+
+function sumValues(map: Map<string, number> | undefined): number {
+  let sum = 0;
+  for (const v of map?.values() ?? []) sum += v;
+  return sum;
 }
 
 /**
@@ -103,161 +162,114 @@ function fmtDayLabel(iso: string): string {
  */
 export async function buildReportingDigest(): Promise<ReportingDigest> {
   const supabase = createAdminClient();
-  const { start: weekStart, end: weekEnd } = lastCompleteWeek();
+  const week = lastCompleteWeek();
+  const priorWeek = { start: addDays(week.start, -7), end: addDays(week.end, -7) };
+  // Yesterday: today's invoice lines have not been ingested yet.
+  const asOf = addDays(todayLA(), -1);
+  const { current: mtd, prior: priorMtd } = monthToDateRanges(asOf);
 
-  const yearsRes = await supabase.from("report_years").select("year");
-  const years = ((yearsRes.data ?? []) as { year: number }[])
-    .map((r) => r.year)
-    .sort((a, b) => b - a);
-  const year = years[0] ?? new Date().getFullYear();
-
-  const [
-    overviewRes,
-    monthlyRes,
-    locationRes,
-    clientSummaryRes,
-    clientsByMonthRes,
-    reviewRes,
-    cancelledRes,
-  ] = await Promise.all([
-    supabase.from("report_overview").select("*").eq("year", year).maybeSingle(),
-    supabase.from("report_monthly").select("*").eq("year", year),
-    supabase.from("report_by_location").select("*").eq("year", year),
-    supabase.from("report_client_summary").select("*").maybeSingle(),
-    supabase.from("report_clients_by_month").select("*"),
-    supabase.rpc("appointment_review", { p_start: weekStart, p_end: weekEnd }),
-    supabase.rpc("cancelled_appointments_by_type", {
-      p_start: weekStart,
-      p_end: weekEnd,
+  const [mtdRes, priorMtdRes, typeRes, priorTypeRes] = await Promise.all([
+    supabase.rpc("report_location_period", { p_start: mtd.start, p_end: mtd.end }),
+    supabase.rpc("report_location_period", {
+      p_start: priorMtd.start,
+      p_end: priorMtd.end,
+    }),
+    supabase.rpc("appointment_review_by_type", {
+      p_start: week.start,
+      p_end: week.end,
+    }),
+    supabase.rpc("appointment_review_by_type", {
+      p_start: priorWeek.start,
+      p_end: priorWeek.end,
     }),
   ]);
 
-  const overview = (overviewRes.data as ReportOverview | null) ?? null;
-  const monthly = ((monthlyRes.data ?? []) as MonthlyRow[])
-    .slice()
-    .sort((a, b) => String(a.month).localeCompare(String(b.month)));
-  const locations = (locationRes.data ?? []) as LocationRow[];
-  const clientSummary = (clientSummaryRes.data as ClientSummary | null) ?? null;
-  const clientsByMonth = (clientsByMonthRes.data ?? []) as ClientsByMonthRow[];
-  const review = (reviewRes.data ?? []) as AppointmentReviewRow[];
-  const cancelled = (cancelledRes.data ?? []) as CancelledApptTypeRow[];
+  const currentRows = (mtdRes.data ?? []) as LocationPeriodRow[];
+  const priorByKey = new Map(
+    ((priorMtdRes.data ?? []) as LocationPeriodRow[]).map((r) => [r.location_key, r]),
+  );
+  const ordered = [...currentRows].sort(
+    (a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0),
+  );
+  const mtdLabel = `${rangeLabel(mtd)} vs ${rangeLabel(priorMtd)}`;
 
   const lines: string[] = [
-    `*Weekly Ops Report* · ${fmtDayLabel(weekStart)} – ${fmtDayLabel(weekEnd)}`,
+    `*Weekly Ops Report* · week of ${rangeLabel(week)}`,
   ];
 
-  // --- Last week: booked vs rendered -------------------------------------
-  // rendered_count is null for days that have not been re-scanned yet; those
-  // stay in "pending" instead of inflating the not-rendered gap.
-  if (review.length > 0) {
-    let booked = 0;
-    let rendered = 0;
-    let pending = 0;
-    for (const row of review) {
-      booked += Number(row.expected_count ?? 0);
-      if (row.rendered_count == null) pending += Number(row.expected_count ?? 0);
-      else rendered += Number(row.rendered_count);
+  // --- 1. Appointments per location, MTD vs prior month through same day --
+  if (ordered.length > 0) {
+    lines.push("", `*Appointments by location* · ${mtdLabel}`);
+    let curTotal = 0;
+    let priTotal = 0;
+    for (const row of ordered) {
+      const cur = Number(row.appointments ?? 0);
+      const pri = Number(priorByKey.get(row.location_key)?.appointments ?? 0);
+      curTotal += cur;
+      priTotal += pri;
+      lines.push(
+        `• ${row.location_label} — ${fmtNum(cur)}  ${delta(cur, pri)} _(was ${fmtNum(pri)})_`,
+      );
     }
-    const notRendered = Math.max(0, booked - pending - rendered);
-    const scanned = booked - pending;
-    const missRate = scanned > 0 ? ((notRendered / scanned) * 100).toFixed(1) : null;
-
-    const parts = [
-      `Booked ${fmtNum(booked)}`,
-      `rendered ${fmtNum(rendered)}`,
-      `not rendered ${fmtNum(notRendered)}${missRate ? ` (${missRate}%)` : ""}`,
-    ];
-    if (pending > 0) parts.push(`${fmtNum(pending)} not yet scanned`);
-    lines.push("", "*Last week's appointments*", `• ${parts.join(" · ")}`);
-
-    if (cancelled.length > 0) {
-      const total = cancelled.reduce((s, r) => s + Number(r.cancel_count ?? 0), 0);
-      const byType = new Map<string, number>();
-      for (const r of cancelled) {
-        const key = r.appt_type || "Unspecified";
-        byType.set(key, (byType.get(key) ?? 0) + Number(r.cancel_count ?? 0));
-      }
-      const top = [...byType.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([type, n]) => `${type} (${fmtNum(n)})`)
-        .join(", ");
-      lines.push(`• Cancellations ${fmtNum(total)} — top: ${top}`);
-    }
+    lines.push(
+      `• *Total* — ${fmtNum(curTotal)}  ${delta(curTotal, priTotal)} _(was ${fmtNum(priTotal)})_`,
+    );
   }
 
-  // --- Latest complete month of revenue ----------------------------------
-  const currentMonthPrefix = todayLA().slice(0, 7);
-  const completeMonths = monthly.filter(
-    (m) => String(m.month).slice(0, 7) < currentMonthPrefix,
-  );
-  const latest = completeMonths.at(-1) ?? monthly.at(-1) ?? null;
-  const prior = latest
-    ? (monthly[monthly.findIndex((m) => m.month === latest.month) - 1] ?? null)
-    : null;
+  // --- 2. Revenue per location, same month-to-date basis ------------------
+  if (ordered.length > 0) {
+    lines.push("", `*Revenue by location* · ${mtdLabel}`);
+    let curTotal = 0;
+    let priTotal = 0;
+    for (const row of ordered) {
+      const cur = Number(row.revenue ?? 0);
+      const pri = Number(priorByKey.get(row.location_key)?.revenue ?? 0);
+      curTotal += cur;
+      priTotal += pri;
+      lines.push(
+        `• ${row.location_label} — ${fmtMoney(cur)}  ${delta(cur, pri)} _(was ${fmtMoney(pri)})_`,
+      );
+    }
+    lines.push(
+      `• *Total* — ${fmtMoney(curTotal)}  ${delta(curTotal, priTotal)} _(was ${fmtMoney(priTotal)})_`,
+    );
+  }
 
-  if (latest) {
-    const appts = Number(latest.appointments ?? 0);
-    const revenue = Number(latest.revenue ?? 0);
-    const avg = appts > 0 ? revenue / appts : 0;
+  // --- 3. Appointment types per location, last week vs the week before ----
+  const currentTypes = bookedByLocationType(
+    (typeRes.data ?? []) as AppointmentReviewTypeRow[],
+  );
+  const priorTypes = bookedByLocationType(
+    (priorTypeRes.data ?? []) as AppointmentReviewTypeRow[],
+  );
+  if (currentTypes.size > 0) {
     lines.push(
       "",
-      `*${fmtMonthLabel(String(latest.month))} revenue*`,
-      `• ${fmtMoney(revenue)} across ${fmtNum(appts)} appointments · avg ${fmtMoney(avg)}`,
+      `*Appointment types by location* · ${rangeLabel(week)} vs ${rangeLabel(priorWeek)}`,
     );
-    if (prior) {
-      const revDelta = pctChange(revenue, Number(prior.revenue ?? 0));
-      const apptDelta = pctChange(appts, Number(prior.appointments ?? 0));
-      const deltas = [
-        revDelta ? `revenue ${revDelta}` : null,
-        apptDelta ? `appointments ${apptDelta}` : null,
-      ].filter(Boolean);
-      if (deltas.length > 0) {
+    const locations = [...currentTypes.entries()].sort(
+      (a, b) => sumValues(b[1]) - sumValues(a[1]),
+    );
+    for (const [location, types] of locations) {
+      const priorForLocation = priorTypes.get(location);
+      const curTotal = sumValues(types);
+      const priTotal = sumValues(priorForLocation);
+      lines.push(
+        `*${location}* — ${fmtNum(curTotal)} booked  ${delta(curTotal, priTotal)} _(was ${fmtNum(priTotal)})_`,
+      );
+      const ranked = [...types.entries()].sort((a, b) => b[1] - a[1]);
+      for (const [type, count] of ranked.slice(0, TYPES_PER_LOCATION)) {
+        const pri = priorForLocation?.get(type) ?? 0;
         lines.push(
-          `• vs ${fmtMonthLabel(String(prior.month))}: ${deltas.join(" · ")}`,
+          `  • ${type} — ${fmtNum(count)}  ${delta(count, pri)} _(was ${fmtNum(pri)})_`,
         );
       }
+      const rest = ranked.slice(TYPES_PER_LOCATION);
+      if (rest.length > 0) {
+        const restCount = rest.reduce((s, [, n]) => s + n, 0);
+        lines.push(`  • _${rest.length} other types — ${fmtNum(restCount)}_`);
+      }
     }
-  }
-
-  // --- Year-to-date by location ------------------------------------------
-  if (locations.length > 0) {
-    lines.push("", `*By location (${year} to date)*`);
-    for (const loc of [...locations].sort(
-      (a, b) => Number(b.revenue ?? 0) - Number(a.revenue ?? 0),
-    )) {
-      lines.push(
-        `• ${loc.location_label} — ${fmtMoney(loc.revenue)} · ${fmtNum(
-          loc.appointments,
-        )} appts · avg ${fmtMoney(loc.avg_appointment_value)}`,
-      );
-    }
-    if (overview) {
-      lines.push(
-        `• *Total* — ${fmtMoney(overview.total_revenue)} · ${fmtNum(
-          overview.total_appointments,
-        )} appts · ${fmtNum(overview.unique_clients)} clients`,
-      );
-    }
-  }
-
-  // --- Clients ------------------------------------------------------------
-  if (clientSummary) {
-    const newestClientMonth = [...clientsByMonth].sort((a, b) =>
-      String(a.month).localeCompare(String(b.month)),
-    ).at(-1);
-    const bits = [
-      `${fmtNum(clientSummary.active_contacts)} active clients`,
-      `${fmtNum(clientSummary.customers)} customers`,
-    ];
-    if (newestClientMonth) {
-      bits.push(
-        `${fmtNum(newestClientMonth.new_clients)} new in ${fmtMonthLabel(
-          String(newestClientMonth.month),
-        )}`,
-      );
-    }
-    lines.push("", "*Clients*", `• ${bits.join(" · ")}`);
   }
 
   lines.push(
@@ -265,5 +277,5 @@ export async function buildReportingDigest(): Promise<ReportingDigest> {
     `<${appBaseUrl()}/reporting|Open Reporting on the Ops site →> for the full breakdown by doctor, product, species and location.`,
   );
 
-  return { text: lines.join("\n"), weekStart, weekEnd };
+  return { text: lines.join("\n"), weekStart: week.start, weekEnd: week.end, asOf };
 }

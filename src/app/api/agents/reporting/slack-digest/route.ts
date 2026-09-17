@@ -8,10 +8,9 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Weekly reporting digest to the #ops-reporting Slack channel: last week's
- * booked-vs-rendered appointments and cancellations, the latest complete month
- * of revenue, year-to-date numbers by location, and client counts — then a link
- * back to /reporting for the detail.
+ * Weekly reporting digest to the #ops-reporting Slack channel: appointments and
+ * revenue per clinic month-to-date vs the prior month through the same day, and
+ * an appointment-type breakdown per clinic for last week vs the week before.
  *
  * Scheduled Mondays (see vercel.json), after the overnight ezyVet ingest and
  * matview refresh. CRON_SECRET-gated; lives under /api/agents/ so the proxy
@@ -23,6 +22,11 @@ async function run(req: NextRequest) {
   }
 
   const digest = await buildReportingDigest();
+  // ?preview=1 renders the message without posting it, for checking template edits.
+  if (req.nextUrl.searchParams.get("preview")) {
+    return NextResponse.json({ ok: true, preview: true, ...digest });
+  }
+
   const posted = await postSlackMessage({
     channelKey: "opsReporting",
     text: digest.text,
@@ -37,6 +41,7 @@ async function run(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     week: [digest.weekStart, digest.weekEnd],
+    asOf: digest.asOf,
     channel: posted.channel,
     ts: posted.ts,
   });
