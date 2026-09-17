@@ -734,12 +734,12 @@ export function ReportingTabs(props: ReportingTabsProps) {
 
           <div className="grid gap-6 lg:grid-cols-2">
             <SectionCard
-              title="All locations — monthly total"
-              description="Same client + same day + same clinic = one appointment."
+              title="Patients seen per month"
+              description="Pets treated across all clinics — a pet counts once per visit."
             >
               <MonthlyBars
                 data={monthly as unknown as { month: string; [k: string]: string | number }[]}
-                valueKey="appointments"
+                valueKey="pet_count"
                 format={(n) => fmtNumber(n)}
                 color="#6366f1"
               />
