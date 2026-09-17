@@ -1,0 +1,88 @@
+name: ezyVet Appointment Backfill
+
+# One-off / occasional: pull the DETAILED appointment export (one row per
+# appointment with its type, pet and owner) for a long historical range.
+#
+# Separate from ezyvet-extra-reports.yml because a backfill runs for hours and
+# must not delay — or be delayed by — the daily ingest. Never scheduled: it is
+# always dispatched by hand with an explicit range.
+#
+# Each window gets its OWN node + Chromium process. A single long-lived worker
+# leaks a browser per crashed window and eventually exhausts the runner, which
+# is exactly how the first attempt at this backfill died.
+on:
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: "FROM date YYYY-MM-DD (ezyVet has nothing before 2014-11)"
+        required: true
+      to_date:
+        description: "TO date YYYY-MM-DD"
+        required: true
+      window_months:
+        description: "Months per export window (ezyVet caps an export at 10,000 records)"
+        required: false
+        default: "2"
+
+concurrency:
+  # ezyVet allows the agent user ONE session, so never overlap with the daily
+  # workers or with a second backfill.
+  group: ezyvet-agent-session
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Backfill appointment records window by window
+        env:
+          EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
+          EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}
+          EZYVET_PASSWORD: ${{ secrets.EZYVET_PASSWORD }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          AGENT_KEY: ezyvet_extra_reports
+          RUN_ID: backfill
+          WINDOW_MONTHS: ${{ github.event.inputs.window_months }}
+        run: |
+          set -u
+          months="${WINDOW_MONTHS:-2}"
+          cur="${{ github.event.inputs.from_date }}"
+          end="${{ github.event.inputs.to_date }}"
+          failed=0
+          while [[ "$cur" < "$end" || "$cur" == "$end" ]]; do
+            to=$(date -u -d "$cur +$months months -1 day" +%F)
+            [[ "$to" > "$end" ]] && to="$end"
+            echo "::group::$cur .. $to"
+            FROM_DATE="$cur" TO_DATE="$to" timeout 1800 node agent/appointment-records.mjs || failed=$((failed+1))
+            # A crashed window can leave the browser behind; reap it so the next
+            # window starts from a clean slate.
+            pkill -f chrome-headless-shell > /dev/null 2>&1 || true
+            sleep 5
+            echo "::endgroup::"
+            cur=$(date -u -d "$to +1 day" +%F)
+          done
+          echo "windows that reported a failure: $failed"
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ezyvet-appointment-backfill
+          path: .secrets/ezyvet-probe/
+          if-no-files-found: ignore
+          retention-days: 5

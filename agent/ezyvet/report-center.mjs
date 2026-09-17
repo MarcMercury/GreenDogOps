@@ -1,5 +1,6 @@
 // ezyVet Report Center automation: open Reporting, pick a report by name, set
 // CSV format + date range, run it, and download the generated CSV.
+import { rename, rm } from "node:fs/promises";
 import { EZYVET_ORIGIN, LOCATION_LABELS } from "./session.mjs";
 
 /** Parent department that owns the org-wide contact list. */
