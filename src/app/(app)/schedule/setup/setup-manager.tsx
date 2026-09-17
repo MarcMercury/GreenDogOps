@@ -13,6 +13,8 @@ import {
   type SchedShiftTemplate,
   type SchedWeek,
   type ApptTypeDeptMapping,
+  APPT_REPORT_TRACKS,
+  APPT_REPORT_TRACK_LABELS,
 } from "@/lib/schedule/types";
 import { formatAddress } from "@/lib/shared/locations";
 import {
@@ -27,6 +29,7 @@ import {
   savePreferredLocation,
   setStudentRoleFlags,
   saveApptTypeDept,
+  saveApptTypeReportTrack,
   ensureTemplateWeek,
 } from "../actions";
 import { ScheduleGrid } from "../schedule-grid";
@@ -421,6 +424,20 @@ function PlanningGuideSetup({
     });
   }
 
+  function saveTrack(apptType: string, value: string) {
+    setError(null);
+    setSavingType(apptType);
+    const fd = new FormData();
+    fd.set("appt_type", apptType);
+    if (value) fd.set("report_track", value);
+    start(async () => {
+      const res = await saveApptTypeReportTrack(fd);
+      setSavingType(null);
+      if (!res.ok) setError(res.error);
+      else router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -470,7 +487,8 @@ function PlanningGuideSetup({
               <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-400">
                 <th className="py-2 pr-3 font-medium">Appointment type</th>
                 <th className="py-2 pr-3 font-medium">Booked</th>
-                <th className="py-2 font-medium">Department</th>
+                <th className="py-2 pr-3 font-medium">Department</th>
+                <th className="py-2 font-medium">Slack report lane</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -520,12 +538,27 @@ function PlanningGuideSetup({
                         <option value={IGNORE_VALUE}>Ignore (don&apos;t count)</option>
                       </select>
                     </td>
+                    <td className="py-2">
+                      <select
+                        value={m.report_track ?? ""}
+                        disabled={pending && savingType === m.appt_type}
+                        onChange={(e) => saveTrack(m.appt_type, e.target.value)}
+                        className={`${inputCls} min-w-[150px] disabled:opacity-50`}
+                      >
+                        <option value="">— Not reported —</option>
+                        {APPT_REPORT_TRACKS.map((t) => (
+                          <option key={t} value={t}>
+                            {APPT_REPORT_TRACK_LABELS[t]}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
                   </tr>
                 );
               })}
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={3} className="py-6 text-center text-sm text-slate-400">
+                  <td colSpan={4} className="py-6 text-center text-sm text-slate-400">
                     No appointment types match “{query}”.
                   </td>
                 </tr>

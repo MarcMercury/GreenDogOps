@@ -9,6 +9,8 @@ import {
 import { WeekPicker } from "../schedule/week-picker";
 import { CapacityView } from "./capacity-view";
 import { CapacityRulesManager } from "./capacity-rules";
+import { ReportCapacityManager } from "./report-targets";
+import { getReportCapacity } from "./report-data";
 import { PageHeader } from "../_components/ui";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
@@ -23,12 +25,13 @@ export default async function CapacityPage({
   searchParams: Promise<{ week?: string }>;
 }) {
   const { week: weekParam } = await searchParams;
-  const [weeks, setup, current, guides, rules] = await Promise.all([
+  const [weeks, setup, current, guides, rules, reportCapacity] = await Promise.all([
     getWeeks(),
     getSetupData(),
     getCurrentUser(),
     getActiveGuides(),
     getCapacityRules(),
+    getReportCapacity(),
   ]);
   const canEdit = current ? canEditModule(current.appUser, "schedule") : false;
 
@@ -93,6 +96,16 @@ export default async function CapacityPage({
           short_code: l.short_code,
         }))}
         rules={rules}
+        canEdit={canEdit}
+      />
+      <ReportCapacityManager
+        locations={setup.locations.map((l) => ({
+          id: l.id,
+          name: l.name,
+          short_code: l.short_code,
+        }))}
+        targets={reportCapacity.targets}
+        overrides={reportCapacity.overrides}
         canEdit={canEdit}
       />
     </div>

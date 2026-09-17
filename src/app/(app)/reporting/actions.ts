@@ -6,6 +6,7 @@ import { canEditModule, canAccessModule } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { buildReportingDigest } from "@/lib/reporting/digest";
+import { buildUpcomingApptsReport } from "@/lib/reporting/upcoming";
 import { postSlackMessage } from "@/lib/slack/client";
 import type {
   InvoiceLineInput,
@@ -75,6 +76,33 @@ export async function postReportingDigestToSlack(): Promise<ActionResult> {
     metadata: { channel: result.channel, ts: result.ts },
   });
   return { ok: true, message: "Posted to the Ops Reporting channel." };
+}
+
+/**
+ * Post next week's appointment report on demand — the same message the Tuesday
+ * and Thursday cron sends. Rebuilt server-side from the Agenda snapshots and
+ * the capacity targets; nothing about it comes from the browser.
+ */
+export async function postUpcomingApptsToSlack(): Promise<ActionResult> {
+  const current = await requireReportingEditor();
+  const report = await buildUpcomingApptsReport();
+  const result = await postSlackMessage({
+    channelKey: "opsUpcoming",
+    text: report.text,
+    username: current.appUser.full_name ?? "Green Dog Ops Reporting",
+  });
+  if (!result.ok) {
+    return { ok: false, error: result.error ?? "Slack post failed." };
+  }
+  await recordAudit({
+    actorId: current.appUser.id,
+    actorEmail: current.email,
+    action: "slack.post",
+    entity: "reporting",
+    summary: `Posted the upcoming-appointments report (${report.weekStart} – ${report.weekEnd}) to Slack`,
+    metadata: { channel: result.channel, ts: result.ts },
+  });
+  return { ok: true, message: "Posted the upcoming-appointments report." };
 }
 
 /**

@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser, ensureCanEdit } from "@/lib/auth/session";
-import type { AttendanceStatus, ScheduleStatus } from "@/lib/schedule/types";
-import { dateForDay } from "@/lib/schedule/types";
+import type { AttendanceStatus, ScheduleStatus, ApptReportTrack } from "@/lib/schedule/types";
+import { dateForDay, APPT_REPORT_TRACKS } from "@/lib/schedule/types";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
 import { classifyRole, emptyStaffing } from "@/lib/planning/resolve";
 import { DVM_COLORS, guideTracksFor } from "@/lib/planning/tracks";
@@ -108,6 +108,35 @@ export async function saveApptTypeDept(formData: FormData): Promise<ActionResult
         department_id: isIgnored ? null : departmentId,
         is_ignored: isIgnored,
       },
+      { onConflict: "appt_type" },
+    );
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  return { ok: true };
+}
+
+/**
+ * Set which lane an appointment type is counted in on the upcoming-appointments
+ * Slack report. Blank clears it (the type stops being counted there).
+ */
+export async function saveApptTypeReportTrack(
+  formData: FormData,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const apptType = str(formData.get("appt_type"));
+  if (!apptType) return { ok: false, error: "Appointment type is required." };
+
+  const raw = str(formData.get("report_track"));
+  if (raw && !APPT_REPORT_TRACKS.includes(raw as ApptReportTrack)) {
+    return { ok: false, error: "Unknown report track." };
+  }
+
+  const { error } = await supabase
+    .from("ezyvet_appt_type_dept_map")
+    .upsert(
+      { appt_type: apptType, report_track: raw },
       { onConflict: "appt_type" },
     );
   if (error) return { ok: false, error: error.message };

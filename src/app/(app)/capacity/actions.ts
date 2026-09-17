@@ -135,3 +135,103 @@ export async function deleteCapacityRule(
   revalidate();
   return { ok: true };
 }
+
+// ---------------------------------------------------------------------------
+// Slack report capacity — the per-weekday slot counts behind the twice-weekly
+// upcoming-appointments post, plus single-date overrides for closures and
+// one-off staffing changes.
+// ---------------------------------------------------------------------------
+
+const REPORT_TRACKS = new Set(["dental", "ve", "ap"]);
+
+function reportTrack(v: FormDataEntryValue | null): string | null {
+  const s = str(v);
+  return s && REPORT_TRACKS.has(s) ? s : null;
+}
+
+/** Upsert one (location, track, weekday) slot count. */
+export async function saveReportCapacityTarget(
+  formData: FormData,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+
+  const location_id = str(formData.get("location_id"));
+  const track = reportTrack(formData.get("track"));
+  const weekdayRaw = str(formData.get("weekday"));
+  const weekday = weekdayRaw == null ? NaN : parseInt(weekdayRaw, 10);
+  if (!location_id || !track || !Number.isInteger(weekday) || weekday < 0 || weekday > 6) {
+    return { ok: false, error: "Pick a location, track and weekday." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("report_capacity_target").upsert(
+    {
+      location_id,
+      track,
+      weekday,
+      capacity: Math.min(200, capacity(formData.get("capacity"))),
+      updated_by: gate.current.authId,
+    },
+    { onConflict: "location_id,track,weekday" },
+  );
+
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}
+
+/** Upsert a single-date override; capacity 0 reports the track as closed. */
+export async function saveReportCapacityOverride(
+  formData: FormData,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+
+  const location_id = str(formData.get("location_id"));
+  const track = reportTrack(formData.get("track"));
+  const appt_date = str(formData.get("appt_date"));
+  if (!location_id || !track || !appt_date) {
+    return { ok: false, error: "Pick a location, track and date." };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(appt_date)) {
+    return { ok: false, error: "Enter the date as YYYY-MM-DD." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("report_capacity_override").upsert(
+    {
+      location_id,
+      track,
+      appt_date,
+      capacity: Math.min(200, capacity(formData.get("capacity"))),
+      note: str(formData.get("note")),
+      created_by: gate.current.authId,
+    },
+    { onConflict: "location_id,track,appt_date" },
+  );
+
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}
+
+export async function deleteReportCapacityOverride(
+  formData: FormData,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+
+  const id = str(formData.get("id"));
+  if (!id) return { ok: false, error: "Missing override id." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("report_capacity_override")
+    .delete()
+    .eq("id", id);
+
+  if (error) return { ok: false, error: error.message };
+  revalidate();
+  return { ok: true };
+}

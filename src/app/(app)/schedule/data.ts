@@ -26,6 +26,7 @@ import type {
   SchedWeekLine,
   SchedWeekLocation,
   ApptTypeDeptMapping,
+  ApptReportTrack,
 } from "@/lib/schedule/types";
 import type { GuideWithCapacity } from "@/lib/planning/resolve";
 import type { PlanningGuide, PlanningCapacityRule } from "@/lib/planning/types";
@@ -198,7 +199,7 @@ export async function getApptTypeMappings(): Promise<ApptTypeDeptMapping[]> {
   const [mapRes, countRes] = await Promise.all([
     supabase
       .from("ezyvet_appt_type_dept_map")
-      .select("appt_type, department_id, is_ignored"),
+      .select("appt_type, department_id, is_ignored, report_track"),
     supabase.rpc("appt_type_observed_counts"),
   ]);
 
@@ -215,11 +216,13 @@ export async function getApptTypeMappings(): Promise<ApptTypeDeptMapping[]> {
     appt_type: string;
     department_id: string | null;
     is_ignored: boolean;
+    report_track: ApptReportTrack | null;
   }[]) {
     byType.set(r.appt_type, {
       appt_type: r.appt_type,
       department_id: r.department_id,
       is_ignored: r.is_ignored,
+      report_track: r.report_track,
       observed_count: counts.get(r.appt_type) ?? 0,
     });
   }
@@ -230,6 +233,7 @@ export async function getApptTypeMappings(): Promise<ApptTypeDeptMapping[]> {
         appt_type,
         department_id: null,
         is_ignored: false,
+        report_track: null,
         observed_count,
       });
     }

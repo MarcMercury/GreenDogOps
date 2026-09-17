@@ -13,18 +13,24 @@ import "server-only";
 // `#name` for public channels.
 // ---------------------------------------------------------------------------
 
-export const SLACK_CHANNEL_KEYS = ["hiring", "opsReporting"] as const;
+export const SLACK_CHANNEL_KEYS = [
+  "hiring",
+  "opsReporting",
+  "opsUpcoming",
+] as const;
 
 export type SlackChannelKey = (typeof SLACK_CHANNEL_KEYS)[number];
 
 const CHANNEL_ENV: Record<SlackChannelKey, string> = {
   hiring: "SLACK_CHANNEL_HIRING",
   opsReporting: "SLACK_CHANNEL_OPS_REPORTING",
+  opsUpcoming: "SLACK_CHANNEL_OPS_UPCOMING",
 };
 
 export const SLACK_CHANNEL_LABELS: Record<SlackChannelKey, string> = {
   hiring: "Hiring",
   opsReporting: "Ops Reporting",
+  opsUpcoming: "Upcoming Appointments",
 };
 
 export function isSlackChannelKey(value: string): value is SlackChannelKey {

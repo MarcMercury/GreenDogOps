@@ -34,7 +34,7 @@ import { ReportingTabs } from "./reporting-tabs";
 import { YearToggle } from "./year-toggle";
 import { ReportingAutoRefresh } from "./auto-refresh";
 import { PostToSlackButton } from "../ats/[id]/post-to-slack";
-import { getReportingRefreshedAt, postReportingDigestToSlack } from "./actions";
+import { getReportingRefreshedAt, postReportingDigestToSlack, postUpcomingApptsToSlack } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -198,6 +198,13 @@ export default async function ReportingPage({
               onPost={postReportingDigestToSlack}
               label="Post digest to Slack"
               confirmMessage="Post this week's reporting digest to the Ops Reporting channel? Everyone in the channel will see it."
+            />
+          ) : null}
+          {slackEnabled ? (
+            <PostToSlackButton
+              onPost={postUpcomingApptsToSlack}
+              label="Post next week to Slack"
+              confirmMessage="Post next week's appointment report to Slack? Everyone in the channel will see it."
             />
           ) : null}
           <ReportingAutoRefresh initialRefreshedAt={refreshedAt} />

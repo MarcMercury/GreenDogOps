@@ -174,9 +174,24 @@ export interface ApptTypeDeptMapping {
   appt_type: string;
   department_id: string | null;
   is_ignored: boolean;
+  /**
+   * Lane this type is counted in on the upcoming-appointments Slack report.
+   * nad + oe roll up to Dental. null = not counted on that report.
+   */
+  report_track: ApptReportTrack | null;
   /** Times this type appears in the booked-appointment snapshot (popularity). */
   observed_count: number;
 }
+
+export const APPT_REPORT_TRACKS = ["nad", "oe", "ve", "ap"] as const;
+export type ApptReportTrack = (typeof APPT_REPORT_TRACKS)[number];
+
+export const APPT_REPORT_TRACK_LABELS: Record<ApptReportTrack, string> = {
+  nad: "Dental — NAD",
+  oe: "Dental — OE",
+  ve: "VE",
+  ap: "AP",
+};
 
 
 export interface SchedWeek {
