@@ -314,6 +314,28 @@ NEW CLIENTS and per-hospital client questions — read this before writing the q
   mention that bucket rather than silently dropping it.
 - ezyvet_invoice_line only goes back to 2025-01-02. Never derive "who was new" from a first
   invoice line for 2025 or earlier — every pre-existing client looks new at the start of the data.
+- ⚠️ HOW FAR BACK VISIT HISTORY GOES — this decides which table can answer a dated question, and
+  a question about a window BEFORE 2025 is still answerable, so never refuse one:
+  * PER-VISIT history (ezyvet_invoice_line, the ezyvet_appointment matview and every report_*
+    roll-up built on them) starts 2025-01-02. Nothing before that date exists at visit level.
+  * LAST-VISIT dates go back to 2014: ezyvet_contact.last_invoiced (one date per client, filled
+    for about three quarters of contacts) and ezyvet_animal.last_visit (one date per pet).
+  So "clients whose last visit was between <two dates before 2025>" IS answerable: filter
+  last_invoiced / last_visit to that window. Because that column already holds the MOST RECENT
+  visit, "and nothing since" needs no extra condition — a date inside the window IS proof there
+  has been no visit after it. Put the limitation in "note": before 2025-01-02 only the single
+  latest visit date is known, so visits earlier than that date cannot be listed.
+- CLIENT TAGS are not stored for every client. contact_tags exists ONLY on
+  ezyvet_aged_receivable / report_ar_aging_current, which cover only clients with an OUTSTANDING
+  BALANCE. Filtering or excluding by tag through those tables silently drops every client who
+  owes nothing and collapses a list of thousands to a handful. If a question needs a tag filter,
+  answer the rest of it and say the tag is only recorded for clients with a balance.
+- Lapsed / "haven't been back" CLIENT LISTS — use this shape every time so two people asking the
+  same question get the same list: the entity is the CLIENT (ezyvet_contact.contact_code, joined
+  to ezyvet_animal on owner_contact_code when the question filters on the pet), the visit date is
+  last_invoiced (client) or last_visit (pet), and one row per client with their name, email,
+  phone and mobile as separate columns. Do not switch to invoice lines, the appointment matview
+  or the receivables tables for this — each gives a different population and a different count.
 - ezyvet_product = the PRODUCT/SERVICE CATALOG (~4k rows), refreshed nightly from ezyVet. This
   is what the practice SELLS: product_name, product_code, product_group (the financial product
   group, e.g. 'Medications - Rx', '*Services', 'Consumables, Food, and Supplements'),
@@ -682,6 +704,27 @@ function salvageSql(text: string): string | null {
   return /^(with|select)\s/i.test(out) ? out : null;
 }
 
+/**
+ * "I cannot answer that" coming back instead of a query. It is almost never the
+ * truth here (see the visit-history note in DOMAIN_NOTES — a window before 2025
+ * reads as "no data" but last_invoiced covers it), so it must not be served as a
+ * finished answer, and above all not with a Sources footer: the policy passages
+ * are matched by keyword and have nothing to do with a refusal about the data.
+ */
+function isRefusal(answer: string): boolean {
+  return /\b(?:i cannot|i can(?:'|’)t|i am unable|i(?:'|’)m unable|cannot fulfil{1,2}|unable to (?:fulfil{1,2}|answer|provide|complete|generate)|falls outside the available data|no data (?:is )?available)\b/i.test(
+    answer,
+  );
+}
+
+const REFUSAL_RETRY =
+  "You declined instead of querying. Check the schema again before giving up: a date window that " +
+  "predates the per-visit tables is still answerable from ezyvet_contact.last_invoiced and " +
+  "ezyvet_animal.last_visit, which go back to 2014, and a column you could not find may live on a " +
+  "different table or view in the listing. Write the closest query the data DOES support, drop only " +
+  "the part that is genuinely unavailable, and explain that omission in \"note\". Leave \"sql\" null " +
+  "only if no table in the listing could contribute anything to the answer.";
+
 function columnsOf(rows: SmartRow[]): string[] {
   const seen: string[] = [];
   for (const row of rows.slice(0, 25)) {
@@ -789,8 +832,9 @@ export async function askSmartReport(
 
     const parsed = parsePlan(plan.content);
     if (!parsed.sql) {
+      const refused = !!parsed.answer && isRefusal(parsed.answer);
       // A policy question is answered from the retrieved documents, not SQL.
-      if (parsed.answer && passages.length) {
+      if (parsed.answer && passages.length && !refused) {
         return {
           ok: true,
           answer: `${parsed.answer}${sourceList(passages)}`,
@@ -804,7 +848,9 @@ export async function askSmartReport(
       }
       attempts.push({
         sql: parsed.answer?.slice(0, 200) ?? "(no query)",
-        error: "No SQL came back. Reply with the JSON object and put the SELECT in the \"sql\" key.",
+        error: refused
+          ? REFUSAL_RETRY
+          : "No SQL came back. Reply with the JSON object and put the SELECT in the \"sql\" key.",
       });
       continue;
     }
