@@ -30,6 +30,15 @@ on:
       appt_to:
         description: "Appointment records TO date YYYY-MM-DD (blank = 120 days ahead)"
         required: false
+      record_tags:
+        description: "Record tags to pull, key=Label,... (blank = the app's worklist)"
+        required: false
+      record_tag_mode:
+        description: "Record tag mode: incremental (default) or backfill (full population, slow)"
+        required: false
+      record_tag_days:
+        description: "Incremental activity window in days (default 7)"
+        required: false
 
 concurrency:
   group: ezyvet-extra-reports
@@ -108,6 +117,28 @@ jobs:
           FROM_DATE: ${{ github.event.inputs.appt_from }}
           TO_DATE: ${{ github.event.inputs.appt_to }}
         run: node agent/appointment-records.mjs
+
+      # Tag membership (CODE *101* / CODE *501*) also comes from the Records
+      # dashboard — no Report Center report lists ezyVet tags. Same workflow for
+      # the same single-login reason; runs even if a step above failed.
+      #
+      # Scheduled runs are INCREMENTAL: they only re-read records modified in
+      # the last week, which is all that can have changed a tag, so each pull
+      # returns a handful of rows. A tag only joins the nightly run once it has
+      # had a backfill (dispatch this workflow with record_tag_mode=backfill).
+      - name: Run ezyVet record-tags worker
+        if: ${{ !cancelled() }}
+        env:
+          EZYVET_LOGIN_URL: ${{ secrets.EZYVET_LOGIN_URL }}
+          EZYVET_USERNAME: ${{ secrets.EZYVET_USERNAME }}
+          EZYVET_PASSWORD: ${{ secrets.EZYVET_PASSWORD }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          AGENT_KEY: ezyvet_extra_reports
+          RECORD_TAGS: ${{ github.event.inputs.record_tags }}
+          MODE: ${{ github.event.inputs.record_tag_mode }}
+          ACTIVITY_DAYS: ${{ github.event.inputs.record_tag_days }}
+        run: node agent/record-tags.mjs
 
       - name: Upload debug artifacts
         if: always()

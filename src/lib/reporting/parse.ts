@@ -343,6 +343,12 @@ export function parseContactCsv(text: string): {
       staff_member: clean(get(row, "Contact Staff Member")),
       hear_about: clean(get(row, "Contact Hear About Option")),
       customer_group: clean(get(row, "Customer Group")),
+      // Optional column — only present once "Contact Tag(s)" is added to the
+      // ezyVet Contacts report layout, and it has been titled several ways.
+      contact_tags:
+        clean(get(row, "Contact Tag(s)")) ??
+        clean(get(row, "Contact Tags")) ??
+        clean(get(row, "Tags")),
       regional_group: clean(get(row, "Contact Regional Contact Group")),
       division: clean(get(row, "Contact Division")),
       revenue_spend_ytd: toNumber(get(row, "Revenue Spend YTD")),

@@ -12,7 +12,7 @@ import { EZYVET_ORIGIN } from "./session.mjs";
 import { toEzyvetDate } from "./report-center.mjs";
 
 /** Filter row field name, e.g. Array[Filter][1][Type]. */
-const filterField = (index, part) =>
+export const filterField = (index, part) =>
   `recordfilterdata_configjson_Array[Filter][${index}][${part}]`;
 
 /** Open Dashboard ▸ Records. The sub-tab id prefix varies per session. */
@@ -42,7 +42,7 @@ export async function setRecordType(page, value, log = () => {}) {
 }
 
 /** Add a filter row to a section (0 = All, 1 = Any, 2 = Excluding). */
-async function addFilterRow(page, section = 0) {
+export async function addFilterRow(page, section = 0) {
   const add = page.locator("span.aButton.button-add");
   await add.nth(section).click();
   await page.waitForTimeout(2500);
@@ -67,6 +67,18 @@ async function setDateField(page, name, iso) {
 }
 
 /**
+ * Set one filter row to `<dateField> <comparator> <iso>`, e.g.
+ * Date Modified >= 2026-09-10. Dates are ISO in, MM-DD-YYYY on the form.
+ */
+export async function setFilterDate(page, index, fieldType, comparator, iso) {
+  await page.selectOption(`select[name="${filterField(index, "Type")}"]`, fieldType);
+  await page.waitForTimeout(2500);
+  await page.selectOption(`select[name="${filterField(index, "Comparitor")}"]`, comparator);
+  await page.waitForTimeout(500);
+  await setDateField(page, filterField(index, "Date"), iso);
+}
+
+/**
  * Build the ALL section as `Date >= from` AND `Date <= to`.
  * Both bounds are inclusive; dates are ISO in, MM-DD-YYYY on the form.
  */
@@ -76,11 +88,7 @@ export async function setDateWindow(page, fromIso, toIso, log = () => {}, fieldT
   await addFilterRow(page, 0);
 
   for (const [index, comparator, iso] of [[1, ">=", fromIso], [2, "<=", toIso]]) {
-    await page.selectOption(`select[name="${filterField(index, "Type")}"]`, fieldType);
-    await page.waitForTimeout(2500);
-    await page.selectOption(`select[name="${filterField(index, "Comparitor")}"]`, comparator);
-    await page.waitForTimeout(500);
-    await setDateField(page, filterField(index, "Date"), iso);
+    await setFilterDate(page, index, fieldType, comparator, iso);
   }
 }
 

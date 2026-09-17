@@ -10,6 +10,14 @@ function authHeaders(extra = {}) {
   return { Authorization: `Bearer ${SECRET}`, ...extra };
 }
 
+/** GET a JSON endpoint on the app, e.g. a worklist the app decides. */
+export async function getJson(endpoint) {
+  const res = await fetch(`${APP_URL}/api/agents/${endpoint}`, { headers: authHeaders() });
+  const json = await res.json().catch(() => ({ ok: false, error: `HTTP ${res.status}` }));
+  if (!res.ok && json.ok !== false) return { ok: false, error: `HTTP ${res.status}` };
+  return json;
+}
+
 /** Post an incremental update to the agent_run (status/logs/counters/cost). */
 export async function reportRun(update) {
   try {

@@ -76,7 +76,7 @@ COLS = (
     "physical_street2, physical_city, physical_state, physical_post_code, "
     "physical_country, number_of_miles, email, phone, mobile, website, notes, "
     "account_code, last_invoiced, staff_member, hear_about, customer_group, "
-    "regional_group, division, revenue_spend_ytd, opt_out_marketing, "
+    "contact_tags, regional_group, division, revenue_spend_ytd, opt_out_marketing, "
     "ezyvet_created_at, ezyvet_created_by, ezyvet_modified_at, ezyvet_modified_by"
 )
 
@@ -88,8 +88,8 @@ UPDATE_SET = ",".join(
         "preferred_contact_method physical_street1 physical_street2 "
         "physical_city physical_state physical_post_code physical_country "
         "number_of_miles email phone mobile website notes account_code "
-        "last_invoiced staff_member hear_about customer_group regional_group "
-        "division revenue_spend_ytd opt_out_marketing ezyvet_created_at "
+        "last_invoiced staff_member hear_about customer_group contact_tags "
+        "regional_group division revenue_spend_ytd opt_out_marketing ezyvet_created_at "
         "ezyvet_created_by ezyvet_modified_at ezyvet_modified_by"
     ).split()
 ) + ",updated_at=now()"
@@ -133,6 +133,7 @@ def main(path):
                 s(r.get("Contact Staff Member")),
                 s(r.get("Contact Hear About Option")),
                 s(r.get("Customer Group")),
+                s(r.get("Contact Tag(s)") or r.get("Contact Tags") or r.get("Tags")),
                 s(r.get("Contact Regional Contact Group")),
                 s(r.get("Contact Division")),
                 num(r.get("Revenue Spend YTD")),

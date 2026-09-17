@@ -346,11 +346,48 @@ NEW CLIENTS and per-hospital client questions — read this before writing the q
   visit, "and nothing since" needs no extra condition — a date inside the window IS proof there
   has been no visit after it. Put the limitation in "note": before 2025-01-02 only the single
   latest visit date is known, so visits earlier than that date cannot be listed.
-- CLIENT TAGS are not stored for every client. contact_tags exists ONLY on
-  ezyvet_aged_receivable / report_ar_aging_current, which cover only clients with an OUTSTANDING
-  BALANCE. Filtering or excluding by tag through those tables silently drops every client who
-  owes nothing and collapses a list of thousands to a handful. If a question needs a tag filter,
-  answer the rest of it and say the tag is only recorded for clients with a balance.
+- CLIENT TAGS — always answer tag questions through report_contact_tag (one row per contact per
+  tag: contact_code, full_name, email, phone, mobile, is_customer, is_active, customer_group,
+  last_invoiced, tag, tag_norm, tag_type, tag_source). NEVER match the raw comma-joined
+  ezyvet_contact.contact_tags / ezyvet_aged_receivable.contact_tags text yourself — one cell holds
+  several tags, so ILIKE '%code *5%' also matches 'code *501*' and a "does not have tag X" filter
+  silently drops clients who have X plus anything else.
+  * Tags are FREE TEXT typed by staff and spelled inconsistently ('Employee Referred' vs
+    'employee referred', 'drive by/signage' vs 'drive by / signage'). Before filtering on a tag,
+    look it up in report_contact_tag_summary (tag_norm, tag, tag_type, contacts, customers,
+    active_contacts) — when the question names a tag loosely, select the matching rows from that
+    view with tag_norm ilike '%word%' per significant word so the reader sees which spellings
+    exist and what each is worth. For an exact filter use tag_norm = lower('<tag>').
+  * Tags cover a lot of different jobs: how the client heard about us ('google search', 'yelp',
+    'word of mouth', 'employee referred'), promo and discount codes ('code *501*', 'tag disabled
+    GDD $169'), account warnings ('delinquent account - reach out to...'), review-tree stage,
+    referral source ('*outside dvm referral') and the location they were signed up at.
+  * "Clients NOT tagged X" = NOT EXISTS against a report_contact_tag subquery filtered to that
+    tag. Never NOT IN (a single NULL contact_code in the subquery makes NOT IN return ZERO rows,
+    which reads as "nobody qualifies"), and never a NOT ILIKE on the tag text.
+  * tag_type = 'pet_tag' means the tag is on one of the client's PETS (reported against the
+    owner); 'contact_tag' is on the client record itself. tag_group is the ezyVet tag group
+    ('General', 'Promotions/Coupon', ...). A client with two tagged pets appears once per tag,
+    so count DISTINCT contact_code — never count(*) and never count distinct ezyvet_contact_id.
+  * COVERAGE: check tag_source before promising a complete answer. 'records_dashboard' rows are
+    a per-tag pull and are COMPLETE for that tag (report_record_tag_current has the same rows
+    with first_seen_on / last_confirmed_on, and report_record_tag_runs logs every pull).
+    'contacts_export' rows come from the nightly full Contacts pull and cover every contact.
+    'aged_receivable' rows are the fallback for contacts neither pull covers, read from the most
+    recent receivables snapshot that client appeared in (tag_as_of), and that report only ever
+    lists clients who OWE MONEY. If the rows you return are mostly 'aged_receivable', say in
+    "note" that those tags are only recorded for clients who have carried a balance, so the list
+    is a floor and not the full count.
+  * in_contact_mirror = false marks a tagged client that ezyvet_contact does NOT have (about 400
+    of the ~5,800 tagged 'ap'). Their name and email are known but is_customer, is_active,
+    last_invoiced, division and every join to visits/revenue are NULL for them. So: keep them in
+    plain "who is tagged X" lists, but when a question adds any condition that depends on the
+    contact record (active clients, last visit, spend) say in "note" how many tagged clients had
+    to be dropped — report_contact_tag_summary.unmatched_contacts gives that number per tag.
+    Never filter them out silently.
+  * One tag group, "Financial Customer Group", is limited to a single value per client and is
+    ALSO stored on its own as ezyvet_contact.customer_group — use that column for it. The
+    hear-about tag likewise duplicates ezyvet_contact.hear_about.
 - Lapsed / "haven't been back" CLIENT LISTS — use this shape every time so two people asking the
   same question get the same list: the entity is the CLIENT (ezyvet_contact.contact_code, joined
   to ezyvet_animal on owner_contact_code when the question filters on the pet), the visit date is
@@ -576,7 +613,8 @@ report_ar_aging_current + report_ar_aging_trend, report_appointment_flow (wait a
 consult minutes by day/location), report_unbilled_consults_current,
 report_estimate_conversion, report_clinical_note_backlog, report_soc_overdue_current,
 report_inventory_on_hand, report_inventory_value_trend, report_reorder_list,
-report_wellness_plan_current.
+report_wellness_plan_current, report_contact_tag (one row per client per ezyVet tag) +
+report_contact_tag_summary (the tag vocabulary with a client count per tag).
 
 Money rule: ezyvet_invoice_line is what we BILLED; ezyvet_payment is what we
 COLLECTED; ezyvet_aged_receivable is what is still OWED. They will not agree and

@@ -69,6 +69,8 @@ export interface ContactInput {
   staff_member: string | null;
   hear_about: string | null;
   customer_group: string | null;
+  /** ezyVet "Contact Tag(s)" — every tag on the record, comma-joined. */
+  contact_tags: string | null;
   regional_group: string | null;
   division: string | null;
   revenue_spend_ytd: number | null;
