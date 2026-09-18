@@ -195,6 +195,7 @@ export async function buildReportingDigest(): Promise<ReportingDigest> {
 
   const lines: string[] = [
     `*Weekly Ops Report* · week of ${rangeLabel(week)}`,
+    `_Runs every Monday: compares the previous week's business to the week prior._`,
   ];
 
   // --- 1. Appointments per location, MTD vs prior month through same day --
