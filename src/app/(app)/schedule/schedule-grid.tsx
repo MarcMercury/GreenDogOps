@@ -47,6 +47,9 @@ import { WeekPicker } from "./week-picker";import {
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
+/** Width of one location column. Wide enough to fit the ✕ and + chip controls. */
+const COL_W = 142;
+
 interface CellKey {
   lineId: string;
   locationId: string;
@@ -661,7 +664,7 @@ export function ScheduleGrid({
                         style={
                           evtClosed
                             ? { width: 18, minWidth: 18, maxWidth: 18 }
-                            : { width: 128, minWidth: 128, maxWidth: 128 }
+                            : { width: COL_W, minWidth: COL_W, maxWidth: COL_W }
                         }
                       >
                         <button
@@ -718,9 +721,9 @@ export function ScheduleGrid({
                             : "border-l border-l-slate-300"
                         }`}
                         style={{
-                          width: closed ? 18 : 128,
-                          minWidth: closed ? 18 : 128,
-                          maxWidth: closed ? 18 : 128,
+                          width: closed ? 18 : COL_W,
+                          minWidth: closed ? 18 : COL_W,
+                          maxWidth: closed ? 18 : COL_W,
                           borderTop: `2px solid ${loc.color ?? "#94a3b8"}`,
                         }}
                       >
@@ -1427,9 +1430,9 @@ function DeptSection({
                   className="px-1 py-1 text-center text-[11px] font-bold tabular-nums text-white/95"
                   style={{
                     background: dept.color,
-                    width: closed ? 18 : 128,
-                    minWidth: closed ? 18 : 128,
-                    maxWidth: closed ? 18 : 128,
+                    width: closed ? 18 : COL_W,
+                    minWidth: closed ? 18 : COL_W,
+                    maxWidth: closed ? 18 : COL_W,
                     borderLeft:
                       locIdx === 0
                         ? "2px solid rgba(255,255,255,0.5)"
@@ -1667,9 +1670,9 @@ function Cell({
         dragOver ? "outline outline-2 -outline-offset-2 outline-emerald-400" : ""
       }`}
       style={{
-        width: 128,
-        minWidth: 128,
-        maxWidth: 128,
+        width: COL_W,
+        minWidth: COL_W,
+        maxWidth: COL_W,
         backgroundColor: dragOver ? `${accent}33` : `${accent}14`,
         ...(isDayStart ? {} : { borderLeftColor: `${accent}55` }),
       }}
@@ -1774,10 +1777,17 @@ function Cell({
               </span>
               <button
                 onClick={() => onRemove(a.id)}
-                className="text-slate-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100 print:hidden"
+                className="shrink-0 text-slate-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100 print:hidden"
                 title="Remove"
               >
                 ✕
+              </button>
+              <button
+                onClick={onAdd}
+                className="shrink-0 font-semibold text-slate-400 opacity-0 transition hover:text-emerald-600 group-hover:opacity-100 print:hidden"
+                title="Add another person to this shift"
+              >
+                +
               </button>
             </div>
           );
@@ -1795,12 +1805,15 @@ function Cell({
             </div>
           );
         })}
-        <button
-          onClick={onAdd}
-          className="rounded border border-dashed border-slate-200 py-0.5 text-[10px] text-slate-300 opacity-0 transition hover:border-emerald-300 hover:text-emerald-500 group-hover:opacity-100 print:hidden"
-        >
-          + add
-        </button>
+        {visible.length === 0 && (
+          <button
+            onClick={onAdd}
+            className="flex-1 rounded border border-dashed border-slate-200 text-[10px] text-slate-300 opacity-0 transition hover:border-emerald-300 hover:text-emerald-500 group-hover:opacity-100 print:hidden"
+            title="Add a person to this shift"
+          >
+            + add
+          </button>
+        )}
       </div>
     </td>
   );
