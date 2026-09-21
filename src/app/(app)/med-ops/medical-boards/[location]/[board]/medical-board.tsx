@@ -263,8 +263,10 @@ export function MedicalBoard({
           onDelete={onDelete}
         />
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full table-fixed border-collapse text-xs">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          {/* Auto layout: the <col> widths are a starting share only, so each
+              column stretches to fit the text it actually holds. */}
+          <table className="w-full table-auto border-collapse text-[13px]">
             <colgroup>
               {GRID_TEXT_COLUMNS.map((col) => (
                 <col key={col.key} style={{ width: col.width }} />
@@ -278,12 +280,12 @@ export function MedicalBoard({
                   <th
                     key={col.key}
                     title={col.title}
-                    className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500"
+                    className="border-b border-slate-200 px-1.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500"
                   >
                     {col.label}
                   </th>
                 ))}
-                <th className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                <th className="border-b border-slate-200 px-1.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Flags
                 </th>
                 <th className="border-b border-slate-200" />
@@ -316,7 +318,7 @@ export function MedicalBoard({
                         type="button"
                         onClick={() => launchPatient(row.id)}
                         title="Open this patient in its own window"
-                        className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
+                        className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[11px] font-medium text-slate-600 transition hover:border-emerald-300 hover:text-emerald-700"
                       >
                         ↗
                       </button>
@@ -324,7 +326,7 @@ export function MedicalBoard({
                         type="button"
                         onClick={() => onDelete(row.id)}
                         title="Remove from board"
-                        className="rounded px-1 text-[11px] text-slate-300 transition hover:bg-rose-50 hover:text-rose-600"
+                        className="rounded px-1 text-[12px] text-slate-300 transition hover:bg-rose-50 hover:text-rose-600"
                       >
                         ×
                       </button>
@@ -702,7 +704,7 @@ function FlagGroup({
             title={`${col.label}${col.title ? ` — ${col.title}` : ""}`}
             aria-pressed={on}
             onClick={() => onCommit(row.id, col.key, !on)}
-            className={`rounded px-1 py-0.5 text-[9px] font-semibold leading-tight transition ${
+            className={`rounded px-1 py-0.5 text-[10px] font-semibold leading-tight transition ${
               on
                 ? "bg-emerald-600 text-white"
                 : "bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600"
@@ -736,7 +738,7 @@ function Cell({
       <select
         value={text}
         onChange={(e) => onCommit(row.id, col.key, e.target.value)}
-        className={`w-full rounded border border-transparent px-0.5 py-1 text-[11px] transition hover:border-slate-200 focus:border-emerald-400 focus:outline-none ${tone}`}
+        className={`w-full min-w-0 rounded border border-transparent px-0.5 py-1 text-[12px] transition hover:border-slate-200 focus:border-emerald-400 focus:outline-none ${tone}`}
       >
         <option value="">—</option>
         {withCurrent(col.options, text).map((o) => (
@@ -748,45 +750,73 @@ function Cell({
     );
   }
 
-  const onFocus = () => {
-    editingRef.current = { rowId: row.id, field: col.key };
-  };
-  const onBlur = (
-    e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>,
-  ) => {
-    editingRef.current = null;
-    if (e.target.value !== text) onCommit(row.id, col.key, e.target.value);
-  };
-  const cls =
-    "w-full rounded border border-transparent px-1 py-1 text-[11px] transition hover:border-slate-200 focus:border-emerald-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400";
-
-  // Long free text wraps rather than being clipped by the column width.
-  if (col.wrap) {
-    return (
-      <textarea
-        key={text}
-        rows={2}
-        defaultValue={text}
-        title={col.key === "services" ? row.appt_description ?? undefined : undefined}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        className={`${cls} resize-y leading-snug`}
-      />
-    );
-  }
-
   return (
-    <input
+    <AutoGrowText
       // Remount when the stored value changes so a teammate's edit shows here.
       // The focused cell is excluded from remote merges, so this never fires
       // mid-keystroke.
       key={text}
-      type="text"
-      defaultValue={text}
-      onFocus={onFocus}
-      onBlur={onBlur}
-      className={cls}
+      value={text}
+      multiline={Boolean(col.wrap)}
+      title={col.key === "services" ? row.appt_description ?? undefined : undefined}
+      onFocus={() => {
+        editingRef.current = { rowId: row.id, field: col.key };
+      }}
+      onCommit={(next) => {
+        editingRef.current = null;
+        if (next !== text) onCommit(row.id, col.key, next);
+      }}
     />
+  );
+}
+
+/**
+ * An editable cell that grows to fit its content, so nothing on the board is
+ * ever cut off. A hidden mirror of the text sizes the grid area and the
+ * textarea is laid over it — that also gives the table a real content width to
+ * size the column from.
+ */
+function AutoGrowText({
+  value,
+  multiline,
+  title,
+  onFocus,
+  onCommit,
+}: {
+  value: string;
+  multiline: boolean;
+  title?: string;
+  onFocus: () => void;
+  onCommit: (next: string) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const shared = "px-1 py-1 text-[12px] leading-snug";
+
+  return (
+    <div className="grid" title={title}>
+      <span
+        aria-hidden
+        className={`invisible col-start-1 row-start-1 whitespace-pre-wrap break-words ${shared}`}
+      >
+        {`${draft} `}
+      </span>
+      <textarea
+        rows={1}
+        value={draft}
+        onChange={(e) =>
+          setDraft(multiline ? e.target.value : e.target.value.replace(/\n/g, " "))
+        }
+        onFocus={onFocus}
+        onBlur={() => onCommit(draft)}
+        onKeyDown={(e) => {
+          if (!multiline && e.key === "Enter") {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
+        className={`col-start-1 row-start-1 w-full min-w-0 resize-none overflow-hidden break-words rounded border border-transparent bg-transparent transition hover:border-slate-200 focus:border-emerald-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-400 ${shared}`}
+      />
+    </div>
   );
 }
 

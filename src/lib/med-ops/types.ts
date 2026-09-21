@@ -166,11 +166,11 @@ export interface BoardColumn {
   /** Header text — kept to the spreadsheet's abbreviations the team knows. */
   label: string;
   kind: ColumnKind;
-  /** Share of the table width (percent) for text columns. */
+  /** Starting share of the table width (percent); auto layout fits to content. */
   width: string;
   /** Very short label used when the column is rendered as a flag toggle. */
   flagLabel?: string;
-  /** Render as a wrapping textarea so long entries are never cut off. */
+  /** Multi-line free text — Enter inserts a newline instead of committing. */
   wrap?: boolean;
   /** Tooltip expanding the abbreviation. */
   title?: string;
@@ -205,24 +205,25 @@ export const STATUS_OPTIONS = [
 
 /**
  * The board grid, mirroring the Clinic Board spreadsheet left-to-right so the
- * team's muscle memory carries over. Widths are percentages that total 100 with
- * the flags and action columns (see GRID_FLAG_WIDTH / GRID_ACTION_WIDTH), so the
- * board fits one screen with no side-scrolling. The long free-text columns wrap
- * rather than truncate, and the 13 yes/no columns collapse into one flags cell.
+ * team's muscle memory carries over. Every cell wraps and auto-grows, so the
+ * table uses AUTO layout: these percentages are only the starting share of the
+ * row — a column widens to fit the text it actually holds, and nothing is ever
+ * clipped. They still total 100 with the flags and action columns (see
+ * GRID_FLAG_WIDTH / GRID_ACTION_WIDTH) so the board fits one screen.
  */
 export const BOARD_COLUMNS: BoardColumn[] = [
   { key: "appt_time", label: "APT", kind: "text", width: "4%", title: "Appointment time" },
-  { key: "patient", label: "PATIENT", kind: "text", width: "10%" },
-  { key: "client_name", label: "CLIENT", kind: "text", width: "5%" },
+  { key: "patient", label: "PATIENT", kind: "text", width: "8%" },
+  { key: "client_name", label: "CLIENT", kind: "text", width: "9%" },
   { key: "csr", label: "CSR", kind: "text", width: "3%", title: "Client service rep" },
   { key: "tech", label: "TECH", kind: "text", width: "4%" },
-  { key: "dt", label: "DT", kind: "text", width: "4%", title: "Doctor / DVM tech" },
+  { key: "dt", label: "DT", kind: "text", width: "6%", title: "Doctor / DVM tech" },
   { key: "weight_kg", label: "WT", kind: "text", width: "3%", title: "Weight in kg" },
-  { key: "fas_score", label: "FAS", kind: "select", width: "7%", title: "Fear, Anxiety & Stress score", options: FAS_OPTIONS },
-  { key: "status", label: "STATUS", kind: "select", width: "8%", options: STATUS_OPTIONS },
-  { key: "medical_hx", label: "MEDICAL HX", kind: "text", width: "11%", wrap: true, title: "Medical history / cautions" },
-  { key: "services", label: "SERVICES / ADD ONS", kind: "text", width: "11%", wrap: true },
-  { key: "sedation", label: "SEDATION", kind: "text", width: "7%", wrap: true, title: "Sedation protocol / dosing" },
+  { key: "fas_score", label: "FAS", kind: "select", width: "6%", title: "Fear, Anxiety & Stress score", options: FAS_OPTIONS },
+  { key: "status", label: "STATUS", kind: "select", width: "7%", options: STATUS_OPTIONS },
+  { key: "medical_hx", label: "MEDICAL HX", kind: "text", width: "12%", wrap: true, title: "Medical history / cautions" },
+  { key: "services", label: "SERVICES / ADD ONS", kind: "text", width: "12%", wrap: true },
+  { key: "sedation", label: "SEDATION", kind: "text", width: "6%", wrap: true, title: "Sedation protocol / dosing" },
   { key: "cbfc", label: "CBFC", kind: "text", width: "3%", title: "Call back / follow-up call" },
   { key: "owner_ud", label: "O U/D", kind: "text", width: "3%", title: "Owner update / discharge" },
   { key: "room", label: "RM", kind: "text", width: "2%", title: "Room number" },
@@ -242,9 +243,9 @@ export const BOARD_COLUMNS: BoardColumn[] = [
   { key: "ds", label: "DS", flagLabel: "DS", kind: "check", width: "", title: "Discharge summary" },
 ];
 
-/** Text columns total 85%; these two make up the remaining 15%. */
-export const GRID_FLAG_WIDTH = "11%";
-export const GRID_ACTION_WIDTH = "4%";
+/** Text columns total 88%; these two make up the remaining 12%. */
+export const GRID_FLAG_WIDTH = "9%";
+export const GRID_ACTION_WIDTH = "3%";
 
 /** The columns that get their own cell. */
 export const GRID_TEXT_COLUMNS = BOARD_COLUMNS.filter((c) => c.kind !== "check");

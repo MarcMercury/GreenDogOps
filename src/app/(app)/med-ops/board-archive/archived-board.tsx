@@ -73,8 +73,8 @@ export function ArchivedBoard({
           ))}
         </div>
       ) : (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full table-fixed border-collapse text-xs">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full table-auto border-collapse text-[13px]">
             <colgroup>
               {GRID_TEXT_COLUMNS.map((col) => (
                 <col key={col.key} style={{ width: col.width }} />
@@ -86,12 +86,12 @@ export function ArchivedBoard({
                 {GRID_TEXT_COLUMNS.map((col) => (
                   <th
                     key={col.key}
-                    className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500"
+                    className="border-b border-slate-200 px-1.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500"
                   >
                     {col.label}
                   </th>
                 ))}
-                <th className="border-b border-slate-200 px-1.5 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                <th className="border-b border-slate-200 px-1.5 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   Flags
                 </th>
               </tr>
@@ -121,7 +121,7 @@ export function ArchivedBoard({
                         <span
                           key={c.key}
                           title={c.label}
-                          className="rounded bg-emerald-600 px-1 py-0.5 text-[9px] font-semibold leading-tight text-white"
+                          className="rounded bg-emerald-600 px-1 py-0.5 text-[10px] font-semibold leading-tight text-white"
                         >
                           {c.flagLabel}
                         </span>
