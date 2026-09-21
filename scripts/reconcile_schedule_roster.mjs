@@ -226,7 +226,7 @@ const tabs = args.length
 const placements = [];
 for (const tab of tabs) placements.push(...(await extractTab(tab, "")));
 
-const people = await fetchAll(supabase, "person", "id, full_name, first_name, last_name, grid_name, status");
+const people = await fetchAll(supabase, "person", "id, full_name, first_name, last_name, grid_name, grid_aliases, status");
 const employment = await fetchAll(supabase, "person_employment", "person_id, adp_job_title, offer_title");
 const roles = await fetchAll(supabase, "sched_role", "name, department_id, is_active");
 const depts = await fetchAll(supabase, "sched_department", "id, name");
@@ -247,6 +247,13 @@ const byKey = new Map();
 for (const p of [...people].sort((a, b) => (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9))) {
   for (const k of [p.gridKey, p.fullKey]) {
     if (k && !byKey.has(k)) byKey.set(k, p);
+  }
+}
+// An explicit alias beats any name that normalizes the same way.
+for (const p of people) {
+  for (const alias of p.grid_aliases ?? []) {
+    const k = nameKey(alias);
+    if (k) byKey.set(k, p);
   }
 }
 

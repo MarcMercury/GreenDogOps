@@ -441,8 +441,14 @@ export async function applySchedulePlacements(
   const admin = createAdminClient();
 
   const [people, deptRes, roleRes, locRes] = await Promise.all([
-    fetchAllRows<{ id: string; full_name: string | null; grid_name: string | null; status: string }>(
-      () => admin.from("person").select("id, full_name, grid_name, status").order("id"),
+    fetchAllRows<{
+      id: string;
+      full_name: string | null;
+      grid_name: string | null;
+      grid_aliases: string[] | null;
+      status: string;
+    }>(() =>
+      admin.from("person").select("id, full_name, grid_name, grid_aliases, status").order("id"),
     ),
     admin.from("sched_department").select("id, name"),
     admin.from("sched_role").select("id, name, department_id"),
@@ -477,6 +483,25 @@ export async function applySchedulePlacements(
       }
     }
   }
+
+  // grid_aliases are deliberate human decisions, so they outrank any name that
+  // happens to normalize the same way ("Ashley" is 13 different people).
+  const aliasOwner = new Map<string, string>();
+  const aliasClashes = new Map<string, Set<string>>();
+  for (const p of people) {
+    for (const alias of p.grid_aliases ?? []) {
+      const k = nameKey(alias);
+      if (!k) continue;
+      const held = aliasOwner.get(k);
+      if (held && held !== p.id) {
+        if (!aliasClashes.has(alias)) aliasClashes.set(alias, new Set([held]));
+        aliasClashes.get(alias)!.add(p.id);
+        continue;
+      }
+      aliasOwner.set(k, p.id);
+    }
+  }
+  for (const [k, id] of aliasOwner) byName.set(k, id);
 
   interface Resolved {
     weekStart: string;
@@ -811,6 +836,16 @@ export async function applySchedulePlacements(
       detail: {
         weeks: count,
         hint: "The sheet staffs this role but the Dept/Shift Template has no line for it, so the importer had to add one. Add it in Schedule > Set Up to keep the grid matching the template.",
+      },
+    });
+  }
+  for (const [alias, owners] of aliasClashes) {
+    issues.push({
+      kind: "grid_alias_collision",
+      subject: alias,
+      detail: {
+        people: owners.size,
+        hint: "More than one person claims this schedule alias, so it was ignored. Clear grid_aliases on all but one of them.",
       },
     });
   }
