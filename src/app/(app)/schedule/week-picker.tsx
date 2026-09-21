@@ -24,6 +24,7 @@ export function WeekPicker({
   const [pending, start] = useTransition();
   const [newWeek, setNewWeek] = useState<string>(weekStartFor(new Date()));
   const [error, setError] = useState<string | null>(null);
+  const currentWeekStart = weekStartFor(new Date());
 
   function go(id: string) {
     router.push(`${basePath}?week=${id}`);
@@ -87,12 +88,20 @@ export function WeekPicker({
         className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium focus:border-emerald-500 focus:outline-none"
       >
         <option value="">Select a week…</option>
-        {weeks.map((w) => (
-          <option key={w.id} value={w.id}>
-            {formatWeekRange(w.week_start)} ·{" "}
-            {SCHEDULE_STATUS_LABELS[w.status]}
-          </option>
-        ))}
+        {weeks.map((w) => {
+          const isCurrent = w.week_start === currentWeekStart;
+          return (
+            <option
+              key={w.id}
+              value={w.id}
+              style={{ fontWeight: isCurrent ? 700 : 400 }}
+            >
+              {formatWeekRange(w.week_start)} ·{" "}
+              {SCHEDULE_STATUS_LABELS[w.status]}
+              {isCurrent ? " · This week" : ""}
+            </option>
+          );
+        })}
       </select>
 
       {selectedId && (
