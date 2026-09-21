@@ -15,6 +15,7 @@ import {
   fasTone,
   formatApptTime,
   initialsOf,
+  sortByApptTime,
   statusTone,
   withCurrent,
   type BoardColumn,
