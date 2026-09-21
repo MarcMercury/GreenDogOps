@@ -2,19 +2,22 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/fetch-all";
 import { readSheetRange, listSheetTabs } from "@/lib/google/sheets";
-import { clean, emptyResult, nameKey, todayLA, type SheetSyncResult } from "./common";
+import { clean, emptyResult, nameKey, todayLA, type SheetSyncResult, type SyncIssue } from "./common";
 
 /**
  * Nightly pull of the "GDD Staff Schedule 2026" sheet.
  *
- * Scope is deliberately the nine VET-* rows, which map 1:1 onto a
- * (department, DVM) scheduling line, so no section-inheritance guessing is
- * needed. Weeks that are already published in the app are skipped by
- * greendogops.apply_sheet_dvm_assignments(), so a hand-built week is never
- * overwritten. Names that match nobody are filed for review rather than
- * silently dropped.
+ * Every staffed role row in a month tab is imported, not just the doctors: the
+ * sheet's role label resolves to a (department, role) pair and its shift text
+ * to start/end times, which together pick the grid line the placement belongs
+ * on. A row the grid has no line for gets an ad-hoc line, so the sheet can add
+ * a shift (the October "Late Clinic Schedule") without a code change.
  *
- * Server-side twin of scripts/read_schedule_sheet.mjs + import_sheet_dvm.mjs.
+ * Placements the importer writes are tagged `source = 'sheet'` and replaced
+ * wholesale on every run, so anything entered in the app is left alone. Weeks
+ * already published are skipped, so a hand-built week is never overwritten.
+ * Names and role labels that resolve to nothing are filed for review rather
+ * than silently dropped.
  */
 
 const YEAR = 2026;
@@ -37,18 +40,185 @@ const SHEET_LOCATIONS: Record<string, string> = {
   AETNA: "Van Nuys",
 };
 
-/** Sheet role row -> scheduling department; `second` picks the 2nd DVM line. */
-const ROLE_TO_DEPT: Record<string, { dept: string; second: boolean }> = {
-  "VET-SURGERY": { dept: "SURGERY", second: false },
-  "VET-AP": { dept: "AP", second: false },
-  "2nd VET-AP": { dept: "AP", second: true },
-  "VET-NAD": { dept: "NAD/VE/UC", second: false },
-  "2nd VET-NAD": { dept: "NAD/VE/UC", second: true },
-  "VET-IM": { dept: "IM", second: false },
-  "VET-EXOTICS": { dept: "EXOTICS", second: false },
-  "VET-MPMV": { dept: "MPMV", second: false },
-  "VET-CARDIO": { dept: "CARDIO", second: false },
+/** Punctuation- and spacing-proof key for a sheet role label. */
+const labelKey = (label: string): string => label.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/** The grid line a sheet role row belongs on. `role: null` = an unroled line. */
+interface LineSpec {
+  dept: string;
+  role: string | null;
+  label?: string;
+}
+
+/**
+ * Sheet role label -> grid (department, role).
+ *
+ * A label that appears under more than one section ("Intern", "DVM") is
+ * resolved from the section instead — see SECTION_HEADERS / SECTION_ROLES.
+ */
+const ROLE_MAP: Record<string, LineSpec> = {
+  // Doctors. "2nd VET-*" is the department's second DVM line of the day.
+  vetsurgery: { dept: "SURGERY", role: "DVM" },
+  vetap: { dept: "AP", role: "DVM" },
+  "2ndvetap": { dept: "AP", role: "DVM" },
+  vetnad: { dept: "NAD/VE/UC", role: "DVM" },
+  "2ndvetnad": { dept: "NAD/VE/UC", role: "DVM" },
+  vetim: { dept: "IM", role: "DVM" },
+  vetexotics: { dept: "EXOTICS", role: "DVM" },
+  vetmpmv: { dept: "MPMV", role: "DVM" },
+  vetcardio: { dept: "CARDIO", role: "DVM" },
+
+  // Surgery
+  surgerylead: { dept: "SURGERY", role: "Surgery Lead" },
+  surgerytech: { dept: "SURGERY", role: "Surgery Tech" },
+  surgerytech1: { dept: "SURGERY", role: "Surgery Tech" },
+  surgerytech2: { dept: "SURGERY", role: "Surgery Tech" },
+
+  // AP
+  aplead: { dept: "AP", role: "AP Lead" },
+  aptech: { dept: "AP", role: "AP Tech" },
+  remoteaptech: { dept: "AP", role: "Remote AP Tech" },
+
+  // NAD / VE / UC
+  danad: { dept: "NAD/VE/UC", role: "DA - NAD" },
+  datraining: { dept: "NAD/VE/UC", role: "DA - Training" },
+  clinictech: { dept: "NAD/VE/UC", role: "Clinic Tech" },
+  clinictechfloat: { dept: "NAD/VE/UC", role: "Clinic Tech", label: "Clinic Tech / Float" },
+  clinictechmiddtfloat: {
+    dept: "NAD/VE/UC",
+    role: "Clinic Tech",
+    label: "Clinic Tech / Mid DT Float",
+  },
+  clinictechda: { dept: "NAD/VE/UC", role: "Clinic Tech", label: "Clinic Tech / DA" },
+  floatlead: { dept: "NAD/VE/UC", role: "Float / Lead" },
+  leadtech: { dept: "NAD/VE/UC", role: "Lead Tech" },
+  dentals: { dept: "NAD/VE/UC", role: "Dentals" },
+  dentalstrainee: { dept: "NAD/VE/UC", role: "Dentals (trainee)" },
+
+  // IM / Exotics / MPMV
+  imtechda: { dept: "IM", role: "IM Tech/DA" },
+  imtech: { dept: "IM", role: "IM Tech" },
+  exotictechda: { dept: "EXOTICS", role: "Exotic Tech/DA" },
+  exoticstech: { dept: "EXOTICS", role: "Exotics Tech" },
+  mpmvtech: { dept: "MPMV", role: "MPMV Tech" },
+  mpmvmedteam: { dept: "MPMV MED TEAM", role: null, label: "MPMV Med Team" },
+
+  // Front of house
+  csr: { dept: "CSR", role: "CSR" },
+  csrlead: { dept: "CSR", role: "CSR Lead" },
+  csrtrainee: { dept: "CSR", role: "CSR trainee" },
+  fac: { dept: "CSR", role: "FAC" },
+  referralc: { dept: "CSR", role: "Referral C" },
+  referralcmarketingclientsupport: {
+    dept: "CSR",
+    role: "Referral C",
+    label: "Referral C / Marketing client support",
+  },
+  inhouseadminmarketingassit: { dept: "CSR", role: "Admin/Mrkt Asst." },
+
+  // Remote
+  rcsrmanager: { dept: "REMOTE", role: "RCSR Manager" },
+  morninglead: { dept: "REMOTE", role: "Morning Lead" },
+  mid: { dept: "REMOTE", role: "Mid" },
+  apsx: { dept: "REMOTE", role: "AP/SX" },
+  support: { dept: "REMOTE", role: "Support" },
+  closer: { dept: "REMOTE", role: "Closer" },
+  float: { dept: "REMOTE", role: "Float" },
+  textingtidio: { dept: "REMOTE", role: "Texting / Tidio" },
+  admin: { dept: "REMOTE", role: null, label: "Admin" },
+  adminbackend: { dept: "REMOTE", role: null, label: "Admin/Backend" },
+
+  // Management / admin block at the top of every week
+  manager: { dept: "MANAGEMENT", role: "Manager" },
+  inhouseadmin: {
+    dept: "Admin/Asst/ Inventory",
+    role: "Inventory/ Admin",
+    label: "In House Admin",
+  },
+  inventory: { dept: "Admin/Asst/ Inventory", role: "Inventory/ Admin", label: "Inventory" },
+  officeadmin: { dept: "Admin/Asst/ Inventory", role: "Inventory/ Admin", label: "Office Admin" },
+  schadmin: { dept: "Admin/Asst/ Inventory", role: "Inventory/ Admin", label: "Sch Admin" },
 };
+
+/** Rows that open a section. A VET-* row is a section header AND a DVM line. */
+const SECTION_HEADERS: Record<string, string> = {
+  vetsurgery: "SURGERY",
+  vetap: "AP",
+  vetnad: "NAD/VE/UC",
+  vetim: "IM",
+  vetexotics: "EXOTICS",
+  vetmpmv: "MPMV",
+  vetcardio: "CARDIO",
+  lateclinicschedule: "NAD/VE/UC",
+  remoteschdule: "REMOTE",
+  remoteschedule: "REMOTE",
+};
+
+/** Labels that only mean something inside their section. */
+const SECTION_ROLES: Record<string, string> = {
+  dvm: "DVM",
+  intern: "Intern",
+  externstudent: "Extern/Student",
+  exrternstudent: "Extern/Student", // the sheet's spelling
+};
+
+/** Banner rows that carry no staffing of their own. */
+const HEADER_ONLY = new Set(["lateclinicschedule", "remoteschdule", "remoteschedule", "role"]);
+
+/**
+ * "9-6:30 (9)", "8-4:30p", "12pm-830pm", "9:5:30p", "9-5:30 // 8-5:30"
+ * -> { start: "09:00", end: "18:30" }.
+ *
+ * The workbook is hand-typed, so the separator is unreliable and the meridiem
+ * is usually missing. Clinic hours disambiguate it: a shift starting at 7–11
+ * starts in the morning, and nothing ends before noon.
+ */
+export function parseShift(text: string): { start: string; end: string } | null {
+  let s = clean(text).toLowerCase();
+  if (!s) return null;
+  s = s.split("//")[0];
+  s = s.replace(/\([^)]*\)/g, "");
+  s = s.replace(/-\s*:/g, "-").replace(/:\s*-/g, "-");
+  s = clean(s);
+  if (!s) return null;
+
+  let parts = s.split(/\s*(?:-|–|—|\bto\b)\s*/).filter(Boolean);
+  if (parts.length < 2) {
+    // "9:5:30p" / "10:6:30p" are "9-5:30p" / "10-6:30p" with a typo'd dash.
+    const typo = /^(\d{1,2}):(\d{1,2}:\d{2}\s*[ap]m?)$/.exec(s);
+    if (!typo) return null;
+    parts = [typo[1], typo[2]];
+  }
+
+  const start = parseClock(parts[0], "start");
+  const end = parseClock(parts[1], "end");
+  return start && end ? { start, end } : null;
+}
+
+function parseClock(raw: string, side: "start" | "end"): string | null {
+  const s = clean(raw).replace(/\s+/g, "");
+  // "830pm" — a compact time is only unambiguous when the meridiem is written.
+  let m = /^(\d{1,2})(\d{2})(am|pm|a|p)$/.exec(s);
+  if (!m) m = /^(\d{1,2})(?::(\d{2}))?(am|pm|a|p)?$/.exec(s);
+  if (!m) return null;
+
+  let hour = Number(m[1]);
+  const min = Number(m[2] ?? 0);
+  const mer = m[3];
+  if (hour > 23 || min > 59) return null;
+
+  if (mer?.startsWith("p")) {
+    if (hour < 12) hour += 12;
+  } else if (mer?.startsWith("a")) {
+    if (hour === 12) hour = 0;
+  } else if (side === "start") {
+    if (hour < 7) hour += 12; // a 1–6 start is the afternoon
+  } else if (hour < 12) {
+    hour += 12; // nothing here ends before noon
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
 
 export interface Placement {
   week: string;
@@ -56,17 +226,24 @@ export interface Placement {
   date: string;
   dow: string;
   location: string;
+  /** Column B exactly as written in the sheet. */
   role: string;
+  /** Column C exactly as written in the sheet. */
+  shift: string;
+  /** Identifies the sheet row, so one row maps onto exactly one grid line. */
+  rowKey: string;
+  /** Position of the row inside its week block; orders the grid lines. */
+  order: number;
   person: string;
 }
 
 /**
- * Every DVM placement in a month tab.
+ * Every placement in a month tab.
  *
- * Layout (verified on the September 2026 tab): one block per week, the block
- * header row has "WEEK n" in column B and a PUB / RTC flag in column C;
- * header+1 = day-of-month numbers (they wrap at month boundaries), header+2 =
- * location sub-headers. Each weekday spans 7 columns with locations at
+ * Layout (verified on the September and October 2026 tabs): one block per week,
+ * the block header row has "WEEK n" in column B and a PUB / RTC flag in column
+ * C; header+1 = day-of-month numbers (they wrap at month boundaries), header+2
+ * = location sub-headers. Each weekday spans 7 columns with locations at
  * +0/+2/+4, except Sunday which is a narrow stub and must not read into Monday.
  */
 function extractTab(grid: string[][], tab: string): Placement[] {
@@ -138,8 +315,7 @@ function extractTab(grid: string[][], tab: string): Placement[] {
 
     for (let r = firstStaffRow; r < end; r++) {
       const role = cellAt(r, 1);
-      if (!role || /^WEEK\s*\d/i.test(role) || role === "Role") continue;
-      if (!ROLE_TO_DEPT[role]) continue;
+      if (!role || /^WEEK\s*\d/i.test(role)) continue;
 
       for (let d = 0; d < days.length; d++) {
         const day = days[d];
@@ -156,6 +332,9 @@ function extractTab(grid: string[][], tab: string): Placement[] {
             dow: day.dow,
             location: loc,
             role,
+            shift: cellAt(r, 2),
+            rowKey: `${tab}#${r - head}`,
+            order: r - head,
             person,
           });
         }
@@ -188,7 +367,7 @@ export async function readSchedulePlacements(
   const tabs = targetTabs(monthsAhead, await listSheetTabs(spreadsheetId));
   const placements: Placement[] = [];
   for (const tab of tabs) {
-    const grid = await readSheetRange(spreadsheetId, `${tab}!A1:BE500`);
+    const grid = await readSheetRange(spreadsheetId, `${tab}!A1:BE600`);
     placements.push(...extractTab(grid, tab));
   }
   return { placements, tabs };
@@ -201,6 +380,51 @@ function weekStart(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Resolve a sheet role row against the section it sits under. */
+function resolveRole(
+  label: string,
+  section: string | null,
+): { spec: LineSpec | null; section: string | null } | null {
+  const key = labelKey(label);
+  const header = SECTION_HEADERS[key];
+  if (HEADER_ONLY.has(key)) return header ? { spec: null, section: header } : null;
+
+  const sectionRole = SECTION_ROLES[key];
+  if (sectionRole) {
+    if (!section) return null;
+    return { spec: { dept: section, role: sectionRole }, section };
+  }
+
+  const mapped = ROLE_MAP[key];
+  if (!mapped) return null;
+  // An explicit mapping also moves the section, which is how the unheaded CSR
+  // block after VET-CARDIO gets picked up.
+  return { spec: mapped, section: header ?? mapped.dept };
+}
+
+/** One sheet role row, resolved to the grid line it needs. */
+interface LineDraft {
+  rowKey: string;
+  order: number;
+  dept: string;
+  role: string | null;
+  label: string | null;
+  start: string | null;
+  end: string | null;
+}
+
+interface WeekLineRow {
+  id: string;
+  department_id: string;
+  role_id: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  sort_order: number;
+}
+
+const sameTime = (a: string | null, b: string | null): boolean =>
+  !!a && !!b && a.slice(0, 5) === b.slice(0, 5);
+
 export async function applySchedulePlacements(
   placements: Placement[],
   tabs: string[],
@@ -211,59 +435,314 @@ export async function applySchedulePlacements(
   if (!placements.length) return result;
 
   const admin = createAdminClient();
-  const people = await fetchAllRows<{
-    id: string;
-    full_name: string | null;
-    grid_name: string | null;
-    status: string;
-  }>(() => admin.from("person").select("id, full_name, grid_name, status").order("id"));
 
-  const byName = new Map<string, { id: string; full_name: string | null }>();
+  const [people, deptRes, roleRes, locRes] = await Promise.all([
+    fetchAllRows<{ id: string; full_name: string | null; grid_name: string | null; status: string }>(
+      () => admin.from("person").select("id, full_name, grid_name, status").order("id"),
+    ),
+    admin.from("sched_department").select("id, name"),
+    admin.from("sched_role").select("id, name, department_id"),
+    admin.from("location").select("id, name"),
+  ]);
+
+  const deptByName = new Map(
+    ((deptRes.data ?? []) as { id: string; name: string }[]).map((d) => [d.name, d.id]),
+  );
+  const roleByKey = new Map(
+    ((roleRes.data ?? []) as { id: string; name: string; department_id: string }[]).map((r) => [
+      `${r.department_id}|${r.name}`,
+      r.id,
+    ]),
+  );
+  const locByName = new Map(
+    ((locRes.data ?? []) as { id: string; name: string }[]).map((l) => [l.name, l.id]),
+  );
+
+  const byName = new Map<string, string>();
   for (const p of people) {
     for (const n of [p.grid_name, p.full_name]) {
       const k = nameKey(n ?? "");
       if (!k) continue;
       // Active people win a name collision; grid_name is checked first because
       // it is the spelling the schedule sheet uses.
-      const existing = byName.get(k);
-      if (!existing || p.status === "employee" || p.status === "contractor") {
-        byName.set(k, { id: p.id, full_name: p.full_name });
+      if (!byName.has(k) || p.status === "employee" || p.status === "contractor") {
+        byName.set(k, p.id);
       }
     }
   }
 
-  const rows: {
-    week_start: string;
-    work_date: string;
-    day_of_week: number;
-    dept: string;
-    second: boolean;
-    location: string;
-    person_id: string;
-  }[] = [];
-  const unmatched = new Map<string, number>();
+  interface Resolved {
+    weekStart: string;
+    workDate: string;
+    dayOfWeek: number;
+    rowKey: string;
+    locationId: string;
+    personId: string;
+  }
 
+  const drafts = new Map<string, LineDraft>();
+  const resolved: Resolved[] = [];
+  const unmatchedNames = new Map<string, number>();
+  const unmappedRoles = new Map<string, number>();
+  const unknownDepts = new Map<string, number>();
+
+  // Placements come out of the sheet top to bottom, so the section header a
+  // row sits under is whatever was seen last.
+  let section: string | null = null;
   for (const p of placements) {
-    const map = ROLE_TO_DEPT[p.role];
-    if (!map) continue;
-    const person = byName.get(nameKey(p.person));
-    if (!person) {
-      unmatched.set(p.person, (unmatched.get(p.person) ?? 0) + 1);
+    const hit = resolveRole(p.role, section);
+    if (!hit) {
+      unmappedRoles.set(p.role, (unmappedRoles.get(p.role) ?? 0) + 1);
       continue;
     }
-    rows.push({
-      week_start: weekStart(p.date),
-      work_date: p.date,
-      day_of_week: new Date(`${p.date}T00:00:00Z`).getUTCDay(),
-      dept: map.dept,
-      second: map.second,
-      location: SHEET_LOCATIONS[p.location],
-      person_id: person.id,
+    section = hit.section;
+    if (!hit.spec) continue;
+
+    const deptId = deptByName.get(hit.spec.dept);
+    if (!deptId) {
+      unknownDepts.set(hit.spec.dept, (unknownDepts.get(hit.spec.dept) ?? 0) + 1);
+      continue;
+    }
+    const locationId = locByName.get(SHEET_LOCATIONS[p.location]);
+    if (!locationId) continue;
+
+    const personId = byName.get(nameKey(p.person));
+    if (!personId) {
+      unmatchedNames.set(p.person, (unmatchedNames.get(p.person) ?? 0) + 1);
+      continue;
+    }
+
+    if (!drafts.has(p.rowKey)) {
+      const shift = parseShift(p.shift);
+      drafts.set(p.rowKey, {
+        rowKey: p.rowKey,
+        order: p.order,
+        dept: hit.spec.dept,
+        role: hit.spec.role,
+        label: hit.spec.label ?? null,
+        start: shift?.start ?? null,
+        end: shift?.end ?? null,
+      });
+    }
+
+    resolved.push({
+      weekStart: weekStart(p.date),
+      workDate: p.date,
+      dayOfWeek: new Date(`${p.date}T00:00:00Z`).getUTCDay(),
+      rowKey: p.rowKey,
+      locationId,
+      personId,
     });
   }
 
-  for (const [name, count] of unmatched) {
-    result.issues.push({
+  const weekStarts = [...new Set(resolved.map((r) => r.weekStart))].sort();
+  const { data: weekRows } = await admin
+    .from("sched_week")
+    .select("id, week_start, status, is_template")
+    .in("week_start", weekStarts);
+  const weeks = new Map(
+    (
+      (weekRows ?? []) as {
+        id: string;
+        week_start: string;
+        status: string;
+        is_template: boolean;
+      }[]
+    )
+      .filter((w) => !w.is_template)
+      .map((w) => [w.week_start, w]),
+  );
+
+  let inserted = 0;
+  let replaced = 0;
+  let adopted = 0;
+  let linesCreated = 0;
+  let applied = 0;
+  const skippedWeeks: string[] = [];
+  const missingWeeks: string[] = [];
+
+  for (const ws of weekStarts) {
+    const week = weeks.get(ws);
+    if (!week) {
+      missingWeeks.push(ws);
+      continue;
+    }
+    if (week.status === "published") {
+      skippedWeeks.push(ws);
+      continue;
+    }
+
+    const rows = resolved.filter((r) => r.weekStart === ws);
+    const weekDrafts = [...new Set(rows.map((r) => r.rowKey))]
+      .map((k) => drafts.get(k)!)
+      .sort((a, b) => a.order - b.order);
+
+    const { data: lineData } = await admin
+      .from("sched_week_line")
+      .select("id, department_id, role_id, start_time, end_time, sort_order")
+      .eq("week_id", week.id);
+    const lines = (lineData ?? []) as WeekLineRow[];
+
+    // Sheet rows competing for the same pool of grid lines take an exact
+    // shift-time match; anything left gets its own line so the hours on the
+    // grid are the hours in the sheet.
+    const groups = new Map<string, LineDraft[]>();
+    for (const d of weekDrafts) {
+      const deptId = deptByName.get(d.dept)!;
+      const roleId = d.role ? roleByKey.get(`${deptId}|${d.role}`) ?? null : null;
+      const key = `${deptId}|${roleId ?? ""}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(d);
+    }
+
+    const lineByRowKey = new Map<string, string>();
+    const taken = new Set<string>();
+    const pending: LineDraft[] = [];
+
+    for (const [key, specs] of groups) {
+      const [deptId, roleId] = key.split("|");
+      let pool = lines.filter(
+        (l) => l.department_id === deptId && (roleId ? l.role_id === roleId : !l.role_id),
+      );
+      // Departments whose grid lines carry no role at all still own their rows.
+      if (!pool.length && roleId) {
+        pool = lines.filter((l) => l.department_id === deptId && !l.role_id);
+      }
+
+      const left: LineDraft[] = [];
+      for (const d of specs) {
+        const exact = pool.find(
+          (l) => !taken.has(l.id) && sameTime(l.start_time, d.start) && sameTime(l.end_time, d.end),
+        );
+        if (exact) {
+          taken.add(exact.id);
+          lineByRowKey.set(d.rowKey, exact.id);
+        } else {
+          left.push(d);
+        }
+      }
+      for (const d of left) {
+        // Only a row whose shift text would not parse falls back to position,
+        // because there are no hours to build a line from.
+        const next = d.start && d.end ? undefined : pool.find((l) => !taken.has(l.id));
+        if (next) {
+          taken.add(next.id);
+          lineByRowKey.set(d.rowKey, next.id);
+        } else {
+          pending.push(d);
+        }
+      }
+    }
+
+    if (pending.length) {
+      const nextSort = new Map<string, number>();
+      for (const l of lines) {
+        if (l.sort_order >= (nextSort.get(l.department_id) ?? 0)) {
+          nextSort.set(l.department_id, l.sort_order + 1);
+        }
+      }
+      const inserts = pending.map((d) => {
+        const deptId = deptByName.get(d.dept)!;
+        const sort = nextSort.get(deptId) ?? 0;
+        nextSort.set(deptId, sort + 1);
+        return {
+          week_id: week.id,
+          department_id: deptId,
+          role_id: d.role ? roleByKey.get(`${deptId}|${d.role}`) ?? null : null,
+          label: d.label,
+          start_time: d.start,
+          end_time: d.end,
+          sort_order: sort,
+          is_adhoc: true,
+        };
+      });
+      const { data: made, error } = await admin
+        .from("sched_week_line")
+        .insert(inserts)
+        .select("id");
+      if (error) throw new Error(`create week lines (${ws}): ${error.message}`);
+      const ids = ((made ?? []) as { id: string }[]).map((m) => m.id);
+      pending.forEach((d, i) => {
+        if (ids[i]) lineByRowKey.set(d.rowKey, ids[i]);
+      });
+      linesCreated += ids.length;
+    }
+
+    const { data: gone, error: delErr } = await admin
+      .from("sched_assignment")
+      .delete()
+      .eq("week_id", week.id)
+      .eq("source", "sheet")
+      .select("id");
+    if (delErr) throw new Error(`clear sheet assignments (${ws}): ${delErr.message}`);
+    replaced += (gone ?? []).length;
+
+    // Whatever is left was placed by hand or by the one-off imports that ran
+    // before this sync existed. A row the sheet also asks for is the same
+    // placement, so adopt it instead of stacking a second name in the cell.
+    const { data: keptData } = await admin
+      .from("sched_assignment")
+      .select("id, line_id, location_id, day_of_week, person_id")
+      .eq("week_id", week.id);
+    const kept = new Map(
+      (
+        (keptData ?? []) as {
+          id: string;
+          line_id: string;
+          location_id: string;
+          day_of_week: number;
+          person_id: string;
+        }[]
+      ).map((a) => [`${a.line_id}|${a.location_id}|${a.day_of_week}|${a.person_id}`, a.id]),
+    );
+
+    // One person stands on one line, at one location, on one day.
+    const seen = new Set<string>();
+    const adopt: string[] = [];
+    const payload: Record<string, unknown>[] = [];
+    for (const r of rows) {
+      const lineId = lineByRowKey.get(r.rowKey);
+      if (!lineId) continue;
+      const cellKey = `${lineId}|${r.locationId}|${r.dayOfWeek}|${r.personId}`;
+      if (seen.has(cellKey)) continue;
+      seen.add(cellKey);
+
+      const existing = kept.get(cellKey);
+      if (existing) {
+        adopt.push(existing);
+        continue;
+      }
+      payload.push({
+        week_id: week.id,
+        line_id: lineId,
+        location_id: r.locationId,
+        person_id: r.personId,
+        day_of_week: r.dayOfWeek,
+        work_date: r.workDate,
+        source: "sheet",
+      });
+    }
+
+    for (let i = 0; i < adopt.length; i += 500) {
+      const { error } = await admin
+        .from("sched_assignment")
+        .update({ source: "sheet" })
+        .in("id", adopt.slice(i, i + 500));
+      if (error) throw new Error(`adopt assignments (${ws}): ${error.message}`);
+    }
+    adopted += adopt.length;
+
+    for (let i = 0; i < payload.length; i += 500) {
+      const { error } = await admin.from("sched_assignment").insert(payload.slice(i, i + 500));
+      if (error) throw new Error(`insert assignments (${ws}): ${error.message}`);
+    }
+    inserted += payload.length;
+    applied += 1;
+  }
+
+  const issues: SyncIssue[] = [];
+  for (const [name, count] of unmatchedNames) {
+    issues.push({
       kind: "unmatched_schedule_name",
       subject: name,
       detail: {
@@ -272,20 +751,45 @@ export async function applySchedulePlacements(
       },
     });
   }
-
-  if (rows.length) {
-    const { data, error } = await admin.rpc("apply_sheet_dvm_assignments", { payload: rows });
-    if (error) throw new Error(`apply_sheet_dvm_assignments: ${error.message}`);
-    const applied = (data ?? {}) as Record<string, unknown>;
-    result.inserted = Number(applied.inserted ?? 0);
-    result.notes = {
-      ...result.notes,
-      weeks_applied: applied.weeks_applied ?? 0,
-      weeks_skipped: applied.weeks_skipped ?? 0,
-      skipped_week_starts: applied.skipped_week_starts ?? [],
-      unmatched_names: unmatched.size,
-    };
+  for (const [label, count] of unmappedRoles) {
+    issues.push({
+      kind: "unmapped_schedule_role",
+      subject: label,
+      detail: {
+        placements: count,
+        hint: "This role row has no department/role mapping yet, so its shifts are not imported.",
+      },
+    });
   }
+  for (const [dept, count] of unknownDepts) {
+    issues.push({
+      kind: "unknown_schedule_department",
+      subject: dept,
+      detail: { placements: count, hint: "No sched_department is named this." },
+    });
+  }
+  for (const ws of missingWeeks) {
+    issues.push({
+      kind: "missing_schedule_week",
+      subject: ws,
+      detail: { hint: "The sheet staffs this week but it has not been opened in the grid yet." },
+    });
+  }
+  result.issues = issues;
+
+  result.inserted = inserted;
+  result.notes = {
+    ...result.notes,
+    weeks_applied: applied,
+    weeks_skipped: skippedWeeks.length,
+    skipped_week_starts: skippedWeeks,
+    missing_week_starts: missingWeeks,
+    lines_created: linesCreated,
+    replaced,
+    adopted,
+    unmatched_names: unmatchedNames.size,
+    unmapped_roles: [...unmappedRoles.keys()],
+  };
   return result;
 }
 
