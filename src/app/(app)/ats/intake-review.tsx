@@ -158,6 +158,7 @@ function ReviewCard({
   const isReapply = (rec?.notes ?? "").includes("Re-applied");
   const noContact = !r.email && !r.phone_mobile;
   const phones = [r.phone_mobile, r.phone_home, r.phone_other].filter(Boolean) as string[];
+  const screening = rec?.screening_answers ?? [];
 
   function toggle() {
     const next = !open;
@@ -233,6 +234,8 @@ function ReviewCard({
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
             {r.email && <span>✉️ {r.email}</span>}
             {r.phone_mobile && <span>📞 {r.phone_mobile}</span>}
+            {rec?.candidate_location && <span>📍 {rec.candidate_location}</span>}
+            {rec?.relevant_experience && <span>💼 {rec.relevant_experience}</span>}
             {noContact && (
               <span className="italic text-slate-400">
                 No contact info in email — expand for the full application
@@ -312,8 +315,54 @@ function ReviewCard({
                   <dd>{fmtDate(r.date_of_birth)}</dd>
                 </div>
               )}
+              {rec?.candidate_location && (
+                <div className="flex gap-2">
+                  <dt className="w-20 shrink-0 text-slate-400">Location</dt>
+                  <dd>{rec.candidate_location}</dd>
+                </div>
+              )}
+              {rec?.relevant_experience && (
+                <div className="flex gap-2">
+                  <dt className="w-20 shrink-0 text-slate-400">Experience</dt>
+                  <dd>{rec.relevant_experience}</dd>
+                </div>
+              )}
+              {rec?.education && (
+                <div className="flex gap-2">
+                  <dt className="w-20 shrink-0 text-slate-400">Education</dt>
+                  <dd>{rec.education}</dd>
+                </div>
+              )}
+              {rec?.job_location && (
+                <div className="flex gap-2">
+                  <dt className="w-20 shrink-0 text-slate-400">Applied to</dt>
+                  <dd>{rec.job_location}</dd>
+                </div>
+              )}
             </dl>
           </div>
+
+          {/* Screening questions answered on the job posting */}
+          {screening.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Screening questions
+              </h4>
+              <dl className="mt-1.5 max-w-3xl space-y-1.5 text-sm">
+                {screening.map((a, i) => (
+                  <div key={i} className="flex flex-wrap gap-x-2">
+                    <dt className="text-slate-400">{a.question}</dt>
+                    <dd className="font-medium text-slate-700">{a.answer ?? "—"}</dd>
+                    {a.match === "No" && (
+                      <span className="rounded-full bg-rose-100 px-2 text-xs font-semibold text-rose-700">
+                        Does not meet
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )}
 
           {/* Application details — cover letter + screener answers */}
           {rec?.notes && (

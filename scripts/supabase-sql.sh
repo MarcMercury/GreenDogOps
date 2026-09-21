@@ -28,26 +28,28 @@ set -a; source "$ENV_FILE"; set +a
 : "${SUPABASE_ACCESS_TOKEN:?Set SUPABASE_ACCESS_TOKEN in .secrets/supabase.env}"
 : "${SUPABASE_PROJECT_REF:?Set SUPABASE_PROJECT_REF in .secrets/supabase.env}"
 
-SQL=""
+# Keep the SQL in a FILE the whole way through. Reading a large migration into
+# a bash variable ("$(cat …)") is quadratic and stalls for minutes on the
+# multi-hundred-KB bulk-import files.
+BODY_TMP="$(mktemp)"
+SQL_TMP=""
+trap 'rm -f "$BODY_TMP" ${SQL_TMP:+"$SQL_TMP"}' EXIT
+
 case "${1:-}" in
-  -f) SQL="$(cat "$2")" ;;
-  -q) SQL="$2" ;;
-  "") SQL="$(cat)" ;;  # read from stdin
+  -f) SQL_FILE="$2" ;;
+  -q) SQL_TMP="$(mktemp)"; printf '%s' "$2" > "$SQL_TMP"; SQL_FILE="$SQL_TMP" ;;
+  "") SQL_TMP="$(mktemp)"; cat > "$SQL_TMP"; SQL_FILE="$SQL_TMP" ;;  # stdin
   *)  echo "Usage: $0 [-f file.sql | -q \"SQL\"] (or pipe SQL via stdin)" >&2; exit 2 ;;
 esac
 
-if [[ -z "${SQL//[[:space:]]/}" ]]; then
+if [[ ! -s "$SQL_FILE" ]] || ! grep -q '[^[:space:]]' "$SQL_FILE"; then
   echo "ERROR: no SQL provided." >&2
   exit 2
 fi
 
-# Build JSON body safely with python (handles escaping/newlines). Read the SQL
-# from a temp file to avoid ARG_MAX limits on large migrations/imports.
-SQL_TMP="$(mktemp)"
-BODY_TMP="$(mktemp)"
-trap 'rm -f "$SQL_TMP" "$BODY_TMP"' EXIT
-printf '%s' "$SQL" > "$SQL_TMP"
-python3 -c 'import json,sys; open(sys.argv[2],"w").write(json.dumps({"query":open(sys.argv[1]).read()}))' "$SQL_TMP" "$BODY_TMP"
+# Build the JSON body with python (handles escaping/newlines) straight from the
+# file, so the SQL never passes through the shell or the argument list.
+python3 -c 'import json,sys; open(sys.argv[2],"w").write(json.dumps({"query":open(sys.argv[1]).read()}))' "$SQL_FILE" "$BODY_TMP"
 
 HTTP_RESPONSE="$(curl -sS -w $'\n%{http_code}' \
   -X POST "https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_REF}/database/query" \

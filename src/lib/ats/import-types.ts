@@ -24,6 +24,18 @@ export interface ParsedCandidate {
   pipeline: string | null;
   stage: string | null;
   source: string | null;
+  /** Sub-source within `source`, e.g. Indeed "Sponsored Job Link". */
+  source_detail: string | null;
+  /** Where the candidate lives, as stated on the application. */
+  candidate_location: string | null;
+  /** Most relevant prior role / experience summary. */
+  relevant_experience: string | null;
+  /** Highest level of education reported. */
+  education: string | null;
+  /** Green Dog posting location applied to. */
+  job_location: string | null;
+  /** Recruiter interest carried from the job board: Yes / Maybe / Reject. */
+  interest_level: string | null;
   opportunity_type: string | null;
   score: number | null;
   /** Date the candidate applied / resume was received (person_recruiting.application_date). */
@@ -48,6 +60,12 @@ export function emptyCandidate(): ParsedCandidate {
     pipeline: null,
     stage: null,
     source: null,
+    source_detail: null,
+    candidate_location: null,
+    relevant_experience: null,
+    education: null,
+    job_location: null,
+    interest_level: null,
     opportunity_type: null,
     score: null,
     application_date: null,

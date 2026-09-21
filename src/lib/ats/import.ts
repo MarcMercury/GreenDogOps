@@ -26,6 +26,11 @@ type FieldKey =
   | "pipeline"
   | "stage"
   | "source"
+  | "candidate_location"
+  | "relevant_experience"
+  | "education"
+  | "job_location"
+  | "interest_level"
   | "score"
   | "notes"
   | "status_notes";
@@ -68,6 +73,12 @@ const HEADER_ALIASES: { field: FieldKey; aliases: string[] }[] = [
     field: "target_title",
     aliases: ["position", "title", "role", "job title", "applying for", "target title", "desired position"],
   },
+  // Job-board export columns (e.g. the Indeed candidates CSV).
+  { field: "candidate_location", aliases: ["candidate location", "candidate city"] },
+  { field: "relevant_experience", aliases: ["relevant experience", "experience"] },
+  { field: "education", aliases: ["education", "highest education", "degree"] },
+  { field: "job_location", aliases: ["job location", "posting location", "applied to location"] },
+  { field: "interest_level", aliases: ["interest level", "interest"] },
   { field: "pipeline", aliases: ["pipeline", "department", "team", "group"] },
   { field: "stage", aliases: ["stage", "status", "disposition"] },
   { field: "source", aliases: ["source", "found on", "referral source", "lead source", "applied via"] },

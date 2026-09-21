@@ -16,9 +16,43 @@ export interface PersonRecruiting {
   review_status: ReviewStatus | null;
   reviewed_at: string | null;
   reviewed_by: string | null;
+  candidate_location: string | null;
+  relevant_experience: string | null;
+  education: string | null;
+  job_location: string | null;
+  interest_level: string | null;
+  external_status: string | null;
+  source_detail: string | null;
+  screening_answers: ScreeningAnswer[] | null;
+  application_history: ApplicationHistoryEntry[] | null;
   created_at: string;
   updated_at: string;
 }
+
+/** One screening question from the job posting, with the candidate's answer. */
+export interface ScreeningAnswer {
+  question: string;
+  answer: string | null;
+  /** Whether the answer met the posting's requirement: "Yes", "No" or "N/A". */
+  match: string | null;
+}
+
+/** One application this person submitted. Newest first. */
+export interface ApplicationHistoryEntry {
+  date: string | null;
+  job_title: string | null;
+  job_location: string | null;
+  status: string | null;
+  interest_level: string | null;
+  source: string | null;
+}
+
+/** Recruiter interest carried over from the job board. */
+export const RECRUITING_INTEREST_OPTIONS = [
+  { value: "Yes", label: "Yes — interested" },
+  { value: "Maybe", label: "Maybe" },
+  { value: "Reject", label: "Reject" },
+] as const;
 
 // Intake triage state. Auto-ingested applicants (Gmail / Indeed webhook) start
 // as "pending"; a recruiter accepts (→ active lead) or declines them. Manual
@@ -197,9 +231,20 @@ export function bucketForStage(stage: string | null): StageBucket {
   const s = (stage ?? "").toLowerCase();
   if (!s) return "other";
   if (s.includes("hire") && !s.includes("no hire")) return "hired";
-  if (s.includes("volunteer") || s.includes("interview") || s.includes("shadow") || s.includes("offer") || s.includes("decision") || s.includes("new lead") || s.includes("phone"))
-    return "active";
   if (s.includes("future") || s.includes("hold") || s.includes("remain")) return "future";
+  if (
+    s.includes("volunteer") ||
+    s.includes("interview") ||
+    s.includes("shadow") ||
+    s.includes("offer") ||
+    s.includes("decision") ||
+    s.includes("new lead") ||
+    s.includes("phone") ||
+    // Job-board dispositions carried in by the Indeed import.
+    s.includes("contacting") ||
+    s === "reviewed"
+  )
+    return "active";
   if (s.includes("no hire") || s.includes("not moving") || s.includes("declined") || s.includes("quit") || s.includes("pass") || s.includes("seperated") || s.includes("separated"))
     return "passed";
   if (s.includes("response") || s.includes("did not respond") || s.includes("respond"))

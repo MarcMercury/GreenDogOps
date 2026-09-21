@@ -4,9 +4,12 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   type CandidateRow,
+  type ScreeningAnswer,
+  type ApplicationHistoryEntry,
   RECRUITING_PIPELINE_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
   RECRUITING_POSITION_OPTIONS,
+  RECRUITING_INTEREST_OPTIONS,
 } from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { PhoneInput } from "@/lib/shared/phone-input";
@@ -142,6 +145,74 @@ function SaveButton() {
   );
 }
 
+const MATCH_BADGE: Record<string, string> = {
+  Yes: "bg-emerald-100 text-emerald-800",
+  No: "bg-rose-100 text-rose-700",
+};
+
+/** Read-only answers to the screening questions attached to the job posting. */
+function ScreeningAnswers({ answers }: { answers: ScreeningAnswer[] }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Screening questions
+      </h2>
+      <dl className="space-y-3">
+        {answers.map((a, i) => (
+          <div key={i} className="border-b border-slate-100 pb-3 last:border-0 last:pb-0">
+            <dt className="flex items-start gap-2 text-xs font-medium text-slate-500">
+              <span className="flex-1">{a.question}</span>
+              {a.match && a.match !== "N/A" && (
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                    MATCH_BADGE[a.match] ?? "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {a.match === "Yes" ? "Meets" : "Does not meet"}
+                </span>
+              )}
+            </dt>
+            <dd className="mt-1 text-sm text-slate-900">{a.answer ?? "—"}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/** Every application this person has submitted, newest first. */
+function ApplicationHistory({ entries }: { entries: ApplicationHistoryEntry[] }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Application history
+        <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+          {entries.length}
+        </span>
+      </h2>
+      <ul className="space-y-2">
+        {entries.map((e, i) => (
+          <li
+            key={i}
+            className="flex flex-wrap items-baseline gap-x-2 gap-y-1 rounded-lg bg-slate-50 px-3 py-2 text-sm"
+          >
+            <span className="font-medium tabular-nums text-slate-900">{e.date ?? "—"}</span>
+            <span className="text-slate-700">{e.job_title ?? "—"}</span>
+            {e.job_location && (
+              <span className="text-xs text-slate-500">{e.job_location}</span>
+            )}
+            {e.status && (
+              <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                {e.status}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function HireButton({ personId }: { personId: string }) {
   const { pending } = useFormStatus();
   return (
@@ -202,6 +273,8 @@ export function CandidateForm({
   hidden?: boolean;
 }) {
   const rec = row.person_recruiting;
+  const answers = rec?.screening_answers ?? [];
+  const history = rec?.application_history ?? [];
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     (prev, fd) => updateCandidate(row.id, prev, fd),
     null,
@@ -262,6 +335,14 @@ export function CandidateForm({
         <Select label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} options={RECRUITING_PIPELINE_OPTIONS} />
         <Field label="Stage" name="stage" defaultValue={rec?.stage} />
         <Select label="Source (found on)" name="source" defaultValue={rec?.source} options={RECRUITING_SOURCE_OPTIONS} />
+        <Field label="Source detail" name="source_detail" defaultValue={rec?.source_detail} />
+        <Field label="Applied to location" name="job_location" defaultValue={rec?.job_location} />
+        <Select
+          label="Interest level"
+          name="interest_level"
+          defaultValue={rec?.interest_level}
+          options={RECRUITING_INTEREST_OPTIONS}
+        />
         <Field label="Application date" name="application_date" type="date" defaultValue={rec?.application_date} />
         <Field label="Interview date" name="interview_date" type="date" defaultValue={rec?.interview_date} />
         <Field label="Score" name="score" type="number" defaultValue={rec?.score} />
@@ -277,6 +358,23 @@ export function CandidateForm({
           Keep for future
         </label>
       </Section>
+
+      <Section title="Background">
+        <Field
+          label="Candidate location"
+          name="candidate_location"
+          defaultValue={rec?.candidate_location}
+        />
+        <Field
+          label="Relevant experience"
+          name="relevant_experience"
+          defaultValue={rec?.relevant_experience}
+        />
+        <Field label="Education" name="education" defaultValue={rec?.education} />
+      </Section>
+
+      {answers.length > 0 && <ScreeningAnswers answers={answers} />}
+      {history.length > 0 && <ApplicationHistory entries={history} />}
 
       <Section title="Notes">
         <TextArea label="Status notes" name="status_notes" defaultValue={rec?.status_notes} />

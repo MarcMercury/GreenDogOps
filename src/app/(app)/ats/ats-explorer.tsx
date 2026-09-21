@@ -119,6 +119,16 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
       value: (r) => r.person_recruiting?.source,
     },
     {
+      key: "candidate_location",
+      header: "Location",
+      value: (r) => r.person_recruiting?.candidate_location,
+    },
+    {
+      key: "relevant_experience",
+      header: "Experience",
+      value: (r) => r.person_recruiting?.relevant_experience,
+    },
+    {
       key: "score",
       header: "Score",
       value: (r) => {
@@ -169,6 +179,16 @@ export function AtsExplorer({ rows }: { rows: CandidateRow[] }) {
     { key: "pipeline", label: "Pipeline", value: (r) => r.person_recruiting?.pipeline },
     { key: "position", label: "Position", value: (r) => r.person_recruiting?.target_title },
     { key: "source", label: "Source", value: (r) => r.person_recruiting?.source },
+    {
+      key: "job_location",
+      label: "Applied to",
+      value: (r) => r.person_recruiting?.job_location,
+    },
+    {
+      key: "interest_level",
+      label: "Interest",
+      value: (r) => r.person_recruiting?.interest_level,
+    },
     {
       key: "score",
       label: "Score",

@@ -32,7 +32,10 @@ export default async function CandidateDetailPage({
        person_recruiting (
          person_id, target_position_id, pipeline, stage, status_notes, source,
          application_date, interview_date, score, resume_url, keep_for_future,
-         follow_up_date, notes, target_title, created_at, updated_at
+         follow_up_date, notes, target_title, review_status, reviewed_at,
+         reviewed_by, candidate_location, relevant_experience, education,
+         job_location, interest_level, external_status, source_detail,
+         screening_answers, application_history, created_at, updated_at
        )`,
     )
     .eq("id", id)
