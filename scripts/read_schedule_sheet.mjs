@@ -254,8 +254,13 @@ export async function extractTab(tab, roleFilter = "") {
 }
 
 const [cmd, tab, roleFilter] = process.argv.slice(2);
+// extractTab() is imported by reconcile_schedule_roster.mjs, so only act on
+// argv when this file is the program being run.
+const isCli = process.argv[1] && import.meta.filename === fs.realpathSync(process.argv[1]);
 
-if (cmd === "tabs") {
+if (!isCli) {
+  // imported as a module
+} else if (cmd === "tabs") {
   await listTabs();
 } else if (cmd === "extract") {
   const rows = await extractTab(tab, roleFilter ?? "");
