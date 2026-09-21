@@ -3,6 +3,7 @@ import {
   GRID_FLAG_WIDTH,
   GRID_TEXT_COLUMNS,
   fasTone,
+  initialsOf,
   statusTone,
   type BoardTypeDef,
   type MedicalBoardRow,
@@ -109,8 +110,11 @@ export function ArchivedBoard({
                           : "";
                     return (
                       <td key={col.key} className="px-1.5 py-1.5">
-                        <span className={`block whitespace-pre-wrap break-words rounded px-1 ${tone}`}>
-                          {value}
+                        <span
+                          title={col.initials ? value : undefined}
+                          className={`block whitespace-pre-wrap break-words rounded px-1 ${tone}`}
+                        >
+                          {col.initials ? initialsOf(value) : value}
                         </span>
                       </td>
                     );
