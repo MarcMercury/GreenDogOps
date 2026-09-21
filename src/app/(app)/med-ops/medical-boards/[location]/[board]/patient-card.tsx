@@ -65,6 +65,44 @@ export function PatientCard({
     [row.patient, row.client_name].filter(Boolean).join(" · ") ||
     "New patient";
 
+  const notes = (
+    <div className="grid h-full gap-2 sm:grid-cols-2">
+      {tpl.notes.map((n) => (
+        <div key={n.key} className="flex min-h-0 flex-col">
+          <div className="mb-0.5 flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              {n.label}
+            </span>
+            <label className="ml-auto flex items-center gap-1 text-[10px] text-slate-500">
+              <input
+                type="checkbox"
+                checked={Boolean(card.notes_reviewed?.[n.key])}
+                onChange={(e) =>
+                  patch({
+                    notes_reviewed: {
+                      ...(card.notes_reviewed ?? {}),
+                      [n.key]: e.target.checked,
+                    },
+                  })
+                }
+                className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600"
+              />
+              Reviewed
+            </label>
+          </div>
+          <TextArea
+            ariaLabel={n.label}
+            value={card.notes?.[n.key] ?? ""}
+            className={isWindow ? "h-full resize-none" : undefined}
+            onCommit={(v) =>
+              patch({ notes: { ...(card.notes ?? {}), [n.key]: v } })
+            }
+          />
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <article className="rounded-xl border border-slate-200 bg-white shadow-sm">
       {isWindow ? null : (
@@ -113,7 +151,9 @@ export function PatientCard({
       {isWindow || open ? (
         <div className={`space-y-3 ${isWindow ? "p-2" : "p-3"}`}>
           <div className="grid gap-3 lg:grid-cols-3">
-            <div className="space-y-2 lg:col-span-2">
+            <div
+              className={`lg:col-span-2 ${isWindow ? "flex flex-col gap-2" : "space-y-2"}`}
+            >
               {isWindow ? null : (
                 <Text
                   label="Signalment"
@@ -174,6 +214,9 @@ export function PatientCard({
                   />
                 </>
               )}
+              {/* The window has no room to spare, so the notes fill the gap
+                  left beside the extractions panel. */}
+              {isWindow ? <div className="min-h-0 flex-1">{notes}</div> : null}
             </div>
 
             <fieldset className="rounded-lg border border-slate-200 p-2">
@@ -288,21 +331,7 @@ export function PatientCard({
             </fieldset>
           ) : null}
 
-          <div className="grid gap-2 sm:grid-cols-2">
-            {tpl.notes.map((n) => (
-              <label key={n.key} className="block">
-                <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                  {n.label}
-                </span>
-                <TextArea
-                  value={card.notes?.[n.key] ?? ""}
-                  onCommit={(v) =>
-                    patch({ notes: { ...(card.notes ?? {}), [n.key]: v } })
-                  }
-                />
-              </label>
-            ))}
-          </div>
+          {isWindow ? null : notes}
         </div>
       ) : null}
     </article>
@@ -499,9 +528,13 @@ function Text({
 
 function TextArea({
   value,
+  ariaLabel,
+  className,
   onCommit,
 }: {
   value: string;
+  ariaLabel?: string;
+  className?: string;
   onCommit: (v: string) => void;
 }) {
   const initial = useRef(value);
@@ -509,6 +542,7 @@ function TextArea({
     <textarea
       key={value}
       defaultValue={value}
+      aria-label={ariaLabel}
       rows={2}
       onFocus={() => {
         initial.current = value;
@@ -516,7 +550,7 @@ function TextArea({
       onBlur={(e) => {
         if (e.target.value !== initial.current) onCommit(e.target.value);
       }}
-      className="w-full rounded border border-slate-200 px-1.5 py-1 text-[11px] focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+      className={`w-full rounded border border-slate-200 px-1.5 py-1 text-[11px] focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400 ${className ?? ""}`}
     />
   );
 }

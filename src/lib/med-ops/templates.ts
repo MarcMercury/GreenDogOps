@@ -100,7 +100,7 @@ const AP_CARD: CardTemplate = {
   ],
   anesthesia: [],
   notes: [
-    { key: "doctor_notes", label: "Doctor's notes" },
+    { key: "doctor_notes", label: "DVM note" },
     { key: "add_services", label: "Additional services requested" },
   ],
 };
@@ -212,6 +212,8 @@ export interface CardDoc {
   fields?: Record<string, string>;
   anesthesia?: Record<string, string>;
   notes?: Record<string, string>;
+  /** Per-note acknowledgement that a technician has read it. */
+  notes_reviewed?: Record<string, boolean>;
 }
 
 export function emptyMedRow(t: MedTemplate): CardMedRow {
