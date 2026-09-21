@@ -9,7 +9,9 @@ import {
   isEditableField,
   type BoardTypeKey,
   type MedicalBoardRow,
+  type WelcomeGuest,
 } from "@/lib/med-ops/types";
+import { getWelcomeGuests } from "./data";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -180,3 +182,14 @@ export async function fetchBoardRow(
     .maybeSingle();
   return (data as MedicalBoardRow | null) ?? null;
 }
+
+/** Today's pets for the lobby Welcome Board, and its periodic refresh. */
+export async function fetchWelcomeGuests(
+  locationId: string,
+  date: string,
+): Promise<WelcomeGuest[]> {
+  const current = await ensureBoardUser();
+  if (!current) return [];
+  return getWelcomeGuests(locationId, date);
+}
+

@@ -4,6 +4,7 @@ import { canAccessModule } from "@/lib/auth/permissions";
 import { PageHeader } from "../../_components/ui";
 import { locationSlug } from "@/lib/med-ops/types";
 import { getBoardCoverage, getBoardLocations, getBoardTypes } from "./data";
+import { WelcomeBoardTile } from "./welcome-board-tile";
 
 export const dynamic = "force-dynamic";
 
@@ -150,6 +151,11 @@ export default async function MedicalBoardsPage() {
                     </Link>
                   );
                 })}
+                <WelcomeBoardTile
+                  slug={locationSlug(loc)}
+                  date={date}
+                  locationName={loc.display_name ?? loc.name}
+                />
               </div>
             </section>
             );

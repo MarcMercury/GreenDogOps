@@ -119,6 +119,17 @@ export function signalmentOf(row: MedicalBoardRow): string {
   return [row.species, row.sex, row.age, row.breed].filter(Boolean).join(" · ");
 }
 
+/**
+ * One pet on the lobby Welcome Board. Deliberately the smallest possible
+ * shape: that screen faces the public, so no clinical field is carried.
+ */
+export interface WelcomeGuest {
+  id: string;
+  patient: string;
+  client: string | null;
+  appt_time: string | null;
+}
+
 /** Columns a user may edit on the board. */
 export type EditableField =
   | "appt_time" | "patient" | "client_name"

@@ -5,6 +5,7 @@ import {
   type BoardTypeDef,
   type BoardTypeKey,
   type MedicalBoardRow,
+  type WelcomeGuest,
 } from "@/lib/med-ops/types";
 
 export interface BoardLocation {
@@ -76,6 +77,50 @@ export async function getBoardRows(
     .order("sort_order", { ascending: true })
     .order("appt_time", { ascending: true });
   return (data ?? []) as MedicalBoardRow[];
+}
+
+/**
+ * Today's pets across every department board at one location, for the lobby
+ * Welcome Board. Names only — this screen faces the public, so nothing
+ * clinical is selected here.
+ */
+export async function getWelcomeGuests(
+  locationId: string,
+  date: string,
+): Promise<WelcomeGuest[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("medical_board_row")
+    .select("id, patient, client_name, appt_time")
+    .eq("location_id", locationId)
+    .eq("board_date", date)
+    .order("appt_time", { ascending: true });
+
+  const rows = (data ?? []) as {
+    id: string;
+    patient: string | null;
+    client_name: string | null;
+    appt_time: string | null;
+  }[];
+
+  // The same pet can sit on more than one department board in a day; the
+  // lobby should greet them once.
+  const seen = new Set<string>();
+  const guests: WelcomeGuest[] = [];
+  for (const r of rows) {
+    const patient = (r.patient ?? "").trim();
+    if (!patient) continue;
+    const key = `${patient.toLowerCase()}|${(r.client_name ?? "").trim().toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    guests.push({
+      id: r.id,
+      patient,
+      client: (r.client_name ?? "").trim() || null,
+      appt_time: r.appt_time,
+    });
+  }
+  return guests;
 }
 
 export interface BoardDay {
