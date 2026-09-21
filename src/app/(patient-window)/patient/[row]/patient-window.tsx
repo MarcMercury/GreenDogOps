@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { DB_SCHEMA } from "@/lib/supabase/config";
 import {
   BOARD_COLUMNS,
+  cardStatusStyle,
   fasTone,
   signalmentOf,
   statusTone,
@@ -12,7 +13,7 @@ import {
   type EditableField,
   type MedicalBoardRow,
 } from "@/lib/med-ops/types";
-import { getTemplate } from "@/lib/med-ops/templates";
+import { getTemplate, type CardDoc } from "@/lib/med-ops/templates";
 import {
   fetchBoardRow,
   patchBoardCard,
@@ -98,10 +99,17 @@ export function PatientWindow({
   );
 
   const title = row.patient ?? "Patient";
+  const card = (row.card ?? {}) as CardDoc;
+  const statusOptions = template.card?.statusOptions ?? [];
+  // The card's own alert line and the ezyVet flags say the same thing, so the
+  // window shows one editable copy instead of repeating it inside the card.
+  const alerts =
+    card.alerts ??
+    [row.cautions, row.master_problems].filter(Boolean).join(" · ");
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-4 p-4">
-      <header className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <div className="mx-auto max-w-[1600px] space-y-2 p-3">
+      <header className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
         <span
           className="flex h-11 w-11 items-center justify-center rounded-lg text-xl"
           style={{ backgroundColor: `${board.accent}1a`, color: board.accent }}
@@ -110,7 +118,7 @@ export function PatientWindow({
           {board.icon}
         </span>
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-bold tracking-tight text-slate-900">
+          <h1 className="truncate text-2xl font-bold tracking-tight text-slate-900">
             {title}
           </h1>
           <p className="truncate text-xs text-slate-500">
@@ -120,6 +128,22 @@ export function PatientWindow({
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
+          {statusOptions.length ? (
+            <select
+              value={card.status ?? ""}
+              onChange={(e) => patchCard(row.id, { status: e.target.value })}
+              className={`rounded-lg border-0 px-2.5 py-1 text-sm font-semibold shadow-sm outline-none ${cardStatusStyle(card.status ?? null).chip}`}
+            >
+              <option value="" className="bg-white text-slate-700">
+                Status…
+              </option>
+              {statusOptions.map((s) => (
+                <option key={s} value={s} className="bg-white text-slate-700">
+                  {s}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {row.appt_time ? (
             <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-sm font-semibold text-slate-700">
               {row.appt_time}
@@ -135,18 +159,30 @@ export function PatientWindow({
         </div>
       </header>
 
-      {row.cautions || row.master_problems ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+      {alerts ? (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5">
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
             Alerts
-          </p>
-          <p className="text-sm text-amber-900">
-            {[row.cautions, row.master_problems].filter(Boolean).join(" · ")}
-          </p>
+          </span>
+          <input
+            key={alerts}
+            type="text"
+            defaultValue={alerts}
+            onFocus={() => {
+              editingRef.current = true;
+            }}
+            onBlur={(e) => {
+              editingRef.current = false;
+              if (e.target.value !== alerts) {
+                patchCard(row.id, { alerts: e.target.value });
+              }
+            }}
+            className="w-full min-w-0 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-amber-900 outline-none focus:border-amber-400 focus:bg-white"
+          />
         </div>
       ) : null}
 
-      <div className="grid gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8">
         <Fact label="Species" value={row.species} />
         <Fact label="Breed" value={row.breed} />
         <Fact label="Sex / Age" value={[row.sex, row.age].filter(Boolean).join(" · ")} />
@@ -165,6 +201,7 @@ export function PatientWindow({
           <PatientCard
             row={row}
             tpl={template.card}
+            variant="window"
             onPatch={patchCard}
             onDelete={() => window.close()}
           />
@@ -234,11 +271,11 @@ export function PatientWindow({
 
 function Fact({ label, value }: { label: string; value: string | null }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-2 py-1">
+      <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">
         {label}
       </p>
-      <p className="truncate text-sm text-slate-800">{value || "—"}</p>
+      <p className="truncate text-[13px] text-slate-800">{value || "—"}</p>
     </div>
   );
 }

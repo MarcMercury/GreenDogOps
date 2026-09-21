@@ -21,16 +21,20 @@ export function PatientCard({
   tpl,
   onPatch,
   onDelete,
+  variant = "board",
 }: {
   row: MedicalBoardRow;
   tpl: CardTemplate;
   onPatch: (rowId: string, patch: Patch) => void;
   onDelete: (rowId: string) => void;
+  /** "window" drops the header and the fields the launched window already shows. */
+  variant?: "board" | "window";
 }) {
   const card = useMemo(
     () => hydrateCard(row.card as CardDoc | null, tpl),
     [row.card, tpl],
   );
+  const isWindow = variant === "window";
   const [open, setOpen] = useState(true);
 
   const patch = useCallback(
@@ -59,6 +63,7 @@ export function PatientCard({
 
   return (
     <article className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      {isWindow ? null : (
       <header className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-3 py-2">
         <button
           type="button"
@@ -99,18 +104,23 @@ export function PatientCard({
           ×
         </button>
       </header>
+      )}
 
-      {open ? (
-        <div className="space-y-3 p-3">
+      {isWindow || open ? (
+        <div className={`space-y-3 ${isWindow ? "p-2" : "p-3"}`}>
           <div className="grid gap-3 lg:grid-cols-3">
             <div className="space-y-2 lg:col-span-2">
-              <Text
-                label="Signalment"
-                value={card.signalment ?? ""}
-                placeholder='"Name" Last, K9, 6Y, FS, breed'
-                onCommit={(v) => patch({ signalment: v })}
-              />
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {isWindow ? null : (
+                <Text
+                  label="Signalment"
+                  value={card.signalment ?? ""}
+                  placeholder='"Name" Last, K9, 6Y, FS, breed'
+                  onCommit={(v) => patch({ signalment: v })}
+                />
+              )}
+              <div
+                className={`grid grid-cols-2 gap-2 ${isWindow ? "sm:grid-cols-6" : "sm:grid-cols-4"}`}
+              >
                 <Text
                   label="WT (kg)"
                   value={card.weight_kg ?? ""}
@@ -128,24 +138,38 @@ export function PatientCard({
                   placeholder="20R"
                   onCommit={(v) => patch({ ivc: v })}
                 />
+                {isWindow ? (
+                  <div className="col-span-2">
+                    <Text
+                      label="BW results"
+                      value={card.bw_results ?? ""}
+                      placeholder="8/6/26: Creat/BUN+, ALT+"
+                      onCommit={(v) => patch({ bw_results: v })}
+                    />
+                  </div>
+                ) : null}
                 <Check
                   label="BW done"
                   checked={Boolean(card.bw_done)}
                   onChange={(v) => patch({ bw_done: v })}
                 />
               </div>
-              <Text
-                label="BW results"
-                value={card.bw_results ?? ""}
-                placeholder="8/6/26: Creat/BUN+, ALT+"
-                onCommit={(v) => patch({ bw_results: v })}
-              />
-              <Text
-                label="Conditions / alerts"
-                value={card.alerts ?? ""}
-                tone="bg-amber-50"
-                onCommit={(v) => patch({ alerts: v })}
-              />
+              {isWindow ? null : (
+                <>
+                  <Text
+                    label="BW results"
+                    value={card.bw_results ?? ""}
+                    placeholder="8/6/26: Creat/BUN+, ALT+"
+                    onCommit={(v) => patch({ bw_results: v })}
+                  />
+                  <Text
+                    label="Conditions / alerts"
+                    value={card.alerts ?? ""}
+                    tone="bg-amber-50"
+                    onCommit={(v) => patch({ alerts: v })}
+                  />
+                </>
+              )}
             </div>
 
             <fieldset className="rounded-lg border border-slate-200 p-2">
