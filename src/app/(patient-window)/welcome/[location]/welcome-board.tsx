@@ -1,13 +1,17 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { fetchWelcomeGuests } from "../../../(app)/med-ops/medical-boards/actions";
 import type { WelcomeGuest } from "@/lib/med-ops/types";
 
-/** Pets per screen, and how long each screen stays up on the TV. */
-const PAGE_SIZE = 12;
-const PAGE_MS = 15000;
 /** The lobby screen runs unattended all day, so it re-reads the boards. */
 const REFRESH_MS = 120000;
 
@@ -31,16 +35,102 @@ function petName(raw: string): string {
   return (quoted ? quoted[1] : raw).replace(/\s+/g, " ").trim();
 }
 
-function chunk<T>(list: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
-  return out.length > 0 ? out : [[]];
+interface Layout {
+  columns: number;
+  rows: number;
+  petSize: number;
+  parentSize: number;
+  gap: number;
+  padX: number;
+  padY: number;
+  radius: number;
+}
+
+/** Widest name still allowed to drive the type size; outliers ellipsize. */
+const NAME_CAP = 18;
+/** Rough advance width per character for the weights used on the cards. */
+const PET_CHAR = 0.6;
+const PARENT_CHAR = 0.52;
+/** A card is one pet line, one smaller parent line, and breathing room. */
+const PARENT_RATIO = 0.48;
+const CARD_HEIGHT_RATIO = 2.35;
+
+const EMPTY_LAYOUT: Layout = {
+  columns: 1,
+  rows: 1,
+  petSize: 32,
+  parentSize: 16,
+  gap: 16,
+  padX: 16,
+  padY: 12,
+  radius: 16,
+};
+
+/**
+ * Picks the column count that lets every pet share one screen at the largest
+ * possible type, so the board never paginates however busy the day is.
+ */
+function fitLayout(
+  width: number,
+  height: number,
+  names: { pet: string; parent: string | null }[],
+): Layout {
+  const count = names.length;
+  if (count === 0 || width <= 0 || height <= 0) return EMPTY_LAYOUT;
+
+  const petChars = Math.min(
+    NAME_CAP,
+    Math.max(...names.map((n) => n.pet.length), 4),
+  );
+  const parentChars = Math.min(
+    NAME_CAP + 6,
+    Math.max(...names.map((n) => (n.parent ? n.parent.length + 5 : 0)), 0),
+  );
+  const hasParent = parentChars > 0;
+
+  let best = EMPTY_LAYOUT;
+  let bestSize = 0;
+
+  for (let columns = 1; columns <= count; columns++) {
+    const rows = Math.ceil(count / columns);
+    const gap = Math.max(
+      6,
+      Math.min(width / columns, height / rows) * 0.12,
+    );
+    const innerW = (width - gap * (columns - 1)) / columns;
+    const innerH = (height - gap * (rows - 1)) / rows;
+    if (innerW <= 0 || innerH <= 0) continue;
+
+    const byHeight = innerH / (hasParent ? CARD_HEIGHT_RATIO : 1.85);
+    const byWidth = innerW / (petChars * PET_CHAR + 1.1);
+    const byParentWidth = hasParent
+      ? innerW / (parentChars * PARENT_CHAR * PARENT_RATIO + 1.1)
+      : Number.POSITIVE_INFINITY;
+    const petSize = Math.min(byHeight, byWidth, byParentWidth);
+    if (petSize <= bestSize) continue;
+
+    bestSize = petSize;
+    best = {
+      columns,
+      rows,
+      petSize,
+      parentSize: petSize * PARENT_RATIO,
+      gap,
+      padX: petSize * 0.45,
+      padY: petSize * 0.3,
+      radius: Math.max(12, petSize * 0.5),
+    };
+  }
+
+  const petSize = Math.min(best.petSize, height * 0.5);
+  return { ...best, petSize, parentSize: petSize * PARENT_RATIO };
 }
 
 /**
- * The lobby Welcome Board: a chromeless, self-rotating greeting for every pet
+ * The lobby Welcome Board: a chromeless, single-screen greeting for every pet
  * booked today at one clinic. It is projected onto the waiting-room TV, so it
- * carries pet and family names only — never anything clinical.
+ * carries pet and family names only — never anything clinical — and the type
+ * scales to whatever the day's caseload happens to be.
  */
 export function WelcomeBoard({
   guests: initialGuests,
@@ -54,11 +144,24 @@ export function WelcomeBoard({
   date: string;
 }) {
   const [guests, setGuests] = useState(initialGuests);
-  const [pageIndex, setPageIndex] = useState(0);
   const [clock, setClock] = useState<string | null>(null);
+  const [box, setBox] = useState({ width: 0, height: 0 });
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
-  const pages = useMemo(() => chunk(guests, PAGE_SIZE), [guests]);
-  const page = pages[pageIndex % pages.length];
+  const names = useMemo(
+    () =>
+      guests.map((g) => ({
+        id: g.id,
+        pet: petName(g.patient),
+        parent: friendlyName(g.client),
+      })),
+    [guests],
+  );
+
+  const layout = useMemo(
+    () => fitLayout(box.width, box.height, names),
+    [box.width, box.height, names],
+  );
 
   const prettyDate = useMemo(
     () =>
@@ -81,14 +184,20 @@ export function WelcomeBoard({
     return () => clearInterval(timer);
   }, [refresh]);
 
-  useEffect(() => {
-    if (pages.length < 2) return;
-    const timer = setInterval(
-      () => setPageIndex((i) => (i + 1) % pages.length),
-      PAGE_MS,
-    );
-    return () => clearInterval(timer);
-  }, [pages.length]);
+  useLayoutEffect(() => {
+    const el = stageRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      setBox((prev) =>
+        Math.abs(prev.width - width) < 1 && Math.abs(prev.height - height) < 1
+          ? prev
+          : { width, height },
+      );
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     const tick = () =>
@@ -114,109 +223,121 @@ export function WelcomeBoard({
 
   return (
     <div
-      className="flex min-h-screen flex-col bg-white"
+      className="flex h-screen w-screen flex-col overflow-hidden bg-white"
       style={{
-        backgroundImage: `radial-gradient(900px circle at 0% 0%, ${LEAF}33, transparent 60%), radial-gradient(900px circle at 100% 100%, ${LEAF}33, transparent 60%)`,
+        // TV overscan clips the outer few percent of the panel.
+        padding: "2.5vh 2.5vw",
+        backgroundImage: `radial-gradient(60vw circle at 0% 0%, ${LEAF}33, transparent 60%), radial-gradient(60vw circle at 100% 100%, ${LEAF}33, transparent 60%)`,
       }}
     >
-      <header className="flex items-center justify-between gap-6 px-10 pt-8">
+      <header className="flex shrink-0 items-center justify-between gap-6">
         <Image
           src="/logo.jpg"
           alt="Green Dog Veterinary Center"
           width={1652}
           height={1465}
           priority
-          className="h-24 w-auto mix-blend-multiply xl:h-32"
+          className="w-auto mix-blend-multiply"
+          style={{ height: "9vh" }}
         />
         <div className="text-right">
           <p
-            className="text-2xl font-semibold tracking-tight xl:text-3xl"
-            style={{ color: DARK }}
+            className="font-semibold tracking-tight"
+            style={{ color: DARK, fontSize: "2.6vh" }}
           >
             {locationName}
           </p>
-          <p className="mt-1 text-lg text-slate-500 xl:text-xl">
+          <p className="text-slate-500" style={{ fontSize: "2vh" }}>
             {prettyDate}
             {clock ? ` · ${clock}` : ""}
           </p>
         </div>
       </header>
 
-      <div className="px-10 pt-6 text-center">
+      <div className="shrink-0 text-center" style={{ paddingTop: "1.5vh" }}>
         <h1
-          className="text-5xl font-black tracking-tight xl:text-7xl"
-          style={{ color: DARK }}
+          className="font-black tracking-tight"
+          style={{ color: DARK, fontSize: "6vh", lineHeight: 1.05 }}
         >
           Welcome to Green Dog!
         </h1>
-        <p className="mt-2 text-xl text-slate-500 xl:text-2xl">
+        <p className="text-slate-500" style={{ fontSize: "2.4vh" }}>
           We are so happy to see you today
         </p>
       </div>
 
-      <main className="flex flex-1 items-center px-10 py-8">
-        {guests.length === 0 ? (
-          <div className="w-full text-center">
-            <p className="text-4xl font-bold" style={{ color: DARK }}>
+      <main
+        ref={stageRef}
+        className="min-h-0 flex-1 overflow-hidden"
+        style={{ paddingTop: "2vh", paddingBottom: "1vh" }}
+      >
+        {names.length === 0 ? (
+          <div className="flex h-full w-full flex-col items-center justify-center text-center">
+            <p className="font-bold" style={{ color: DARK, fontSize: "5vh" }}>
               Wagging tails all around
             </p>
-            <p className="mt-3 text-2xl text-slate-500">
+            <p className="text-slate-500" style={{ fontSize: "3vh" }}>
               Our next happy patients will appear here.
             </p>
           </div>
         ) : (
-          <div className="grid w-full grid-cols-2 gap-5 lg:grid-cols-3 xl:grid-cols-4">
-            {page.map((g) => {
-              const parent = friendlyName(g.client);
-              return (
-                <div
-                  key={g.id}
-                  className="rounded-3xl border-2 bg-white/80 px-6 py-6 text-center shadow-sm"
-                  style={{ borderColor: `${LEAF}cc` }}
+          <div
+            className="grid h-full w-full"
+            style={{
+              gridTemplateColumns: `repeat(${layout.columns}, minmax(0, 1fr))`,
+              gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))`,
+              gap: `${layout.gap}px`,
+            }}
+          >
+            {names.map((n) => (
+              <div
+                key={n.id}
+                className="flex min-w-0 flex-col items-center justify-center overflow-hidden border-2 bg-white/80 text-center shadow-sm"
+                style={{
+                  borderColor: `${LEAF}cc`,
+                  borderRadius: `${layout.radius}px`,
+                  padding: `${layout.padY}px ${layout.padX}px`,
+                }}
+              >
+                <p
+                  className="w-full truncate font-extrabold tracking-tight"
+                  style={{
+                    color: DARK,
+                    fontSize: `${layout.petSize}px`,
+                    lineHeight: 1.1,
+                  }}
+                  title={n.pet}
                 >
+                  {n.pet}
+                </p>
+                {n.parent ? (
                   <p
-                    className="truncate text-4xl font-extrabold tracking-tight xl:text-5xl"
-                    style={{ color: DARK }}
-                    title={petName(g.patient)}
+                    className="w-full truncate text-slate-600"
+                    style={{
+                      fontSize: `${layout.parentSize}px`,
+                      lineHeight: 1.25,
+                    }}
                   >
-                    {petName(g.patient)}
+                    with {n.parent}
                   </p>
-                  {parent ? (
-                    <p className="mt-2 truncate text-xl text-slate-600 xl:text-2xl">
-                      with {parent}
-                    </p>
-                  ) : null}
-                </div>
-              );
-            })}
+                ) : null}
+              </div>
+            ))}
           </div>
         )}
       </main>
 
-      <footer className="flex items-center justify-between px-10 pb-8">
-        <p className="text-lg text-slate-400">
-          {guests.length > 0
-            ? `${guests.length} happy ${guests.length === 1 ? "pet" : "pets"} today`
+      <footer className="flex shrink-0 items-center justify-between">
+        <p className="text-slate-400" style={{ fontSize: "1.8vh" }}>
+          {names.length > 0
+            ? `${names.length} happy ${names.length === 1 ? "pet" : "pets"} today`
             : ""}
         </p>
-        {pages.length > 1 ? (
-          <div className="flex items-center gap-2" aria-hidden>
-            {pages.map((_, i) => (
-              <span
-                key={i}
-                className="h-2.5 w-2.5 rounded-full transition"
-                style={{
-                  backgroundColor:
-                    i === pageIndex % pages.length ? DARK : `${LEAF}80`,
-                }}
-              />
-            ))}
-          </div>
-        ) : null}
         <button
           type="button"
           onClick={goFullScreen}
-          className="rounded-full border border-slate-200 px-4 py-1.5 text-sm text-slate-400 opacity-30 transition hover:opacity-100"
+          className="rounded-full border border-slate-200 px-4 py-1.5 text-slate-400 opacity-20 transition hover:opacity-100"
+          style={{ fontSize: "1.6vh" }}
         >
           Full screen
         </button>
