@@ -13,6 +13,7 @@ import {
   alertTone,
   cardStatusStyle,
   fasTone,
+  formatApptTime,
   initialsOf,
   statusTone,
   withCurrent,
