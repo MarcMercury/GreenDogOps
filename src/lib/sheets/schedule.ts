@@ -100,8 +100,8 @@ const ROLE_MAP: Record<string, LineSpec> = {
   imtech: { dept: "IM", role: "IM Tech" },
   exotictechda: { dept: "EXOTICS", role: "Exotic Tech/DA" },
   exoticstech: { dept: "EXOTICS", role: "Exotics Tech" },
-  mpmvtech: { dept: "MPMV", role: "MPMV Tech" },
-  mpmvmedteam: { dept: "MPMV MED TEAM", role: null, label: "MPMV Med Team" },
+  mpmvtech: { dept: "MPMV", role: "Technician" },
+  mpmvmedteam: { dept: "MPMV", role: "Technician" },
 
   // Front of house
   csr: { dept: "CSR", role: "CSR" },
@@ -130,14 +130,10 @@ const ROLE_MAP: Record<string, LineSpec> = {
 
   // Management / admin block at the top of every week
   manager: { dept: "MANAGEMENT", role: "Manager" },
-  inhouseadmin: {
-    dept: "Admin/Asst/ Inventory",
-    role: "Inventory/ Admin",
-    label: "In House Admin",
-  },
-  inventory: { dept: "Admin/Asst/ Inventory", role: "Inventory/ Admin", label: "Inventory" },
-  officeadmin: { dept: "Admin/Asst/ Inventory", role: "Inventory/ Admin", label: "Office Admin" },
-  schadmin: { dept: "Admin/Asst/ Inventory", role: "Inventory/ Admin", label: "Sch Admin" },
+  inhouseadmin: { dept: "Admin/Asst/ Inventory", role: null, label: "In House Admin" },
+  inventory: { dept: "Inventory/ Pharmacy", role: "Inventory/Pharmacy" },
+  officeadmin: { dept: "Admin/Asst/ Inventory", role: null, label: "Office Admin" },
+  schadmin: { dept: "Admin/Asst/ Inventory", role: null, label: "Schedule Admin" },
 };
 
 /** Rows that open a section. A VET-* row is a section header AND a DVM line. */
@@ -417,6 +413,7 @@ interface WeekLineRow {
   id: string;
   department_id: string;
   role_id: string | null;
+  label: string | null;
   start_time: string | null;
   end_time: string | null;
   sort_order: number;
@@ -424,6 +421,13 @@ interface WeekLineRow {
 
 const sameTime = (a: string | null, b: string | null): boolean =>
   !!a && !!b && a.slice(0, 5) === b.slice(0, 5);
+
+/** Minutes between two "HH:MM" times; Infinity when either is unknown. */
+function timeGap(a: string | null, b: string | null): number {
+  if (!a || !b) return Number.POSITIVE_INFINITY;
+  const mins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  return Math.abs(mins(a) - mins(b));
+}
 
 export async function applySchedulePlacements(
   placements: Placement[],
@@ -448,12 +452,15 @@ export async function applySchedulePlacements(
   const deptByName = new Map(
     ((deptRes.data ?? []) as { id: string; name: string }[]).map((d) => [d.name, d.id]),
   );
-  const roleByKey = new Map(
-    ((roleRes.data ?? []) as { id: string; name: string; department_id: string }[]).map((r) => [
-      `${r.department_id}|${r.name}`,
-      r.id,
-    ]),
-  );
+  // A department can hold two role rows with the same name (SURGERY has two
+  // "Surgery Tech"), so lines are matched on the role NAME, not its id.
+  const roleIdByKey = new Map<string, string>();
+  const roleNameById = new Map<string, string>();
+  for (const r of (roleRes.data ?? []) as { id: string; name: string; department_id: string }[]) {
+    roleNameById.set(r.id, r.name);
+    const key = `${r.department_id}|${r.name}`;
+    if (!roleIdByKey.has(key)) roleIdByKey.set(key, r.id);
+  }
   const locByName = new Map(
     ((locRes.data ?? []) as { id: string; name: string }[]).map((l) => [l.name, l.id]),
   );
@@ -557,7 +564,9 @@ export async function applySchedulePlacements(
   let replaced = 0;
   let adopted = 0;
   let linesCreated = 0;
+  let stacked = 0;
   let applied = 0;
+  const notInTemplate = new Map<string, number>();
   const skippedWeeks: string[] = [];
   const missingWeeks: string[] = [];
 
@@ -579,18 +588,18 @@ export async function applySchedulePlacements(
 
     const { data: lineData } = await admin
       .from("sched_week_line")
-      .select("id, department_id, role_id, start_time, end_time, sort_order")
+      .select("id, department_id, role_id, label, start_time, end_time, sort_order")
       .eq("week_id", week.id);
     const lines = (lineData ?? []) as WeekLineRow[];
 
-    // Sheet rows competing for the same pool of grid lines take an exact
-    // shift-time match; anything left gets its own line so the hours on the
-    // grid are the hours in the sheet.
+    // The Dept/Shift Template owns which lines a week has, so a sheet row is
+    // placed on the closest line that already exists. A line is only created
+    // when the department has nothing for that role at all — otherwise the
+    // grid fills up with near-duplicate shifts.
     const groups = new Map<string, LineDraft[]>();
     for (const d of weekDrafts) {
       const deptId = deptByName.get(d.dept)!;
-      const roleId = d.role ? roleByKey.get(`${deptId}|${d.role}`) ?? null : null;
-      const key = `${deptId}|${roleId ?? ""}`;
+      const key = `${deptId}|${d.role ?? ""}`;
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(d);
     }
@@ -600,36 +609,51 @@ export async function applySchedulePlacements(
     const pending: LineDraft[] = [];
 
     for (const [key, specs] of groups) {
-      const [deptId, roleId] = key.split("|");
+      const [deptId, roleName] = key.split("|");
       let pool = lines.filter(
-        (l) => l.department_id === deptId && (roleId ? l.role_id === roleId : !l.role_id),
+        (l) =>
+          l.department_id === deptId &&
+          (roleName ? roleNameById.get(l.role_id ?? "") === roleName : !l.role_id),
       );
-      // Departments whose grid lines carry no role at all still own their rows.
-      if (!pool.length && roleId) {
+      // Departments whose lines carry no role at all still own their rows.
+      if (!pool.length && roleName) {
         pool = lines.filter((l) => l.department_id === deptId && !l.role_id);
       }
+      if (!pool.length) {
+        pending.push(...specs);
+        continue;
+      }
+
+      const claim = (d: LineDraft, l: WeekLineRow) => {
+        taken.add(l.id);
+        lineByRowKey.set(d.rowKey, l.id);
+      };
+      const free = () => pool.filter((l) => !taken.has(l.id));
+      const nearest = (d: LineDraft, from: WeekLineRow[]) =>
+        from.reduce((best, l) =>
+          timeGap(l.start_time, d.start) < timeGap(best.start_time, d.start) ? l : best,
+        );
 
       const left: LineDraft[] = [];
       for (const d of specs) {
-        const exact = pool.find(
-          (l) => !taken.has(l.id) && sameTime(l.start_time, d.start) && sameTime(l.end_time, d.end),
+        const byLabel = d.label
+          ? free().find((l) => l.label && labelKey(l.label) === labelKey(d.label!))
+          : undefined;
+        const exact = free().find(
+          (l) => sameTime(l.start_time, d.start) && sameTime(l.end_time, d.end),
         );
-        if (exact) {
-          taken.add(exact.id);
-          lineByRowKey.set(d.rowKey, exact.id);
-        } else {
-          left.push(d);
-        }
+        const hit = byLabel ?? exact;
+        if (hit) claim(d, hit);
+        else left.push(d);
       }
       for (const d of left) {
-        // Only a row whose shift text would not parse falls back to position,
-        // because there are no hours to build a line from.
-        const next = d.start && d.end ? undefined : pool.find((l) => !taken.has(l.id));
-        if (next) {
-          taken.add(next.id);
-          lineByRowKey.set(d.rowKey, next.id);
+        const open = free();
+        if (open.length) {
+          claim(d, nearest(d, open));
         } else {
-          pending.push(d);
+          // Out of lines: share the closest one rather than inventing a shift.
+          lineByRowKey.set(d.rowKey, nearest(d, pool).id);
+          stacked += 1;
         }
       }
     }
@@ -641,14 +665,25 @@ export async function applySchedulePlacements(
           nextSort.set(l.department_id, l.sort_order + 1);
         }
       }
-      const inserts = pending.map((d) => {
+      // Several sheet rows can want the same missing shift; build one line for
+      // each distinct one and let the rest share it.
+      const distinct = new Map<string, LineDraft[]>();
+      for (const d of pending) {
+        const key = `${d.dept}|${d.role ?? ""}|${d.label ?? ""}|${d.start ?? ""}|${d.end ?? ""}`;
+        if (!distinct.has(key)) distinct.set(key, []);
+        distinct.get(key)!.push(d);
+      }
+      const want = [...distinct.values()];
+      const inserts = want.map(([d]) => {
         const deptId = deptByName.get(d.dept)!;
         const sort = nextSort.get(deptId) ?? 0;
         nextSort.set(deptId, sort + 1);
+        const what = `${d.dept} / ${d.role ?? d.label ?? "unroled"}`;
+        notInTemplate.set(what, (notInTemplate.get(what) ?? 0) + 1);
         return {
           week_id: week.id,
           department_id: deptId,
-          role_id: d.role ? roleByKey.get(`${deptId}|${d.role}`) ?? null : null,
+          role_id: d.role ? roleIdByKey.get(`${deptId}|${d.role}`) ?? null : null,
           label: d.label,
           start_time: d.start,
           end_time: d.end,
@@ -662,8 +697,9 @@ export async function applySchedulePlacements(
         .select("id");
       if (error) throw new Error(`create week lines (${ws}): ${error.message}`);
       const ids = ((made ?? []) as { id: string }[]).map((m) => m.id);
-      pending.forEach((d, i) => {
-        if (ids[i]) lineByRowKey.set(d.rowKey, ids[i]);
+      want.forEach((sharing, i) => {
+        if (!ids[i]) return;
+        for (const d of sharing) lineByRowKey.set(d.rowKey, ids[i]);
       });
       linesCreated += ids.length;
     }
@@ -768,6 +804,16 @@ export async function applySchedulePlacements(
       detail: { placements: count, hint: "No sched_department is named this." },
     });
   }
+  for (const [what, count] of notInTemplate) {
+    issues.push({
+      kind: "role_missing_from_template",
+      subject: what,
+      detail: {
+        weeks: count,
+        hint: "The sheet staffs this role but the Dept/Shift Template has no line for it, so the importer had to add one. Add it in Schedule > Set Up to keep the grid matching the template.",
+      },
+    });
+  }
   for (const ws of missingWeeks) {
     issues.push({
       kind: "missing_schedule_week",
@@ -785,6 +831,8 @@ export async function applySchedulePlacements(
     skipped_week_starts: skippedWeeks,
     missing_week_starts: missingWeeks,
     lines_created: linesCreated,
+    lines_shared: stacked,
+    roles_missing_from_template: [...notInTemplate.keys()],
     replaced,
     adopted,
     unmatched_names: unmatchedNames.size,
