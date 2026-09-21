@@ -209,12 +209,12 @@ export function PatientCard({
             onChange={setMed}
           />
 
-          <div className="grid gap-3 lg:grid-cols-3">
-            <fieldset className="rounded-lg border border-slate-200 p-2 lg:col-span-2">
+          <div className="space-y-2">
+            <fieldset className="rounded-lg border border-slate-200 p-2">
               <legend className="px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                 Prep checklist
               </legend>
-              <div className="grid gap-1.5 sm:grid-cols-2">
+              <div className="grid gap-1.5 sm:grid-cols-3 lg:grid-cols-5">
                 {tpl.checklist.map((item) => (
                   <div key={item.key} className="flex items-center gap-1.5">
                     <input
@@ -251,7 +251,7 @@ export function PatientCard({
               </div>
             </fieldset>
 
-            <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {tpl.statusFields.map((f) => (
                 <Text
                   key={f.key}
