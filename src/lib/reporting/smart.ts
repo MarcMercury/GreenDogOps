@@ -416,6 +416,46 @@ NEW CLIENTS and per-hospital client questions — read this before writing the q
   Instead AND one ILIKE '%word%' per significant word, dropping hyphens and stop words
   (e.g. name ILIKE '%dental%' AND name ILIKE '%x%ray%'), and return the matches so the reader
   can pick the right one.
+
+SERVICE LINES / DEPARTMENTS — how the team names a department is NOT what the database calls it.
+- ezyvet_invoice_line.product_group (same values on ezyvet_product.product_group) is a CLOSED SET.
+  Never invent one, and never pick a group just because a word from the question appears in its
+  name. The complete list, exactly as stored:
+  *AP Dental/Endodontics; *Surgical Procedure; *Internal Medicine; *Exotics; *Services;
+  *Laboratory- External; *Laboratory- In-House; *Injectables; *Controlled Substances - Injectable;
+  *Controlled Substances - Rx; *Anesthesia/Sedation; *Radiography; *Vaccination; *Euthanasia;
+  *Discount/Credit/Deposit; Cardiology; Advanced Imaging; Ultrasound; Radiology Review;
+  Urgent Care Appointments; Specialty Surgery; Ophthamology (stored misspelt); Tech Services;
+  Traveling Services; Medications - Rx; Parasite Control; Consumables, Food, and Supplements;
+  Supplies; Retail; Follow Up; Cremation Services; Service Fee; Administrative;
+  Green Dog Pet Plus Wellness Plan. Lines with a NULL product_group also have a NULL total_incl,
+  so they carry no revenue and never explain a missing total.
+- House term -> product_group. Use the exact string, with = or IN, not a fuzzy match:
+  * "Advanced Procedures", "advanced procedure", "AP", "APs", "the AP department", "AP day",
+    "dentals", "dentistry", "dental department", "endo", "endodontics", "oral surgery"
+    -> product_group = '*AP Dental/Endodontics'. This is the practice's LARGEST service line
+    (~$4.3M in 2026). ⚠️ It is NOT '*Surgical Procedure'. Answering an AP question with the
+    surgical group understates it by an order of magnitude or more — on 2026-09-17 Venice billed
+    $12,164.30 of AP against $480.00 of '*Surgical Procedure'. Appointment types 'Advanced
+    Procedure', 'Endodontics', 'OE Possible Same Day AP' and 'Post AP Recheck' all bill into
+    the AP group, and the AP department is 'AP' in sched_department.
+  * "surgery", "soft tissue surgery" -> '*Surgical Procedure' (add 'Specialty Surgery' only when
+    the question is about outside specialists). "cardio", "cardiology" -> 'Cardiology'.
+    "IM", "internal medicine" -> '*Internal Medicine'. "urgent care", "UC" -> 'Urgent Care
+    Appointments'. "exotics" -> '*Exotics'. "imaging", "CT", "MRI" -> 'Advanced Imaging' (widen to
+    'Ultrasound', '*Radiography', 'Radiology Review' when the question means diagnostic imaging
+    generally). "labs", "bloodwork" -> both '*Laboratory-' groups. "pharmacy", "meds" ->
+    'Medications - Rx' and '*Controlled Substances - Rx'.
+  * NEVER filter a service line with ILIKE '%procedure%' or ILIKE '%surg%': those catch
+    '*Surgical Procedure' and MISS '*AP Dental/Endodontics', which is the usual intent.
+- A department's revenue = the lines billed under ITS product_group. One AP case also generates
+  anesthesia, lab, injectable and medication lines in OTHER groups, so the whole-case value is
+  larger than the department figure. Answer with the product_group total unless the question asks
+  for what the visit/day brought in, and say in "note" which of the two you computed.
+- ezyvet_invoice_line.location_key has exactly four values: 'van_nuys', 'venice', 'sherman_oaks'
+  and 'other'. For any "by clinic" split, group on location_key (or location_label on report_*
+  views) and keep 'other'/unknown as its own row so the clinic rows still add up to the total —
+  do not quietly drop it. Never derive a clinic from ezyvet_contact.division.
 - ezyvet_appointment (matview) = one row per client visit day that has ALREADY BEEN BILLED:
   client_contact_code, service_date, location_key, revenue, pet_count. It is derived from
   ezyvet_invoice_line, so it ONLY covers PAST, RENDERED visits and has NO rows for today or any
@@ -636,6 +676,14 @@ const SQL_RULES = `Rules for the SQL:
 - If the question is a FOLLOW-UP to an earlier turn ("of those, how many...", "how many of them"),
   reuse the SAME population, table and filters as the previous query so the numbers reconcile
   with the answer already given. Never silently switch the counted entity between turns.
+- A CORRECTION or instruction is not a new question. When the user says "that's not right",
+  "fix this", "fix this permanently", "remember this", "always use X" or "what about <other
+  thing>", take the PREVIOUS turn's query and change only what the user corrected. Carry over
+  every other filter — especially the date window, the location and the grouping — instead of
+  writing a fresh query from scratch; dropping the date filter turns one day's revenue into the
+  whole history and produces an answer that is wrong by a thousandfold. Say in "note" what you
+  changed, and if the user is asking for a lasting rule, add that the correction applies to this
+  answer and should be saved to the glossary to make it permanent.
 - Round money to 2 decimals and averages to 1 decimal.
 - Match names/text case-insensitively with ILIKE, and match category values with
   ILIKE '%fragment%' rather than = unless the exact stored value is listed under
