@@ -172,6 +172,8 @@ export interface BoardColumn {
   flagLabel?: string;
   /** Multi-line free text — Enter inserts a newline instead of committing. */
   wrap?: boolean;
+  /** Show people's names as initials; the full name is kept and edited. */
+  initials?: boolean;
   /** Tooltip expanding the abbreviation. */
   title?: string;
   options?: string[];
@@ -217,12 +219,12 @@ export const BOARD_COLUMNS: BoardColumn[] = [
   { key: "client_name", label: "CLIENT", kind: "text", width: "9%" },
   { key: "csr", label: "CSR", kind: "text", width: "3%", title: "Client service rep" },
   { key: "tech", label: "TECH", kind: "text", width: "4%" },
-  { key: "dt", label: "DT", kind: "text", width: "6%", title: "Doctor / DVM tech" },
+  { key: "dt", label: "DT", kind: "text", width: "4%", initials: true, title: "Doctor / DVM tech" },
   { key: "weight_kg", label: "WT", kind: "text", width: "3%", title: "Weight in kg" },
   { key: "fas_score", label: "FAS", kind: "select", width: "6%", title: "Fear, Anxiety & Stress score", options: FAS_OPTIONS },
   { key: "status", label: "STATUS", kind: "select", width: "7%", options: STATUS_OPTIONS },
-  { key: "medical_hx", label: "MEDICAL HX", kind: "text", width: "12%", wrap: true, title: "Medical history / cautions" },
-  { key: "services", label: "SERVICES / ADD ONS", kind: "text", width: "12%", wrap: true },
+  { key: "medical_hx", label: "MEDICAL HX", kind: "text", width: "13%", wrap: true, title: "Medical history / cautions" },
+  { key: "services", label: "SERVICES / ADD ONS", kind: "text", width: "13%", wrap: true },
   { key: "sedation", label: "SEDATION", kind: "text", width: "6%", wrap: true, title: "Sedation protocol / dosing" },
   { key: "cbfc", label: "CBFC", kind: "text", width: "3%", title: "Call back / follow-up call" },
   { key: "owner_ud", label: "O U/D", kind: "text", width: "3%", title: "Owner update / discharge" },
@@ -256,6 +258,74 @@ export const GRID_FLAG_COLUMNS = BOARD_COLUMNS.filter((c) => c.kind === "check")
 export function withCurrent(options: string[], value: string | null): string[] {
   if (value && !options.includes(value)) return [...options, value];
   return options;
+}
+
+// Appointment times arrive from the Agenda as free text ("02:00P", "2:00 PM",
+// "14:00"), so they must be parsed before they can be ordered or displayed —
+// sorting the raw text puts every afternoon slot above the morning ones.
+const APPT_TIME_RE = /^\s*(\d{1,2})(?::(\d{2}))?\s*([AaPp])?/;
+
+/** Minutes since midnight for an appointment time, or null if it isn't one. */
+export function apptMinutes(value: string | null | undefined): number | null {
+  const m = APPT_TIME_RE.exec(value ?? "");
+  if (!m) return null;
+  let hour = Number(m[1]);
+  const minute = Number(m[2] ?? "0");
+  if (hour > 23 || minute > 59) return null;
+  const meridiem = m[3]?.toLowerCase();
+  if (meridiem === "a") hour = hour === 12 ? 0 : hour;
+  else if (meridiem === "p") hour = hour === 12 ? 12 : hour + 12;
+  if (hour > 23) return null;
+  return hour * 60 + minute;
+}
+
+/** The board's display form for an appointment time ("2:00 PM"). */
+export function formatApptTime(value: string | null | undefined): string {
+  const minutes = apptMinutes(value);
+  if (minutes === null) return (value ?? "").trim();
+  const hour = Math.floor(minutes / 60);
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${String(minutes % 60).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`;
+}
+
+/** Board order: earliest appointment first, walk-ins without a time last. */
+export function sortByApptTime<T extends { appt_time: string | null }>(
+  rows: T[],
+): T[] {
+  return rows
+    .map((row, index) => ({ row, index, minutes: apptMinutes(row.appt_time) }))
+    .sort((a, b) => {
+      if (a.minutes === null || b.minutes === null) {
+        if (a.minutes !== b.minutes) return a.minutes === null ? 1 : -1;
+      } else if (a.minutes !== b.minutes) {
+        return a.minutes - b.minutes;
+      }
+      return a.index - b.index;
+    })
+    .map((entry) => entry.row);
+}
+
+/**
+ * "Alexis Herrera / Doan, Kim" → "AH / KD". The DT column carries full DVM
+ * names (often two of them), which wrap onto three lines on a busy board.
+ */
+export function initialsOf(value: string | null): string {
+  if (!value) return "";
+  return value
+    .split("/")
+    .map((part) => {
+      const name = part.replace(/\b(dr|dvm|vmd|d\.v\.m)\b\.?/gi, " ").trim();
+      const [last, first] = name.split(",").map((s) => s.trim());
+      const ordered = first ? `${first} ${last}` : name;
+      return ordered
+        .split(/[\s.\-']+/)
+        .filter(Boolean)
+        .map((w) => w[0]!.toUpperCase())
+        .slice(0, 3)
+        .join("");
+    })
+    .filter(Boolean)
+    .join(" / ");
 }
 
 /** Tone classes for a FAS score, so risk reads at a glance. */

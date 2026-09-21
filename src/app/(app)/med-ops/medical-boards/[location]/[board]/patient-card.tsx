@@ -8,7 +8,11 @@ import {
   type CardMedRow,
   type CardTemplate,
 } from "@/lib/med-ops/templates";
-import { cardStatusStyle, type MedicalBoardRow } from "@/lib/med-ops/types";
+import {
+  cardStatusStyle,
+  formatApptTime,
+  type MedicalBoardRow,
+} from "@/lib/med-ops/types";
 
 type Patch = Record<string, unknown>;
 
@@ -78,7 +82,7 @@ export function PatientCard({
         <span className="text-sm font-semibold text-slate-900">{title}</span>
         {row.appt_time ? (
           <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600">
-            {row.appt_time}
+            {formatApptTime(row.appt_time)}
           </span>
         ) : null}
         <select

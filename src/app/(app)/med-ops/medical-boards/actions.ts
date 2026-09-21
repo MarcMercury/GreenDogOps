@@ -7,6 +7,7 @@ import { canAccessModule } from "@/lib/auth/permissions";
 import {
   isBooleanField,
   isEditableField,
+  sortByApptTime,
   type BoardTypeKey,
   type MedicalBoardRow,
   type WelcomeGuest,
@@ -141,9 +142,8 @@ export async function fetchBoardRows(
     .eq("location_id", locationId)
     .eq("board_date", date)
     .eq("board_type", boardType)
-    .order("sort_order", { ascending: true })
-    .order("appt_time", { ascending: true });
-  return (data ?? []) as MedicalBoardRow[];
+    .order("sort_order", { ascending: true });
+  return sortByApptTime((data ?? []) as MedicalBoardRow[]);
 }
 
 /**

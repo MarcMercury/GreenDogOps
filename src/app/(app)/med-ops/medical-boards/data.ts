@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@/lib/supabase/server";
 import {
   BOARD_TYPES,
+  sortByApptTime,
   type BoardTypeDef,
   type BoardTypeKey,
   type MedicalBoardRow,
@@ -74,9 +75,8 @@ export async function getBoardRows(
     .eq("location_id", locationId)
     .eq("board_date", date)
     .eq("board_type", boardType)
-    .order("sort_order", { ascending: true })
-    .order("appt_time", { ascending: true });
-  return (data ?? []) as MedicalBoardRow[];
+    .order("sort_order", { ascending: true });
+  return sortByApptTime((data ?? []) as MedicalBoardRow[]);
 }
 
 /**
@@ -93,15 +93,16 @@ export async function getWelcomeGuests(
     .from("medical_board_row")
     .select("id, patient, client_name, appt_time")
     .eq("location_id", locationId)
-    .eq("board_date", date)
-    .order("appt_time", { ascending: true });
+    .eq("board_date", date);
 
-  const rows = (data ?? []) as {
-    id: string;
-    patient: string | null;
-    client_name: string | null;
-    appt_time: string | null;
-  }[];
+  const rows = sortByApptTime(
+    (data ?? []) as {
+      id: string;
+      patient: string | null;
+      client_name: string | null;
+      appt_time: string | null;
+    }[],
+  );
 
   // The same pet can sit on more than one department board in a day; the
   // lobby should greet them once.

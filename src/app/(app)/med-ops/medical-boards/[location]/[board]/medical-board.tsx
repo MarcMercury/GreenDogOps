@@ -13,6 +13,7 @@ import {
   alertTone,
   cardStatusStyle,
   fasTone,
+  initialsOf,
   statusTone,
   withCurrent,
   type BoardColumn,
@@ -116,10 +117,18 @@ export function MedicalBoard({
 
   const commit = useCallback(
     (rowId: string, field: EditableField, value: CellValue) => {
-      setRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, [field]: value } : r)),
-      );
-      void updateBoardCell(rowId, field, value).then((res) => {
+      // A typed time is stored in the canonical form so the board can order it.
+      const next =
+        field === "appt_time" && typeof value === "string"
+          ? formatApptTime(value)
+          : value;
+      setRows((prev) => {
+        const rows = prev.map((r) =>
+          r.id === rowId ? { ...r, [field]: next } : r,
+        );
+        return field === "appt_time" ? sortByApptTime(rows) : rows;
+      });
+      void updateBoardCell(rowId, field, next).then((res) => {
         if (!res.ok) {
           setNote(res.error);
           void refresh();
@@ -295,8 +304,10 @@ export function MedicalBoard({
               {rows.map((row) => (
                 <tr
                   key={row.id}
-                  className={`border-b border-slate-100 transition hover:bg-slate-50/60 ${
-                    row.is_out ? "opacity-55" : ""
+                  className={`border-b border-slate-100 transition ${
+                    row.is_out
+                      ? "bg-emerald-100 hover:bg-emerald-200/70"
+                      : "hover:bg-slate-50/60"
                   }`}
                 >
                   {GRID_TEXT_COLUMNS.map((col) => (
@@ -468,7 +479,7 @@ function PatientTile({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="shrink-0 rounded-md bg-white px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-slate-700 ring-1 ring-slate-200">
-              {row.appt_time || "—:—"}
+              {formatApptTime(row.appt_time) || "—:—"}
             </span>
             <h3 className="truncate text-sm font-bold text-slate-900">{name}</h3>
           </div>
@@ -729,7 +740,8 @@ function Cell({
   onCommit: (rowId: string, field: EditableField, value: CellValue) => void;
   editingRef: React.RefObject<{ rowId: string; field: EditableField } | null>;
 }) {
-  const text = (cellValue(row, col.key) as string | null) ?? "";
+  const raw = (cellValue(row, col.key) as string | null) ?? "";
+  const text = col.key === "appt_time" ? formatApptTime(raw) : raw;
 
   // Enumerated columns are selects, so a long label never needs a wide cell.
   if (col.kind === "select" && col.options) {
@@ -757,8 +769,15 @@ function Cell({
       // mid-keystroke.
       key={text}
       value={text}
+      display={col.initials ? initialsOf(text) : undefined}
       multiline={Boolean(col.wrap)}
-      title={col.key === "services" ? row.appt_description ?? undefined : undefined}
+      title={
+        col.initials
+          ? text || undefined
+          : col.key === "services"
+            ? row.appt_description ?? undefined
+            : undefined
+      }
       onFocus={() => {
         editingRef.current = { rowId: row.id, field: col.key };
       }}
@@ -778,18 +797,23 @@ function Cell({
  */
 function AutoGrowText({
   value,
+  display,
   multiline,
   title,
   onFocus,
   onCommit,
 }: {
   value: string;
+  /** Shown while the cell is idle; focusing reveals the full value to edit. */
+  display?: string;
   multiline: boolean;
   title?: string;
   onFocus: () => void;
   onCommit: (next: string) => void;
 }) {
   const [draft, setDraft] = useState(value);
+  const [focused, setFocused] = useState(false);
+  const shown = !focused && display !== undefined ? display : draft;
   const shared = "px-1 py-1 text-[12px] leading-snug";
 
   return (
@@ -798,16 +822,22 @@ function AutoGrowText({
         aria-hidden
         className={`invisible col-start-1 row-start-1 whitespace-pre-wrap break-words ${shared}`}
       >
-        {`${draft} `}
+        {`${shown} `}
       </span>
       <textarea
         rows={1}
-        value={draft}
+        value={shown}
         onChange={(e) =>
           setDraft(multiline ? e.target.value : e.target.value.replace(/\n/g, " "))
         }
-        onFocus={onFocus}
-        onBlur={() => onCommit(draft)}
+        onFocus={() => {
+          setFocused(true);
+          onFocus();
+        }}
+        onBlur={() => {
+          setFocused(false);
+          onCommit(draft);
+        }}
         onKeyDown={(e) => {
           if (!multiline && e.key === "Enter") {
             e.preventDefault();
