@@ -64,6 +64,8 @@ const HR_RECRUIT: NavItem[] = [
 /** Marketing CRMs. */
 const MARKETING: NavItem[] = [
   { key: "marketing", href: "/marketing", label: "Marketing Mgmt", icon: "📣" },
+  { key: "marketing", href: "/marketing/events", label: "Event Mgmt", icon: "🎪" },
+  { key: "marketing", href: "/marketing/qr-codes", label: "QR Code Mgmt", icon: "🔳" },
   crmSection("ce"),
   crmSection("influencer"),
   crmSection("referral"),

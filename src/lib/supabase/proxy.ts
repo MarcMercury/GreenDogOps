@@ -58,6 +58,9 @@ export async function updateSession(request: NextRequest) {
     // Retail lead capture form behind a Non-Med Partner's QR code. Gated by the
     // opaque qr_token in the path, not by a session.
     pathname.startsWith("/lead/") ||
+    // Event / promo / partner QR capture forms. Same rule: the opaque token in
+    // the path is the only credential, and it resolves to one QR code.
+    pathname.startsWith("/q/") ||
     // Public legal pages (linked from the Google OAuth consent screen).
     pathname === "/privacy" ||
     pathname === "/terms" ||

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { QRCodeCanvas } from "qrcode.react";
 import type {
   CrmContact,
@@ -1934,6 +1935,13 @@ function CeEventsManageView({
               </div>
               {canEdit && (
                 <div className="flex shrink-0 items-center gap-2">
+                  <Link
+                    href="/marketing/events"
+                    className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:bg-slate-50"
+                    title="This course also appears in the company Event list & calendar, where its QR code lives"
+                  >
+                    Event Mgmt ↗
+                  </Link>
                   <button
                     type="button"
                     onClick={() => setEditing(true)}

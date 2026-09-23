@@ -1,27 +1,41 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { QRCodeCanvas } from "qrcode.react";
 import {
   type MarketingEvent,
   type MarketingEventSource,
   type MarketingEventAttendee,
   type ChecklistItem,
-  type PackingListGroup,
+  type PackingListItem,
   type CrmOrgRef,
   type PersonOption,
+  type EventStaffShift,
   EVENT_TYPES,
   EVENT_STATUSES,
   ATTENDEE_TYPES,
   VENUE_TYPES,
   PACKING_STATUSES,
   PACKING_STATUS_STYLES,
-  defaultPackingList,
-  eventTypeLabel,
-  eventStatusLabel,
   attendeeTypeLabel,
+  personLabel,
 } from "@/lib/marketing/types";
+import {
+  type QrCode,
+  type QrForm,
+  type QrFormField,
+  QR_FIELD_TYPES,
+  qrScanUrl,
+  slugifyFieldKey,
+} from "@/lib/marketing/qr";
+import {
+  type CeEventSummary,
+  type UnifiedEvent,
+  buildUnifiedEvents,
+} from "@/lib/marketing/event-rows";
+import { CeEventDialog } from "./ce-event-dialog";
 import {
   saveEvent,
   deleteEvent,
@@ -34,8 +48,16 @@ import {
   syncSourceToCrm,
   syncAllSourcesToCrm,
   linkSourceToCrm,
+  lookupEventStaffShifts,
   type ActionResult,
 } from "./actions";
+import {
+  createQrCodeFor,
+  saveQrForm,
+  saveQrCode,
+  setQrCodeActive,
+  deleteQrCode,
+} from "./qr-actions";
 import { useTableSort, SortHeader, stickyHeadClass } from "../_components/data-views";
 import { PhoneInput } from "@/lib/shared/phone-input";
 import { OwnerSelect } from "./owner-select";
@@ -92,25 +114,33 @@ export type Run = (action: () => Promise<ActionResult>, after?: () => void) => v
 export function EventsTab({
   canEdit,
   events,
+  ceEvents,
   sources,
   attendees,
   crmOrgs,
   people,
+  qrCodes,
+  qrForms,
 }: {
   canEdit: boolean;
   events: MarketingEvent[];
+  ceEvents: CeEventSummary[];
   sources: MarketingEventSource[];
   attendees: MarketingEventAttendee[];
   crmOrgs: CrmOrgRef[];
   people: PersonOption[];
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
 }) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [editing, setEditing] = useState<MarketingEvent | "new" | null>(null);
+  const [viewingCe, setViewingCe] = useState<CeEventSummary | null>(null);
   const [editingSource, setEditingSource] = useState<MarketingEventSource | "new" | null>(null);
   const [showSources, setShowSources] = useState(false);
   const [view, setView] = useState<"all" | "upcoming" | "past">("all");
+  const [kind, setKind] = useState<"all" | "marketing" | "ce">("all");
 
   function notify(msg: string) {
     setToast(msg);
@@ -129,15 +159,22 @@ export function EventsTab({
 
   const today = new Date().toISOString().slice(0, 10);
   const { upcoming, past } = useMemo(() => {
-    const up: MarketingEvent[] = [];
-    const pa: MarketingEvent[] = [];
-    for (const e of events) {
-      const isPast = e.status === "completed" || e.status === "cancelled" || (e.starts_on != null && e.starts_on < today);
+    const all = buildUnifiedEvents(events, ceEvents).filter(
+      (e) => kind === "all" || e.kind === kind,
+    );
+    const up: UnifiedEvent[] = [];
+    const pa: UnifiedEvent[] = [];
+    for (const e of all) {
+      const isPast =
+        e.status === "completed" ||
+        e.status === "cancelled" ||
+        (e.startsOn != null && e.startsOn < today);
       (isPast ? pa : up).push(e);
     }
-    pa.sort((a, b) => (b.starts_on ?? "").localeCompare(a.starts_on ?? ""));
+    up.sort((a, b) => (a.startsOn ?? "").localeCompare(b.startsOn ?? ""));
+    pa.sort((a, b) => (b.startsOn ?? "").localeCompare(a.startsOn ?? ""));
     return { upcoming: up, past: pa };
-  }, [events, today]);
+  }, [events, ceEvents, kind, today]);
 
   const attendeesByEvent = useMemo(() => {
     const m = new Map<string, MarketingEventAttendee[]>();
@@ -168,13 +205,14 @@ export function EventsTab({
   const eventRows = view === "upcoming" ? upcoming : view === "past" ? past : [...upcoming, ...past];
   const eventSort = useTableSort(eventRows, {
     event: (e) => e.name,
-    date: (e) => e.starts_on,
-    type: (e) => eventTypeLabel(e.event_type),
-    status: (e) => eventStatusLabel(e.status),
-    owner: (e) => e.owner_name,
+    date: (e) => e.startsOn,
+    type: (e) => e.typeLabel,
+    status: (e) => e.statusLabel,
+    owner: (e) => e.ownerName,
+    location: (e) => e.location,
+    promo: (e) => (e.hasPromo ? 1 : 0),
     cost: (e) => e.cost,
     attendees: (e) => e.attendees ?? (attendeesByEvent.get(e.id)?.length ?? 0),
-    checklist: (e) => e.checklist?.length ?? 0,
   });
 
   return (
@@ -293,6 +331,18 @@ export function EventsTab({
         <p className="text-sm text-slate-500">Scout a source → create an event → plan, promote &amp; staff it → recap the results.</p>
         <div className="flex items-center gap-2">
           <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
+            {(["all", "marketing", "ce"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                className={`px-3 py-1.5 text-xs font-medium transition ${kind === k ? "bg-slate-800 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}
+              >
+                {k === "all" ? "All events" : k === "marketing" ? "Marketing" : "CE courses"}
+              </button>
+            ))}
+          </div>
+          <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
             {(["all", "upcoming", "past"] as const).map((v) => (
               <button
                 key={v}
@@ -321,32 +371,45 @@ export function EventsTab({
                   <SortHeader label="Type" sortKey="type" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Status" sortKey="status" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Owner" sortKey="owner" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Location" sortKey="location" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Promo" sortKey="promo" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Cost" sortKey="cost" sort={eventSort} align="right" className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Attendees" sortKey="attendees" sort={eventSort} align="right" className="px-4 py-2.5 font-semibold" />
-                  <SortHeader label="Checklist" sortKey="checklist" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((e) => {
                   const att = (attendeesByEvent.get(e.id) ?? []).length;
-                  const cd = e.checklist?.filter((c) => c.done).length ?? 0;
-                  const ct = e.checklist?.length ?? 0;
+                  const isCe = e.kind === "ce";
                   return (
                     <tr
-                      key={e.id}
+                      key={e.key}
                       className="group cursor-pointer transition hover:bg-emerald-50/40"
-                      onClick={() => canEdit && setEditing(e)}
+                      onClick={() => {
+                        if (isCe) setViewingCe(e.ce);
+                        else if (canEdit) setEditing(e.marketing);
+                      }}
                     >
                       <td className="sticky left-0 z-10 bg-white px-4 py-2.5 font-medium text-slate-900 group-hover:bg-emerald-50/40">
+                        <span className="mr-1.5" aria-hidden>{isCe ? "📋" : "🎪"}</span>
                         {e.name}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{fmtDate(e.starts_on)}</td>
-                      <td className="whitespace-nowrap px-4 py-2.5"><Badge>{eventTypeLabel(e.event_type)}</Badge></td>
-                      <td className="whitespace-nowrap px-4 py-2.5"><Badge className={STATUS_COLORS[e.status]}>{eventStatusLabel(e.status)}</Badge></td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{e.owner_name ?? "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{fmtDate(e.startsOn)}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        <Badge className={isCe ? "bg-indigo-50 text-indigo-700" : undefined}>{e.typeLabel}</Badge>
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2.5"><Badge className={STATUS_COLORS[e.status]}>{e.statusLabel}</Badge></td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{e.ownerName ?? "—"}</td>
+                      <td className="max-w-[14rem] truncate px-4 py-2.5 text-slate-600" title={e.location ?? undefined}>{e.location ?? "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        {e.hasPromo ? (
+                          <Badge className="bg-emerald-50 text-emerald-700" >Yes</Badge>
+                        ) : (
+                          <span className="text-xs text-slate-400">No</span>
+                        )}
+                      </td>
                       <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">{e.cost != null ? fmtMoney(e.cost) : "—"}</td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">{fmtNum(e.attendees ?? (att || null))}</td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-500">{ct > 0 ? `${cd}/${ct}` : "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right text-slate-600">{fmtNum(e.attendees ?? (isCe ? null : att || null))}</td>
                     </tr>
                   );
                 })}
@@ -363,7 +426,19 @@ export function EventsTab({
           attendees={editing === "new" ? [] : attendeesByEvent.get(editing.id) ?? []}
           canEdit={canEdit}
           people={people}
+          qrCodes={qrCodes}
+          qrForms={qrForms}
           onClose={() => setEditing(null)}
+          run={run}
+        />
+      )}
+      {viewingCe && (
+        <CeEventDialog
+          event={viewingCe}
+          qrCodes={qrCodes}
+          qrForms={qrForms}
+          canEdit={canEdit}
+          onClose={() => setViewingCe(null)}
           run={run}
         />
       )}
@@ -400,28 +475,43 @@ function OptionsSelect({ name, defaultValue, options, placeholder }: { name: str
 // ---------------------------------------------------------------------------
 // Event dialog with Details / Planning / Recap / Attendees
 // ---------------------------------------------------------------------------
-export function EventDialog({ event, sources, attendees, canEdit, people, onClose, run }: {
+export function EventDialog({ event, defaultDate, sources, attendees, canEdit, people, qrCodes, qrForms, onClose, run }: {
   event: MarketingEvent | null;
+  /** Pre-fills the start date when creating from a calendar day cell. */
+  defaultDate?: string | null;
   sources: MarketingEventSource[];
   attendees: MarketingEventAttendee[];
   canEdit: boolean;
   people: PersonOption[];
+  qrCodes?: QrCode[];
+  qrForms?: QrForm[];
   onClose: () => void;
   run: Run;
 }) {
   const [checklist, setChecklist] = useState<ChecklistItem[]>(event?.checklist ?? []);
   const [newCheck, setNewCheck] = useState("");
-  const [packing, setPacking] = useState<PackingListGroup[]>(
-    () => (event?.packing_list?.length ? event.packing_list : defaultPackingList()),
+  // Materials are a single flat list now — items are added one at a time.
+  const [materials, setMaterials] = useState<PackingListItem[]>(
+    () => (event?.packing_list ?? []).flatMap((g) => g.items),
   );
-  const [tab, setTab] = useState<"details" | "planning" | "materials" | "recap">("details");
+  const [staffIds, setStaffIds] = useState<string[]>(() => event?.staff_ids ?? []);
+  const [hasPromo, setHasPromo] = useState(event?.has_promo ?? false);
+  const [startsOn, setStartsOn] = useState(event?.starts_on ?? defaultDate ?? "");
+  const [endsOn, setEndsOn] = useState(event?.ends_on ?? "");
+  const [tab, setTab] = useState<"details" | "planning" | "materials" | "qr" | "recap">("details");
 
   const TABS = [
     { key: "details", label: "Details" },
     { key: "planning", label: "Planning & promotion" },
     { key: "materials", label: "Materials" },
+    { key: "qr", label: "QR code" },
     { key: "recap", label: "Recap" },
   ] as const;
+
+  const eventQrCodes = useMemo(
+    () => (event ? (qrCodes ?? []).filter((c) => c.event_id === event.id) : []),
+    [qrCodes, event],
+  );
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -468,7 +558,24 @@ export function EventDialog({ event, sources, attendees, canEdit, people, onClos
             </span>
           ))}
           {/* serialized packing / material list */}
-          <input type="hidden" name="packing_list_json" value={JSON.stringify(packing)} />
+          <input
+            type="hidden"
+            name="packing_list_json"
+            value={JSON.stringify(materials.length ? [{ group: "Materials", items: materials }] : [])}
+          />
+          {/* structured staff roster + the rendered names the rest of the app reads */}
+          {staffIds.map((id) => (
+            <input key={`s-${id}`} type="hidden" name="staff_id" value={id} />
+          ))}
+          <input
+            type="hidden"
+            name="staff"
+            value={staffIds
+              .map((id) => people.find((p) => p.id === id))
+              .filter(Boolean)
+              .map((p) => personLabel(p as PersonOption))
+              .join(", ")}
+          />
 
           {/* Details */}
           <div className={tab === "details" ? "space-y-5" : "hidden"}>
@@ -479,8 +586,8 @@ export function EventDialog({ event, sources, attendees, canEdit, people, onClos
           <div className="grid gap-4 sm:grid-cols-3">
             <div><label className={fieldLabel}>Type</label><OptionsSelect name="event_type" defaultValue={event?.event_type ?? "third_party"} options={EVENT_TYPES} /></div>
             <div><label className={fieldLabel}>Status</label><OptionsSelect name="status" defaultValue={event?.status ?? "researching"} options={EVENT_STATUSES} /></div>
-            <div><label className={fieldLabel}>Start date</label><input type="date" name="starts_on" defaultValue={event?.starts_on ?? ""} className={fieldInput} /></div>
-            <div><label className={fieldLabel}>End date</label><input type="date" name="ends_on" defaultValue={event?.ends_on ?? ""} className={fieldInput} /></div>
+            <div><label className={fieldLabel}>Start date</label><input type="date" name="starts_on" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className={fieldInput} /></div>
+            <div><label className={fieldLabel}>End date</label><input type="date" name="ends_on" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} className={fieldInput} /></div>
             <div><label className={fieldLabel}>Owner</label><OwnerSelect name="owner_name" people={people} defaultValue={event?.owner_name ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>Location</label><input name="location" defaultValue={event?.location ?? ""} className={fieldInput} /></div>
             <div><label className={fieldLabel}>Clinic served</label><input name="clinic_served" defaultValue={event?.clinic_served ?? ""} className={fieldInput} /></div>
@@ -511,10 +618,10 @@ export function EventDialog({ event, sources, attendees, canEdit, people, onClos
           </div>
 
           {/* Planning & promotion */}
-          <fieldset className={`rounded-lg border border-slate-200 p-3 ${tab === "planning" ? "" : "hidden"}`}>
-            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Planning & promotion</legend>
+          <div className={tab === "planning" ? "space-y-4" : "hidden"}>
+          <fieldset className="rounded-lg border border-slate-200 p-3">
+            <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Planning &amp; promotion</legend>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div><label className={fieldLabel}>Staff</label><input name="staff" defaultValue={event?.staff ?? ""} className={fieldInput} placeholder="Who's working it" /></div>
               <div><label className={fieldLabel}>Supplies</label><input name="supplies" defaultValue={event?.supplies ?? ""} className={fieldInput} placeholder="Tent, table, flyers…" /></div>
               <div><label className={fieldLabel}>Promo channels</label><input name="promo_channels" defaultValue={event?.promo_channels ?? ""} className={fieldInput} placeholder="IG, flyers, email…" /></div>
               <div><label className={fieldLabel}>Source</label><OptionsSelect name="source_id" defaultValue={event?.source_id ?? ""} options={sources.map((s) => ({ value: s.id, label: s.name }))} placeholder="—" /></div>
@@ -540,15 +647,43 @@ export function EventDialog({ event, sources, attendees, canEdit, people, onClos
             </div>
           </fieldset>
 
-          {/* Packing / Material list */}
-          <div className={tab === "materials" ? "" : "hidden"}>
-          <PackingListEditor
-            eventName={event?.name ?? "New event"}
-            eventDate={event?.starts_on ?? null}
-            eventLocation={event?.location ?? null}
-            groups={packing}
-            setGroups={setPacking}
+          <StaffPicker
+            people={people}
+            staffIds={staffIds}
+            setStaffIds={setStaffIds}
+            startsOn={startsOn}
+            endsOn={endsOn}
           />
+
+          <EventPromoFields
+            event={event}
+            hasPromo={hasPromo}
+            setHasPromo={setHasPromo}
+            eventStart={startsOn}
+            eventEnd={endsOn}
+          />
+          </div>
+
+          {/* Materials */}
+          <div className={tab === "materials" ? "" : "hidden"}>
+          <MaterialsEditor
+            eventName={event?.name ?? "New event"}
+            eventDate={startsOn || null}
+            eventLocation={event?.location ?? null}
+            items={materials}
+            setItems={setMaterials}
+          />
+          </div>
+
+          {/* QR code & capture form */}
+          <div className={tab === "qr" ? "" : "hidden"}>
+            <QrPanel
+              subject={event ? { kind: "event", id: event.id, name: event.name } : null}
+              codes={eventQrCodes}
+              forms={qrForms ?? []}
+              canEdit={canEdit}
+              run={run}
+            />
           </div>
 
           {/* Recap */}
@@ -605,10 +740,10 @@ function packingListToText(
   eventName: string,
   date: string | null,
   location: string | null,
-  groups: PackingListGroup[],
+  items: PackingListItem[],
 ): string {
   const lines: string[] = [];
-  lines.push(`GD EVENT — PACKING / MATERIAL LIST`);
+  lines.push(`GD EVENT — MATERIAL LIST`);
   lines.push(eventName);
   const meta = [fmtPackingDate(date), location].filter(Boolean).join(" · ");
   if (meta) lines.push(meta);
@@ -621,15 +756,11 @@ function packingListToText(
     received: "[R]",
     packed: "[x]",
   };
-  for (const g of groups) {
-    if (!g.items.length) continue;
-    lines.push(`## ${g.group.toUpperCase()}`);
-    for (const it of g.items) {
-      const qty = it.qty ? `  (${it.qty})` : "";
-      const note = it.note ? `  — ${it.note}` : "";
-      lines.push(`${mark[it.status] ?? "[ ]"} ${it.label}${qty}${note}`);
-    }
-    lines.push("");
+  for (const it of items) {
+    if (!it.label.trim()) continue;
+    const qty = it.qty ? `  (${it.qty})` : "";
+    const note = it.note ? `  — ${it.note}` : "";
+    lines.push(`${mark[it.status] ?? "[ ]"} ${it.label}${qty}${note}`);
   }
   return lines.join("\n").trimEnd();
 }
@@ -638,33 +769,24 @@ function packingListToHtml(
   eventName: string,
   date: string | null,
   location: string | null,
-  groups: PackingListGroup[],
+  items: PackingListItem[],
 ): string {
   const esc = (s: string) =>
     s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
   const meta = [fmtPackingDate(date), location].filter(Boolean).map((s) => esc(s as string)).join(" &middot; ");
-  const rows = groups
-    .filter((g) => g.items.length)
-    .map((g) => {
-      const items = g.items
-        .map(
-          (it) => `
+  const rows = items
+    .filter((it) => it.label.trim())
+    .map(
+      (it) => `
           <tr>
             <td class="chk"><span class="box ${it.status}"></span></td>
             <td class="lbl">${esc(it.label)}${it.note ? `<span class="note"> — ${esc(it.note)}</span>` : ""}</td>
             <td class="qty">${it.qty ? esc(it.qty) : ""}</td>
             <td class="st">${esc(it.status)}</td>
           </tr>`,
-        )
-        .join("");
-      return `
-        <tbody class="group">
-          <tr class="grp"><td colspan="4">${esc(g.group)}</td></tr>
-          ${items}
-        </tbody>`;
-    })
+    )
     .join("");
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(eventName)} — Packing List</title>
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(eventName)} — Material List</title>
     <style>
       * { box-sizing: border-box; }
       body { font: 13px/1.4 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #0f172a; margin: 24px; }
@@ -685,59 +807,57 @@ function packingListToHtml(
       .note { color: #64748b; }
       @media print { body { margin: 0; } .st { display: none; } }
     </style></head><body>
-    <h1>${esc(eventName)} — Packing / Material List</h1>
+    <h1>${esc(eventName)} — Material List</h1>
     ${meta ? `<div class="meta">${meta}</div>` : ""}
     <div class="key">Need &bull; Decided &bull; Ordered &bull; Received &bull; Packed</div>
-    <table>${rows}</table>
+    <table><tbody>${rows}</tbody></table>
     </body></html>`;
 }
 
-function PackingListEditor({
+// ---------------------------------------------------------------------------
+// Materials — one flat, hand-built list. Items are added one at a time; there
+// is deliberately no master template to prune.
+// ---------------------------------------------------------------------------
+function MaterialsEditor({
   eventName,
   eventDate,
   eventLocation,
-  groups,
-  setGroups,
+  items,
+  setItems,
 }: {
   eventName: string;
   eventDate: string | null;
   eventLocation: string | null;
-  groups: PackingListGroup[];
-  setGroups: React.Dispatch<React.SetStateAction<PackingListGroup[]>>;
+  items: PackingListItem[];
+  setItems: React.Dispatch<React.SetStateAction<PackingListItem[]>>;
 }) {
   const [copied, setCopied] = useState(false);
 
-  const totals = useMemo(() => {
-    let total = 0;
-    let packed = 0;
-    for (const g of groups) for (const it of g.items) { total++; if (it.status === "packed") packed++; }
-    return { total, packed };
-  }, [groups]);
+  const packed = useMemo(
+    () => items.filter((it) => it.status === "packed").length,
+    [items],
+  );
 
-  const mutateItem = (gi: number, ii: number, patch: Partial<PackingListGroup["items"][number]>) =>
-    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, items: g.items.map((it, j) => (j !== ii ? it : { ...it, ...patch })) })));
-  const removeItem = (gi: number, ii: number) =>
-    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, items: g.items.filter((_, j) => j !== ii) })));
-  const addItem = (gi: number) =>
-    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, items: [...g.items, { label: "", qty: null, status: "need", note: null }] })));
-  const renameGroup = (gi: number, name: string) =>
-    setGroups((prev) => prev.map((g, i) => (i !== gi ? g : { ...g, group: name })));
-  const removeGroup = (gi: number) => setGroups((prev) => prev.filter((_, i) => i !== gi));
-  const addGroup = () => setGroups((prev) => [...prev, { group: "New section", items: [{ label: "", qty: null, status: "need", note: null }] }]);
+  const mutateItem = (idx: number, patch: Partial<PackingListItem>) =>
+    setItems((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+  const removeItem = (idx: number) =>
+    setItems((prev) => prev.filter((_, i) => i !== idx));
+  const addItem = () =>
+    setItems((prev) => [...prev, { label: "", qty: null, status: "need", note: null }]);
 
   async function copyList() {
-    const text = packingListToText(eventName, eventDate, eventLocation, groups);
+    const text = packingListToText(eventName, eventDate, eventLocation, items);
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      window.prompt("Copy the packing list:", text);
+      window.prompt("Copy the material list:", text);
     }
   }
 
   function printList() {
-    const html = packingListToHtml(eventName, eventDate, eventLocation, groups);
+    const html = packingListToHtml(eventName, eventDate, eventLocation, items);
     const w = window.open("", "_blank", "width=760,height=900");
     if (!w) return;
     w.document.write(html);
@@ -747,93 +867,689 @@ function PackingListEditor({
   }
 
   function emailList() {
-    const subject = `Packing / Material list — ${eventName}`;
-    const body = packingListToText(eventName, eventDate, eventLocation, groups);
+    const subject = `Material list — ${eventName}`;
+    const body = packingListToText(eventName, eventDate, eventLocation, items);
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
   return (
     <fieldset className="rounded-lg border border-slate-200 p-3">
-      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Packing / Material list</legend>
+      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Material list</legend>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] text-slate-400">
-          Editable checklist — starts from the GD master template. {totals.packed}/{totals.total} packed.
+          Add what this event needs, one item at a time. {packed}/{items.length} packed.
         </p>
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" onClick={copyList} className={btnGhost}>{copied ? "✓ Copied" : "📋 Copy"}</button>
           <button type="button" onClick={printList} className={btnGhost}>🖨️ Print</button>
           <button type="button" onClick={emailList} className={btnGhost}>✉️ Email</button>
-          <button
-            type="button"
-            onClick={() => { if (confirm("Reset the packing list to the GD master template? This replaces the current list.")) setGroups(defaultPackingList()); }}
-            className={btnGhost}
-          >
-            ↺ Reset to master
-          </button>
         </div>
       </div>
 
-      <div className="space-y-3">
-        {groups.map((g, gi) => (
-          <div key={gi} className="rounded-lg border border-slate-100 bg-slate-50/40">
-            <div className="flex items-center gap-2 border-b border-slate-100 px-2 py-1.5">
-              <input
-                value={g.group}
-                onChange={(e) => renameGroup(gi, e.target.value)}
-                className="flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold uppercase tracking-wide text-slate-600 hover:border-slate-200 focus:border-emerald-400 focus:bg-white focus:outline-none"
-              />
-              <span className="text-[11px] text-slate-400">{g.items.length}</span>
-              <button type="button" onClick={() => addItem(gi)} title="Add item" className="rounded-md px-1.5 text-slate-400 hover:bg-white hover:text-emerald-600">＋</button>
-              <button type="button" onClick={() => removeGroup(gi)} title="Remove section" className="rounded-md px-1.5 text-slate-400 hover:bg-white hover:text-red-600">🗑</button>
-            </div>
-            <ul className="divide-y divide-slate-100">
-              {g.items.map((it, ii) => (
-                <li key={ii} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
-                  <div className="flex overflow-hidden rounded-md border border-slate-200">
-                    {PACKING_STATUSES.map((s) => (
-                      <button
-                        key={s.value}
-                        type="button"
-                        onClick={() => mutateItem(gi, ii, { status: s.value })}
-                        title={s.label}
-                        className={`px-1.5 py-1 text-[10px] font-semibold transition ${it.status === s.value ? PACKING_STATUS_STYLES[s.value] : "bg-white text-slate-400 hover:bg-slate-50"}`}
-                      >
-                        {s.label[0]}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    value={it.label}
-                    onChange={(e) => mutateItem(gi, ii, { label: e.target.value })}
-                    placeholder="Item…"
-                    className="min-w-[8rem] flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none"
-                  />
-                  <input
-                    value={it.qty ?? ""}
-                    onChange={(e) => mutateItem(gi, ii, { qty: e.target.value || null })}
-                    placeholder="Qty"
-                    className="w-20 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:border-emerald-400 focus:outline-none"
-                  />
-                  <input
-                    value={it.note ?? ""}
-                    onChange={(e) => mutateItem(gi, ii, { note: e.target.value || null })}
-                    placeholder="Note"
-                    className="w-32 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 focus:border-emerald-400 focus:outline-none"
-                  />
-                  <button type="button" onClick={() => removeItem(gi, ii)} className="px-1 text-slate-300 hover:text-red-600">✕</button>
-                </li>
+      <ul className="divide-y divide-slate-100 rounded-lg border border-slate-100 bg-slate-50/40">
+        {items.map((it, idx) => (
+          <li key={idx} className="flex flex-wrap items-center gap-1.5 px-2 py-1.5">
+            <div className="flex overflow-hidden rounded-md border border-slate-200">
+              {PACKING_STATUSES.map((s) => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => mutateItem(idx, { status: s.value })}
+                  title={s.label}
+                  className={`px-1.5 py-1 text-[10px] font-semibold transition ${it.status === s.value ? PACKING_STATUS_STYLES[s.value] : "bg-white text-slate-400 hover:bg-slate-50"}`}
+                >
+                  {s.label[0]}
+                </button>
               ))}
-              {g.items.length === 0 && (
-                <li className="px-2 py-2 text-center text-[11px] text-slate-400">No items — add one or remove this section.</li>
-              )}
-            </ul>
-          </div>
+            </div>
+            <input
+              value={it.label}
+              onChange={(e) => mutateItem(idx, { label: e.target.value })}
+              placeholder="Item…"
+              className="min-w-[8rem] flex-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 focus:border-emerald-400 focus:outline-none"
+            />
+            <input
+              value={it.qty ?? ""}
+              onChange={(e) => mutateItem(idx, { qty: e.target.value || null })}
+              placeholder="Qty"
+              className="w-20 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 focus:border-emerald-400 focus:outline-none"
+            />
+            <input
+              value={it.note ?? ""}
+              onChange={(e) => mutateItem(idx, { note: e.target.value || null })}
+              placeholder="Note"
+              className="w-32 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-500 focus:border-emerald-400 focus:outline-none"
+            />
+            <button type="button" onClick={() => removeItem(idx)} className="px-1 text-slate-300 hover:text-red-600">✕</button>
+          </li>
         ))}
-      </div>
-      <button type="button" onClick={addGroup} className={`${btnGhost} mt-3`}>＋ Add section</button>
+        {items.length === 0 && (
+          <li className="px-2 py-4 text-center text-[11px] text-slate-400">Nothing on the list yet.</li>
+        )}
+      </ul>
+      <button type="button" onClick={addItem} className={`${btnGhost} mt-3`}>＋ Add item</button>
     </fieldset>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Staff — picked from the HR roster, with a live read of the Schedule grid so
+// the event manager can see who is already committed to a shift that day.
+// ---------------------------------------------------------------------------
+function fmtShiftDay(d: string): string {
+  const dt = new Date(`${d}T00:00:00`);
+  return isNaN(dt.getTime()) ? d : dt.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+function fmtShiftTime(t: string | null): string | null {
+  if (!t) return null;
+  const [h, m] = t.split(":");
+  const hour = Number(h);
+  if (!Number.isFinite(hour)) return t;
+  const ampm = hour >= 12 ? "p" : "a";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return m && m !== "00" ? `${h12}:${m}${ampm}` : `${h12}${ampm}`;
+}
+
+function StaffPicker({
+  people,
+  staffIds,
+  setStaffIds,
+  startsOn,
+  endsOn,
+}: {
+  people: PersonOption[];
+  staffIds: string[];
+  setStaffIds: React.Dispatch<React.SetStateAction<string[]>>;
+  startsOn: string;
+  endsOn: string;
+}) {
+  const [pick, setPick] = useState("");
+  // Cached with the key it was fetched for, so a stale result is never shown
+  // and the effect never has to synchronously reset state.
+  const [result, setResult] = useState<{ key: string; shifts: EventStaffShift[] }>({
+    key: "",
+    shifts: [],
+  });
+
+  // One primitive key so the lookup re-runs on any real change, not on every
+  // new array identity.
+  const lookupKey = `${startsOn}|${endsOn}|${[...staffIds].sort().join(",")}`;
+
+  useEffect(() => {
+    const [start, end, ids] = lookupKey.split("|");
+    const personIds = ids ? ids.split(",") : [];
+    if (!start || personIds.length === 0) return;
+    let cancelled = false;
+    lookupEventStaffShifts(start, end || null, personIds).then((res) => {
+      if (!cancelled) setResult({ key: lookupKey, shifts: res.ok ? res.shifts : [] });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lookupKey]);
+
+  const fresh = result.key === lookupKey;
+  const checking = !fresh && Boolean(startsOn) && staffIds.length > 0;
+
+  const shiftsByPerson = useMemo(() => {
+    const m = new Map<string, EventStaffShift[]>();
+    if (!fresh) return m;
+    for (const s of result.shifts) {
+      const list = m.get(s.person_id) ?? [];
+      list.push(s);
+      m.set(s.person_id, list);
+    }
+    return m;
+  }, [fresh, result.shifts]);
+
+  const available = people.filter((p) => !staffIds.includes(p.id));
+
+  return (
+    <fieldset className="rounded-lg border border-slate-200 p-3">
+      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Staff</legend>
+      <p className="mb-3 text-[11px] text-slate-400">
+        Pick from the employee roster. Anyone already on the published schedule that
+        day is flagged so you don&apos;t double-book them.
+      </p>
+
+      <ul className="divide-y divide-slate-100 rounded-lg border border-slate-100">
+        {staffIds.map((id) => {
+          const person = people.find((p) => p.id === id);
+          const booked = shiftsByPerson.get(id) ?? [];
+          return (
+            <li key={id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+              <span className="flex-1 text-sm font-medium text-slate-700">
+                {person ? personLabel(person) : "Unknown person"}
+              </span>
+              {!startsOn ? (
+                <span className="text-[11px] text-slate-400">Set a date to check the schedule</span>
+              ) : checking ? (
+                <span className="text-[11px] text-slate-400">Checking schedule…</span>
+              ) : booked.length > 0 ? (
+                <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+                  ⚠ Scheduled{" "}
+                  {booked
+                    .slice(0, 2)
+                    .map((s) => {
+                      const time = [fmtShiftTime(s.start_time), fmtShiftTime(s.end_time)]
+                        .filter(Boolean)
+                        .join("–");
+                      return `${fmtShiftDay(s.work_date)} ${s.location_name}${time ? ` ${time}` : ""}`;
+                    })
+                    .join(" · ")}
+                  {booked.length > 2 && ` +${booked.length - 2}`}
+                </span>
+              ) : (
+                <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                  Not scheduled
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setStaffIds((prev) => prev.filter((x) => x !== id))}
+                className="px-1 text-slate-300 hover:text-red-600"
+                aria-label="Remove"
+              >
+                ✕
+              </button>
+            </li>
+          );
+        })}
+        {staffIds.length === 0 && (
+          <li className="px-3 py-3 text-center text-[11px] text-slate-400">No staff assigned yet.</li>
+        )}
+      </ul>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <select value={pick} onChange={(e) => setPick(e.target.value)} className={`${fieldInput} max-w-xs`}>
+          <option value="">Choose an employee…</option>
+          {available.map((p) => (
+            <option key={p.id} value={p.id}>
+              {personLabel(p)}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={!pick}
+          onClick={() => {
+            if (!pick) return;
+            setStaffIds((prev) => (prev.includes(pick) ? prev : [...prev, pick]));
+            setPick("");
+          }}
+          className={btnGhost}
+        >
+          ＋ Add staff
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Event promotion — the Yes/No that drives the list view's Promo column and
+// mirrors a row into Marketing Mgmt → Promotions on save.
+// ---------------------------------------------------------------------------
+function EventPromoFields({
+  event,
+  hasPromo,
+  setHasPromo,
+  eventStart,
+  eventEnd,
+}: {
+  event: MarketingEvent | null;
+  hasPromo: boolean;
+  setHasPromo: (v: boolean) => void;
+  eventStart: string;
+  eventEnd: string;
+}) {
+  return (
+    <fieldset className="rounded-lg border border-slate-200 p-3">
+      <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Event promotion</legend>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          name="has_promo"
+          checked={hasPromo}
+          onChange={(e) => setHasPromo(e.target.checked)}
+          className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+        />
+        <span className="text-sm font-medium text-slate-700">
+          This event has its own promotion
+        </span>
+      </label>
+
+      {hasPromo && (
+        <div className="mt-3 space-y-3">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="sm:col-span-3">
+              <label className={fieldLabel}>Promotion name</label>
+              <input
+                name="promo_name"
+                defaultValue={event?.promo_name ?? ""}
+                placeholder={event?.name ? `${event.name} promo` : "e.g. $50 off a dental"}
+                className={fieldInput}
+              />
+            </div>
+            <div>
+              <label className={fieldLabel}>Active start</label>
+              <input type="date" name="promo_starts_on" defaultValue={event?.promo_starts_on ?? eventStart} className={fieldInput} />
+            </div>
+            <div>
+              <label className={fieldLabel}>Active end</label>
+              <input type="date" name="promo_ends_on" defaultValue={event?.promo_ends_on ?? eventEnd} className={fieldInput} />
+            </div>
+          </div>
+          <div>
+            <label className={fieldLabel}>Promotion details</label>
+            <textarea
+              name="promo_details"
+              defaultValue={event?.promo_details ?? ""}
+              rows={3}
+              placeholder="What's the offer, who can redeem it, and how?"
+              className={fieldInput}
+            />
+          </div>
+          <p className="text-[11px] text-slate-400">
+            Saving adds this to Marketing Mgmt → Promotions and keeps it in sync.
+            Unchecking the box removes it from that list again.
+          </p>
+        </div>
+      )}
+    </fieldset>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// QR code panel — a printable code per event or CE course plus the custom
+// capture form behind it. Everything here posts through explicit FormData
+// because this panel can live inside the event form (no nested <form>, no
+// stray `name` attributes).
+// ---------------------------------------------------------------------------
+export function QrPanel({
+  subject,
+  codes,
+  forms,
+  canEdit,
+  run,
+}: {
+  subject: { kind: "event" | "ce"; id: string; name: string } | null;
+  codes: QrCode[];
+  forms: QrForm[];
+  canEdit: boolean;
+  run: Run;
+}) {
+  const [origin, setOrigin] = useState("");
+
+  useEffect(() => {
+    // Browser-only value, read after mount to avoid a hydration mismatch.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOrigin(window.location.origin);
+  }, []);
+
+  if (!subject) {
+    return (
+      <p className="rounded-lg bg-slate-50 px-3 py-6 text-center text-sm text-slate-500">
+        Save the event first — then you can generate its QR code and sign-up form here.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {codes.length === 0 && (
+        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center">
+          <p className="text-sm text-slate-600">
+            No QR code yet. Generate one and we&apos;ll create a starter sign-up form
+            with it — every scan lands in Event Leads.
+          </p>
+          {canEdit && (
+            <button
+              type="button"
+              onClick={() => run(() => createQrCodeFor(subject.kind, subject.id, subject.name))}
+              className={`${btnPrimary} mt-3`}
+            >
+              Create QR code &amp; form
+            </button>
+          )}
+        </div>
+      )}
+
+      {codes.map((code) => (
+        <EventQrCard
+          key={code.id}
+          code={code}
+          forms={forms}
+          origin={origin}
+          canEdit={canEdit}
+          run={run}
+        />
+      ))}
+
+      {codes.length > 0 && canEdit && (
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => run(() => createQrCodeFor(subject.kind, subject.id, subject.name))}
+            className={btnGhost}
+          >
+            ＋ Add another code
+          </button>
+          <Link href="/marketing/qr-codes" className="text-xs font-medium text-emerald-700 hover:underline">
+            Manage all QR codes →
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EventQrCard({
+  code,
+  forms,
+  origin,
+  canEdit,
+  run,
+}: {
+  code: QrCode;
+  forms: QrForm[];
+  origin: string;
+  canEdit: boolean;
+  run: Run;
+}) {
+  const qrRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+  const url = origin ? qrScanUrl(origin, code.token) : "";
+  const linkedForm = forms.find((f) => f.id === code.form_id) ?? null;
+
+  async function copy() {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      window.prompt("Copy the link:", url);
+    }
+  }
+
+  function download() {
+    const canvas = qrRef.current?.querySelector("canvas");
+    if (!canvas) return;
+    const slug = code.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "qr";
+    const link = document.createElement("a");
+    link.download = `${slug}-qr.png`;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+        <div ref={qrRef} className="mx-auto shrink-0 rounded-lg border border-slate-200 p-2 sm:mx-0">
+          {url ? <QRCodeCanvas value={url} size={150} marginSize={2} level="M" /> : <div className="h-[150px] w-[150px]" />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-semibold text-slate-800">{code.label}</p>
+            <Badge className={code.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"}>
+              {code.active ? "Active" : "Inactive"}
+            </Badge>
+            <span className="text-[11px] text-slate-400">{code.scan_count} scans</span>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              readOnly
+              value={url}
+              onFocus={(e) => e.currentTarget.select()}
+              className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-700"
+            />
+            <button type="button" onClick={copy} className={btnGhost}>{copied ? "✓ Copied" : "Copy link"}</button>
+            <button type="button" onClick={download} className={btnGhost}>Download QR</button>
+          </div>
+          {canEdit && (
+            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+              <button
+                type="button"
+                onClick={() => run(() => setQrCodeActive(code.id, !code.active))}
+                className="font-medium text-slate-500 hover:text-slate-800"
+              >
+                {code.active ? "Deactivate" : "Activate"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Delete the QR code "${code.label}"? Printed copies stop working.`)) {
+                    run(() => deleteQrCode(code.id));
+                  }
+                }}
+                className="font-medium text-red-600 hover:text-red-700"
+              >
+                Delete code
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <QrFormEditor
+        key={code.form_id ?? "none"}
+        code={code}
+        form={linkedForm}
+        forms={forms}
+        canEdit={canEdit}
+        run={run}
+      />
+    </div>
+  );
+}
+
+type FormDraft = {
+  name: string;
+  headline: string;
+  intro: string;
+  success_message: string;
+  collect_pet_name: boolean;
+  collect_zip: boolean;
+  fields: QrFormField[];
+};
+
+function QrFormEditor({
+  code,
+  form,
+  forms,
+  canEdit,
+  run,
+}: {
+  code: QrCode;
+  form: QrForm | null;
+  forms: QrForm[];
+  canEdit: boolean;
+  run: Run;
+}) {
+  const [draft, setDraft] = useState<FormDraft>(() => ({
+    name: form?.name ?? code.label,
+    headline: form?.headline ?? "",
+    intro: form?.intro ?? "",
+    success_message: form?.success_message ?? "",
+    collect_pet_name: form?.collect_pet_name ?? true,
+    collect_zip: form?.collect_zip ?? false,
+    fields: form?.fields ?? [],
+  }));
+
+  function patch(p: Partial<FormDraft>) {
+    setDraft((prev) => ({ ...prev, ...p }));
+  }
+  function patchField(idx: number, p: Partial<QrFormField>) {
+    setDraft((prev) => ({
+      ...prev,
+      fields: prev.fields.map((f, i) => (i === idx ? { ...f, ...p } : f)),
+    }));
+  }
+
+  function save() {
+    const fd = new FormData();
+    if (form) fd.set("id", form.id);
+    fd.set("name", draft.name);
+    fd.set("headline", draft.headline);
+    fd.set("intro", draft.intro);
+    fd.set("success_message", draft.success_message);
+    if (draft.collect_pet_name) fd.set("collect_pet_name", "true");
+    if (draft.collect_zip) fd.set("collect_zip", "true");
+    fd.set("active", "true");
+    fd.set(
+      "fields_json",
+      JSON.stringify(
+        draft.fields
+          .filter((f) => f.label.trim())
+          .map((f) => ({ ...f, key: f.key || slugifyFieldKey(f.label) })),
+      ),
+    );
+    run(() => saveQrForm(fd));
+  }
+
+  function linkForm(formId: string) {
+    const fd = new FormData();
+    fd.set("id", code.id);
+    fd.set("label", code.label);
+    fd.set("code_type", code.code_type);
+    if (code.event_id) fd.set("event_id", code.event_id);
+    if (code.target_url) fd.set("target_url", code.target_url);
+    fd.set("form_id", formId);
+    fd.set("active", String(code.active));
+    run(() => saveQrCode(fd));
+  }
+
+  if (!form) {
+    return (
+      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3">
+        <p className="text-sm text-amber-800">This code has no form attached — a scan will 404.</p>
+        {canEdit && forms.length > 0 && (
+          <select
+            defaultValue=""
+            onChange={(e) => e.target.value && linkForm(e.target.value)}
+            className={`${fieldInput} mt-2 max-w-xs`}
+          >
+            <option value="">Attach an existing form…</option>
+            {forms.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.name}
+              </option>
+            ))}
+          </select>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Capture form</p>
+        {canEdit && (
+          <button type="button" onClick={save} className={btnPrimary}>Save form</button>
+        )}
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className={fieldLabel}>Form name (internal)</label>
+          <input value={draft.name} onChange={(e) => patch({ name: e.target.value })} className={fieldInput} />
+        </div>
+        <div>
+          <label className={fieldLabel}>Headline (shown on the page)</label>
+          <input value={draft.headline} onChange={(e) => patch({ headline: e.target.value })} className={fieldInput} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className={fieldLabel}>Intro text</label>
+          <textarea value={draft.intro} onChange={(e) => patch({ intro: e.target.value })} rows={2} className={fieldInput} />
+        </div>
+        <div className="sm:col-span-2">
+          <label className={fieldLabel}>Thank-you message</label>
+          <input value={draft.success_message} onChange={(e) => patch({ success_message: e.target.value })} className={fieldInput} />
+        </div>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={draft.collect_pet_name} onChange={(e) => patch({ collect_pet_name: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+          Ask for pet name
+        </label>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={draft.collect_zip} onChange={(e) => patch({ collect_zip: e.target.checked })} className="h-4 w-4 rounded border-slate-300 text-emerald-600" />
+          Ask for ZIP code
+        </label>
+        <span className="text-xs text-slate-400">Name + email/phone are always collected.</span>
+      </div>
+
+      <div className="mt-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Custom questions</p>
+        <ul className="space-y-2">
+          {draft.fields.map((f, idx) => (
+            <li key={idx} className="rounded-lg border border-slate-200 bg-white p-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <input
+                  value={f.label}
+                  onChange={(e) => patchField(idx, { label: e.target.value })}
+                  placeholder="Question…"
+                  className="min-w-[10rem] flex-1 rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-400 focus:outline-none"
+                />
+                <select
+                  value={f.type}
+                  onChange={(e) => patchField(idx, { type: e.target.value as QrFormField["type"] })}
+                  className="rounded-md border border-slate-200 px-2 py-1 text-xs"
+                >
+                  {QR_FIELD_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-1 text-[11px] text-slate-500">
+                  <input type="checkbox" checked={f.required} onChange={(e) => patchField(idx, { required: e.target.checked })} className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600" />
+                  Required
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDraft((prev) => ({ ...prev, fields: prev.fields.filter((_, i) => i !== idx) }))}
+                  className="px-1 text-slate-300 hover:text-red-600"
+                >
+                  ✕
+                </button>
+              </div>
+              {f.type === "select" && (
+                <input
+                  value={f.options.join(", ")}
+                  onChange={(e) => patchField(idx, { options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                  placeholder="Options, comma separated"
+                  className="mt-1.5 w-full rounded-md border border-slate-200 px-2 py-1 text-xs focus:border-emerald-400 focus:outline-none"
+                />
+              )}
+            </li>
+          ))}
+          {draft.fields.length === 0 && (
+            <li className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-center text-[11px] text-slate-400">
+              No extra questions — the form just collects contact details.
+            </li>
+          )}
+        </ul>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() =>
+              setDraft((prev) => ({
+                ...prev,
+                fields: [...prev.fields, { key: "", label: "", type: "text", required: false, options: [], placeholder: null }],
+              }))
+            }
+            className={`${btnGhost} mt-2`}
+          >
+            ＋ Add question
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 function AttendeesManager({ eventId, attendees, canEdit, run }: { eventId: string; attendees: MarketingEventAttendee[]; canEdit: boolean; run: Run }) {
   const [name, setName] = useState("");

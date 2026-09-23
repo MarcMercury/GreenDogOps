@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser, recordAudit } from "@/lib/auth/session";
 import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
-import type { InitiativeLink, TreeItem } from "@/lib/marketing/types";
+import type { InitiativeLink, TreeItem, EventStaffShift } from "@/lib/marketing/types";
+import { searchShifts } from "../schedule-search/data";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 export type ActionResult =
   | { ok: true; message?: string }
@@ -33,6 +34,8 @@ function int(v: FormDataEntryValue | null): number | null {
 function bool(v: FormDataEntryValue | null): boolean {
   return v === "on" || v === "true";
 }
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Every action here mutates marketing data, so it requires *edit* rights on the
 // Marketing Management module. Read-only roles are redirected away.
@@ -55,40 +58,7 @@ function done(message: string): ActionResult {
 }
 
 // ===========================================================================
-// Goals
-// ===========================================================================
-export async function saveGoal(formData: FormData): Promise<ActionResult> {
-  await requireMarketingEditor();
-  const supabase = await createClient();
-  const id = str(formData.get("id"));
-  const patch = {
-    title: str(formData.get("title")) ?? "Untitled goal",
-    category: str(formData.get("category")),
-    metric_unit: str(formData.get("metric_unit")),
-    target_value: num(formData.get("target_value")),
-    current_value: num(formData.get("current_value")),
-    period: str(formData.get("period")),
-    notes: str(formData.get("notes")),
-    node_id: str(formData.get("node_id")),
-    is_active: formData.get("is_active") == null ? true : bool(formData.get("is_active")),
-  };
-  const { error } = id
-    ? await supabase.from("marketing_goal").update(patch).eq("id", id)
-    : await supabase.from("marketing_goal").insert(patch);
-  if (error) return { ok: false, error: error.message };
-  return done(id ? "Goal updated." : "Goal added.");
-}
-
-export async function deleteGoal(id: string): Promise<ActionResult> {
-  await requireMarketingEditor();
-  const supabase = await createClient();
-  const { error } = await supabase.from("marketing_goal").delete().eq("id", id);
-  if (error) return { ok: false, error: error.message };
-  return done("Goal deleted.");
-}
-
-// ===========================================================================
-// Initiatives
+// Shared link parsing (tree node links)
 // ===========================================================================
 function parseLinks(formData: FormData): InitiativeLink[] {
   const labels = formData.getAll("link_label").map((v) => String(v).trim());
@@ -100,55 +70,6 @@ function parseLinks(formData: FormData): InitiativeLink[] {
     out.push({ label: labels[i] || url, url });
   }
   return out;
-}
-
-export async function saveInitiative(formData: FormData): Promise<ActionResult> {
-  await requireMarketingEditor();
-  const supabase = await createClient();
-  const id = str(formData.get("id"));
-  const patch = {
-    title: str(formData.get("title")) ?? "Untitled initiative",
-    category: str(formData.get("category")) ?? "other",
-    status: str(formData.get("status")) ?? "planned",
-    priority: str(formData.get("priority")) ?? "medium",
-    owner_name: str(formData.get("owner_name")),
-    partner_name: str(formData.get("partner_name")),
-    next_action: str(formData.get("next_action")),
-    due_date: str(formData.get("due_date")),
-    notes: str(formData.get("notes")),
-    node_id: str(formData.get("node_id")),
-    links: parseLinks(formData),
-  };
-  const { error } = id
-    ? await supabase.from("marketing_initiative").update(patch).eq("id", id)
-    : await supabase.from("marketing_initiative").insert(patch);
-  if (error) return { ok: false, error: error.message };
-  return done(id ? "Initiative updated." : "Initiative added.");
-}
-
-export async function updateInitiativeStatus(
-  id: string,
-  status: string,
-): Promise<ActionResult> {
-  await requireMarketingEditor();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("marketing_initiative")
-    .update({ status })
-    .eq("id", id);
-  if (error) return { ok: false, error: error.message };
-  return done("Status updated.");
-}
-
-export async function deleteInitiative(id: string): Promise<ActionResult> {
-  await requireMarketingEditor();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("marketing_initiative")
-    .delete()
-    .eq("id", id);
-  if (error) return { ok: false, error: error.message };
-  return done("Initiative deleted.");
 }
 
 // ===========================================================================
@@ -192,19 +113,115 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
     feedback: str(formData.get("feedback")),
     // Planning / promotion
     staff: str(formData.get("staff")),
+    staff_ids: formData
+      .getAll("staff_id")
+      .map((v) => String(v))
+      .filter((v) => UUID_RE.test(v)),
     supplies: str(formData.get("supplies")),
     promo_channels: str(formData.get("promo_channels")),
     landing_url: str(formData.get("landing_url")),
     rsvp_url: str(formData.get("rsvp_url")),
+    has_promo: bool(formData.get("has_promo")),
+    promo_name: str(formData.get("promo_name")),
+    promo_details: str(formData.get("promo_details")),
+    promo_starts_on: str(formData.get("promo_starts_on")),
+    promo_ends_on: str(formData.get("promo_ends_on")),
     source_id: str(formData.get("source_id")),
     checklist: parseChecklist(formData),
     packing_list: parsePackingList(formData),
   };
-  const { error } = id
-    ? await supabase.from("marketing_event").update(patch).eq("id", id)
-    : await supabase.from("marketing_event").insert(patch);
-  if (error) return { ok: false, error: error.message };
+  let eventId = id;
+  if (id) {
+    const { error } = await supabase.from("marketing_event").update(patch).eq("id", id);
+    if (error) return { ok: false, error: error.message };
+  } else {
+    const { data, error } = await supabase
+      .from("marketing_event")
+      .insert(patch)
+      .select("id")
+      .single();
+    if (error) return { ok: false, error: error.message };
+    eventId = (data as { id: string }).id;
+  }
+  if (eventId) {
+    const promoErr = await syncEventPromotion(supabase, eventId, patch);
+    if (promoErr) return { ok: false, error: promoErr };
+  }
+  revalidatePath("/marketing/events");
   return done(id ? "Event updated." : "Event added.");
+}
+
+/** Human-readable redemption window for the mirrored promotion row. */
+function promoWindowText(start: string | null, end: string | null): string | null {
+  if (!start && !end) return null;
+  const fmt = (d: string) => {
+    const dt = new Date(`${d}T00:00:00`);
+    return isNaN(dt.getTime())
+      ? d
+      : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+  if (start && end) return `${fmt(start)} – ${fmt(end)}`;
+  return start ? `From ${fmt(start)}` : `Through ${fmt(end as string)}`;
+}
+
+/** active / upcoming / expired derived from the redemption window. */
+function promoStatusFor(start: string | null, end: string | null): string {
+  const today = new Date().toISOString().slice(0, 10);
+  if (end && end < today) return "expired";
+  if (start && start > today) return "upcoming";
+  return "active";
+}
+
+/**
+ * Keep the Promotions tab in sync with an event's promo. An event that HAS a
+ * promo owns exactly one marketing_promotion row (source_event_id = event);
+ * unchecking the box removes it again, so the promo list only ever lists promos
+ * we are actually running. Returns an error message, or null on success.
+ */
+async function syncEventPromotion(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  eventId: string,
+  patch: {
+    name: string;
+    location: string | null;
+    has_promo: boolean;
+    promo_name: string | null;
+    promo_details: string | null;
+    promo_starts_on: string | null;
+    promo_ends_on: string | null;
+  },
+): Promise<string | null> {
+  const { data: existing } = await supabase
+    .from("marketing_promotion")
+    .select("id")
+    .eq("source_event_id", eventId)
+    .maybeSingle();
+  const current = existing as { id: string } | null;
+
+  if (!patch.has_promo) {
+    if (!current) return null;
+    const { error } = await supabase
+      .from("marketing_promotion")
+      .delete()
+      .eq("id", current.id);
+    return error ? error.message : null;
+  }
+
+  const promo = {
+    name: patch.promo_name ?? `${patch.name} promo`,
+    placement: patch.location,
+    status: promoStatusFor(patch.promo_starts_on, patch.promo_ends_on),
+    promo_type: "event",
+    duration_text: promoWindowText(patch.promo_starts_on, patch.promo_ends_on),
+    rules: patch.promo_details,
+    active_start: patch.promo_starts_on,
+    active_end: patch.promo_ends_on,
+    source_event_id: eventId,
+  };
+  const { error } = current
+    ? await supabase.from("marketing_promotion").update(promo).eq("id", current.id)
+    : await supabase.from("marketing_promotion").insert(promo);
+  return error ? error.message : null;
 }
 
 export async function deleteEvent(id: string): Promise<ActionResult> {
@@ -212,7 +229,40 @@ export async function deleteEvent(id: string): Promise<ActionResult> {
   const supabase = await createClient();
   const { error } = await supabase.from("marketing_event").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
+  revalidatePath("/marketing/events");
   return done("Event deleted.");
+}
+
+/**
+ * Shifts the given people are already scheduled for across an event's dates.
+ * Called from the event dialog's staff picker so a manager never staffs someone
+ * who is already on the floor. Reads the same published/pending weeks as
+ * Schedule Search.
+ */
+export async function lookupEventStaffShifts(
+  startsOn: string | null,
+  endsOn: string | null,
+  personIds: string[],
+): Promise<{ ok: true; shifts: EventStaffShift[] } | { ok: false; error: string }> {
+  await requireMarketingEditor();
+  const ids = personIds.filter((p) => UUID_RE.test(p));
+  if (!startsOn || ids.length === 0) return { ok: true, shifts: [] };
+  const end = endsOn && endsOn >= startsOn ? endsOn : startsOn;
+  try {
+    const hits = await searchShifts(ids, startsOn, end);
+    return {
+      ok: true,
+      shifts: hits.map((h) => ({
+        person_id: h.person_id,
+        work_date: h.work_date,
+        location_name: h.location_name,
+        start_time: h.start_time,
+        end_time: h.end_time,
+      })),
+    };
+  } catch {
+    return { ok: false, error: "Could not read the schedule." };
+  }
 }
 
 // ===========================================================================
@@ -692,6 +742,8 @@ export async function savePromotion(formData: FormData): Promise<ActionResult> {
     booking_url: str(formData.get("booking_url")),
     rules: str(formData.get("rules")),
     notes: str(formData.get("notes")),
+    active_start: str(formData.get("active_start")),
+    active_end: str(formData.get("active_end")),
   };
   const { error } = id
     ? await supabase.from("marketing_promotion").update(patch).eq("id", id)

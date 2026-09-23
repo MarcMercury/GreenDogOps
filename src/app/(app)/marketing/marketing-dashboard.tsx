@@ -5,30 +5,20 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { PageHeader } from "../_components/ui";
 import {
-  type MarketingGoal,
-  type MarketingInitiative,
   type MarketingEvent,
   type MarketingBudgetPeriod,
   type MarketingBudgetEntry,
   type MarketingResource,
   type MarketingTreeNode,
-  type MarketingEventSource,
-  type MarketingEventAttendee,
   type MarketingPromotion,
   type PersonOption,
   type MarketingActivity,
   type CrmOrgRef,
   type MarketingVendorRef,
-  type InitiativeLink,
-  INITIATIVE_CATEGORIES,
-  INITIATIVE_STATUSES,
-  PRIORITIES,
   BUDGET_ENTRY_STATUSES,
   RESOURCE_CATEGORIES,
   PROMO_STATUSES,
   PROMO_TYPES,
-  initiativeCategoryLabel,
-  initiativeStatusLabel,
   priorityLabel,
   resourceCategoryLabel,
   promoStatusLabel,
@@ -37,16 +27,10 @@ import {
   personLabel,
 } from "@/lib/marketing/types";
 import { MarketingTree } from "./marketing-tree";
-import { EventsTab } from "./marketing-events";
 import { TemplatesView } from "../email-templates/templates-view";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
 import { subtypeLabel } from "@/lib/crm/types";
 import {
-  saveGoal,
-  deleteGoal,
-  saveInitiative,
-  updateInitiativeStatus,
-  deleteInitiative,
   saveBudgetPeriod,
   saveBudgetEntry,
   deleteBudgetEntry,
@@ -83,10 +67,6 @@ function fmtMoney(n: number | null | undefined): string {
     maximumFractionDigits: n % 1 === 0 ? 0 : 2,
   });
 }
-function fmtNum(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return n.toLocaleString("en-US");
-}
 function fmtDate(d: string | null | undefined): string {
   if (!d) return "—";
   const dt = new Date(`${d}T00:00:00`);
@@ -98,61 +78,6 @@ function fmtDate(d: string | null | undefined): string {
   });
 }
 
-function linkLabel(url: string): string {
-  try {
-    const host = new URL(url).hostname.replace(/^www\./, "");
-    if (host.includes("canva")) return "Canva";
-    if (host.includes("docs.google")) return "Google Doc";
-    if (host.includes("drive.google")) return "Drive";
-    if (host.includes("figma")) return "Figma";
-    const base = host.split(".")[0];
-    return base.charAt(0).toUpperCase() + base.slice(1);
-  } catch {
-    return "Link";
-  }
-}
-
-function NextActionCell({ value }: { value: string | null | undefined }) {
-  if (!value) return <span className="text-slate-400">—</span>;
-  const urlMatch = value.match(/https?:\/\/[^\s]+/i);
-  if (urlMatch) {
-    const url = urlMatch[0];
-    const idx = urlMatch.index ?? 0;
-    const text = [value.slice(0, idx).trim(), value.slice(idx + url.length).trim()]
-      .filter(Boolean)
-      .join(" ");
-    return (
-      <div className="space-y-0.5 text-xs leading-snug">
-        {text && <span className="block break-words text-slate-600">{text}</span>}
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-0.5 font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
-        >
-          🔗 {linkLabel(url)}
-        </a>
-      </div>
-    );
-  }
-  return <span className="block break-words text-xs leading-snug text-slate-600">{value}</span>;
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  idea: "bg-slate-100 text-slate-600",
-  planned: "bg-sky-50 text-sky-700",
-  in_progress: "bg-amber-50 text-amber-700",
-  blocked: "bg-red-50 text-red-700",
-  done: "bg-emerald-50 text-emerald-700",
-  researching: "bg-slate-100 text-slate-600",
-  tentative: "bg-sky-50 text-sky-700",
-  confirmed: "bg-emerald-50 text-emerald-700",
-  completed: "bg-indigo-50 text-indigo-700",
-  cancelled: "bg-red-50 text-red-700",
-  paid: "bg-emerald-50 text-emerald-700",
-  reimbursed: "bg-indigo-50 text-indigo-700",
-};
 const PRIORITY_COLORS: Record<string, string> = {
   high: "bg-red-50 text-red-700",
   medium: "bg-amber-50 text-amber-700",
@@ -224,11 +149,9 @@ function OptionsSelect({
 // ===========================================================================
 // Dashboard
 // ===========================================================================
-type TabKey = "tree" | "initiatives" | "events" | "promotions" | "activity" | "budget" | "resources" | "email_templates";
+type TabKey = "tree" | "promotions" | "activity" | "budget" | "resources" | "email_templates";
 const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean; emailTemplatesOnly?: boolean }[] = [
   { key: "tree", label: "Marketing Tree", icon: "🌳" },
-  { key: "initiatives", label: "Goals & Initiatives", icon: "🗂️" },
-  { key: "events", label: "Events", icon: "🎪" },
   { key: "promotions", label: "Promotions", icon: "🏷️" },
   { key: "activity", label: "Activity", icon: "📈" },
   { key: "budget", label: "Budget", icon: "💵", adminOnly: true },
@@ -240,15 +163,11 @@ export function MarketingDashboard({
   canEdit,
   isAdmin,
   canViewCredentials,
-  goals,
-  initiatives,
   events,
   budgetPeriods,
   budgetEntries,
   resources,
   treeNodes,
-  eventSources,
-  eventAttendees,
   promotions,
   people,
   activity,
@@ -261,15 +180,11 @@ export function MarketingDashboard({
   canEdit: boolean;
   isAdmin: boolean;
   canViewCredentials: boolean;
-  goals: MarketingGoal[];
-  initiatives: MarketingInitiative[];
   events: MarketingEvent[];
   budgetPeriods: MarketingBudgetPeriod[];
   budgetEntries: MarketingBudgetEntry[];
   resources: MarketingResource[];
   treeNodes: MarketingTreeNode[];
-  eventSources: MarketingEventSource[];
-  eventAttendees: MarketingEventAttendee[];
   promotions: MarketingPromotion[];
   people: PersonOption[];
   activity: MarketingActivity[];
@@ -296,12 +211,6 @@ export function MarketingDashboard({
     [isAdmin, canManageEmailTemplates],
   );
 
-  // Budget-category goals are sensitive; only admins see them in the KPI strip.
-  const visibleGoals = useMemo(
-    () => (isAdmin ? goals : goals.filter((g) => (g.category ?? "").toLowerCase() !== "budget")),
-    [goals, isAdmin],
-  );
-
   function notify(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 3500);
@@ -323,7 +232,7 @@ export function MarketingDashboard({
       <PageHeader
         eyebrow="Marketing"
         title="Marketing Management"
-        description="The single source of truth for marketing activity — goals, initiatives, events, budget and the tools & partners we coordinate with."
+        description="The single source of truth for marketing activity — events, budget and the tools & partners we coordinate with."
       />
 
       {/* Tabs */}
@@ -352,22 +261,7 @@ export function MarketingDashboard({
           canEdit={canEdit}
           nodes={treeNodes}
           people={people}
-          goals={goals}
-          initiatives={initiatives}
           events={events}
-        />
-      )}
-      {tab === "initiatives" && (
-        <InitiativesTab canEdit={canEdit} initiatives={initiatives} goals={visibleGoals} people={people} treeNodes={treeNodes} run={run} />
-      )}
-      {tab === "events" && (
-        <EventsTab
-          canEdit={canEdit}
-          events={events}
-          sources={eventSources}
-          attendees={eventAttendees}
-          crmOrgs={crmOrgs}
-          people={people}
         />
       )}
       {tab === "activity" && (
@@ -406,115 +300,6 @@ export function MarketingDashboard({
 
 type Run = (action: () => Promise<ActionResult>, after?: () => void) => void;
 
-/**
- * Dropdown for connecting a goal / initiative to a single marketing tree node.
- * Archived nodes are hidden (unless it is the currently linked one) and the
- * live nodes are grouped by zone so the list stays scannable.
- */
-function NodeSelect({
-  name,
-  defaultValue,
-  treeNodes,
-}: {
-  name: string;
-  defaultValue: string | null;
-  treeNodes: MarketingTreeNode[];
-}) {
-  const options = useMemo(() => {
-    const live = treeNodes.filter(
-      (n) => n.status !== "archived" || n.id === defaultValue,
-    );
-    const byZone = new Map<string, MarketingTreeNode[]>();
-    for (const n of live) {
-      const arr = byZone.get(n.zone) ?? [];
-      arr.push(n);
-      byZone.set(n.zone, arr);
-    }
-    for (const arr of byZone.values()) {
-      arr.sort((a, b) => a.label.localeCompare(b.label));
-    }
-    return byZone;
-  }, [treeNodes, defaultValue]);
-  return (
-    <select name={name} defaultValue={defaultValue ?? ""} className={fieldInput}>
-      <option value="">— Not connected —</option>
-      {Array.from(options.entries()).map(([zone, nodes]) => (
-        <optgroup key={zone} label={treeZoneLabel(zone)}>
-          {nodes.map((n) => (
-            <option key={n.id} value={n.id}>
-              {n.label}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-  );
-}
-
-function GoalDialog({
-  goal,
-  treeNodes,
-  onClose,
-  run,
-}: {
-  goal: MarketingGoal | null;
-  treeNodes: MarketingTreeNode[];
-  onClose: () => void;
-  run: Run;
-}) {
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    run(() => saveGoal(fd), onClose);
-  }
-  return (
-    <Modal title={goal ? "Edit goal" : "New goal"} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        {goal && <input type="hidden" name="id" value={goal.id} />}
-        <div>
-          <label className={fieldLabel}>Title</label>
-          <input name="title" defaultValue={goal?.title ?? ""} required className={fieldInput} />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <label className={fieldLabel}>Current value</label>
-            <input name="current_value" defaultValue={goal?.current_value ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Target value</label>
-            <input name="target_value" defaultValue={goal?.target_value ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Unit (e.g. clients, $, leads)</label>
-            <input name="metric_unit" defaultValue={goal?.metric_unit ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Period (e.g. 2026, Monthly)</label>
-            <input name="period" defaultValue={goal?.period ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Category</label>
-            <input name="category" defaultValue={goal?.category ?? ""} className={fieldInput} />
-          </div>
-        </div>
-        <div>
-          <label className={fieldLabel}>Connected tree node</label>
-          <NodeSelect name="node_id" defaultValue={goal?.node_id ?? null} treeNodes={treeNodes} />
-        </div>
-        <div>
-          <label className={fieldLabel}>Notes</label>
-          <textarea name="notes" defaultValue={goal?.notes ?? ""} rows={2} className={fieldInput} />
-        </div>
-        <DialogFooter
-          onClose={onClose}
-          onDelete={goal ? () => run(() => deleteGoal(goal.id), onClose) : undefined}
-          deleteLabel="Delete goal"
-        />
-      </form>
-    </Modal>
-  );
-}
-
 function DialogFooter({
   onClose,
   onDelete,
@@ -548,361 +333,6 @@ function DialogFooter({
         </button>
       </div>
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Initiatives tab
-// ---------------------------------------------------------------------------
-function InitiativesTab({
-  canEdit,
-  initiatives,
-  goals,
-  people,
-  treeNodes,
-  run,
-}: {
-  canEdit: boolean;
-  initiatives: MarketingInitiative[];
-  goals: MarketingGoal[];
-  people: PersonOption[];
-  treeNodes: MarketingTreeNode[];
-  run: Run;
-}) {
-  const [editing, setEditing] = useState<MarketingInitiative | "new" | null>(null);
-  const [editingGoal, setEditingGoal] = useState<MarketingGoal | "new" | null>(null);
-  const [category, setCategory] = useState("");
-  const [status, setStatus] = useState("");
-  const [owner, setOwner] = useState("");
-  const [priority, setPriority] = useState("");
-
-  const activeGoals = useMemo(() => goals.filter((g) => g.is_active), [goals]);
-
-  const owners = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          initiatives
-            .map((i) => i.owner_name?.trim())
-            .filter((o): o is string => !!o),
-        ),
-      ).sort((a, b) => a.localeCompare(b)),
-    [initiatives],
-  );
-
-  const filtered = useMemo(
-    () =>
-      initiatives.filter(
-        (i) =>
-          (!category || i.category === category) &&
-          (!status || i.status === status) &&
-          (!owner || i.owner_name === owner) &&
-          (!priority || i.priority === priority),
-      ),
-    [initiatives, category, status, owner, priority],
-  );
-
-  const iSort = useTableSort(filtered, {
-    initiative: (i) => i.title,
-    owner: (i) => i.owner_name,
-    partner: (i) => i.partner_name,
-    nextAction: (i) => i.next_action,
-    due: (i) => i.due_date,
-    status: (i) => i.status,
-  });
-
-  return (
-    <section className="space-y-4">
-      {/* Goals — list form */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2.5">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Goals & KPIs
-          </h2>
-          {canEdit && (
-            <button type="button" className={btnGhost} onClick={() => setEditingGoal("new")}>
-              + Goal
-            </button>
-          )}
-        </div>
-        {activeGoals.length === 0 ? (
-          <p className="px-4 py-6 text-center text-sm text-slate-400">No goals yet.</p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {activeGoals.map((g) => {
-              const pct =
-                g.target_value && g.target_value > 0
-                  ? Math.min(100, Math.round(((g.current_value ?? 0) / g.target_value) * 100))
-                  : null;
-              const isMoney = (g.metric_unit ?? "").trim() === "$";
-              const fmt = isMoney ? fmtMoney : fmtNum;
-              return (
-                <li key={g.id}>
-                  <button
-                    type="button"
-                    disabled={!canEdit}
-                    onClick={() => canEdit && setEditingGoal(g)}
-                    className="flex w-full items-center gap-4 px-4 py-3 text-left transition enabled:hover:bg-slate-50"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-slate-900">{g.title}</p>
-                      <p className="mt-0.5 text-[11px] text-slate-400">
-                        {[g.period, g.category].filter(Boolean).join(" · ") || "\u00A0"}
-                      </p>
-                    </div>
-                    {pct != null && (
-                      <div className="hidden w-40 shrink-0 sm:block">
-                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                          <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
-                        </div>
-                        <p className="mt-1 text-right text-[10px] text-slate-400">{pct}%</p>
-                      </div>
-                    )}
-                    <div className="w-28 shrink-0 text-right text-sm font-semibold text-slate-900">
-                      {fmt(g.current_value ?? 0)}
-                      {g.target_value != null && (
-                        <span className="text-xs font-medium text-slate-400"> / {fmt(g.target_value)}</span>
-                      )}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className={filterSelect}>
-          <option value="">All categories</option>
-          {INITIATIVE_CATEGORIES.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className={filterSelect}>
-          <option value="">All statuses</option>
-          {INITIATIVE_STATUSES.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <select value={owner} onChange={(e) => setOwner(e.target.value)} className={filterSelect}>
-          <option value="">All owners</option>
-          {owners.map((o) => (
-            <option key={o} value={o}>{o}</option>
-          ))}
-        </select>
-        <select value={priority} onChange={(e) => setPriority(e.target.value)} className={filterSelect}>
-          <option value="">All priorities</option>
-          {PRIORITIES.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-        <span className="text-sm text-slate-400">{filtered.length} shown</span>
-        <div className="ml-auto">
-          {canEdit && (
-            <button type="button" className={btnPrimary} onClick={() => setEditing("new")}>
-              + Initiative
-            </button>
-          )}
-        </div>
-      </div>
-
-      {filtered.length === 0 ? (
-        <EmptyRow label="No initiatives match." />
-      ) : (
-        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
-          <table className="w-full table-fixed text-sm">
-            <colgroup>
-              <col className="w-[28%]" />
-              <col className="w-[13%]" />
-              <col className="w-[14%]" />
-              <col className="w-[22%]" />
-              <col className="w-[11%]" />
-              <col className="w-[12%]" />
-            </colgroup>
-            <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <SortHeader label="Initiative" sortKey="initiative" sort={iSort} className="px-3 py-2.5 font-semibold" />
-                <SortHeader label="Owner" sortKey="owner" sort={iSort} className="px-3 py-2.5 font-semibold" />
-                <SortHeader label="3rd party" sortKey="partner" sort={iSort} className="px-3 py-2.5 font-semibold" />
-                <SortHeader label="Next action" sortKey="nextAction" sort={iSort} className="px-3 py-2.5 font-semibold" />
-                <SortHeader label="Due" sortKey="due" sort={iSort} className="px-3 py-2.5 font-semibold" />
-                <SortHeader label="Status" sortKey="status" sort={iSort} className="px-3 py-2.5 font-semibold" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {iSort.sorted.map((i) => (
-                <tr
-                  key={i.id}
-                  className="cursor-pointer transition hover:bg-slate-50"
-                  onClick={() => canEdit && setEditing(i)}
-                >
-                  <td className="px-3 py-3 align-top">
-                    <div className="break-words font-medium text-slate-900">{i.title}</div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                      <Badge>{initiativeCategoryLabel(i.category)}</Badge>
-                      <Badge className={PRIORITY_COLORS[i.priority]}>
-                        {priorityLabel(i.priority)}
-                      </Badge>
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 align-top break-words text-slate-600">{i.owner_name ?? "—"}</td>
-                  <td className="px-3 py-3 align-top break-words text-slate-600">{i.partner_name ?? "—"}</td>
-                  <td className="px-3 py-3 align-top"><NextActionCell value={i.next_action} /></td>
-                  <td className="px-3 py-3 align-top text-slate-600">{fmtDate(i.due_date)}</td>
-                  <td className="px-3 py-3 align-top" onClick={(e) => e.stopPropagation()}>
-                    {canEdit ? (
-                      <select
-                        value={i.status}
-                        onChange={(e) => run(() => updateInitiativeStatus(i.id, e.target.value))}
-                        className={`rounded-full px-2 py-1 text-[11px] font-semibold ${STATUS_COLORS[i.status] ?? ""}`}
-                      >
-                        {INITIATIVE_STATUSES.map((o) => (
-                          <option key={o.value} value={o.value}>{o.label}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <Badge className={STATUS_COLORS[i.status]}>
-                        {initiativeStatusLabel(i.status)}
-                      </Badge>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {editing && (
-        <InitiativeDialog
-          initiative={editing === "new" ? null : editing}
-          people={people}
-          treeNodes={treeNodes}
-          onClose={() => setEditing(null)}
-          run={run}
-        />
-      )}
-
-      {editingGoal && (
-        <GoalDialog
-          goal={editingGoal === "new" ? null : editingGoal}
-          treeNodes={treeNodes}
-          onClose={() => setEditingGoal(null)}
-          run={run}
-        />
-      )}
-    </section>
-  );
-}
-
-function InitiativeDialog({
-  initiative,
-  people,
-  treeNodes,
-  onClose,
-  run,
-}: {
-  initiative: MarketingInitiative | null;
-  people: PersonOption[];
-  treeNodes: MarketingTreeNode[];
-  onClose: () => void;
-  run: Run;
-}) {
-  const [links, setLinks] = useState<InitiativeLink[]>(initiative?.links ?? []);
-  function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    run(() => saveInitiative(fd), onClose);
-  }
-  return (
-    <Modal title={initiative ? "Edit initiative" : "New initiative"} onClose={onClose}>
-      <form onSubmit={onSubmit} className="space-y-4">
-        {initiative && <input type="hidden" name="id" value={initiative.id} />}
-        <div>
-          <label className={fieldLabel}>Title</label>
-          <input name="title" defaultValue={initiative?.title ?? ""} required className={fieldInput} />
-        </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div>
-            <label className={fieldLabel}>Category</label>
-            <OptionsSelect name="category" defaultValue={initiative?.category ?? "other"} options={INITIATIVE_CATEGORIES} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Status</label>
-            <OptionsSelect name="status" defaultValue={initiative?.status ?? "planned"} options={INITIATIVE_STATUSES} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Priority</label>
-            <OptionsSelect name="priority" defaultValue={initiative?.priority ?? "medium"} options={PRIORITIES} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Owner</label>
-            <OwnerSelect name="owner_name" people={people} defaultValue={initiative?.owner_name ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>3rd-party partner</label>
-            <input name="partner_name" defaultValue={initiative?.partner_name ?? ""} className={fieldInput} />
-          </div>
-          <div>
-            <label className={fieldLabel}>Due date</label>
-            <input type="date" name="due_date" defaultValue={initiative?.due_date ?? ""} className={fieldInput} />
-          </div>
-        </div>
-        <div>
-          <label className={fieldLabel}>Next action</label>
-          <input name="next_action" defaultValue={initiative?.next_action ?? ""} className={fieldInput} />
-        </div>
-        <div>
-          <label className={fieldLabel}>Connected tree node</label>
-          <NodeSelect name="node_id" defaultValue={initiative?.node_id ?? null} treeNodes={treeNodes} />
-        </div>
-        <div>
-          <label className={fieldLabel}>Notes</label>
-          <textarea name="notes" defaultValue={initiative?.notes ?? ""} rows={3} className={fieldInput} />
-        </div>
-        <div>
-          <label className={fieldLabel}>Links</label>
-          <div className="space-y-2">
-            {links.map((l, idx) => (
-              <div key={idx} className="flex gap-2">
-                <input
-                  name="link_label"
-                  defaultValue={l.label}
-                  placeholder="Label"
-                  className={`${fieldInput} w-1/3`}
-                />
-                <input
-                  name="link_url"
-                  defaultValue={l.url}
-                  placeholder="https://…"
-                  className={fieldInput}
-                />
-                <button
-                  type="button"
-                  onClick={() => setLinks(links.filter((_, i) => i !== idx))}
-                  className="shrink-0 rounded-lg border border-slate-200 px-2 text-slate-400 hover:text-red-600"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => setLinks([...links, { label: "", url: "" }])}
-              className="text-sm font-medium text-emerald-700 hover:text-emerald-800"
-            >
-              + Add link
-            </button>
-          </div>
-        </div>
-        <DialogFooter
-          onClose={onClose}
-          onDelete={initiative ? () => run(() => deleteInitiative(initiative.id), onClose) : undefined}
-          deleteLabel="Delete initiative"
-        />
-      </form>
-    </Modal>
   );
 }
 
@@ -1720,7 +1150,8 @@ function PromotionsTab({
     placement: (p) => p.placement,
     discount: (p) => p.discount_text,
     code: (p) => p.product_code,
-    duration: (p) => p.duration_text,
+    start: (p) => p.active_start,
+    end: (p) => p.active_end,
     status: (p) => p.status,
   });
 
@@ -1768,7 +1199,8 @@ function PromotionsTab({
                 <SortHeader label="Placement" sortKey="placement" sort={pSort} className="px-4 py-2.5 font-semibold" />
                 <SortHeader label="Discount" sortKey="discount" sort={pSort} className="px-4 py-2.5 font-semibold" />
                 <SortHeader label="Code" sortKey="code" sort={pSort} className="px-4 py-2.5 font-semibold" />
-                <SortHeader label="Duration" sortKey="duration" sort={pSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Active start" sortKey="start" sort={pSort} className="px-4 py-2.5 font-semibold" />
+                <SortHeader label="Active end" sortKey="end" sort={pSort} className="px-4 py-2.5 font-semibold" />
                 <SortHeader label="Status" sortKey="status" sort={pSort} className="px-4 py-2.5 font-semibold" />
               </tr>
             </thead>
@@ -1783,6 +1215,16 @@ function PromotionsTab({
                     <div className="font-medium text-slate-900">{p.name}</div>
                     <div className="mt-0.5 flex items-center gap-1.5">
                       <Badge>{promoTypeLabel(p.promo_type)}</Badge>
+                      {p.source_event_id && (
+                        <Link
+                          href="/marketing/events"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                          title="Owned by an event — edit it on the event"
+                        >
+                          from event ↗
+                        </Link>
+                      )}
                       {p.promo_url && (
                         <a
                           href={p.promo_url}
@@ -1799,7 +1241,8 @@ function PromotionsTab({
                   <td className="px-4 py-3 text-slate-600">{p.placement ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-600">{p.discount_text ?? "—"}</td>
                   <td className="px-4 py-3 font-mono text-xs text-slate-600">{p.product_code ?? "—"}</td>
-                  <td className="px-4 py-3 text-slate-600">{p.duration_text ?? "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{p.active_start ?? "—"}</td>
+                  <td className="whitespace-nowrap px-4 py-3 text-slate-600">{p.active_end ?? "—"}</td>
                   <td className="px-4 py-3">
                     <Badge className={PROMO_STATUS_COLORS[p.status]}>{promoStatusLabel(p.status)}</Badge>
                   </td>
@@ -1839,6 +1282,12 @@ function PromotionDialog({
     <Modal title={promo ? "Edit promotion" : "New promotion"} onClose={onClose}>
       <form onSubmit={onSubmit} className="space-y-4">
         {promo && <input type="hidden" name="id" value={promo.id} />}
+        {promo?.source_event_id && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            This promotion belongs to an event. Edit it on the event&apos;s Planning &amp;
+            promotion tab — changes made here are replaced the next time that event is saved.
+          </p>
+        )}
         <div>
           <label className={fieldLabel}>Promotion name</label>
           <input name="name" defaultValue={promo?.name ?? ""} required className={fieldInput} />
@@ -1855,6 +1304,14 @@ function PromotionDialog({
           <div>
             <label className={fieldLabel}>Duration</label>
             <input name="duration_text" defaultValue={promo?.duration_text ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Active start</label>
+            <input type="date" name="active_start" defaultValue={promo?.active_start ?? ""} className={fieldInput} />
+          </div>
+          <div>
+            <label className={fieldLabel}>Active end</label>
+            <input type="date" name="active_end" defaultValue={promo?.active_end ?? ""} className={fieldInput} />
           </div>
           <div>
             <label className={fieldLabel}>Placement</label>

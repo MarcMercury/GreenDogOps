@@ -1,18 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule, isAdminRole, canViewCredentials, canAccessModule } from "@/lib/auth/permissions";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
 import type {
-  MarketingGoal,
-  MarketingInitiative,
   MarketingEvent,
   MarketingBudgetPeriod,
   MarketingBudgetEntry,
   MarketingResource,
   MarketingTreeNode,
-  MarketingEventSource,
-  MarketingEventAttendee,
   MarketingPromotion,
   PersonOption,
   MarketingActivity,
@@ -30,6 +27,8 @@ export default async function MarketingManagementPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { tab: initialTab } = await searchParams;
+  // Events moved to their own page (nav: Event Mgmt); keep old deep links working.
+  if (initialTab === "events") redirect("/marketing/events");
   const supabase = await createClient();
   const current = await getCurrentUser();
   const canEdit = current ? canEditModule(current.appUser, "marketing") : false;
@@ -51,27 +50,13 @@ export default async function MarketingManagementPage({
     : [];
 
   const [
-    goalsRes,
-    initiativesRes,
     eventsRes,
     resourcesRes,
     treeRes,
-    sourcesRes,
-    attendeesRes,
     promotionsRes,
     peopleRes,
     activityRes,
   ] = await Promise.all([
-    supabase
-      .from("marketing_goal")
-      .select("*")
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("marketing_initiative")
-      .select("*")
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: true }),
     supabase
       .from("marketing_event")
       .select("*")
@@ -87,15 +72,6 @@ export default async function MarketingManagementPage({
       .select("*")
       .order("zone", { ascending: true })
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("marketing_event_source")
-      .select("*")
-      .order("sort_order", { ascending: true })
-      .order("name", { ascending: true }),
-    supabase
-      .from("marketing_event_attendee")
-      .select("*")
-      .order("created_at", { ascending: true }),
     supabase
       .from("marketing_promotion")
       .select("*")
@@ -153,15 +129,11 @@ export default async function MarketingManagementPage({
       ];
 
   const firstError =
-    goalsRes.error ||
-    initiativesRes.error ||
     eventsRes.error ||
     periodRes.error ||
     entriesRes.error ||
     resourcesRes.error ||
     treeRes.error ||
-    sourcesRes.error ||
-    attendeesRes.error ||
     promotionsRes.error ||
     crmOrgsRes.error ||
     vendorsRes.error;
@@ -184,15 +156,11 @@ export default async function MarketingManagementPage({
       canEdit={canEdit}
       isAdmin={isAdmin}
       canViewCredentials={canSeeCredentials}
-      goals={(goalsRes.data ?? []) as MarketingGoal[]}
-      initiatives={(initiativesRes.data ?? []) as MarketingInitiative[]}
       events={(eventsRes.data ?? []) as MarketingEvent[]}
       budgetPeriods={(periodRes.data ?? []) as MarketingBudgetPeriod[]}
       budgetEntries={(entriesRes.data ?? []) as MarketingBudgetEntry[]}
       resources={(resourcesRes.data ?? []) as MarketingResource[]}
       treeNodes={(treeRes.data ?? []) as MarketingTreeNode[]}
-      eventSources={(sourcesRes.data ?? []) as MarketingEventSource[]}
-      eventAttendees={(attendeesRes.data ?? []) as MarketingEventAttendee[]}
       promotions={(promotionsRes.data ?? []) as MarketingPromotion[]}
       people={(peopleRes.data ?? []) as PersonOption[]}
       activity={(activityRes.data ?? []) as MarketingActivity[]}

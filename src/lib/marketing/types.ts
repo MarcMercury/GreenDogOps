@@ -2,45 +2,10 @@
 // Status / category values are enforced here in the app layer (the DB columns
 // are free text) so we never hit CHECK-constraint case-mismatch issues.
 
-export interface MarketingGoal {
-  id: string;
-  title: string;
-  category: string | null;
-  metric_unit: string | null;
-  target_value: number | null;
-  current_value: number | null;
-  period: string | null;
-  notes: string | null;
-  is_active: boolean;
-  /** Optional marketing tree node this goal is connected to. */
-  node_id: string | null;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
-
+/** A named link stored on a marketing tree node. */
 export interface InitiativeLink {
   label: string;
   url: string;
-}
-
-export interface MarketingInitiative {
-  id: string;
-  title: string;
-  category: string;
-  status: string;
-  priority: string;
-  owner_name: string | null;
-  partner_name: string | null;
-  next_action: string | null;
-  due_date: string | null;
-  notes: string | null;
-  links: InitiativeLink[];
-  /** Optional marketing tree node this initiative is connected to. */
-  node_id: string | null;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
 }
 
 export interface MarketingEvent {
@@ -79,10 +44,18 @@ export interface MarketingEvent {
   food_onsite: string | null;
   // Planning / promotion (events-management workflow)
   staff: string | null;
+  /** person.id values picked from the roster; `staff` holds the rendered names. */
+  staff_ids: string[];
   supplies: string | null;
   promo_channels: string | null;
   landing_url: string | null;
   rsvp_url: string | null;
+  /** Does this event run its own promotion? Drives the Promo column + mirroring. */
+  has_promo: boolean;
+  promo_name: string | null;
+  promo_details: string | null;
+  promo_starts_on: string | null;
+  promo_ends_on: string | null;
   checklist: ChecklistItem[];
   /** Editable Packing / Material list (defaults to the GD master template). */
   packing_list: PackingListGroup[];
@@ -164,6 +137,18 @@ export interface MarketingVendorRef {
   notes: string | null;
 }
 
+/**
+ * Whether a person staffing an event is already on the published schedule for
+ * that day — the event manager needs to know before committing them.
+ */
+export interface EventStaffShift {
+  person_id: string;
+  work_date: string;
+  location_name: string;
+  start_time: string | null;
+  end_time: string | null;
+}
+
 export interface MarketingEventAttendee {
   id: string;
   event_id: string;
@@ -194,6 +179,11 @@ export interface MarketingPromotion {
   rules: string | null;
   appointments: number | null;
   notes: string | null;
+  /** Redemption window. */
+  active_start: string | null;
+  active_end: string | null;
+  /** Set when the promotion is owned by a marketing_event (edited there). */
+  source_event_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -315,25 +305,6 @@ export interface Option {
   value: string;
   label: string;
 }
-
-export const INITIATIVE_CATEGORIES: Option[] = [
-  { value: "events", label: "Events" },
-  { value: "social", label: "Social & Content" },
-  { value: "partnerships", label: "Partnerships" },
-  { value: "referrals", label: "Referrals" },
-  { value: "products", label: "Products & Merch" },
-  { value: "pr", label: "PR & Media" },
-  { value: "engagement", label: "Employee Engagement" },
-  { value: "other", label: "Other" },
-];
-
-export const INITIATIVE_STATUSES: Option[] = [
-  { value: "idea", label: "Idea" },
-  { value: "planned", label: "Planned" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "blocked", label: "Blocked" },
-  { value: "done", label: "Done" },
-];
 
 export const PRIORITIES: Option[] = [
   { value: "low", label: "Low" },
@@ -682,10 +653,6 @@ function labelFor(options: Option[], value: string | null | undefined): string {
   return options.find((o) => o.value === value)?.label ?? value;
 }
 
-export const initiativeCategoryLabel = (v: string | null) =>
-  labelFor(INITIATIVE_CATEGORIES, v);
-export const initiativeStatusLabel = (v: string | null) =>
-  labelFor(INITIATIVE_STATUSES, v);
 export const priorityLabel = (v: string | null) => labelFor(PRIORITIES, v);
 export const eventTypeLabel = (v: string | null) => labelFor(EVENT_TYPES, v);
 export const eventStatusLabel = (v: string | null) => labelFor(EVENT_STATUSES, v);

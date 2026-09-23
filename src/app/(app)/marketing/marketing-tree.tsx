@@ -8,8 +8,6 @@ import {
   type InitiativeLink,
   type TreeItem,
   type PersonOption,
-  type MarketingGoal,
-  type MarketingInitiative,
   type MarketingEvent,
   TREE_ZONES,
   NODE_STATUSES,
@@ -24,7 +22,6 @@ import {
   treeZoneLabel,
   priorityLabel,
   personLabel,
-  initiativeStatusLabel,
   eventTypeLabel,
 } from "@/lib/marketing/types";
 import {
@@ -371,15 +368,11 @@ export function MarketingTree({
   canEdit,
   nodes,
   people,
-  goals,
-  initiatives,
   events,
 }: {
   canEdit: boolean;
   nodes: MarketingTreeNode[];
   people: PersonOption[];
-  goals: MarketingGoal[];
-  initiatives: MarketingInitiative[];
   events: MarketingEvent[];
 }) {
   const router = useRouter();
@@ -831,8 +824,6 @@ export function MarketingTree({
           parent={selected.parent_id ? nodes.find((n) => n.id === selected.parent_id) ?? null : null}
           childNodes={nodes.filter((n) => n.parent_id === selected.id && n.status !== "archived")}
           people={people}
-          linkedGoals={goals.filter((g) => g.node_id === selected.id)}
-          linkedInitiatives={initiatives.filter((i) => i.node_id === selected.id)}
           upcomingEvents={upcomingEventsForNode(selected, events)}
           canEdit={canEdit}
           onOpenNode={(n) => setSelected(n)}
@@ -1067,8 +1058,6 @@ function DetailPanel({
   parent,
   childNodes,
   people,
-  linkedGoals,
-  linkedInitiatives,
   upcomingEvents,
   canEdit,
   onOpenNode,
@@ -1081,8 +1070,6 @@ function DetailPanel({
   parent: MarketingTreeNode | null;
   childNodes: MarketingTreeNode[];
   people: PersonOption[];
-  linkedGoals: MarketingGoal[];
-  linkedInitiatives: MarketingInitiative[];
   upcomingEvents: MarketingEvent[];
   canEdit: boolean;
   onOpenNode: (n: MarketingTreeNode) => void;
@@ -1257,48 +1244,6 @@ function DetailPanel({
                         <span className="font-medium text-slate-500">{eventTypeLabel(e.event_type)}</span>
                         {e.starts_on && <span>· 📅 {e.starts_on}</span>}
                         {e.location && <span>· 📍 {e.location}</span>}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {(linkedInitiatives.length > 0 || linkedGoals.length > 0) && (
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Goals &amp; initiatives ({linkedInitiatives.length + linkedGoals.length})
-              </p>
-              <ul className="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">
-                {linkedGoals.map((g) => {
-                  const pct =
-                    g.target_value && g.target_value > 0
-                      ? Math.min(100, Math.round(((g.current_value ?? 0) / g.target_value) * 100))
-                      : null;
-                  return (
-                    <li key={`g-${g.id}`} className="flex items-start gap-2.5 px-3 py-2">
-                      <span className="mt-0.5 shrink-0 text-amber-400" aria-hidden>🎯</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium leading-snug text-slate-700">{g.title}</span>
-                        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-400">
-                          <span className="font-medium text-slate-500">Goal</span>
-                          {pct != null && <span>· {pct}%</span>}
-                          {g.period && <span>· {g.period}</span>}
-                        </span>
-                      </span>
-                    </li>
-                  );
-                })}
-                {linkedInitiatives.map((i) => (
-                  <li key={`i-${i.id}`} className="flex items-start gap-2.5 px-3 py-2">
-                    <span className="mt-0.5 shrink-0 text-emerald-400" aria-hidden>⭐</span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-medium leading-snug text-slate-700">{i.title}</span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-400">
-                        <span className="font-medium text-slate-500">{initiativeStatusLabel(i.status)}</span>
-                        {i.due_date && <span>· 📅 {i.due_date}</span>}
-                        {i.owner_name && <span>· 👤 {i.owner_name}</span>}
                       </span>
                     </span>
                   </li>
