@@ -23,8 +23,7 @@ import {
   setQrCodeActive,
   saveQrForm,
   deleteQrForm,
-} from "../qr-actions";
-import { PageHeader } from "../../_components/ui";
+} from "./qr-actions";
 
 const fieldInput =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -142,12 +141,6 @@ export function QrCodesWorkspace({
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Marketing"
-        title="QR Code Management"
-        description="Every code we've printed — events, promotions and retail partners — plus the forms behind them."
-      />
-
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Active codes" value={activeCount} />
         <Stat label="Total scans" value={codes.reduce((s, c) => s + c.scan_count, 0)} />

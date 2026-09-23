@@ -27,6 +27,12 @@ import {
   personLabel,
 } from "@/lib/marketing/types";
 import { MarketingTree } from "./marketing-tree";
+import {
+  QrCodesWorkspace,
+  type PartnerCodeRow,
+  type CeEventRef,
+} from "./qr-codes-workspace";
+import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 import { TemplatesView } from "../email-templates/templates-view";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
 import { subtypeLabel } from "@/lib/crm/types";
@@ -149,7 +155,7 @@ function OptionsSelect({
 // ===========================================================================
 // Dashboard
 // ===========================================================================
-type TabKey = "tree" | "promotions" | "activity" | "budget" | "resources" | "email_templates";
+type TabKey = "tree" | "promotions" | "activity" | "budget" | "resources" | "email_templates" | "qr_codes";
 const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean; emailTemplatesOnly?: boolean }[] = [
   { key: "tree", label: "Marketing Tree", icon: "🌳" },
   { key: "promotions", label: "Promotions", icon: "🏷️" },
@@ -157,6 +163,7 @@ const BASE_TABS: { key: TabKey; label: string; icon: string; adminOnly?: boolean
   { key: "budget", label: "Budget", icon: "💵", adminOnly: true },
   { key: "resources", label: "Resources", icon: "🧰" },
   { key: "email_templates", label: "Email Templates", icon: "✉️", emailTemplatesOnly: true },
+  { key: "qr_codes", label: "QR Codes", icon: "🔳" },
 ];
 
 export function MarketingDashboard({
@@ -175,6 +182,12 @@ export function MarketingDashboard({
   marketingVendors,
   emailTemplates,
   canManageEmailTemplates,
+  qrCodes,
+  qrForms,
+  qrLeads,
+  qrEvents,
+  qrCeEvents,
+  partnerCodes,
   initialTab,
 }: {
   canEdit: boolean;
@@ -192,6 +205,12 @@ export function MarketingDashboard({
   marketingVendors: MarketingVendorRef[];
   emailTemplates: EmailTemplate[];
   canManageEmailTemplates: boolean;
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
+  qrLeads: Pick<QrLead, "id" | "qr_code_id" | "scanned_at">[];
+  qrEvents: Pick<MarketingEvent, "id" | "name" | "starts_on">[];
+  qrCeEvents: CeEventRef[];
+  partnerCodes: PartnerCodeRow[];
   initialTab?: string;
 }) {
   const router = useRouter();
@@ -287,6 +306,18 @@ export function MarketingDashboard({
       )}
       {tab === "email_templates" && canManageEmailTemplates && (
         <TemplatesView templates={emailTemplates} />
+      )}
+      {tab === "qr_codes" && (
+        <QrCodesWorkspace
+          canEdit={canEdit}
+          codes={qrCodes}
+          forms={qrForms}
+          leads={qrLeads}
+          events={qrEvents}
+          promotions={promotions}
+          ceEvents={qrCeEvents}
+          partnerCodes={partnerCodes}
+        />
       )}
 
       {toast && (

@@ -1235,7 +1235,7 @@ export function QrPanel({
           >
             ＋ Add another code
           </button>
-          <Link href="/marketing/qr-codes" className="text-xs font-medium text-emerald-700 hover:underline">
+          <Link href="/marketing?tab=qr_codes" className="text-xs font-medium text-emerald-700 hover:underline">
             Manage all QR codes →
           </Link>
         </div>

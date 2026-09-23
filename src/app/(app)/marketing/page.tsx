@@ -16,8 +16,10 @@ import type {
   CrmOrgRef,
   MarketingVendorRef,
 } from "@/lib/marketing/types";
-import { MARKETING_VENDOR_CATEGORY } from "@/lib/crm/types";
+import { MARKETING_VENDOR_CATEGORY, NON_MED_CATEGORY } from "@/lib/crm/types";
+import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 import { MarketingDashboard } from "./marketing-dashboard";
+import type { PartnerCodeRow, CeEventRef } from "./qr-codes-workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -128,6 +130,48 @@ export default async function MarketingManagementPage({
         { data: [], error: null } as const,
       ];
 
+  // QR Codes tab: managed codes + forms, plus the legacy Non-Med Partner codes
+  // that still live on crm_organization.qr_token.
+  const [qrCodesRes, qrFormsRes, qrLeadsRes, qrEventsRes, qrCeRes, partnersRes, retailLeadsRes] =
+    await Promise.all([
+      supabase.from("qr_code").select("*").order("created_at", { ascending: false }),
+      supabase.from("qr_form").select("*").order("name", { ascending: true }),
+      supabase
+        .from("qr_lead")
+        .select("id, qr_code_id, scanned_at")
+        .order("scanned_at", { ascending: false })
+        .limit(5000),
+      supabase
+        .from("marketing_event")
+        .select("id, name, starts_on")
+        .order("starts_on", { ascending: false, nullsFirst: false }),
+      supabase
+        .from("crm_ce_event")
+        .select("id, name, event_date")
+        .order("event_date", { ascending: false, nullsFirst: false }),
+      supabase
+        .from("crm_organization")
+        .select("id, name, qr_token")
+        .eq("category", NON_MED_CATEGORY)
+        .order("name", { ascending: true }),
+      supabase.from("crm_retail_lead").select("id, org_id").limit(5000),
+    ]);
+
+  const retailCounts = new Map<string, number>();
+  for (const l of (retailLeadsRes.data ?? []) as { org_id: string }[]) {
+    retailCounts.set(l.org_id, (retailCounts.get(l.org_id) ?? 0) + 1);
+  }
+  const partnerCodes: PartnerCodeRow[] = (
+    (partnersRes.data ?? []) as { id: string; name: string; qr_token: string | null }[]
+  )
+    .filter((p) => p.qr_token)
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      token: p.qr_token as string,
+      leads: retailCounts.get(p.id) ?? 0,
+    }));
+
   const firstError =
     eventsRes.error ||
     periodRes.error ||
@@ -136,7 +180,11 @@ export default async function MarketingManagementPage({
     treeRes.error ||
     promotionsRes.error ||
     crmOrgsRes.error ||
-    vendorsRes.error;
+    vendorsRes.error ||
+    qrCodesRes.error ||
+    qrFormsRes.error ||
+    qrLeadsRes.error ||
+    qrCeRes.error;
 
   if (firstError) {
     return (
@@ -168,6 +216,12 @@ export default async function MarketingManagementPage({
       marketingVendors={(vendorsRes.data ?? []) as MarketingVendorRef[]}
       emailTemplates={emailTemplates}
       canManageEmailTemplates={canManageEmailTemplates}
+      qrCodes={(qrCodesRes.data ?? []) as QrCode[]}
+      qrForms={(qrFormsRes.data ?? []) as QrForm[]}
+      qrLeads={(qrLeadsRes.data ?? []) as Pick<QrLead, "id" | "qr_code_id" | "scanned_at">[]}
+      qrEvents={(qrEventsRes.data ?? []) as Pick<MarketingEvent, "id" | "name" | "starts_on">[]}
+      qrCeEvents={(qrCeRes.data ?? []) as CeEventRef[]}
+      partnerCodes={partnerCodes}
       initialTab={initialTab}
     />
   );
