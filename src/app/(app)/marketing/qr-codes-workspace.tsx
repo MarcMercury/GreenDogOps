@@ -326,7 +326,7 @@ function CodesTab({
           value={q}
           onChange={(e) => search(e.target.value)}
           placeholder="Search codes…"
-          className={`${fieldInput} max-w-xs`}
+          className={`${fieldInput} min-w-[10rem] flex-1 basis-48 sm:max-w-xs`}
         />
         <select
           value={type}
@@ -334,7 +334,7 @@ function CodesTab({
             setType(e.target.value);
             setLimit(PAGE_SIZE);
           }}
-          className={`${fieldInput} w-auto`}
+          className={`${fieldInput} min-w-[9rem] flex-1 basis-40 sm:max-w-[14rem]`}
         >
           <option value="">All types</option>
           {QR_CODE_TYPES.map((t) => (
