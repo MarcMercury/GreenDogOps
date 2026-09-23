@@ -1,7 +1,8 @@
 import { notFound, redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseFormFields, type QrFormField } from "@/lib/marketing/qr";
-import { QrCaptureForm } from "./qr-form";
+import { parseFormFields, qrFormTheme, type QrFormField } from "@/lib/marketing/qr";
+import { CaptureForm } from "@/lib/marketing/capture-form";
+import { submitQrLead } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ type FormRow = {
   collect_pet_name: boolean;
   collect_zip: boolean;
   fields: unknown;
+  theme: string | null;
+  banner_url: string | null;
   active: boolean;
 };
 
@@ -33,7 +36,7 @@ export default async function QrScanPage({
   const { data } = await admin
     .from("qr_code")
     .select(
-      "label, active, target_url, qr_form(headline, intro, success_message, collect_pet_name, collect_zip, fields, active)",
+      "label, active, target_url, qr_form(headline, intro, success_message, collect_pet_name, collect_zip, fields, theme, banner_url, active)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -56,17 +59,21 @@ export default async function QrScanPage({
   const fields: QrFormField[] = parseFormFields(form.fields);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-emerald-50 to-white px-4 py-12">
+    <main
+      className={`flex min-h-screen items-center justify-center px-4 py-12 ${qrFormTheme(form.theme).page}`}
+    >
       <div className="w-full max-w-md">
-        <QrCaptureForm
-          token={token}
-          label={code.label}
-          headline={form.headline}
+        <CaptureForm
+          eyebrow="You scanned"
+          title={form.headline ?? code.label}
           intro={form.intro}
           successMessage={form.success_message}
           collectPetName={form.collect_pet_name}
           collectZip={form.collect_zip}
           fields={fields}
+          theme={form.theme}
+          bannerUrl={form.banner_url}
+          action={submitQrLead.bind(null, token)}
         />
         <p className="mt-6 text-center text-xs text-slate-400">Green Dog Dental</p>
       </div>

@@ -2,7 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
-import { parseFormFields, type QrFormField } from "@/lib/marketing/qr";
+import { parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
 
 export type QrLeadResult = { ok: true } | { ok: false; error: string };
 
@@ -19,7 +19,6 @@ function clean(v: FormDataEntryValue | null): string | null {
 const MAX_NAME_LENGTH = 120;
 const MAX_EMAIL_LENGTH = 254;
 const MAX_SHORT_LENGTH = 120;
-const MAX_ANSWER_LENGTH = 500;
 const BURST_WINDOW_MINUTES = 10;
 const BURST_MAX_LEADS = 60;
 
@@ -31,32 +30,6 @@ type CodeRow = {
   active: boolean;
   qr_form: { fields: unknown; collect_pet_name: boolean; collect_zip: boolean } | null;
 };
-
-/** Collect the answers to a form's custom questions, clamped and validated. */
-function readAnswers(
-  fields: QrFormField[],
-  formData: FormData,
-): { answers: Record<string, string> } | { error: string } {
-  const answers: Record<string, string> = {};
-  for (const f of fields) {
-    const raw = formData.get(`custom_${f.key}`);
-    let value =
-      f.type === "checkbox"
-        ? raw === "on" || raw === "true"
-          ? "Yes"
-          : "No"
-        : (clean(raw) ?? "");
-    if (f.type === "select" && value && !f.options.includes(value)) {
-      return { error: "Please choose one of the listed options." };
-    }
-    if (value.length > MAX_ANSWER_LENGTH) value = value.slice(0, MAX_ANSWER_LENGTH);
-    if (f.required && (value === "" || (f.type === "checkbox" && value === "No"))) {
-      return { error: `Please answer: ${f.label}` };
-    }
-    if (value !== "") answers[f.key] = value;
-  }
-  return { answers };
-}
 
 /**
  * PUBLIC action — called from the unauthenticated /q/<token> capture form.
@@ -105,7 +78,7 @@ export async function submitQrLead(
 
   // Supabase infers a to-one embed as an array in some shapes; normalize.
   const formRow = Array.isArray(code.qr_form) ? code.qr_form[0] : code.qr_form;
-  const read = readAnswers(parseFormFields(formRow?.fields), formData);
+  const read = readFormAnswers(parseFormFields(formRow?.fields), formData);
   if ("error" in read) return { ok: false, error: read.error };
 
   const windowStart = new Date(Date.now() - BURST_WINDOW_MINUTES * 60_000).toISOString();

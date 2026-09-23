@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
+import { parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
 
 export type LeadResult = { ok: true } | { ok: false; error: string };
 
@@ -21,6 +22,8 @@ const MAX_PET_LENGTH = 120;
 const BURST_WINDOW_MINUTES = 10;
 const BURST_MAX_LEADS = 40;
 
+type FormEmbed = { fields: unknown; active: boolean };
+
 /**
  * PUBLIC action — called from the unauthenticated retail lead form reached by
  * scanning a Non-Med Partner's QR code. Uses the service-role client (bypasses
@@ -36,6 +39,7 @@ export async function submitRetailLead(
   const email = clean(formData.get("email"));
   const phone = formatPhoneNumber(clean(formData.get("phone")));
   const petName = clean(formData.get("pet_name"));
+  const zip = clean(formData.get("zip"))?.slice(0, 16) ?? null;
 
   if (!fullName) return { ok: false, error: "Please enter your name." };
   if (fullName.length > MAX_NAME_LENGTH) {
@@ -62,6 +66,21 @@ export async function submitRetailLead(
   if (!orgRow) return { ok: false, error: "This code is no longer active." };
   const orgId = (orgRow as { id: string }).id;
 
+  // Migration 0208 gave every partner a qr_code row keyed by the same token, so
+  // a form assigned in QR Code Mgmt decides which custom questions were asked.
+  const { data: codeRow } = await admin
+    .from("qr_code")
+    .select("qr_form(fields, active)")
+    .eq("token", token)
+    .maybeSingle();
+  const embed = (codeRow as { qr_form: FormEmbed | FormEmbed[] | null } | null)?.qr_form;
+  const formRow = Array.isArray(embed) ? embed[0] : embed;
+  const read = readFormAnswers(
+    formRow?.active ? parseFormFields(formRow.fields) : [],
+    formData,
+  );
+  if ("error" in read) return { ok: false, error: read.error };
+
   const windowStart = new Date(Date.now() - BURST_WINDOW_MINUTES * 60_000).toISOString();
   const { count: recent } = await admin
     .from("crm_retail_lead")
@@ -81,6 +100,8 @@ export async function submitRetailLead(
     email,
     phone,
     pet_name: petName,
+    zip,
+    answers: read.answers,
     source: "qr_scan",
     status: "new",
   });

@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { QRCodeCanvas } from "qrcode.react";
-import { partnerLeadUrl } from "@/lib/crm/types";
 import type { MarketingEvent, MarketingPromotion } from "@/lib/marketing/types";
 import {
   type QrCode,
@@ -13,16 +13,19 @@ import {
   type QrLead,
   QR_CODE_TYPES,
   QR_FIELD_TYPES,
+  QR_FORM_THEMES,
   qrCodeTypeLabel,
-  qrScanUrl,
+  qrPublicUrl,
   slugifyFieldKey,
 } from "@/lib/marketing/qr";
 import {
   saveQrCode,
   deleteQrCode,
   setQrCodeActive,
+  assignQrCodeForm,
   saveQrForm,
   deleteQrForm,
+  uploadQrFormBanner,
 } from "./qr-actions";
 
 const fieldInput =
@@ -52,13 +55,14 @@ type Run = (
   after?: () => void,
 ) => void;
 
-type TabKey = "codes" | "forms" | "partners";
+type TabKey = "codes" | "forms";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "codes", label: "QR Codes", icon: "🔳" },
   { key: "forms", label: "Forms", icon: "📝" },
-  { key: "partners", label: "Retail Partner Codes", icon: "🤝" },
 ];
+
+const PAGE_SIZE = 40;
 
 function useOrigin(): string {
   const [origin, setOrigin] = useState("");
@@ -102,6 +106,7 @@ export function QrCodesWorkspace({
   const [toast, setToast] = useState<string | null>(null);
   const [, startTransition] = useTransition();
   const [editingCode, setEditingCode] = useState<QrCode | "new" | null>(null);
+  const [managingCode, setManagingCode] = useState<QrCode | null>(null);
   const [editingForm, setEditingForm] = useState<QrForm | "new" | null>(null);
 
   function notify(msg: string) {
@@ -125,6 +130,17 @@ export function QrCodesWorkspace({
     return m;
   }, [leads]);
 
+  // Partner scans land in crm_retail_lead (the Partner CRM reads it), not
+  // qr_lead, so their counts have to come in by org rather than by code.
+  const partnerByOrg = useMemo(() => {
+    const m = new Map<string, PartnerCodeRow>();
+    for (const p of partnerCodes) m.set(p.id, p);
+    return m;
+  }, [partnerCodes]);
+
+  const countFor = (c: QrCode) =>
+    (leadCounts.get(c.id) ?? 0) + (c.org_id ? partnerByOrg.get(c.org_id)?.leads ?? 0 : 0);
+
   const formById = useMemo(() => {
     const m = new Map<string, QrForm>();
     for (const f of forms) m.set(f.id, f);
@@ -138,13 +154,15 @@ export function QrCodesWorkspace({
   }, [codes]);
 
   const activeCount = codes.filter((c) => c.active).length;
+  const totalLeads =
+    leads.length + partnerCodes.reduce((s, p) => s + p.leads, 0);
 
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Active codes" value={activeCount} />
         <Stat label="Total scans" value={codes.reduce((s, c) => s + c.scan_count, 0)} />
-        <Stat label="Leads captured" value={leads.length} />
+        <Stat label="Leads captured" value={totalLeads} />
         <Stat label="Forms" value={forms.length} />
       </div>
 
@@ -172,19 +190,35 @@ export function QrCodesWorkspace({
         <CodesTab
           codes={codes}
           formById={formById}
-          leadCounts={leadCounts}
+          countFor={countFor}
+          partnerByOrg={partnerByOrg}
           events={events}
           ceEvents={ceEvents}
           canEdit={canEdit}
           onEdit={setEditingCode}
+          onManage={setManagingCode}
           run={run}
         />
       )}
       {tab === "forms" && (
         <FormsTab forms={forms} usage={formUsage} canEdit={canEdit} onEdit={setEditingForm} />
       )}
-      {tab === "partners" && <PartnersTab rows={partnerCodes} />}
 
+      {managingCode && (
+        <ManageCodeDialog
+          code={managingCode}
+          forms={forms}
+          partner={managingCode.org_id ? partnerByOrg.get(managingCode.org_id) ?? null : null}
+          leads={countFor(managingCode)}
+          canEdit={canEdit}
+          onClose={() => setManagingCode(null)}
+          onEditSettings={() => {
+            setEditingCode(managingCode);
+            setManagingCode(null);
+          }}
+          run={run}
+        />
+      )}
       {editingCode && (
         <CodeDialog
           code={editingCode === "new" ? null : editingCode}
@@ -228,26 +262,33 @@ function Stat({ label, value }: { label: string; value: number }) {
 function CodesTab({
   codes,
   formById,
-  leadCounts,
+  countFor,
+  partnerByOrg,
   events,
   ceEvents,
   canEdit,
   onEdit,
+  onManage,
   run,
 }: {
   codes: QrCode[];
   formById: Map<string, QrForm>;
-  leadCounts: Map<string, number>;
+  countFor: (c: QrCode) => number;
+  partnerByOrg: Map<string, PartnerCodeRow>;
   events: Pick<MarketingEvent, "id" | "name" | "starts_on">[];
   ceEvents: CeEventRef[];
   canEdit: boolean;
   onEdit: (c: QrCode | "new") => void;
+  onManage: (c: QrCode) => void;
   run: Run;
 }) {
   const origin = useOrigin();
   const [type, setType] = useState("");
   const [showInactive, setShowInactive] = useState(false);
   const [q, setQ] = useState("");
+  // Every retail partner has a code, so the unfiltered list runs to hundreds of
+  // cards — each one a <canvas>. Render them a page at a time.
+  const [limit, setLimit] = useState(PAGE_SIZE);
 
   const subjectById = useMemo(() => {
     const m = new Map<string, string>();
@@ -271,16 +312,30 @@ function CodesTab({
     });
   }, [codes, type, showInactive, q, subjectById]);
 
+  const visible = filtered.slice(0, limit);
+
+  function search(v: string) {
+    setQ(v);
+    setLimit(PAGE_SIZE);
+  }
+
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={q}
-          onChange={(e) => setQ(e.target.value)}
+          onChange={(e) => search(e.target.value)}
           placeholder="Search codes…"
           className={`${fieldInput} max-w-xs`}
         />
-        <select value={type} onChange={(e) => setType(e.target.value)} className={`${fieldInput} w-auto`}>
+        <select
+          value={type}
+          onChange={(e) => {
+            setType(e.target.value);
+            setLimit(PAGE_SIZE);
+          }}
+          className={`${fieldInput} w-auto`}
+        >
           <option value="">All types</option>
           {QR_CODE_TYPES.map((t) => (
             <option key={t.value} value={t.value}>
@@ -297,7 +352,11 @@ function CodesTab({
           />
           Show inactive
         </label>
-        <span className="text-sm text-slate-400">{filtered.length} shown</span>
+        <span className="text-sm text-slate-400">
+          {visible.length === filtered.length
+            ? `${filtered.length} shown`
+            : `${visible.length} of ${filtered.length}`}
+        </span>
         {canEdit && (
           <button type="button" onClick={() => onEdit("new")} className={`${btnPrimary} ml-auto`}>
             + QR code
@@ -311,49 +370,46 @@ function CodesTab({
         </p>
       ) : (
         <div className="grid gap-3 lg:grid-cols-2">
-          {filtered.map((c) => (
+          {visible.map((c) => (
             <CodeCard
               key={c.id}
               code={c}
               origin={origin}
               form={c.form_id ? formById.get(c.form_id) ?? null : null}
-              subjectName={subjectById.get(c.event_id ?? c.ce_event_id ?? "") ?? null}
-              leads={leadCounts.get(c.id) ?? 0}
+              subjectName={
+                subjectById.get(c.event_id ?? c.ce_event_id ?? "") ??
+                (c.org_id ? partnerByOrg.get(c.org_id)?.name ?? null : null)
+              }
+              leads={countFor(c)}
               canEdit={canEdit}
-              onEdit={onEdit}
+              onManage={onManage}
               run={run}
             />
           ))}
+        </div>
+      )}
+
+      {visible.length < filtered.length && (
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={() => setLimit((n) => n + PAGE_SIZE)}
+            className={btnGhost}
+          >
+            Show {Math.min(PAGE_SIZE, filtered.length - visible.length)} more
+          </button>
         </div>
       )}
     </section>
   );
 }
 
-function CodeCard({
-  code,
-  origin,
-  form,
-  subjectName,
-  leads,
-  canEdit,
-  onEdit,
-  run,
-}: {
-  code: QrCode;
-  origin: string;
-  form: QrForm | null;
-  subjectName: string | null;
-  leads: number;
-  canEdit: boolean;
-  onEdit: (c: QrCode) => void;
-  run: Run;
-}) {
+/** Copy-link + download-PNG behaviour shared by the card and the Manage dialog. */
+function useQrTools(label: string) {
   const qrRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
-  const url = origin ? qrScanUrl(origin, code.token) : "";
 
-  async function copy() {
+  async function copy(url: string) {
     if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
@@ -367,12 +423,37 @@ function CodeCard({
   function download() {
     const canvas = qrRef.current?.querySelector("canvas");
     if (!canvas) return;
-    const slug = code.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "qr";
+    const slug = label.replace(/[^a-z0-9]+/gi, "-").toLowerCase() || "qr";
     const link = document.createElement("a");
     link.download = `${slug}-qr.png`;
     link.href = canvas.toDataURL("image/png");
     link.click();
   }
+
+  return { qrRef, copied, copy, download };
+}
+
+function CodeCard({
+  code,
+  origin,
+  form,
+  subjectName,
+  leads,
+  canEdit,
+  onManage,
+  run,
+}: {
+  code: QrCode;
+  origin: string;
+  form: QrForm | null;
+  subjectName: string | null;
+  leads: number;
+  canEdit: boolean;
+  onManage: (c: QrCode) => void;
+  run: Run;
+}) {
+  const { qrRef, copied, copy, download } = useQrTools(code.label);
+  const url = origin ? qrPublicUrl(origin, code) : "";
 
   return (
     <div className={`rounded-xl border bg-white p-4 shadow-sm ${code.active ? "border-slate-200" : "border-slate-200 opacity-70"}`}>
@@ -399,25 +480,27 @@ function CodeCard({
             {code.scan_count} scans · {leads} leads · last {fmtDate(code.last_scanned_at)}
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <button type="button" onClick={copy} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">
+            <button
+              type="button"
+              onClick={() => onManage(code)}
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+            >
+              Manage code
+            </button>
+            <button type="button" onClick={() => copy(url)} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">
               {copied ? "✓ Copied" : "Copy link"}
             </button>
             <button type="button" onClick={download} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">
               Download
             </button>
             {canEdit && (
-              <>
-                <button type="button" onClick={() => onEdit(code)} className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50">
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => run(() => setQrCodeActive(code.id, !code.active))}
-                  className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
-                >
-                  {code.active ? "Deactivate" : "Activate"}
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => run(() => setQrCodeActive(code.id, !code.active))}
+                className="rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              >
+                {code.active ? "Deactivate" : "Activate"}
+              </button>
             )}
           </div>
         </div>
@@ -498,80 +581,6 @@ function FormsTab({
 }
 
 // ---------------------------------------------------------------------------
-function PartnersTab({ rows }: { rows: PartnerCodeRow[] }) {
-  const origin = useOrigin();
-  const [q, setQ] = useState("");
-  const [onlyUsed, setOnlyUsed] = useState(true);
-
-  const filtered = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return rows.filter(
-      (r) => (!onlyUsed || r.leads > 0) && (!needle || r.name.toLowerCase().includes(needle)),
-    );
-  }, [rows, q, onlyUsed]);
-
-  return (
-    <section className="space-y-4">
-      <p className="text-sm text-slate-500">
-        Every Non-Med Partner has a permanent code pointing at their retail lead form.
-        These are managed on the partner&apos;s CRM record.
-      </p>
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search partners…"
-          className={`${fieldInput} max-w-xs`}
-        />
-        <label className="flex items-center gap-2 text-sm text-slate-600">
-          <input
-            type="checkbox"
-            checked={onlyUsed}
-            onChange={(e) => setOnlyUsed(e.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 text-emerald-600"
-          />
-          Only partners with leads
-        </label>
-        <span className="text-sm text-slate-400">{filtered.length} of {rows.length}</span>
-      </div>
-
-      {filtered.length === 0 ? (
-        <p className="rounded-xl border border-dashed border-slate-200 bg-white/60 px-4 py-10 text-center text-sm text-slate-400">
-          No partner codes match.
-        </p>
-      ) : (
-        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-4 py-2.5 font-semibold">Partner</th>
-                <th className="px-4 py-2.5 font-semibold">Scan link</th>
-                <th className="px-4 py-2.5 text-right font-semibold">Leads</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtered.map((r) => (
-                <tr key={r.id}>
-                  <td className="px-4 py-2.5">
-                    <Link href={`/crm/org/${r.id}`} className="font-medium text-emerald-700 hover:underline">
-                      {r.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2.5 font-mono text-xs text-slate-500">
-                    {origin ? partnerLeadUrl(origin, r.token) : `/lead/${r.token}`}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-slate-600">{r.leads}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
 function Modal({
   title,
   onClose,
@@ -598,6 +607,128 @@ function Modal({
         <div className="px-5 py-4">{children}</div>
       </div>
     </div>
+  );
+}
+
+/**
+ * "Manage code": view the printed code and decide which capture form it opens.
+ * The token never changes here, so anything already in the wild keeps working —
+ * only where it lands does.
+ */
+function ManageCodeDialog({
+  code,
+  forms,
+  partner,
+  leads,
+  canEdit,
+  onClose,
+  onEditSettings,
+  run,
+}: {
+  code: QrCode;
+  forms: QrForm[];
+  partner: PartnerCodeRow | null;
+  leads: number;
+  canEdit: boolean;
+  onClose: () => void;
+  onEditSettings: () => void;
+  run: Run;
+}) {
+  const origin = useOrigin();
+  const { qrRef, copied, copy, download } = useQrTools(code.label);
+  const url = origin ? qrPublicUrl(origin, code) : "";
+  const [formId, setFormId] = useState(code.form_id ?? "");
+  const selected = forms.find((f) => f.id === formId) ?? null;
+  const dirty = (code.form_id ?? "") !== formId;
+
+  return (
+    <Modal title={code.label} onClose={onClose}>
+      <div className="space-y-5">
+        <div className="flex flex-col gap-4 sm:flex-row">
+          <div ref={qrRef} className="shrink-0 self-start rounded-xl border border-slate-200 p-3">
+            {url ? (
+              <QRCodeCanvas value={url} size={168} marginSize={1} level="M" />
+            ) : (
+              <div className="h-[168px] w-[168px]" />
+            )}
+          </div>
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                {qrCodeTypeLabel(code.code_type)}
+              </span>
+              <span
+                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                  code.active ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {code.active ? "Active" : "Inactive"}
+              </span>
+            </div>
+            <p className="break-all rounded-lg bg-slate-50 px-3 py-2 font-mono text-xs text-slate-600">
+              {url || `/q/${code.token}`}
+            </p>
+            <p className="text-xs text-slate-500">
+              {code.scan_count.toLocaleString("en-US")} scans · {leads.toLocaleString("en-US")} leads ·
+              last scanned {fmtDate(code.last_scanned_at)}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              <button type="button" onClick={() => copy(url)} className={btnGhost}>
+                {copied ? "✓ Copied" : "Copy link"}
+              </button>
+              <button type="button" onClick={download} className={btnGhost}>
+                Download PNG
+              </button>
+              {partner && (
+                <Link href={`/crm/org/${partner.id}`} className={btnGhost}>
+                  Partner record ↗
+                </Link>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 p-4">
+          <label className={fieldLabel}>Form this code opens</label>
+          <select
+            value={formId}
+            onChange={(e) => setFormId(e.target.value)}
+            disabled={!canEdit}
+            className={fieldInput}
+          >
+            <option value="">— default contact form</option>
+            {forms.map((f) => (
+              <option key={f.id} value={f.id} disabled={!f.active}>
+                {f.name}
+                {f.active ? "" : " (inactive)"}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-[11px] text-slate-400">
+            {code.target_url
+              ? "This code redirects to a URL, so the form is skipped. Clear the redirect in Edit settings to use a form."
+              : selected
+                ? `Scanners will see “${selected.headline ?? selected.name}” with ${selected.fields?.length ?? 0} extra question(s).`
+                : "Scanners see the standard name / email / phone form."}
+          </p>
+          {canEdit && (
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                disabled={!dirty}
+                onClick={() => run(() => assignQrCodeForm(code.id, formId || null), onClose)}
+                className={btnPrimary}
+              >
+                Save form
+              </button>
+              <button type="button" onClick={onEditSettings} className={btnGhost}>
+                Edit all settings
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -760,6 +891,89 @@ function CodeDialog({
   );
 }
 
+/**
+ * Colour scheme + header image for the public form. The theme is stored as a
+ * key from QR_FORM_THEMES (never raw CSS) and the banner is uploaded ahead of
+ * the save so the outer form only ever carries its public URL.
+ */
+function BrandingFields({ theme, bannerUrl }: { theme: string; bannerUrl: string | null }) {
+  const [picked, setPicked] = useState(theme);
+  const [url, setUrl] = useState(bannerUrl ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function upload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    const fd = new FormData();
+    fd.set("banner", file);
+    const res = await uploadQrFormBanner(null, fd);
+    setBusy(false);
+    if (res.ok && res.url) setUrl(res.url);
+    else setError(res.ok ? "Upload failed." : res.error);
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 p-4">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        Look &amp; feel
+      </p>
+      <input type="hidden" name="theme" value={picked} />
+      <input type="hidden" name="banner_url" value={url} />
+
+      <div className="flex flex-wrap gap-2">
+        {QR_FORM_THEMES.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => setPicked(t.value)}
+            aria-pressed={picked === t.value}
+            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+              picked === t.value
+                ? "border-slate-900 text-slate-900"
+                : "border-slate-200 text-slate-500 hover:border-slate-300"
+            }`}
+          >
+            <span className={`h-4 w-4 rounded-full ${t.swatch}`} aria-hidden />
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3">
+        <label className={fieldLabel}>Header image (optional)</label>
+        {url && (
+          <div className="relative mb-2 h-24 w-full overflow-hidden rounded-lg border border-slate-200">
+            <Image src={url} alt="Form banner preview" fill sizes="32rem" className="object-cover" unoptimized />
+          </div>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className={`${btnGhost} cursor-pointer`}>
+            {busy ? "Uploading…" : url ? "Replace image" : "Upload image"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              onChange={upload}
+              disabled={busy}
+              className="hidden"
+            />
+          </label>
+          {url && (
+            <button type="button" onClick={() => setUrl("")} className="text-xs text-slate-400 hover:text-red-600">
+              Remove
+            </button>
+          )}
+          <span className="text-[11px] text-slate-400">PNG, JPEG, WEBP or GIF up to 5 MB.</span>
+        </div>
+        {error && <p className="mt-1.5 text-xs text-red-600">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 function FormDialog({
   form,
   canEdit,
@@ -813,6 +1027,8 @@ function FormDialog({
             <input name="success_message" defaultValue={form?.success_message ?? ""} className={fieldInput} />
           </div>
         </div>
+
+        <BrandingFields theme={form?.theme ?? "emerald"} bannerUrl={form?.banner_url ?? null} />
 
         <div className="flex flex-wrap gap-4">
           <label className="flex items-center gap-2 text-sm text-slate-600">

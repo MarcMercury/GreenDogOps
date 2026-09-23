@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requireUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
 import {
@@ -10,6 +11,7 @@ import {
   defaultEventFormFields,
   defaultCeFormFields,
   QR_CODE_TYPES,
+  QR_FORM_THEMES,
   QR_LEAD_STATUSES,
 } from "@/lib/marketing/qr";
 
@@ -42,6 +44,8 @@ function done(message: string): ActionResult {
 
 const CODE_TYPES = new Set(QR_CODE_TYPES.map((t) => t.value as string));
 const LEAD_STATUSES = new Set(QR_LEAD_STATUSES.map((s) => s.value));
+const FORM_THEMES = new Set(QR_FORM_THEMES.map((t) => t.value));
+const BANNER_BUCKET = "qr-form-banners";
 
 /** A code can redirect a scanner anywhere, so only allow real web URLs. */
 function webUrl(v: string | null): string | null {
@@ -72,6 +76,7 @@ export async function saveQrForm(formData: FormData): Promise<ActionResult> {
     }
   }
 
+  const theme = str(formData.get("theme")) ?? "emerald";
   const patch = {
     name: str(formData.get("name")) ?? "Untitled form",
     headline: str(formData.get("headline")),
@@ -81,6 +86,14 @@ export async function saveQrForm(formData: FormData): Promise<ActionResult> {
     collect_zip: bool(formData.get("collect_zip")),
     fields,
     active: formData.has("active") ? bool(formData.get("active")) : true,
+    // Branding is only edited in the Forms tab; the event dialog's editor posts
+    // no theme/banner keys and must not blank out what was set there.
+    ...(formData.has("theme")
+      ? { theme: FORM_THEMES.has(theme) ? theme : "emerald" }
+      : {}),
+    ...(formData.has("banner_url")
+      ? { banner_url: str(formData.get("banner_url")) }
+      : {}),
   };
 
   const { error } = id
@@ -96,6 +109,43 @@ export async function deleteQrForm(id: string): Promise<ActionResult> {
   const { error } = await supabase.from("qr_form").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
   return done("Form deleted.");
+}
+
+const BANNER_MAX_BYTES = 5 * 1024 * 1024;
+const BANNER_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+
+/**
+ * Upload a header image for a capture form. The bucket is public because the
+ * banner renders for unauthenticated scanners — so only real image types are
+ * accepted and the stored name is generated, never taken from the upload.
+ */
+export async function uploadQrFormBanner(
+  _prev: ActionResult | null,
+  formData: FormData,
+): Promise<ActionResult & { url?: string }> {
+  await requireMarketingEditor();
+
+  const file = formData.get("banner");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Please choose an image." };
+  }
+  if (file.size > BANNER_MAX_BYTES) {
+    return { ok: false, error: "Image exceeds the 5 MB limit." };
+  }
+  if (!BANNER_TYPES.has(file.type)) {
+    return { ok: false, error: "Use a PNG, JPEG, WEBP or GIF image." };
+  }
+
+  const admin = createAdminClient();
+  const ext = file.type.split("/")[1].replace("jpeg", "jpg");
+  const path = `${crypto.randomUUID()}.${ext}`;
+  const { error: upErr } = await admin.storage
+    .from(BANNER_BUCKET)
+    .upload(path, file, { contentType: file.type, upsert: false });
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { data } = admin.storage.from(BANNER_BUCKET).getPublicUrl(path);
+  return { ok: true, url: data.publicUrl, message: "Banner uploaded." };
 }
 
 // ===========================================================================
@@ -138,6 +188,21 @@ export async function deleteQrCode(id: string): Promise<ActionResult> {
   const { error } = await supabase.from("qr_code").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
   return done("QR code deleted.");
+}
+
+/** "Manage code" dialog: point an already-printed code at a capture form. */
+export async function assignQrCodeForm(
+  id: string,
+  formId: string | null,
+): Promise<ActionResult> {
+  await requireMarketingEditor();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("qr_code")
+    .update({ form_id: formId })
+    .eq("id", id);
+  if (error) return { ok: false, error: error.message };
+  return done(formId ? "Form assigned to this code." : "Form removed from this code.");
 }
 
 export async function setQrCodeActive(

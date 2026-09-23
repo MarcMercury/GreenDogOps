@@ -54,10 +54,104 @@ export interface QrForm {
   collect_pet_name: boolean;
   collect_zip: boolean;
   fields: QrFormField[];
+  theme: string;
+  banner_url: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * Colour schemes a form can be dressed in. Stored as a key, never as raw CSS —
+ * the public page is unauthenticated, so the class strings must come from this
+ * fixed list rather than from anything an editor typed.
+ */
+export interface QrFormTheme {
+  value: string;
+  label: string;
+  /** Swatch shown in the editor. */
+  swatch: string;
+  /** Page backdrop behind the card. */
+  page: string;
+  /** Solid band used as the header when there is no banner image. */
+  band: string;
+  button: string;
+  accentText: string;
+  focus: string;
+  successIcon: string;
+}
+
+export const QR_FORM_THEMES: QrFormTheme[] = [
+  {
+    value: "emerald",
+    label: "Green Dog green",
+    swatch: "bg-emerald-600",
+    page: "bg-gradient-to-b from-emerald-50 to-white",
+    band: "bg-emerald-600",
+    button: "bg-emerald-600 hover:bg-emerald-700",
+    accentText: "text-emerald-700",
+    focus: "focus:border-emerald-500 focus:ring-emerald-500",
+    successIcon: "bg-emerald-100 text-emerald-600",
+  },
+  {
+    value: "sky",
+    label: "Sky blue",
+    swatch: "bg-sky-600",
+    page: "bg-gradient-to-b from-sky-50 to-white",
+    band: "bg-sky-600",
+    button: "bg-sky-600 hover:bg-sky-700",
+    accentText: "text-sky-700",
+    focus: "focus:border-sky-500 focus:ring-sky-500",
+    successIcon: "bg-sky-100 text-sky-600",
+  },
+  {
+    value: "violet",
+    label: "Violet",
+    swatch: "bg-violet-600",
+    page: "bg-gradient-to-b from-violet-50 to-white",
+    band: "bg-violet-600",
+    button: "bg-violet-600 hover:bg-violet-700",
+    accentText: "text-violet-700",
+    focus: "focus:border-violet-500 focus:ring-violet-500",
+    successIcon: "bg-violet-100 text-violet-600",
+  },
+  {
+    value: "amber",
+    label: "Warm amber",
+    swatch: "bg-amber-500",
+    page: "bg-gradient-to-b from-amber-50 to-white",
+    band: "bg-amber-500",
+    button: "bg-amber-500 hover:bg-amber-600",
+    accentText: "text-amber-700",
+    focus: "focus:border-amber-500 focus:ring-amber-500",
+    successIcon: "bg-amber-100 text-amber-600",
+  },
+  {
+    value: "rose",
+    label: "Rose",
+    swatch: "bg-rose-500",
+    page: "bg-gradient-to-b from-rose-50 to-white",
+    band: "bg-rose-500",
+    button: "bg-rose-500 hover:bg-rose-600",
+    accentText: "text-rose-700",
+    focus: "focus:border-rose-500 focus:ring-rose-500",
+    successIcon: "bg-rose-100 text-rose-600",
+  },
+  {
+    value: "slate",
+    label: "Charcoal",
+    swatch: "bg-slate-800",
+    page: "bg-gradient-to-b from-slate-100 to-white",
+    band: "bg-slate-800",
+    button: "bg-slate-800 hover:bg-slate-900",
+    accentText: "text-slate-800",
+    focus: "focus:border-slate-500 focus:ring-slate-500",
+    successIcon: "bg-slate-200 text-slate-700",
+  },
+];
+
+export const qrFormTheme = (v: string | null | undefined): QrFormTheme =>
+  QR_FORM_THEMES.find((t) => t.value === v) ?? QR_FORM_THEMES[0];
 
 export interface QrCode {
   id: string;
@@ -123,6 +217,22 @@ export const qrCodeTypeLabel = (v: string | null): string =>
 /** Public scan URL for a QR code token. */
 export function qrScanUrl(origin: string, token: string): string {
   return `${origin.replace(/\/$/, "")}/q/${token}`;
+}
+
+/**
+ * The URL actually encoded in a printed code. Retail partner codes were
+ * printed against /lead/<token> before qr_code existed; migration 0208 gave
+ * them a qr_code row keyed by that same token, so they must keep showing (and
+ * being downloaded as) the /lead/ form of the URL.
+ */
+export function qrPublicUrl(
+  origin: string,
+  code: Pick<QrCode, "token" | "code_type" | "org_id">,
+): string {
+  const base = origin.replace(/\/$/, "");
+  return code.code_type === "partner" && code.org_id
+    ? `${base}/lead/${code.token}`
+    : `${base}/q/${code.token}`;
 }
 
 /**
@@ -220,4 +330,38 @@ export function parseFormFields(raw: unknown): QrFormField[] {
     if (out.length >= 25) break;
   }
   return out;
+}
+
+const MAX_ANSWER_LENGTH = 500;
+
+/**
+ * Collect the answers to a form's custom questions from an untrusted public
+ * submission. Only keys the form actually declares are read, select answers
+ * must be one of the declared options, and every value is clamped.
+ */
+export function readFormAnswers(
+  fields: QrFormField[],
+  formData: FormData,
+): { answers: Record<string, string> } | { error: string } {
+  const answers: Record<string, string> = {};
+  for (const f of fields) {
+    const raw = formData.get(`custom_${f.key}`);
+    let value =
+      f.type === "checkbox"
+        ? raw === "on" || raw === "true"
+          ? "Yes"
+          : "No"
+        : raw == null
+          ? ""
+          : String(raw).trim();
+    if (f.type === "select" && value && !f.options.includes(value)) {
+      return { error: "Please choose one of the listed options." };
+    }
+    if (value.length > MAX_ANSWER_LENGTH) value = value.slice(0, MAX_ANSWER_LENGTH);
+    if (f.required && (value === "" || (f.type === "checkbox" && value === "No"))) {
+      return { error: `Please answer: ${f.label}` };
+    }
+    if (value !== "") answers[f.key] = value;
+  }
+  return { answers };
 }
