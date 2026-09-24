@@ -387,7 +387,6 @@ function EventsCalendar({
           qrForms={qrForms}
           canEdit={canEdit}
           onClose={() => setViewingCe(null)}
-          run={run}
         />
       )}
 
