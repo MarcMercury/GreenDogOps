@@ -14,6 +14,7 @@ export type QrCodeType =
   | "partner"
   | "referral"
   | "rescue"
+  | "influencer"
   | "other";
 
 export const QR_CODE_TYPES: { value: QrCodeType; label: string; icon: string }[] = [
@@ -23,6 +24,7 @@ export const QR_CODE_TYPES: { value: QrCodeType; label: string; icon: string }[]
   { value: "partner", label: "Retail partner", icon: "🤝" },
   { value: "referral", label: "Referral clinic", icon: "🏥" },
   { value: "rescue", label: "Rescue / shelter", icon: "🐾" },
+  { value: "influencer", label: "Influencer", icon: "⭐" },
   { value: "other", label: "Other", icon: "🔗" },
 ];
 
@@ -172,6 +174,7 @@ export interface QrCode {
   promotion_id: string | null;
   org_id: string | null;
   referral_partner_id: string | null;
+  influencer_id: string | null;
   form_id: string | null;
   target_url: string | null;
   active: boolean;
@@ -189,6 +192,7 @@ export interface QrLead {
   ce_event_id: string | null;
   org_id: string | null;
   referral_partner_id: string | null;
+  influencer_id: string | null;
   full_name: string;
   email: string | null;
   phone: string | null;
@@ -230,7 +234,7 @@ export const qrCodeTypeLabel = (v: string | null): string =>
  * are deliberately absent: their codes are auto-created from the org row and
  * edited through the Non-Med Partner CRM's own QR tab.
  */
-export type QrSubjectKind = "event" | "ce" | "promo" | "referral" | "rescue";
+export type QrSubjectKind = "event" | "ce" | "promo" | "referral" | "rescue" | "influencer";
 
 export interface QrSubject {
   kind: QrSubjectKind;
@@ -245,6 +249,7 @@ export const QR_SUBJECT_COLUMN: Record<QrSubjectKind, string> = {
   promo: "promotion_id",
   referral: "referral_partner_id",
   rescue: "org_id",
+  influencer: "influencer_id",
 };
 
 /** The codes belonging to one record. */
@@ -385,6 +390,36 @@ export function defaultRescueFormFields(): QrFormField[] {
       type: "select",
       required: false,
       options: ["New adopter exam", "Dental cleaning", "Wellness exam", "Just saying hi"],
+      placeholder: null,
+    },
+  ];
+}
+
+/** An influencer's code goes in their bio, stories and printed collateral. */
+export function defaultInfluencerFormFields(): QrFormField[] {
+  return [
+    {
+      key: "platform",
+      label: "Where did you find us?",
+      type: "select",
+      required: false,
+      options: ["Instagram", "TikTok", "YouTube", "Facebook", "In person", "Somewhere else"],
+      placeholder: null,
+    },
+    {
+      key: "interest",
+      label: "What are you most interested in?",
+      type: "select",
+      required: false,
+      options: ["Dental cleaning", "Wellness exam", "Grooming", "Just saying hi"],
+      placeholder: null,
+    },
+    {
+      key: "opt_in",
+      label: "Email me Green Dog news & offers",
+      type: "checkbox",
+      required: false,
+      options: [],
       placeholder: null,
     },
   ];

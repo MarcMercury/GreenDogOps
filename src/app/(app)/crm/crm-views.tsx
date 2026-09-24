@@ -753,6 +753,8 @@ function influencerName(i: CrmInfluencer): string {
   return "—";
 }
 
+export { influencerName as influencerDisplayName };
+
 const STATUS_STYLES: Record<string, string> = {
   active: "bg-emerald-100 text-emerald-700",
   prospect: "bg-sky-100 text-sky-700",

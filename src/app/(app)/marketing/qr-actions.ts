@@ -13,6 +13,7 @@ import {
   defaultPromoFormFields,
   defaultReferralFormFields,
   defaultRescueFormFields,
+  defaultInfluencerFormFields,
   QR_CODE_TYPES,
   QR_FORM_THEMES,
   QR_LEAD_STATUSES,
@@ -49,6 +50,7 @@ const LEAD_EDITOR_MODULES = [
   "crm_rescue",
   "crm_vendor",
   "crm_ce",
+  "crm_influencer",
 ] as const;
 
 async function requireLeadEditor() {
@@ -66,6 +68,7 @@ function done(message: string): ActionResult {
   revalidatePath("/crm/ce");
   revalidatePath("/crm/referral");
   revalidatePath("/crm/rescue");
+  revalidatePath("/crm/influencer");
   return { ok: true, message };
 }
 
@@ -189,14 +192,25 @@ export async function saveQrCode(formData: FormData): Promise<ActionResult> {
     return { ok: false, error: "The redirect URL must start with http:// or https://" };
   }
 
+  // Subject links are only overwritten when the form actually posted them.
+  // The QR Code Mgmt dialog renders a picker for events/CE/promos only, so an
+  // unguarded write would orphan a partner, clinic, rescue or influencer code.
+  const subjectPatch: Record<string, string | null> = {};
+  for (const key of [
+    "event_id",
+    "ce_event_id",
+    "promotion_id",
+    "org_id",
+    "referral_partner_id",
+    "influencer_id",
+  ]) {
+    if (formData.has(key)) subjectPatch[key] = str(formData.get(key));
+  }
+
   const patch = {
     label: str(formData.get("label")) ?? "Untitled code",
     code_type: CODE_TYPES.has(codeType) ? codeType : "other",
-    event_id: str(formData.get("event_id")),
-    ce_event_id: str(formData.get("ce_event_id")),
-    promotion_id: str(formData.get("promotion_id")),
-    org_id: str(formData.get("org_id")),
-    referral_partner_id: str(formData.get("referral_partner_id")),
+    ...subjectPatch,
     form_id: str(formData.get("form_id")),
     target_url: targetUrl,
     notes: str(formData.get("notes")),
@@ -306,6 +320,15 @@ const SUBJECT_SPECS: Record<
     headline: () => "Welcome, new pet parent!",
     intro: (n) => `Adopted through ${n}? Green Dog Dental would love to meet your pet.`,
     fields: defaultRescueFormFields,
+  },
+  influencer: {
+    codeType: "influencer",
+    column: "influencer_id",
+    formSuffix: "audience offer",
+    collectPetName: true,
+    headline: () => "Welcome from Green Dog Dental!",
+    intro: (n) => `${n} sent you our way. Leave your details and we'll take it from here.`,
+    fields: defaultInfluencerFormFields,
   },
 };
 

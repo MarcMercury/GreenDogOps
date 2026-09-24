@@ -142,6 +142,7 @@ export default async function MarketingManagementPage({
     retailLeadsRes,
     qrOrgNamesRes,
     qrReferralNamesRes,
+    qrInfluencerNamesRes,
   ] = await Promise.all([
     supabase.from("qr_code").select("*").order("created_at", { ascending: false }),
     supabase.from("qr_form").select("*").order("name", { ascending: true }),
@@ -171,9 +172,12 @@ export default async function MarketingManagementPage({
       .order("scanned_at", { ascending: false })
       .limit(5000),
     // Name lookups for the unified Leads tab — a code can point at any org
-    // (retail partner or rescue) or at a referral clinic.
+    // (retail partner or rescue), a referral clinic or an influencer.
     supabase.from("crm_organization").select("id, name"),
     supabase.from("referral_partners").select("id, name"),
+    supabase
+      .from("marketing_influencers")
+      .select("id, contact_name, pet_name, instagram_handle"),
   ]);
 
   const retailLeads = (retailLeadsRes.data ?? []) as RetailLeadRow[];
@@ -199,6 +203,21 @@ export default async function MarketingManagementPage({
     ...((qrReferralNamesRes.data ?? []) as { id: string; name: string }[]).map(
       (p) => [p.id, p.name] as [string, string],
     ),
+    ...(
+      (qrInfluencerNamesRes.data ?? []) as {
+        id: string;
+        contact_name: string | null;
+        pet_name: string | null;
+        instagram_handle: string | null;
+      }[]
+    ).map((i) => {
+      // "-" is the placeholder the influencer import left in contact_name.
+      const name =
+        (i.contact_name && i.contact_name !== "-" ? i.contact_name : null) ??
+        i.pet_name ??
+        (i.instagram_handle ? `@${i.instagram_handle}` : "Influencer");
+      return [i.id, name] as [string, string];
+    }),
   ];
   const partnerCodes: PartnerCodeRow[] = (
     (partnersRes.data ?? []) as { id: string; name: string; qr_token: string | null }[]

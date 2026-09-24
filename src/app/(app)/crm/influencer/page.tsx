@@ -1,12 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canEditGeneral } from "@/lib/auth/permissions";
 import type { CrmInfluencer } from "@/lib/crm/types";
-import { InfluencerListView } from "../crm-views";
+import type { QrCode, QrLead } from "@/lib/marketing/qr";
+import { InfluencerWorkspace } from "./influencer-workspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function InfluencerCrmPage() {
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const canEdit = current ? canEditGeneral(current.appUser) : false;
+
   const { data, error } = await fetchAllRows<CrmInfluencer>((from, to) =>
     supabase
       .from("marketing_influencers")
@@ -26,10 +32,27 @@ export default async function InfluencerCrmPage() {
     );
   }
 
+  // Every influencer's code plus the scans attributed to them.
+  const [qrCodesRes, qrLeadsRes] = await Promise.all([
+    supabase
+      .from("qr_code")
+      .select("*")
+      .eq("code_type", "influencer")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("qr_lead")
+      .select("*")
+      .not("influencer_id", "is", null)
+      .order("scanned_at", { ascending: false })
+      .limit(2000),
+  ]);
+
   return (
-    <InfluencerListView
+    <InfluencerWorkspace
       influencers={(data ?? []) as CrmInfluencer[]}
-      addHref="/crm/influencer/new"
+      qrCodes={(qrCodesRes.data ?? []) as QrCode[]}
+      qrLeads={(qrLeadsRes.data ?? []) as QrLead[]}
+      canEdit={canEdit}
     />
   );
 }

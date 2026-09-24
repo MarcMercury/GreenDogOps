@@ -28,6 +28,7 @@ type CodeRow = {
   ce_event_id: string | null;
   org_id: string | null;
   referral_partner_id: string | null;
+  influencer_id: string | null;
   active: boolean;
   qr_form: { fields: unknown; collect_pet_name: boolean; collect_zip: boolean } | null;
 };
@@ -71,7 +72,7 @@ export async function submitQrLead(
   const { data, error: codeErr } = await admin
     .from("qr_code")
     .select(
-      "id, event_id, ce_event_id, org_id, referral_partner_id, active, qr_form(fields, collect_pet_name, collect_zip)",
+      "id, event_id, ce_event_id, org_id, referral_partner_id, influencer_id, active, qr_form(fields, collect_pet_name, collect_zip)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -103,6 +104,7 @@ export async function submitQrLead(
     ce_event_id: code.ce_event_id,
     org_id: code.org_id,
     referral_partner_id: code.referral_partner_id,
+    influencer_id: code.influencer_id,
     full_name: fullName,
     email,
     phone,

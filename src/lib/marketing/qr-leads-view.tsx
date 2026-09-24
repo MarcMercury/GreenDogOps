@@ -94,6 +94,8 @@ function resolveSource(
   if (promoId) return { id: promoId, type: "promo" };
   const referralId = lead.referral_partner_id ?? code?.referral_partner_id ?? null;
   if (referralId) return { id: referralId, type: "referral" };
+  const influencerId = lead.influencer_id ?? code?.influencer_id ?? null;
+  if (influencerId) return { id: influencerId, type: "influencer" };
   const orgId = lead.org_id ?? code?.org_id ?? null;
   if (orgId) return { id: orgId, type: code?.code_type === "partner" ? "partner" : "rescue" };
   return { id: null, type: code?.code_type ?? "other" };
