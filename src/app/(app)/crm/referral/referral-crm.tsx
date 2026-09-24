@@ -30,6 +30,7 @@ import {
 } from "@/lib/crm/referral-types";
 import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 import { QrPanel } from "@/lib/marketing/qr-panel";
+import { QrLeadsView, buildQrLeadRows } from "@/lib/marketing/qr-leads-view";
 import {
   recalculateMetrics,
   clearReferralStats,
@@ -66,13 +67,14 @@ import {
   stickyHeadClass,
 } from "../../_components/data-views";
 
-type TabKey = "list" | "map" | "targeting" | "activity" | "upload-log" | "reports" | "incomplete";
+type TabKey = "list" | "map" | "targeting" | "leads" | "activity" | "upload-log" | "reports" | "incomplete";
 type FollowFilter = "all" | "followup" | "overdue";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "list", label: "Partners", icon: "📋" },
   { key: "map", label: "Map View", icon: "🗺️" },
   { key: "targeting", label: "Targeting", icon: "🎯" },
+  { key: "leads", label: "Leads", icon: "📇" },
   { key: "activity", label: "Activity", icon: "🕑" },
   { key: "upload-log", label: "Upload Log", icon: "📤" },
   { key: "reports", label: "Reports", icon: "📊" },
@@ -172,6 +174,17 @@ export function ReferralCrm({
     setToast(msg);
     setTimeout(() => setToast(null), 4000);
   }
+
+  // Every scan of a referral clinic's QR code, across all clinics.
+  const leadRows = useMemo(() => {
+    const codeIds = new Set(qrCodes.map((c) => c.id));
+    const names = new Map(partners.map((p) => [p.id, partnerName(p)]));
+    return buildQrLeadRows(
+      qrLeads.filter((l) => codeIds.has(l.qr_code_id)),
+      qrCodes,
+      names,
+    );
+  }, [qrLeads, qrCodes, partners]);
 
   // ----- Stats -----
   const stats = useMemo(() => {
@@ -331,6 +344,16 @@ export function ReferralCrm({
 
       {tab === "map" && <MapTab partners={partners} mapsApiKey={mapsApiKey} onView={setDetail} onNotify={notify} />}
       {tab === "targeting" && <TargetingTab partners={partners} onFilterZone={(z) => { setZone(z); setTab("list"); }} onView={setDetail} />}
+      {tab === "leads" && (
+        <QrLeadsView
+          rows={leadRows}
+          canEdit={canEdit}
+          sourceLabel="Clinic"
+          exportName="referral-leads"
+          emptyHint="No referral leads yet. Open a clinic, generate its QR code on the QR Code tab, and every scan lands here."
+          onNotify={notify}
+        />
+      )}
       {tab === "activity" && <ActivityTab visits={visits} auditLog={auditLog} partners={partners} />}
       {tab === "upload-log" && (
         <UploadLogTab

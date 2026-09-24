@@ -25,6 +25,8 @@ import {
   CE_PLANNING_CHECKLIST,
 } from "@/lib/crm/types";
 import { ContactListView } from "../crm-views";
+import type { QrCode, QrLead } from "@/lib/marketing/qr";
+import { QrLeadsView, buildQrLeadRows } from "@/lib/marketing/qr-leads-view";
 import {
   setCeAttendanceField,
   deleteCeEvent,
@@ -2197,16 +2199,32 @@ export function CeCrmTabs({
   contacts,
   attendance,
   events,
+  qrCodes,
+  qrLeads,
   canEdit,
 }: {
   contacts: CrmContact[];
   attendance: CrmCeAttendance[];
   events: CrmCeEvent[];
+  qrCodes: QrCode[];
+  qrLeads: QrLead[];
   canEdit: boolean;
 }) {
   const [tab, setTab] = useState<
     "leads" | "attendees" | "events" | "stats"
   >("leads");
+  // CE QR scans land in qr_lead keyed by ce_event_id — they never become
+  // crm_contact rows, so the Leads tab surfaces them as its own view.
+  const [leadView, setLeadView] = useState<"contacts" | "qr">("contacts");
+
+  const qrLeadRows = useMemo(() => {
+    const codeIds = new Set(qrCodes.map((c) => c.id));
+    return buildQrLeadRows(
+      qrLeads.filter((l) => codeIds.has(l.qr_code_id)),
+      qrCodes,
+      new Map(events.map((e) => [e.id, e.name])),
+    );
+  }, [qrLeads, qrCodes, events]);
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -2258,15 +2276,43 @@ export function CeCrmTabs({
       </div>
 
       {tab === "leads" ? (
-        <ContactListView
-          contacts={contacts}
-          title="CE Leads"
-          description="Everyone we've reached out to — QR sign-ups, manual entries & uploads"
-          icon="📋"
-          variant="ce"
-          addHref="/crm/contact/new?type=ce_attendee"
-          canEdit={canEdit}
-        />
+        <div className="space-y-4">
+          <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm print:hidden">
+            {(["contacts", "qr"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => setLeadView(v)}
+                className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
+                  leadView === v
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                {v === "contacts" ? "Contacts" : `QR Scans (${qrLeadRows.length})`}
+              </button>
+            ))}
+          </div>
+          {leadView === "qr" ? (
+            <QrLeadsView
+              rows={qrLeadRows}
+              canEdit={canEdit}
+              sourceLabel="CE course"
+              exportName="ce-qr-leads"
+              emptyHint="No CE QR scans yet. Open a CE course, generate its QR code on the QR tab, and every check-in lands here."
+            />
+          ) : (
+            <ContactListView
+              contacts={contacts}
+              title="CE Leads"
+              description="Everyone we've reached out to — QR sign-ups, manual entries & uploads"
+              icon="📋"
+              variant="ce"
+              addHref="/crm/contact/new?type=ce_attendee"
+              canEdit={canEdit}
+            />
+          )}
+        </div>
       ) : tab === "attendees" ? (
         <CeAttendeesView
           contacts={contacts}

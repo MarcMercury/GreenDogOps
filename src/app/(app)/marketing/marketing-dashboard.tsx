@@ -31,10 +31,12 @@ import {
   QrCodesWorkspace,
   type PartnerCodeRow,
   type CeEventRef,
+  type RetailLeadRow,
 } from "./qr-codes-workspace";
 import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 import { codesForSubject } from "@/lib/marketing/qr";
 import { QrPanel } from "@/lib/marketing/qr-panel";
+import { QrLeadsView, buildQrLeadRows } from "@/lib/marketing/qr-leads-view";
 import { TemplatesView } from "../email-templates/templates-view";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
 import { subtypeLabel } from "@/lib/crm/types";
@@ -187,6 +189,8 @@ export function MarketingDashboard({
   qrCodes,
   qrForms,
   qrLeads,
+  qrRetailLeads,
+  qrSourceNames,
   qrEvents,
   qrCeEvents,
   partnerCodes,
@@ -209,7 +213,9 @@ export function MarketingDashboard({
   canManageEmailTemplates: boolean;
   qrCodes: QrCode[];
   qrForms: QrForm[];
-  qrLeads: Pick<QrLead, "id" | "qr_code_id" | "scanned_at">[];
+  qrLeads: QrLead[];
+  qrRetailLeads: RetailLeadRow[];
+  qrSourceNames: [string, string][];
   qrEvents: Pick<MarketingEvent, "id" | "name" | "starts_on">[];
   qrCeEvents: CeEventRef[];
   partnerCodes: PartnerCodeRow[];
@@ -298,6 +304,7 @@ export function MarketingDashboard({
           promotions={promotions}
           qrCodes={qrCodes}
           qrForms={qrForms}
+          qrLeads={qrLeads}
           run={run}
         />
       )}
@@ -321,6 +328,8 @@ export function MarketingDashboard({
           codes={qrCodes}
           forms={qrForms}
           leads={qrLeads}
+          retailLeads={qrRetailLeads}
+          sourceNames={qrSourceNames}
           events={qrEvents}
           promotions={promotions}
           ceEvents={qrCeEvents}
@@ -1167,17 +1176,31 @@ function PromotionsTab({
   promotions,
   qrCodes,
   qrForms,
+  qrLeads,
   run,
 }: {
   canEdit: boolean;
   promotions: MarketingPromotion[];
   qrCodes: QrCode[];
   qrForms: QrForm[];
+  qrLeads: QrLead[];
   run: Run;
 }) {
+  const [view, setView] = useState<"list" | "leads">("list");
   const [editing, setEditing] = useState<MarketingPromotion | "new" | null>(null);
   const [status, setStatus] = useState("active");
   const [type, setType] = useState("");
+
+  // Only codes whose promotion_id is set produce promotion leads.
+  const promoCodes = useMemo(() => qrCodes.filter((c) => c.promotion_id), [qrCodes]);
+  const leadRows = useMemo(() => {
+    const codeIds = new Set(promoCodes.map((c) => c.id));
+    return buildQrLeadRows(
+      qrLeads.filter((l) => codeIds.has(l.qr_code_id)),
+      promoCodes,
+      new Map(promotions.map((p) => [p.id, p.name])),
+    );
+  }, [qrLeads, promoCodes, promotions]);
 
   const filtered = useMemo(
     () =>
@@ -1206,6 +1229,33 @@ function PromotionsTab({
 
   return (
     <section className="space-y-4">
+      <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+        {(["list", "leads"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setView(v)}
+            className={`rounded-md px-4 py-1.5 text-sm font-semibold transition ${
+              view === v
+                ? "bg-emerald-600 text-white shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            {v === "list" ? "Promotions" : `Leads (${leadRows.length})`}
+          </button>
+        ))}
+      </div>
+
+      {view === "leads" ? (
+        <QrLeadsView
+          rows={leadRows}
+          canEdit={canEdit}
+          sourceLabel="Promotion"
+          exportName="promotion-leads"
+          emptyHint="No promotion leads yet. Open a promotion, generate its QR code on the QR Code tab, and every scan lands here."
+        />
+      ) : (
+        <>
       <div className="flex flex-wrap items-center gap-2">
         <select value={status} onChange={(e) => setStatus(e.target.value)} className={`${fieldInput} w-auto`}>
           <option value="">All statuses</option>
@@ -1294,6 +1344,8 @@ function PromotionsTab({
             </tbody>
           </table>
         </div>
+      )}
+        </>
       )}
 
       {editing && (

@@ -29,14 +29,16 @@ import {
 } from "@/lib/crm/email-templates";
 import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 import { QrPanel } from "@/lib/marketing/qr-panel";
+import { QrLeadsView, buildQrLeadRows } from "@/lib/marketing/qr-leads-view";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
-type TabKey = "list" | "map" | "targeting" | "activity" | "reports";
+type TabKey = "list" | "map" | "targeting" | "leads" | "activity" | "reports";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "list", label: "Rescues", icon: "📋" },
   { key: "map", label: "Map View", icon: "🗺️" },
   { key: "targeting", label: "Targeting", icon: "🎯" },
+  { key: "leads", label: "Leads", icon: "📇" },
   { key: "activity", label: "Activity", icon: "🕑" },
   { key: "reports", label: "Reports", icon: "📊" },
 ];
@@ -114,6 +116,16 @@ export function RescueCrm({
     () => new Map(rescues.map((r) => [r.id, r.name])),
     [rescues],
   );
+
+  // Every scan of a rescue's QR code, across all rescues.
+  const leadRows = useMemo(() => {
+    const codeIds = new Set(qrCodes.map((c) => c.id));
+    return buildQrLeadRows(
+      qrLeads.filter((l) => codeIds.has(l.qr_code_id)),
+      qrCodes,
+      nameById,
+    );
+  }, [qrLeads, qrCodes, nameById]);
 
   const stats = useMemo(() => {
     const total = rescues.length;
@@ -269,6 +281,16 @@ export function RescueCrm({
         <TargetingTab
           rescues={rescues}
           onFilterArea={(z) => { setArea(z); setTab("list"); }}
+        />
+      )}
+      {tab === "leads" && (
+        <QrLeadsView
+          rows={leadRows}
+          canEdit={canEdit}
+          sourceLabel="Rescue"
+          exportName="rescue-leads"
+          emptyHint="No rescue leads yet. Open a rescue, generate its QR code on the QR Code tab, and every adopter scan lands here."
+          onNotify={notify}
         />
       )}
       {tab === "activity" && <ActivityTab visits={visits} auditLog={auditLog} nameById={nameById} />}

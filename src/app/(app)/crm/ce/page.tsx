@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { CrmContact, CrmCeAttendance, CrmCeEvent } from "@/lib/crm/types";
+import type { QrCode, QrLead } from "@/lib/marketing/qr";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditGeneral } from "@/lib/auth/permissions";
 import { CeCrmTabs } from "./ce-tabs";
@@ -37,6 +38,22 @@ export default async function CeLeadsCrmPage() {
 
   const canEdit = current ? canEditGeneral(current.appUser) : false;
 
+  // QR scans of a CE course's code land in qr_lead, not crm_contact, so the
+  // CE Leads tab reads them directly.
+  const [qrCodesRes, qrLeadsRes] = await Promise.all([
+    supabase
+      .from("qr_code")
+      .select("*")
+      .eq("code_type", "ce")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("qr_lead")
+      .select("*")
+      .not("ce_event_id", "is", null)
+      .order("scanned_at", { ascending: false })
+      .limit(2000),
+  ]);
+
   if (contactsRes.error) {
     return (
       <div className="mx-auto max-w-5xl">
@@ -53,6 +70,8 @@ export default async function CeLeadsCrmPage() {
       contacts={(contactsRes.data ?? []) as CrmContact[]}
       attendance={(attendanceRes.data ?? []) as CrmCeAttendance[]}
       events={(eventsRes.data ?? []) as CrmCeEvent[]}
+      qrCodes={(qrCodesRes.data ?? []) as QrCode[]}
+      qrLeads={(qrLeadsRes.data ?? []) as QrLead[]}
       canEdit={canEdit}
     />
   );

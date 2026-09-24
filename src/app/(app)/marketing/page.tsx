@@ -19,7 +19,7 @@ import type {
 import { MARKETING_VENDOR_CATEGORY, NON_MED_CATEGORY } from "@/lib/crm/types";
 import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 import { MarketingDashboard } from "./marketing-dashboard";
-import type { PartnerCodeRow, CeEventRef } from "./qr-codes-workspace";
+import type { PartnerCodeRow, CeEventRef, RetailLeadRow } from "./qr-codes-workspace";
 
 export const dynamic = "force-dynamic";
 
@@ -132,35 +132,74 @@ export default async function MarketingManagementPage({
 
   // QR Codes tab: managed codes + forms, plus the legacy Non-Med Partner codes
   // that still live on crm_organization.qr_token.
-  const [qrCodesRes, qrFormsRes, qrLeadsRes, qrEventsRes, qrCeRes, partnersRes, retailLeadsRes] =
-    await Promise.all([
-      supabase.from("qr_code").select("*").order("created_at", { ascending: false }),
-      supabase.from("qr_form").select("*").order("name", { ascending: true }),
-      supabase
-        .from("qr_lead")
-        .select("id, qr_code_id, scanned_at")
-        .order("scanned_at", { ascending: false })
-        .limit(5000),
-      supabase
-        .from("marketing_event")
-        .select("id, name, starts_on")
-        .order("starts_on", { ascending: false, nullsFirst: false }),
-      supabase
-        .from("crm_ce_event")
-        .select("id, name, event_date")
-        .order("event_date", { ascending: false, nullsFirst: false }),
-      supabase
-        .from("crm_organization")
-        .select("id, name, qr_token")
-        .eq("category", NON_MED_CATEGORY)
-        .order("name", { ascending: true }),
-      supabase.from("crm_retail_lead").select("id, org_id").limit(5000),
-    ]);
+  const [
+    qrCodesRes,
+    qrFormsRes,
+    qrLeadsRes,
+    qrEventsRes,
+    qrCeRes,
+    partnersRes,
+    retailLeadsRes,
+    qrOrgNamesRes,
+    qrReferralNamesRes,
+  ] = await Promise.all([
+    supabase.from("qr_code").select("*").order("created_at", { ascending: false }),
+    supabase.from("qr_form").select("*").order("name", { ascending: true }),
+    supabase
+      .from("qr_lead")
+      .select("*")
+      .order("scanned_at", { ascending: false })
+      .limit(5000),
+    supabase
+      .from("marketing_event")
+      .select("id, name, starts_on")
+      .order("starts_on", { ascending: false, nullsFirst: false }),
+    supabase
+      .from("crm_ce_event")
+      .select("id, name, event_date")
+      .order("event_date", { ascending: false, nullsFirst: false }),
+    supabase
+      .from("crm_organization")
+      .select("id, name, qr_token")
+      .eq("category", NON_MED_CATEGORY)
+      .order("name", { ascending: true }),
+    supabase
+      .from("crm_retail_lead")
+      .select(
+        "id, org_id, full_name, email, phone, pet_name, zip, answers, status, notes, scanned_at",
+      )
+      .order("scanned_at", { ascending: false })
+      .limit(5000),
+    // Name lookups for the unified Leads tab — a code can point at any org
+    // (retail partner or rescue) or at a referral clinic.
+    supabase.from("crm_organization").select("id, name"),
+    supabase.from("referral_partners").select("id, name"),
+  ]);
 
+  const retailLeads = (retailLeadsRes.data ?? []) as RetailLeadRow[];
   const retailCounts = new Map<string, number>();
-  for (const l of (retailLeadsRes.data ?? []) as { org_id: string }[]) {
+  for (const l of retailLeads) {
     retailCounts.set(l.org_id, (retailCounts.get(l.org_id) ?? 0) + 1);
   }
+
+  // id → display name for every record a QR code can belong to.
+  const qrSourceNames: [string, string][] = [
+    ...((qrEventsRes.data ?? []) as { id: string; name: string }[]).map(
+      (e) => [e.id, e.name] as [string, string],
+    ),
+    ...((qrCeRes.data ?? []) as { id: string; name: string }[]).map(
+      (e) => [e.id, `CE: ${e.name}`] as [string, string],
+    ),
+    ...((promotionsRes.data ?? []) as { id: string; name: string }[]).map(
+      (p) => [p.id, p.name] as [string, string],
+    ),
+    ...((qrOrgNamesRes.data ?? []) as { id: string; name: string }[]).map(
+      (o) => [o.id, o.name] as [string, string],
+    ),
+    ...((qrReferralNamesRes.data ?? []) as { id: string; name: string }[]).map(
+      (p) => [p.id, p.name] as [string, string],
+    ),
+  ];
   const partnerCodes: PartnerCodeRow[] = (
     (partnersRes.data ?? []) as { id: string; name: string; qr_token: string | null }[]
   )
@@ -218,7 +257,9 @@ export default async function MarketingManagementPage({
       canManageEmailTemplates={canManageEmailTemplates}
       qrCodes={(qrCodesRes.data ?? []) as QrCode[]}
       qrForms={(qrFormsRes.data ?? []) as QrForm[]}
-      qrLeads={(qrLeadsRes.data ?? []) as Pick<QrLead, "id" | "qr_code_id" | "scanned_at">[]}
+      qrLeads={(qrLeadsRes.data ?? []) as QrLead[]}
+      qrRetailLeads={retailLeads}
+      qrSourceNames={qrSourceNames}
       qrEvents={(qrEventsRes.data ?? []) as Pick<MarketingEvent, "id" | "name" | "starts_on">[]}
       qrCeEvents={(qrCeRes.data ?? []) as CeEventRef[]}
       partnerCodes={partnerCodes}

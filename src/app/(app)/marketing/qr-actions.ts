@@ -38,11 +38,34 @@ async function requireMarketingEditor() {
   return current;
 }
 
+/**
+ * Leads are triaged from the module that owns the code (Referral Clinics,
+ * Rescues, CE, Non-Med Partners) as well as from QR Code Mgmt, so any of those
+ * editors may update one.
+ */
+const LEAD_EDITOR_MODULES = [
+  "marketing",
+  "crm_referral",
+  "crm_rescue",
+  "crm_vendor",
+  "crm_ce",
+] as const;
+
+async function requireLeadEditor() {
+  const current = await requireUser();
+  if (!LEAD_EDITOR_MODULES.some((m) => canEditModule(current.appUser, m))) {
+    redirect("/");
+  }
+  return current;
+}
+
 function done(message: string): ActionResult {
   revalidatePath("/marketing/qr-codes");
   revalidatePath("/marketing/events");
   revalidatePath("/marketing");
   revalidatePath("/crm/ce");
+  revalidatePath("/crm/referral");
+  revalidatePath("/crm/rescue");
   return { ok: true, message };
 }
 
@@ -330,7 +353,7 @@ export async function setQrLeadStatus(
   id: string,
   status: string,
 ): Promise<ActionResult> {
-  await requireMarketingEditor();
+  await requireLeadEditor();
   if (!LEAD_STATUSES.has(status)) return { ok: false, error: "Unknown status." };
   const supabase = await createClient();
   const { error } = await supabase.from("qr_lead").update({ status }).eq("id", id);
@@ -342,7 +365,7 @@ export async function saveQrLeadNotes(
   id: string,
   notes: string,
 ): Promise<ActionResult> {
-  await requireMarketingEditor();
+  await requireLeadEditor();
   const supabase = await createClient();
   const { error } = await supabase
     .from("qr_lead")
@@ -353,7 +376,7 @@ export async function saveQrLeadNotes(
 }
 
 export async function deleteQrLead(id: string): Promise<ActionResult> {
-  await requireMarketingEditor();
+  await requireLeadEditor();
   const supabase = await createClient();
   const { error } = await supabase.from("qr_lead").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };

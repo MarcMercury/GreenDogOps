@@ -27,6 +27,11 @@ import {
   deleteQrForm,
   uploadQrFormBanner,
 } from "./qr-actions";
+import {
+  QrLeadsView,
+  buildQrLeadRows,
+  type QrLeadRow,
+} from "@/lib/marketing/qr-leads-view";
 
 const fieldInput =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -43,6 +48,24 @@ export type PartnerCodeRow = {
   leads: number;
 };
 
+/**
+ * A Non-Med Partner scan. These predate qr_lead and still land in
+ * crm_retail_lead, so the unified Leads tab folds them in at read time.
+ */
+export type RetailLeadRow = {
+  id: string;
+  org_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  pet_name: string | null;
+  zip: string | null;
+  answers: Record<string, string> | null;
+  status: string;
+  notes: string | null;
+  scanned_at: string;
+};
+
 /** A CE course a code can be attached to (built in the CE module). */
 export type CeEventRef = {
   id: string;
@@ -55,11 +78,12 @@ type Run = (
   after?: () => void,
 ) => void;
 
-type TabKey = "codes" | "forms";
+type TabKey = "codes" | "forms" | "leads";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "codes", label: "QR Codes", icon: "🔳" },
   { key: "forms", label: "Forms", icon: "📝" },
+  { key: "leads", label: "Leads", icon: "📇" },
 ];
 
 const PAGE_SIZE = 40;
@@ -87,6 +111,8 @@ export function QrCodesWorkspace({
   codes,
   forms,
   leads,
+  retailLeads,
+  sourceNames,
   events,
   promotions,
   ceEvents,
@@ -95,7 +121,10 @@ export function QrCodesWorkspace({
   canEdit: boolean;
   codes: QrCode[];
   forms: QrForm[];
-  leads: Pick<QrLead, "id" | "qr_code_id" | "scanned_at">[];
+  leads: QrLead[];
+  retailLeads: RetailLeadRow[];
+  /** id → display name for every record a code can point at. */
+  sourceNames: [string, string][];
   events: Pick<MarketingEvent, "id" | "name" | "starts_on">[];
   promotions: Pick<MarketingPromotion, "id" | "name">[];
   ceEvents: CeEventRef[];
@@ -157,6 +186,31 @@ export function QrCodesWorkspace({
   const totalLeads =
     leads.length + partnerCodes.reduce((s, p) => s + p.leads, 0);
 
+  // Every capture in one list: managed codes write qr_lead, Non-Med Partner
+  // codes still write crm_retail_lead.
+  const allLeadRows: QrLeadRow[] = useMemo(() => {
+    const names = new Map(sourceNames);
+    const orgName = (id: string) => names.get(id) ?? "(deleted partner)";
+    const retailRows: QrLeadRow[] = retailLeads.map((l) => ({
+      id: l.id,
+      origin: "retail",
+      fullName: l.full_name,
+      email: l.email,
+      phone: l.phone,
+      petName: l.pet_name,
+      zip: l.zip,
+      notes: l.notes,
+      answers: l.answers ?? {},
+      status: l.status,
+      scannedAt: l.scanned_at,
+      sourceId: l.org_id,
+      sourceName: orgName(l.org_id),
+      sourceType: "partner",
+      codeLabel: null,
+    }));
+    return [...buildQrLeadRows(leads, codes, names), ...retailRows];
+  }, [leads, codes, retailLeads, sourceNames]);
+
   return (
     <div className="space-y-6">
       <div className="grid gap-3 sm:grid-cols-4">
@@ -202,6 +256,17 @@ export function QrCodesWorkspace({
       )}
       {tab === "forms" && (
         <FormsTab forms={forms} usage={formUsage} canEdit={canEdit} onEdit={setEditingForm} />
+      )}
+      {tab === "leads" && (
+        <QrLeadsView
+          rows={allLeadRows}
+          canEdit={canEdit}
+          sourceLabel="Source"
+          showTypeFilter
+          exportName="qr-leads"
+          emptyHint="No leads captured yet. Every scan of every QR code — events, CE courses, promotions, referral clinics, rescues and retail partners — collects here."
+          onNotify={notify}
+        />
       )}
 
       {managingCode && (
