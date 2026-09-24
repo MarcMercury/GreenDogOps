@@ -10,9 +10,13 @@ import {
   parseFormFields,
   defaultEventFormFields,
   defaultCeFormFields,
+  defaultPromoFormFields,
+  defaultReferralFormFields,
+  defaultRescueFormFields,
   QR_CODE_TYPES,
   QR_FORM_THEMES,
   QR_LEAD_STATUSES,
+  type QrSubjectKind,
 } from "@/lib/marketing/qr";
 
 export type ActionResult =
@@ -169,6 +173,7 @@ export async function saveQrCode(formData: FormData): Promise<ActionResult> {
     ce_event_id: str(formData.get("ce_event_id")),
     promotion_id: str(formData.get("promotion_id")),
     org_id: str(formData.get("org_id")),
+    referral_partner_id: str(formData.get("referral_partner_id")),
     form_id: str(formData.get("form_id")),
     target_url: targetUrl,
     notes: str(formData.get("notes")),
@@ -217,32 +222,90 @@ export async function setQrCodeActive(
 }
 
 /**
- * One-click "give this event a QR code": creates a starter capture form and a
+ * One-click "give this record a QR code": creates a starter capture form and a
  * code pointing at it, so nobody has to visit QR Code Mgmt to get something
- * printable. Works for both marketing events and CE courses — a CE course is
- * still built in the CE module, this only adds its code.
+ * printable. The record itself is still edited in its own module — this only
+ * adds its code.
  */
+const SUBJECT_SPECS: Record<
+  QrSubjectKind,
+  {
+    codeType: string;
+    column: string;
+    formSuffix: string;
+    collectPetName: boolean;
+    headline: (name: string) => string;
+    intro: (name: string) => string;
+    fields: () => ReturnType<typeof defaultEventFormFields>;
+  }
+> = {
+  event: {
+    codeType: "event",
+    column: "event_id",
+    formSuffix: "sign-up",
+    collectPetName: true,
+    headline: () => "Welcome from Green Dog!",
+    intro: (n) => `Leave your info and we'll be in touch about ${n}.`,
+    fields: defaultEventFormFields,
+  },
+  ce: {
+    codeType: "ce",
+    column: "ce_event_id",
+    formSuffix: "check-in",
+    collectPetName: false,
+    headline: (n) => n,
+    intro: (n) => `Check in for ${n} and we'll send your CE certificate.`,
+    fields: defaultCeFormFields,
+  },
+  promo: {
+    codeType: "promo",
+    column: "promotion_id",
+    formSuffix: "offer",
+    collectPetName: true,
+    headline: (n) => n,
+    intro: (n) => `Claim ${n} — leave your details and we'll set it up.`,
+    fields: defaultPromoFormFields,
+  },
+  referral: {
+    codeType: "referral",
+    column: "referral_partner_id",
+    formSuffix: "referral",
+    collectPetName: true,
+    headline: () => "Referred to Green Dog Dental",
+    intro: (n) => `${n} referred you to us. Leave your details and we'll reach out.`,
+    fields: defaultReferralFormFields,
+  },
+  rescue: {
+    codeType: "rescue",
+    column: "org_id",
+    formSuffix: "adopter welcome",
+    collectPetName: true,
+    headline: () => "Welcome, new pet parent!",
+    intro: (n) => `Adopted through ${n}? Green Dog Dental would love to meet your pet.`,
+    fields: defaultRescueFormFields,
+  },
+};
+
 export async function createQrCodeFor(
-  kind: "event" | "ce",
+  kind: QrSubjectKind,
   subjectId: string,
   subjectName: string,
 ): Promise<ActionResult> {
   await requireMarketingEditor();
   const supabase = await createClient();
-  const isCe = kind === "ce";
+  const spec = SUBJECT_SPECS[kind];
+  if (!spec) return { ok: false, error: "Unknown record type." };
 
   const { data: form, error: formErr } = await supabase
     .from("qr_form")
     .insert({
-      name: `${subjectName} — sign-up`,
-      headline: isCe ? subjectName : `Welcome from Green Dog!`,
-      intro: isCe
-        ? `Check in for ${subjectName} and we'll send your CE certificate.`
-        : `Leave your info and we'll be in touch about ${subjectName}.`,
+      name: `${subjectName} — ${spec.formSuffix}`,
+      headline: spec.headline(subjectName),
+      intro: spec.intro(subjectName),
       success_message: "Thanks! We'll be in touch soon.",
-      collect_pet_name: !isCe,
+      collect_pet_name: spec.collectPetName,
       collect_zip: false,
-      fields: isCe ? defaultCeFormFields() : defaultEventFormFields(),
+      fields: spec.fields(),
       active: true,
     })
     .select("id")
@@ -251,9 +314,8 @@ export async function createQrCodeFor(
 
   const { error: codeErr } = await supabase.from("qr_code").insert({
     label: subjectName,
-    code_type: isCe ? "ce" : "event",
-    event_id: isCe ? null : subjectId,
-    ce_event_id: isCe ? subjectId : null,
+    code_type: spec.codeType,
+    [spec.column]: subjectId,
     form_id: (form as { id: string }).id,
     active: true,
   });

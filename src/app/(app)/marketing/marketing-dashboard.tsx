@@ -33,6 +33,8 @@ import {
   type CeEventRef,
 } from "./qr-codes-workspace";
 import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
+import { codesForSubject } from "@/lib/marketing/qr";
+import { QrPanel } from "@/lib/marketing/qr-panel";
 import { TemplatesView } from "../email-templates/templates-view";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
 import { subtypeLabel } from "@/lib/crm/types";
@@ -291,7 +293,13 @@ export function MarketingDashboard({
         />
       )}
       {tab === "promotions" && (
-        <PromotionsTab canEdit={canEdit} promotions={promotions} run={run} />
+        <PromotionsTab
+          canEdit={canEdit}
+          promotions={promotions}
+          qrCodes={qrCodes}
+          qrForms={qrForms}
+          run={run}
+        />
       )}
       {tab === "budget" && isAdmin && (
         <BudgetTab
@@ -1157,10 +1165,14 @@ const PROMO_STATUS_COLORS: Record<string, string> = {
 function PromotionsTab({
   canEdit,
   promotions,
+  qrCodes,
+  qrForms,
   run,
 }: {
   canEdit: boolean;
   promotions: MarketingPromotion[];
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
   run: Run;
 }) {
   const [editing, setEditing] = useState<MarketingPromotion | "new" | null>(null);
@@ -1287,6 +1299,9 @@ function PromotionsTab({
       {editing && (
         <PromotionDialog
           promo={editing === "new" ? null : editing}
+          qrCodes={qrCodes}
+          qrForms={qrForms}
+          canEdit={canEdit}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -1297,13 +1312,21 @@ function PromotionsTab({
 
 function PromotionDialog({
   promo,
+  qrCodes,
+  qrForms,
+  canEdit,
   onClose,
   run,
 }: {
   promo: MarketingPromotion | null;
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
+  canEdit: boolean;
   onClose: () => void;
   run: Run;
 }) {
+  const [tab, setTab] = useState<"details" | "qr">("details");
+
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
@@ -1311,6 +1334,38 @@ function PromotionDialog({
   }
   return (
     <Modal title={promo ? "Edit promotion" : "New promotion"} onClose={onClose}>
+      <div className="mb-4 flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-100 pb-2">
+        {([
+          { key: "details", label: "Details" },
+          { key: "qr", label: "QR Code" },
+        ] as const).map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => setTab(t.key)}
+            className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              tab === t.key
+                ? "bg-emerald-600 text-white"
+                : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "qr" ? (
+        <QrPanel
+          subject={promo ? { kind: "promo", id: promo.id, name: promo.name } : null}
+          codes={codesForSubject(
+            qrCodes,
+            promo ? { kind: "promo", id: promo.id, name: promo.name } : null,
+          )}
+          forms={qrForms}
+          canEdit={canEdit}
+          emptyHint="Save the promotion first — then you can generate its QR code and claim form here."
+        />
+      ) : (
       <form onSubmit={onSubmit} className="space-y-4">
         {promo && <input type="hidden" name="id" value={promo.id} />}
         {promo?.source_event_id && (
@@ -1387,6 +1442,7 @@ function PromotionDialog({
           deleteLabel="Delete promotion"
         />
       </form>
+      )}
     </Modal>
   );
 }

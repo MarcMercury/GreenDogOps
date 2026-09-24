@@ -6,7 +6,7 @@ import type { CeEventSummary } from "@/lib/marketing/event-rows";
 import { ceStatusToEventStatus } from "@/lib/marketing/event-rows";
 import type { QrCode, QrForm } from "@/lib/marketing/qr";
 import { eventStatusLabel } from "@/lib/marketing/types";
-import { QrPanel, type Run } from "./marketing-events";
+import { QrPanel } from "@/lib/marketing/qr-panel";
 
 const btnGhost =
   "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50";
@@ -50,14 +50,12 @@ export function CeEventDialog({
   qrForms,
   canEdit,
   onClose,
-  run,
 }: {
   event: CeEventSummary;
   qrCodes: QrCode[];
   qrForms: QrForm[];
   canEdit: boolean;
   onClose: () => void;
-  run: Run;
 }) {
   const [tab, setTab] = useState<"details" | "qr">("details");
 
@@ -193,7 +191,6 @@ export function CeEventDialog({
               codes={codes}
               forms={qrForms}
               canEdit={canEdit}
-              run={run}
             />
           )}
         </div>

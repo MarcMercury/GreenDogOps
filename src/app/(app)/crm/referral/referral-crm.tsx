@@ -28,6 +28,8 @@ import {
   titleCase,
   activityActionLabel,
 } from "@/lib/crm/referral-types";
+import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
+import { QrPanel } from "@/lib/marketing/qr-panel";
 import {
   recalculateMetrics,
   clearReferralStats,
@@ -120,6 +122,9 @@ export function ReferralCrm({
   canEdit = false,
   mapsApiKey,
   templates,
+  qrCodes,
+  qrForms,
+  qrLeads,
   senderName,
   senderEmail,
 }: {
@@ -134,6 +139,9 @@ export function ReferralCrm({
   canEdit?: boolean;
   mapsApiKey: string;
   templates: EmailTemplate[];
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
+  qrLeads: QrLead[];
   senderName: string | null;
   senderEmail: string | null;
 }) {
@@ -378,6 +386,9 @@ export function ReferralCrm({
           notes={notes.filter((n) => n.partner_id === detail.id)}
           canEdit={canEdit}
           templates={templates}
+          qrCodes={qrCodes.filter((c) => c.referral_partner_id === detail.id)}
+          qrForms={qrForms}
+          qrLeads={qrLeads.filter((l) => l.referral_partner_id === detail.id)}
           senderName={senderName}
           senderEmail={senderEmail}
           onClose={() => setDetail(null)}
@@ -1749,7 +1760,7 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function DetailDialog({
-  partner, visits, contacts, notes, canEdit, templates, senderName, senderEmail, onClose, onEdit, onQuickVisit, onChange,
+  partner, visits, contacts, notes, canEdit, templates, qrCodes, qrForms, qrLeads, senderName, senderEmail, onClose, onEdit, onQuickVisit, onChange,
 }: {
   partner: ReferralPartner;
   visits: ClinicVisit[];
@@ -1757,6 +1768,9 @@ function DetailDialog({
   notes: PartnerNote[];
   canEdit: boolean;
   templates: EmailTemplate[];
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
+  qrLeads: QrLead[];
   senderName: string | null;
   senderEmail: string | null;
   onClose: () => void;
@@ -1766,7 +1780,7 @@ function DetailDialog({
 }) {
   const [composeEmail, setComposeEmail] = useState(false);
   const [detailTab, setDetailTab] = useState<
-    "contact" | "classification" | "visit" | "agreements" | "activity"
+    "contact" | "classification" | "visit" | "agreements" | "qr" | "activity"
   >("contact");
   return (
     <Modal onClose={onClose} wide>
@@ -1824,6 +1838,7 @@ function DetailDialog({
             { key: "classification", label: "Classification" },
             { key: "visit", label: "Visit Schedule" },
             { key: "agreements", label: "Agreements" },
+            { key: "qr", label: "QR Code" },
             { key: "activity", label: "Activity" },
           ] as const).map((t) => (
             <button
@@ -1900,6 +1915,16 @@ function DetailDialog({
               <DetailRow label="Drop-off Materials" value={partner.drop_off_materials ? "Yes" : null} />
             </dl>
           </section>
+        )}
+
+        {detailTab === "qr" && (
+          <QrPanel
+            subject={{ kind: "referral", id: partner.id, name: partnerName(partner) }}
+            codes={qrCodes}
+            forms={qrForms}
+            leads={qrLeads}
+            canEdit={canEdit}
+          />
         )}
 
         {detailTab === "activity" && (

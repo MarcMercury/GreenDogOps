@@ -14,6 +14,7 @@ import type {
 } from "@/lib/crm/referral-types";
 import { ReferralCrm } from "./referral-crm";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
+import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 
 export const dynamic = "force-dynamic";
 
@@ -204,6 +205,22 @@ export default async function ReferralCrmPage() {
     .order("name");
   const templates = (templateRows ?? []) as EmailTemplate[];
 
+  // Each clinic's QR code + capture form, shown on its QR Code tab.
+  const [qrCodesRes, qrFormsRes, qrLeadsRes] = await Promise.all([
+    supabase
+      .from("qr_code")
+      .select("*")
+      .eq("code_type", "referral")
+      .order("created_at", { ascending: false }),
+    supabase.from("qr_form").select("*").order("name", { ascending: true }),
+    supabase
+      .from("qr_lead")
+      .select("*")
+      .not("referral_partner_id", "is", null)
+      .order("scanned_at", { ascending: false })
+      .limit(2000),
+  ]);
+
   return (
     <ReferralCrm
       partners={partners}
@@ -217,6 +234,9 @@ export default async function ReferralCrmPage() {
       canEdit={canEdit}
       mapsApiKey={mapsApiKey}
       templates={templates}
+      qrCodes={(qrCodesRes.data ?? []) as QrCode[]}
+      qrForms={(qrFormsRes.data ?? []) as QrForm[]}
+      qrLeads={(qrLeadsRes.data ?? []) as QrLead[]}
       senderName={current?.appUser.full_name ?? null}
       senderEmail={current?.email ?? null}
     />

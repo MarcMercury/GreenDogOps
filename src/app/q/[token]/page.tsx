@@ -54,25 +54,27 @@ export default async function QrScanPage({
   }
 
   const form = Array.isArray(code.qr_form) ? code.qr_form[0] : code.qr_form;
-  if (!form || !form.active) notFound();
+  // A code with no (or a retired) form still captures contact details rather
+  // than 404-ing — a printed code must never become a dead end.
+  const live = form?.active ? form : null;
 
-  const fields: QrFormField[] = parseFormFields(form.fields);
+  const fields: QrFormField[] = parseFormFields(live?.fields);
 
   return (
     <main
-      className={`flex min-h-screen items-center justify-center px-4 py-12 ${qrFormTheme(form.theme).page}`}
+      className={`flex min-h-screen items-center justify-center px-4 py-12 ${qrFormTheme(live?.theme).page}`}
     >
       <div className="w-full max-w-md">
         <CaptureForm
           eyebrow="You scanned"
-          title={form.headline ?? code.label}
-          intro={form.intro}
-          successMessage={form.success_message}
-          collectPetName={form.collect_pet_name}
-          collectZip={form.collect_zip}
+          title={live?.headline ?? code.label}
+          intro={live?.intro ?? null}
+          successMessage={live?.success_message ?? null}
+          collectPetName={live ? live.collect_pet_name : true}
+          collectZip={live?.collect_zip ?? false}
           fields={fields}
-          theme={form.theme}
-          bannerUrl={form.banner_url}
+          theme={live?.theme ?? null}
+          bannerUrl={live?.banner_url ?? null}
           action={submitQrLead.bind(null, token)}
         />
         <p className="mt-6 text-center text-xs text-slate-400">Green Dog Dental</p>

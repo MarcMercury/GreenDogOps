@@ -27,6 +27,7 @@ type CodeRow = {
   event_id: string | null;
   ce_event_id: string | null;
   org_id: string | null;
+  referral_partner_id: string | null;
   active: boolean;
   qr_form: { fields: unknown; collect_pet_name: boolean; collect_zip: boolean } | null;
 };
@@ -69,7 +70,9 @@ export async function submitQrLead(
 
   const { data, error: codeErr } = await admin
     .from("qr_code")
-    .select("id, event_id, ce_event_id, org_id, active, qr_form(fields, collect_pet_name, collect_zip)")
+    .select(
+      "id, event_id, ce_event_id, org_id, referral_partner_id, active, qr_form(fields, collect_pet_name, collect_zip)",
+    )
     .eq("token", token)
     .maybeSingle();
   if (codeErr) return { ok: false, error: "Something went wrong. Please try again." };
@@ -99,11 +102,12 @@ export async function submitQrLead(
     event_id: code.event_id,
     ce_event_id: code.ce_event_id,
     org_id: code.org_id,
+    referral_partner_id: code.referral_partner_id,
     full_name: fullName,
     email,
     phone,
     pet_name: formRow?.collect_pet_name === false ? null : petName,
-    zip: formRow?.collect_zip ? zip : null,
+    zip: formRow && !formRow.collect_zip ? null : zip,
     answers: read.answers,
     source: "qr_scan",
     status: "new",

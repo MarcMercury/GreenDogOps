@@ -11,6 +11,7 @@ import {
 } from "@/lib/crm/types";
 import { RescueCrm } from "./rescue-crm";
 import type { EmailTemplate } from "@/lib/crm/email-templates";
+import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
 
 export const dynamic = "force-dynamic";
 
@@ -159,6 +160,22 @@ export default async function RescueCrmPage() {
     .order("name");
   const templates = (templateRows ?? []) as EmailTemplate[];
 
+  // Each rescue's QR code + capture form, shown on its QR Code tab.
+  const [qrCodesRes, qrFormsRes, qrLeadsRes] = await Promise.all([
+    supabase
+      .from("qr_code")
+      .select("*")
+      .eq("code_type", "rescue")
+      .order("created_at", { ascending: false }),
+    supabase.from("qr_form").select("*").order("name", { ascending: true }),
+    supabase
+      .from("qr_lead")
+      .select("*")
+      .not("org_id", "is", null)
+      .order("scanned_at", { ascending: false })
+      .limit(2000),
+  ]);
+
   return (
     <RescueCrm
       rescues={rescues}
@@ -167,6 +184,9 @@ export default async function RescueCrmPage() {
       canEdit={canEdit}
       mapsApiKey={mapsApiKey}
       templates={templates}
+      qrCodes={(qrCodesRes.data ?? []) as QrCode[]}
+      qrForms={(qrFormsRes.data ?? []) as QrForm[]}
+      qrLeads={(qrLeadsRes.data ?? []) as QrLead[]}
       senderName={current?.appUser.full_name ?? null}
       senderEmail={current?.email ?? null}
     />

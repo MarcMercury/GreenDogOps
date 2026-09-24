@@ -7,13 +7,22 @@
  * greendogops.qr_lead.
  */
 
-export type QrCodeType = "event" | "ce" | "promo" | "partner" | "other";
+export type QrCodeType =
+  | "event"
+  | "ce"
+  | "promo"
+  | "partner"
+  | "referral"
+  | "rescue"
+  | "other";
 
 export const QR_CODE_TYPES: { value: QrCodeType; label: string; icon: string }[] = [
   { value: "event", label: "Event", icon: "🎪" },
   { value: "ce", label: "CE course", icon: "📋" },
   { value: "promo", label: "Promotion", icon: "🏷️" },
   { value: "partner", label: "Retail partner", icon: "🤝" },
+  { value: "referral", label: "Referral clinic", icon: "🏥" },
+  { value: "rescue", label: "Rescue / shelter", icon: "🐾" },
   { value: "other", label: "Other", icon: "🔗" },
 ];
 
@@ -162,6 +171,7 @@ export interface QrCode {
   ce_event_id: string | null;
   promotion_id: string | null;
   org_id: string | null;
+  referral_partner_id: string | null;
   form_id: string | null;
   target_url: string | null;
   active: boolean;
@@ -178,6 +188,7 @@ export interface QrLead {
   event_id: string | null;
   ce_event_id: string | null;
   org_id: string | null;
+  referral_partner_id: string | null;
   full_name: string;
   email: string | null;
   phone: string | null;
@@ -213,6 +224,35 @@ export const qrLeadStatusLabel = (v: string | null): string =>
 
 export const qrCodeTypeLabel = (v: string | null): string =>
   QR_CODE_TYPES.find((t) => t.value === v)?.label ?? v ?? "—";
+
+/**
+ * A record that can own QR codes from its own detail dialog. Retail partners
+ * are deliberately absent: their codes are auto-created from the org row and
+ * edited through the Non-Med Partner CRM's own QR tab.
+ */
+export type QrSubjectKind = "event" | "ce" | "promo" | "referral" | "rescue";
+
+export interface QrSubject {
+  kind: QrSubjectKind;
+  id: string;
+  name: string;
+}
+
+/** The qr_code / qr_lead column that links a row to each kind of subject. */
+export const QR_SUBJECT_COLUMN: Record<QrSubjectKind, string> = {
+  event: "event_id",
+  ce: "ce_event_id",
+  promo: "promotion_id",
+  referral: "referral_partner_id",
+  rescue: "org_id",
+};
+
+/** The codes belonging to one record. */
+export function codesForSubject(codes: QrCode[], subject: QrSubject | null): QrCode[] {
+  if (!subject) return [];
+  const column = QR_SUBJECT_COLUMN[subject.kind] as keyof QrCode;
+  return codes.filter((c) => c[column] === subject.id);
+}
 
 /** Public scan URL for a QR code token. */
 export function qrScanUrl(origin: string, token: string): string {
@@ -294,6 +334,69 @@ export function defaultCeFormFields(): QrFormField[] {
       key: "license",
       label: "License number (for CE credit)",
       type: "text",
+      required: false,
+      options: [],
+      placeholder: null,
+    },
+  ];
+}
+
+/** A referral clinic hands this to a client they are sending to Green Dog. */
+export function defaultReferralFormFields(): QrFormField[] {
+  return [
+    {
+      key: "referred_by",
+      label: "Who referred you?",
+      type: "text",
+      required: false,
+      options: [],
+      placeholder: "Doctor or staff member",
+    },
+    {
+      key: "reason",
+      label: "What does your pet need?",
+      type: "select",
+      required: false,
+      options: [
+        "Dental cleaning",
+        "Extractions / oral surgery",
+        "Second opinion",
+        "Not sure yet",
+      ],
+      placeholder: null,
+    },
+  ];
+}
+
+/** Rescue & shelter codes go out with an adopter's paperwork. */
+export function defaultRescueFormFields(): QrFormField[] {
+  return [
+    {
+      key: "adoption_date",
+      label: "When did you adopt?",
+      type: "text",
+      required: false,
+      options: [],
+      placeholder: "Month / year",
+    },
+    {
+      key: "interest",
+      label: "What are you most interested in?",
+      type: "select",
+      required: false,
+      options: ["New adopter exam", "Dental cleaning", "Wellness exam", "Just saying hi"],
+      placeholder: null,
+    },
+  ];
+}
+
+/** Promotion codes are printed on the flyer for the offer itself. */
+export function defaultPromoFormFields(): QrFormField[] {
+  return [
+    {
+      key: "opt_in",
+      label: "Email me Green Dog news & offers",
+      type: "checkbox",
       required: false,
       options: [],
       placeholder: null,

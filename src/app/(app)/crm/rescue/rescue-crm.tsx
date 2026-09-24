@@ -27,6 +27,8 @@ import {
   buildRescueTemplateVars,
   type EmailTemplate,
 } from "@/lib/crm/email-templates";
+import type { QrCode, QrForm, QrLead } from "@/lib/marketing/qr";
+import { QrPanel } from "@/lib/marketing/qr-panel";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 
 type TabKey = "list" | "map" | "targeting" | "activity" | "reports";
@@ -73,6 +75,9 @@ export function RescueCrm({
   canEdit,
   mapsApiKey,
   templates,
+  qrCodes,
+  qrForms,
+  qrLeads,
   senderName,
   senderEmail,
 }: {
@@ -82,6 +87,9 @@ export function RescueCrm({
   canEdit: boolean;
   mapsApiKey: string;
   templates: EmailTemplate[];
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
+  qrLeads: QrLead[];
   senderName: string | null;
   senderEmail: string | null;
 }) {
@@ -271,6 +279,9 @@ export function RescueCrm({
           rescue={detail}
           visits={visits.filter((v) => v.org_id === detail.id)}
           canEdit={canEdit}
+          qrCodes={qrCodes.filter((c) => c.org_id === detail.id)}
+          qrForms={qrForms}
+          qrLeads={qrLeads.filter((l) => l.org_id === detail.id)}
           onClose={() => setDetail(null)}
           onEdit={() => { const id = detail.id; setDetail(null); router.push(`/crm/org/${id}`); }}
           onQuickVisit={() => { setQuickVisitFor(detail); setDetail(null); }}
@@ -369,18 +380,21 @@ function DetailRow({ label, value }: { label: string; value: React.ReactNode }) 
 }
 
 function RescueDetailDialog({
-  rescue, visits, canEdit, onClose, onEdit, onQuickVisit, onEmail,
+  rescue, visits, canEdit, qrCodes, qrForms, qrLeads, onClose, onEdit, onQuickVisit, onEmail,
 }: {
   rescue: CrmOrganization;
   visits: CrmOrgVisit[];
   canEdit: boolean;
+  qrCodes: QrCode[];
+  qrForms: QrForm[];
+  qrLeads: QrLead[];
   onClose: () => void;
   onEdit: () => void;
   onQuickVisit: () => void;
   onEmail: () => void;
 }) {
   const [detailTab, setDetailTab] = useState<
-    "contact" | "details" | "agreement" | "activity"
+    "contact" | "details" | "agreement" | "qr" | "activity"
   >("contact");
   const addr = [rescue.address, rescue.city, rescue.state, rescue.zip].filter(Boolean).join(", ");
   return (
@@ -418,6 +432,7 @@ function RescueDetailDialog({
             { key: "contact", label: "Contact" },
             { key: "details", label: "Details" },
             { key: "agreement", label: "Agreement" },
+            { key: "qr", label: "QR Code" },
             { key: "activity", label: "Activity" },
           ] as const).map((t) => (
             <button
@@ -490,6 +505,16 @@ function RescueDetailDialog({
               <DetailRow label="Last Contact" value={formatDate(rescue.last_contact_date)} />
             </dl>
           </section>
+        )}
+
+        {detailTab === "qr" && (
+          <QrPanel
+            subject={{ kind: "rescue", id: rescue.id, name: rescue.name }}
+            codes={qrCodes}
+            forms={qrForms}
+            leads={qrLeads}
+            canEdit={canEdit}
+          />
         )}
 
         {detailTab === "activity" && (
