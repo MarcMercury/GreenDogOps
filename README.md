@@ -1,172 +1,417 @@
 # Green Dog Ops
 
-Operations platform for a veterinary business. It brings **HR, Recruiting (ATS),
-CRM, ezyVet analytics, Scheduling, Capacity Planning, Reporting, and an AI-assisted
-Resources hub** into one internal app, with per-user logins, a layered role/permission
-model, an admin portal, and an AI assist layer.
+Internal operations platform for a multi-site veterinary practice (Sherman Oaks,
+Van Nuys, Venice). One Next.js app that replaces a pile of spreadsheets and point
+solutions with a single permissioned workspace covering **HR, Recruiting (ATS),
+seven CRMs, Marketing & Events, Scheduling & Capacity, Medical Ops boards, ezyVet
+analytics, AI reporting, and an AI-searchable Resources hub**.
+
+This README is written for engineers joining the project — it covers the stack,
+the non-obvious architectural constraints, and where things live.
+
+---
 
 ## Stack
 
-- **Next.js 16** (App Router, TypeScript, React 19) — note: Next 16 renamed
-  `middleware` to **`proxy`** (see `src/proxy.ts` + `src/lib/supabase/proxy.ts`).
-- **Tailwind CSS v4**
-- **Supabase** — Postgres, Auth (email/password), Row-Level Security, Storage.
-- **AI / LLM** — OpenAI (resume/PDF parsing, web-search research), plus optional
-  Gemini / Groq fallbacks and web-enrichment providers.
-- Deployed on **Vercel** (with Vercel Cron for scheduled jobs).
+| Layer | Choice |
+| --- | --- |
+| Framework | **Next.js 16.2** (App Router, React 19, Server Components + Server Actions) |
+| Language | TypeScript 5 |
+| Styling | **Tailwind CSS v4** (PostCSS plugin, no config file) |
+| Data | **Supabase** — Postgres, Auth (email/password), Storage |
+| Calendar UI | FullCalendar v6 (daygrid/timegrid/list/interaction) |
+| Files | `xlsx` (spreadsheet import), `unpdf` (PDF text extraction) |
+| Automation | **Playwright** headless Chromium workers (`agent/`) |
+| AI | Multi-provider LLM chain — Gemini, Groq, OpenRouter, OpenAI, Anthropic |
+| Hosting | **Vercel** (Vercel Cron) + **GitHub Actions** (long-running agents) |
 
-## Database isolation (important)
+> ⚠️ **Next 16 renamed `middleware` to `proxy`.** The request interceptor is
+> [src/proxy.ts](src/proxy.ts), backed by [src/lib/supabase/proxy.ts](src/lib/supabase/proxy.ts).
+> It refreshes the Supabase session, redirects unauthenticated requests to
+> `/login`, and stamps the `x-gdo-pathname` header so Server Components (which
+> cannot read the URL) can resolve which module they are rendering.
 
-Green Dog Ops **shares one Supabase project** with the EmployeeGMGDD app, but is fully
-isolated in its **own Postgres schema** (`greendogops`). EmployeeGMGDD owns `public`;
-this app never touches it.
+---
 
-- Every Supabase client is created with `db.schema = 'greendogops'`
-  (see `src/lib/supabase/`, `DB_SCHEMA` in `src/lib/supabase/config.ts`).
-- All migrations create objects in the `greendogops` schema only
-  (`supabase/migrations/`).
-- `auth.users` is project-level and therefore shared. Access to Green Dog Ops is
-  gated by an app-level user/role model (`app_user`) + RLS on the `greendogops`
-  schema, so a user that only belongs to the other app cannot reach this app's data.
+## Non-negotiable architectural constraints
 
-### One-time Supabase setup
+Read this section before writing any code.
 
-1. Apply the migrations in `supabase/migrations/` (see below).
-2. Dashboard → Settings → API → Exposed schemas: add `greendogops`.
+### 1. Schema isolation — this app shares a Supabase project
+
+Green Dog Ops lives in **one Supabase project alongside a second app
+(EmployeeGMGDD)** but is fully isolated in its own Postgres schema,
+**`greendogops`**. EmployeeGMGDD owns `public`; this app never touches it.
+
+- Every Supabase client sets `db.schema = 'greendogops'` — see
+  [src/lib/supabase](src/lib/supabase) and `DB_SCHEMA` in
+  [src/lib/supabase/config.ts](src/lib/supabase/config.ts). Never hand-roll a client.
+- Every migration creates objects in `greendogops` only.
+- `auth.users` is **project-level and therefore shared**. Access to this app is
+  gated at the application layer by the `app_user` allow-list + role model, not
+  by Supabase Auth membership alone.
+
+One-time project setup: apply the migrations, then Dashboard → Settings → API →
+**Exposed schemas** → add `greendogops`.
+
+### 2. No RLS — authorization is app-layer
+
+No table in `greendogops` has Row-Level Security enabled. Authorization is
+enforced entirely in server code (`canAccessModule` / `canEditModule` /
+`smartScopeFor`). Consequences:
+
+- **Never grant EXECUTE on a Postgres RPC to `authenticated`.** The Smart Report
+  functions (`smart_query`, `smart_schema`, `smart_value_hints`) are
+  `service_role`-only; a browser-callable version would leak salaries to any
+  logged-in user.
+- Every Server Action must re-check permissions. Do not trust the client.
+- The service-role key bypasses everything — server-only, never in a
+  `NEXT_PUBLIC_*` variable.
+
+### 3. PostgREST row cap
+
+The project's `max_rows` is capped at **1000**. Any query that can scan a large
+table must paginate with `.range()`. Heavy ezyVet roll-ups are materialized
+views refreshed through the `refresh_ezyvet_reporting()` RPC rather than
+recomputed per request.
+
+### 4. Type-checking in the dev container
+
+`npx tsc --noEmit` gets OOM-killed in the Codespace (exit 143). Use editor
+diagnostics and `npm run lint` locally; Vercel runs the real type-check on push.
+
+---
 
 ## Getting started
 
 ```bash
-cp .env.example .env.local   # then fill in your Supabase keys
+cp .env.example .env.local   # fill in your Supabase keys at minimum
 npm install
 npm run dev
 ```
 
 Open http://localhost:3000 — unauthenticated users are redirected to `/login`.
 
-### Scripts
+| Command         | Description                             |
+| --------------- | --------------------------------------- |
+| `npm run dev`   | Next.js dev server                      |
+| `npm run build` | Production build (runs the type-check)  |
+| `npm run start` | Serve the production build              |
+| `npm run lint`  | ESLint (flat config, `eslint.config.mjs`) |
 
-| Command         | Description                          |
-| --------------- | ------------------------------------ |
-| `npm run dev`   | Start the Next.js dev server         |
-| `npm run build` | Production build                     |
-| `npm run start` | Serve the production build           |
-| `npm run lint`  | Run ESLint                           |
+---
 
 ## Modules
 
-The signed-in dashboard mirrors the sidebar; every module is gated by a `ModuleKey`
-and only shown to users who can access it.
+The signed-in shell ([src/app/(app)/_components/app-shell.tsx](src/app/(app)/_components/app-shell.tsx))
+renders six sidebar sections. Every item is keyed by a `ModuleKey` and hidden
+from users who cannot access it.
 
-**Core**
-- **Resources** — AI search across all program data and the web, a Green Dog
-  policies wiki, and a shared document library.
-- **HR / Roster** — master employee records: payroll, reviews, discipline, PTO,
-  credentials, licenses, provided items, and onboarding checklists.
-- **Recruiting (ATS)** — applicant pipeline with interview tracking; hiring a
-  prospect promotes them into HR with a single status change. Resumes and PDF
-  lists are parsed via OpenAI.
+**Modules**
+- **Dashboard** — module launcher scoped to the signed-in user.
+- **Resources** (`/resources`) — AI search across all program data *and* the
+  web, a Green Dog policies wiki (`/resources/policies`, `/policies`), and a
+  shared document library with PDF text extraction so uploads are searchable.
 
-**CRM**
-- **Referral CRM** — referring clinics & hospitals, with geocoding and clinic-area
-  mapping.
-- **Vendor & Partner CRM** — vendors, suppliers, and business partners (the former
-  Business CRM merged in here).
-- **Student CRM** — students, externs, and program participants.
-- **CE Leads/Events** — continuing-education events (CEbroker submission wizard), attendees, outreach, and attendance.
-- **Influencer CRM** — influencer partnerships, campaigns, and performance.
-- **ezyVet CRM** — client contacts imported from ezyVet, with customer groups,
-  revenue, and division trends.
+**HR / Recruit / GDU**
+- **HR / Roster** (`/hr`) — master employee records: employment, payroll,
+  reviews, discipline, PTO, credentials, licenses, assets, documents, and
+  onboarding checklists.
+- **Recruiting (ATS)** (`/ats`) — applicant pipeline and interview tracking.
+  Resumes and PDF candidate lists are parsed with an LLM; a Gmail poller and an
+  Indeed export feed candidates in. Hiring promotes the record into HR with a
+  single status change.
+- **Student CRM** (`/crm/student`) — students, externs, and GDU participants;
+  promotable into the ATS, with documents migrated along with the profile.
+
+**Marketing**
+- **Marketing Mgmt** (`/marketing`) — campaigns, assets, resource passwords.
+- **Event Mgmt** (`/marketing/events`) + **QR Codes** (`/marketing/qr-codes`) —
+  event/partner/influencer QR codes with branded landing forms and lead capture.
+- **CE / GDU Mgmt** (`/crm/ce`) — continuing-education events, attendees,
+  outreach, attendance, and a CEbroker course-submission wizard.
+- **Influencer CRM** (`/crm/influencer`) — partnerships, campaigns, performance.
+- **Referral CRM** (`/crm/referral`) — referring clinics and hospitals, with
+  geocoding, clinic-area mapping, and ezyVet referral-revenue attribution.
+- **Rescue/Shelter CRM** (`/crm/rescue`) — rescue and shelter partners.
+- **Non-Med Partners** (`/crm/vendor`) — business partners (the former Business
+  CRM merged in here).
 
 **Operations**
-- **Scheduling** — build and manage shifts across locations, with attendance,
-  time-off, and availability.
-- **Daily Capacity** — live daily staffing capacity vs. demand across service sites.
-- **Planning Guides** — service-site staffing guides and signatures that drive
-  capacity planning.
+- **Calendar** (`/calendar`) — unified company calendar: Google Calendar sync +
+  custom events stored in `calendar_event`, with CE events, interviews, and
+  time-off **projected at read time** rather than duplicated into the table.
+- **Scheduling** (`/schedule`) — shift building across locations, plus
+  attendance, time-off, availability, setup/eligibility, and a Google Sheet
+  two-way sync.
+- **Daily Capacity** (`/capacity`) — live daily staffing capacity vs. demand.
+- **Planning Guides** (`/planning`) — service-site staffing guides and
+  signatures that drive capacity planning.
+- **Schedule Search** (`/schedule-search`) — cross-week lookup.
 
-**Biz Dev / Admin**
-- **Reporting** — appointments, revenue, and client trends derived from ezyVet
-  invoice and contact exports (admin-only).
-- **Emp Reporting** — payroll and compensation analytics across the roster
-  (admin-only; exposes compensation).
-- **Admin** — users, roles, permissions, locations, credentials, settings, and the
-  audit log.
+**Med Ops**
+- **Medical Boards** (`/med-ops/medical-boards`) + **Board Archive** — clinical
+  workflow boards per location, with automatic daily rollover.
+- **Vendors & Supplies** (`/crm/supplies`) — medical suppliers and ordering.
+- **ezyVet Contacts / Patients** (`/ezyvet`, `/ezyvet/patients`) — client and
+  patient records imported from ezyVet, with customer groups, revenue, and
+  division trends.
+
+**Biz Dev**
+- **Reporting** (`/reporting`) — appointment, revenue, doctor-production, and
+  client-trend dashboards built on ezyVet invoice/contact data.
+- **Smart Report** (`/reporting/smart`) — natural-language reporting (below).
+- **Emp Reporting** (`/emp-reporting`) — payroll and compensation analytics.
+- **Biz Dev** (`/biz-dev`) — business-development planner and partner targeting.
+- **Admin** (`/admin`) — users, roles, per-user module overrides, locations,
+  credentials, settings, agent runs, and the audit log.
+
+---
 
 ## Roles & permissions
 
-Access is defined in `src/lib/auth/permissions.ts`. `auth.users` is shared, so
-`app_user` is the Green Dog Ops allow-list. Per-user `module_access` overrides win
-over role defaults.
+All of it is defined in [src/lib/auth/permissions.ts](src/lib/auth/permissions.ts).
+Because `auth.users` is shared with the other app, **`app_user` is the Green Dog
+Ops allow-list**. Per-user `module_access` overrides always win over role
+defaults, in both directions.
 
-| Role             | Access |
-| ---------------- | ------ |
-| **Owner**        | Full control, including billing, other owners, and the Admin panel. |
-| **Admin**        | Full control of users, settings, and every module. |
-| **Executive**    | View/edit every module except Admin; can view all compensation. |
-| **Manager/HR**   | Manage/edit everything except Admin; can view all compensation. |
-| **Schedule Admin** | Edit every module they can see (Schedule, Planning, all CRM, HR, ATS, Resources, etc.); no Admin panel and cannot view all compensation. |
-| **Staff**        | Read-only everywhere except Admin; sees only their own compensation. |
+| Role | Access |
+| --- | --- |
+| **Owner** | Full control, including billing, other owners, and Admin. |
+| **Admin** | Full control of users, settings, and every module. |
+| **Executive** | Sees every module including Admin (Admin is read-only); edits everything else; can view all compensation. |
+| **Manager / HR** | Edits everything except Admin, Reporting, and Emp Reporting; can view all compensation. |
+| **Schedule Admin** | Edits every module they can see; no Admin panel, no all-compensation view. |
+| **Marketing Admin** | Same pages as Schedule Admin, but the Operations section (Calendar, Scheduling, Planning) is view-only. |
+| **Staff** | Read-only everywhere except Admin and Email Templates; sees only their own compensation. |
 
-Admin-only modules (`admin`, `reporting`, `emp_reporting`) are hidden from
-non-admins by default but can be granted per-user.
+`admin`, `reporting`, and `emp_reporting` are admin-only by default and can be
+granted per user. `/reporting/smart` is an explicit exception
+(`ROUTE_MODULE_EXCEPTIONS`): it is open to everyone above Staff via
+`canUseSmartReport`, and *what data they can see* is narrowed separately.
+
+Key helpers:
+
+- `canAccessModule(user, key)` — visibility; overrides beat role defaults.
+- `canEditModule(user, key)` — write rights, with the Admin-panel and
+  Marketing-Admin/Operations carve-outs.
+- `canViewAllCompensation(role)` / `canViewCredentials(role)`.
+- `moduleForPathname(path)` — longest-prefix route → module mapping used by the
+  `(app)` layout to gate whole route subtrees.
+
+---
+
+## Cross-module data model
+
+`person` is the spine shared by HR, ATS, and Scheduling, distinguished by a
+`status` enum (`prospect | applicant | employee | former | contractor`) with 1:1
+`person_employment` and `person_recruiting` rows. `app_user.id` equals
+`auth.users.id` and links to `person` via `person_id`.
+
+Promotion lineage runs **Student CRM → ATS → HR** through
+`crm_contact.promoted_person_id` ↔ `person.source_contact_id`, and documents move
+with the profile. Status changes cascade through **database triggers**
+(`person_before_change` / `person_after_change`): they stamp timestamps, flip
+`sched_employee_setting.is_schedulable`, and deactivate the linked `app_user`
+when someone becomes `former`. Application code only revalidates paths — do not
+reimplement that logic in TypeScript.
+
+An append-only `profile_transition_log` records every stage movement and is
+surfaced on both the ATS and HR History tabs.
+
+---
+
+## Smart Report (natural-language analytics)
+
+`/reporting/smart` lets a user ask a business question in English and get an
+answer, a table, and the SQL behind it. Pipeline
+([src/lib/reporting/smart.ts](src/lib/reporting/smart.ts)):
+
+1. `smart_schema()` + `smart_value_hints()` + `smart_functions()` build a catalog
+   of every readable table/view/matview, common column values, and callable
+   read-only functions (cached 10 minutes).
+2. An LLM writes **one** `SELECT`, prompted with the catalog plus hand-curated
+   `DOMAIN_NOTES` that encode real business semantics — what counts as an
+   appointment, the two irreconcilable revenue bases, service-line mappings,
+   wellness-plan renewal rules, and so on.
+3. `smart_query()` executes it: SELECT/WITH only, single statement, keyword
+   blacklist applied to a literal-stripped copy of the SQL, wrapped as a
+   sub-select to block data-modifying CTEs, 60s statement timeout. Errors and
+   empty results are fed back for a bounded retry.
+4. A second LLM call turns the rows into prose.
+
+**Per-user data scope** ([src/lib/reporting/smart-scope.ts](src/lib/reporting/smart-scope.ts))
+is enforced in three layers — the catalog is filtered before the model sees it,
+identifiers are blocked before execution, and rows are scrubbed after — because
+the RPC runs as `service_role`. Tiers: `full` (owner/admin/executive), `hr`
+(manager, no compensation columns), `basic` (everyone else; the confidential
+employee file is blocked outright).
+
+There is a **learning loop**: every question is logged to `smart_question_log`
+(result rows are deliberately *not* stored — history re-runs the query), an admin
+thumbs-up marks a row `verified`, and verified rows are retrieved by full-text
+search as worked examples for future questions. A self-drafting `smart_glossary`
+captures house terminology; the LLM proposes draft terms from recent failures and
+humans approve them.
+
+---
+
+## Automation & integrations
+
+### Browser agents (`agent/`)
+
+IDEXX/ezyVet will not grant this practice an API, so data is pulled by **driving
+a real Chromium browser with Playwright**: log in, queue reports, download CSVs,
+scrape UI-only pages, and POST them to the app's ingest endpoints.
+
+```
+agent/
+  run.mjs                 # daily ingest orchestrator (invoice lines, animals,
+                          # contacts, products, pricing, referrals, cancellations)
+  agenda-week.mjs         # forward-looking booked-appointment snapshots
+  agenda-review.mjs       # look-back scheduled vs. rendered review
+  appointment-records.mjs, extra-reports.mjs, record-tags.mjs
+  ezyvet/                 # session, report-center, per-report drivers, probes
+  cebroker/               # CE course prefill/submission
+  indeed/                 # candidate export
+  lib/ingest.mjs          # upload/chunk CSVs, report run progress back to the app
+```
+
+Agents run on **GitHub Actions** (`.github/workflows/ezyvet-*.yml`) rather than
+Vercel because they far exceed serverless time limits. GitHub cron is UTC-only
+with no DST awareness, so each job fires at **two UTC times** (e.g. 13:00 and
+14:00) and the worker no-ops the wrong one. Runs are tracked in `agent_run` and
+visible at `/admin/agents`; oversized reports (Animals ~45k rows, Contacts ~33k)
+upload in chunks. Credentials live in `.secrets/` (gitignored) and GitHub secrets.
+
+Two gotchas are baked into the agent code: the ezyVet login sits behind an AWS
+WAF JS challenge (passes automatically only with a realistic browser
+fingerprint), and the Report Queue retains stale runs, so downloads are matched
+against a queue snapshot taken before printing.
+
+### Vercel Cron (`vercel.json`)
+
+| Path | Schedule | Purpose |
+| --- | --- | --- |
+| `/api/calendar/sync` | every 15 min | Google Calendar → `calendar_event` |
+| `/api/ats/gmail` | every 5 min | Poll Gmail for new applicants |
+| `/api/agents/wheniwork/timeoff` | every 15 min | WhenIWork PTO via Gmail notifications |
+| `/api/admin/users/roster-sync` | daily | Reconcile `app_user` against the roster |
+| `/api/agents/ezyvet/rescue-partners` | daily | Rescue/shelter partner refresh |
+| `/api/med-ops/boards/rollover` | daily | Roll medical boards to the next day |
+| `/api/agents/sheets/sync` | daily | Google Sheets ⇄ roster / schedule / students |
+| `/api/agents/bizdev/refresh` | daily | Business-development metrics |
+| `/api/agents/reporting/slack-digest` | Mondays | Weekly Slack digest |
+| `/api/agents/reporting/slack-upcoming` | Tue/Thu | Upcoming-appointments Slack report |
+
+All cron routes authenticate with `CRON_SECRET`; long-running ones set
+`export const maxDuration = 300`.
+
+### Other integrations
+
+- **Google** — Calendar sync, Sheets two-way sync for the HR roster, schedule and
+  students ([src/lib/sheets](src/lib/sheets)), Docs ingestion for Resources,
+  Maps/Places geocoding, and Custom Search. Auth via a service account or a
+  stored OAuth refresh token.
+- **Slack** ([src/lib/slack](src/lib/slack)) — hiring, ops reporting, and
+  upcoming-appointment channels.
+- **Resend** — transactional email plus a delivery webhook (`/api/email/webhook`).
+- **Enrichment** — Brave, Tavily, SerpAPI, Apollo, Hunter, and Nominatim for CRM
+  research and contact enrichment.
+- **LLM fallback chain** ([src/lib/ai/llm.ts](src/lib/ai/llm.ts)) —
+  `callTextLLM()` walks providers in order (`LLM_PROVIDER_ORDER`, default
+  Gemini → Groq → OpenRouter → OpenAI → Anthropic) so one provider outage does
+  not take down parsing, search, or Smart Report. Temperature is 0 throughout.
+
+---
 
 ## Database migrations
 
-SQL migrations live in `supabase/migrations/` (`0001`–`0049`+), each scoped to the
-`greendogops` schema. Apply them with the helper, which uses the Supabase Management
-API (the same endpoint as the dashboard SQL editor):
+SQL migrations live in [supabase/migrations](supabase/migrations) (210+ files,
+strictly sequential, each scoped to `greendogops`). Apply them with the helper,
+which posts to the Supabase Management API — the same endpoint the dashboard SQL
+editor uses:
 
 ```bash
 scripts/supabase-sql.sh -f supabase/migrations/0001_init_schema.sql   # apply a file
 scripts/supabase-sql.sh -q "select now();"                            # ad-hoc query
 ```
 
-Credentials are read from `.secrets/supabase.env` (gitignored), so the access token
-never lives in the repo.
+Credentials are read from `.secrets/supabase.env` (gitignored), so the access
+token never enters the repo. The Management API silently hangs on very large
+payloads, so bulk data loads must go through a service-role client script rather
+than a generated `.sql` file.
 
-> **PostgREST note:** the project's `max_rows` is capped at 1000 — queries that scan
-> large tables must paginate with `.range()`. Heavy ezyVet report roll-ups are
-> materialized views refreshed via the `refresh_ezyvet_reporting()` RPC.
+---
 
 ## Data import scripts
 
-`scripts/` contains one-off importers/enrichers (Python + shell) used to seed and
-maintain the database from CSV/XLSX exports — e.g. `import_ezyvet_invoices.py`,
-`import_roster.py`, `import_ats.py`, `import_schedule_weeks.py`,
-`enrich_vendors.py`, and `derive_role_members.py`. Sample source exports live in
-`public/`.
+[scripts](scripts) holds the importers, enrichers, and probes (Python, Node, and
+shell) used to seed and maintain the database from CSV/XLSX exports — e.g.
+`import_ezyvet_invoices.py`, `import_roster.py`, `import_ats.py`,
+`import_schedule_weeks.py`, `ingest_resource_pdfs.mjs`, `enrich_vendors.py`,
+`derive_role_members.py`, and `ask_smart.mts` (run a Smart Report question
+locally with no dev server and no auth). Sample source exports live in
+[public](public).
+
+---
 
 ## Environment variables
 
-See `.env.example` for the full list. Highlights:
+See `.env.example` for the full list (~90 keys). Groups:
 
 - **Supabase** — `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
   `NEXT_PUBLIC_SUPABASE_DB_SCHEMA=greendogops`, and the server-only
-  `SUPABASE_SERVICE_ROLE_KEY` (bypasses RLS; used for bulk imports, cron, and AI jobs).
-- **Cron** — `CRON_SECRET` authenticates Vercel Cron requests.
-- **AI / LLM** — `OPENAI_API_KEY` (+ `OPENAI_MODEL`, `OPENAI_BASE_URL`, etc.),
-  `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`. Resources web search
-  falls back OpenAI → Claude → Gemini.
-- **Enrichment / Maps** — `GOOGLE_MAPS_API_KEY`, `GOOGLE_CSE_*`,
-  `GOOGLE_SERVICE_ACCOUNT_JSON`, `BRAVE_API_KEY`, `TAVILY_API_KEY`.
+  `SUPABASE_SERVICE_ROLE_KEY` (bypasses everything; used for bulk imports, cron,
+  agent ingest, and AI jobs).
+- **Cron / agents** — `CRON_SECRET`, `APP_BASE_URL`.
+- **LLM** — `LLM_PROVIDER_ORDER`, `WEB_SEARCH_PROVIDER_ORDER`, plus per-provider
+  key/model pairs for OpenAI, Anthropic, Gemini, Groq, and OpenRouter.
+- **Google** — `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_OAUTH_*`,
+  `GOOGLE_CALENDAR_ID`, `GOOGLE_MAPS_API_KEY`, `GOOGLE_CSE_*`.
+- **Enrichment** — `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPAPI_API_KEY`,
+  `APOLLO_API_KEY`, `HUNTER_API_KEY`.
+- **Messaging** — `RESEND_*`, `SLACK_*`, `WHENIWORK_GMAIL_*`.
 
-`NEXT_PUBLIC_*` variables are exposed to the browser; everything else is server-only.
-Secrets live only in `.env.local` (gitignored) and Vercel env settings — never in
-the repo.
+`NEXT_PUBLIC_*` is exposed to the browser; everything else is server-only.
+Secrets live only in `.env.local`, `.secrets/`, GitHub secrets, and Vercel env
+settings — never in the repo.
+
+---
 
 ## Project structure
 
 ```
 src/
-  proxy.ts              # Next 16 proxy (session refresh + auth gate)
+  proxy.ts                  # Next 16 proxy: session refresh + auth gate
   app/
-    (app)/              # authenticated app shell + every module route
-    auth/  login/       # auth flows
+    (app)/                  # authenticated shell + every module route
+      _components/          # app-shell (sidebar/nav), shared UI
+      admin/ ats/ hr/ crm/ marketing/ med-ops/ schedule/ planning/
+      capacity/ calendar/ reporting/ emp-reporting/ ezyvet/ resources/
+    api/
+      agents/               # agent ingest endpoints + scheduled jobs
+      ats/ calendar/ email/ med-ops/ admin/
+    auth/  login/           # auth flows
   lib/
-    admin/ ats/ auth/ crm/ hr/ planning/ reporting/ resources/ schedule/
-    shared/ supabase/   # domain logic + Supabase clients (schema-scoped)
-supabase/migrations/    # schema-isolated SQL migrations
-scripts/                # data importers / enrichers
-public/                 # sample CSV/XLSX exports
+    admin/ agents/ ai/ ats/ auth/ calendar/ crm/ google/ hr/ marketing/
+    med-ops/ planning/ reporting/ resources/ schedule/ sheets/ slack/
+    shared/ supabase/       # domain logic + schema-scoped Supabase clients
+agent/                      # Playwright browser workers (ezyVet, CEbroker, Indeed)
+supabase/migrations/        # sequential, schema-isolated SQL
+scripts/                    # importers, enrichers, probes, SQL helper
+public/                     # sample CSV/XLSX exports
+.github/workflows/          # scheduled agent runs
 ```
+
+Conventions worth knowing:
+
+- A route's reads live in `data.ts`; mutations live in `actions.ts` as Server
+  Actions that re-check permissions and then `revalidatePath`.
+- Adding a module means touching **four** places: the `ModuleKey` union and
+  `MODULES` in `permissions.ts`, `ROUTE_MODULES` in the same file, the nav in
+  `app-shell.tsx`, and `MODULE_ICONS` in `(app)/page.tsx` — an exhaustive
+  `Record`, so the build fails if you miss it.
+- Supabase infers to-one embeds as **arrays**; use the existing `first*()`
+  helpers when reading joined rows.
+
