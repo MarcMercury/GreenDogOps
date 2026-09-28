@@ -927,7 +927,7 @@ export function ScheduleGrid({
                     }
                     className="mx-auto mt-3 block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
                   >
-                    ⚡ Load Week Template
+                    ⚡ Load Dept/Shift Template
                   </button>
                   <span className="mt-2 block text-xs text-slate-400">
                     or add ad-hoc lines below.
@@ -944,7 +944,7 @@ export function ScheduleGrid({
       <div className="flex items-center justify-between gap-3 print:hidden">
         <Legend />
         <div className="flex shrink-0 items-center gap-2">
-          {week.status === "draft" && (
+          {week.status === "draft" && !templateMode && (
             <button
               onClick={() =>
                 start(async () => {
@@ -953,9 +953,9 @@ export function ScheduleGrid({
                 })
               }
               className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
-              title="Load the standard default shift lines into this week"
+              title="Load the Dept/Shift Template shift lines into this week"
             >
-              ⚡ Week Template
+              ⚡ Dept/Shift Template
             </button>
           )}
           <button

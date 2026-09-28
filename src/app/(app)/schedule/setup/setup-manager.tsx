@@ -12,6 +12,7 @@ import {
   type SchedRole,
   type SchedShiftTemplate,
   type SchedWeek,
+  type SchedWeekLine,
   type ApptTypeDeptMapping,
   APPT_REPORT_TRACKS,
   APPT_REPORT_TRACK_LABELS,
@@ -31,6 +32,7 @@ import {
   saveApptTypeDept,
   saveApptTypeReportTrack,
   ensureTemplateWeek,
+  syncTemplateWeekFromShiftTemplates,
 } from "../actions";
 import { ScheduleGrid } from "../schedule-grid";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
@@ -128,6 +130,51 @@ export function SetupManager({
 // Week Template — a full, populated schedule grid the admin keeps as a template
 // ===========================================================================
 
+/**
+ * How far the Week Template's shift lines have drifted from the Dept/Shift
+ * Template. Mirrors `syncTemplateWeekFromShiftTemplates` so the banner counts
+ * match what the button will actually do.
+ */
+function templateDrift(data: SetupData, lines: SchedWeekLine[]) {
+  const activeDepts = new Set(
+    data.departments.filter((d) => d.is_active).map((d) => d.id),
+  );
+  const templates = data.templates.filter(
+    (t) => t.is_active && activeDepts.has(t.department_id),
+  );
+
+  const lineByTemplate = new Map<string, SchedWeekLine>();
+  let removed = 0;
+  for (const l of lines) {
+    if (l.template_id && !lineByTemplate.has(l.template_id))
+      lineByTemplate.set(l.template_id, l);
+    else removed++;
+  }
+
+  let added = 0;
+  let updated = 0;
+  for (const t of templates) {
+    const line = lineByTemplate.get(t.id);
+    if (!line) {
+      added++;
+      continue;
+    }
+    lineByTemplate.delete(t.id);
+    if (
+      line.department_id !== t.department_id ||
+      (line.role_id ?? null) !== (t.role_id ?? null) ||
+      (line.label ?? null) !== (t.label ?? null) ||
+      (line.start_time ?? null) !== (t.start_time ?? null) ||
+      (line.end_time ?? null) !== (t.end_time ?? null) ||
+      line.sort_order !== t.sort_order
+    )
+      updated++;
+  }
+  removed += lineByTemplate.size;
+
+  return { added, updated, removed, total: added + updated + removed };
+}
+
 function WeekTemplate({
   data,
   templateWeek,
@@ -143,16 +190,79 @@ function WeekTemplate({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  const drift = useMemo(
+    () => (templateWeek ? templateDrift(data, templateWeek.lines) : null),
+    [data, templateWeek],
+  );
+
+  function sync() {
+    if (
+      !window.confirm(
+        "Rebuild the Week Template's shift lines from the Departments and Dept/Shift Template setups?\n\nLines that are no longer in the Dept/Shift Template — including any added straight onto this grid — are removed along with their staffing.",
+      )
+    )
+      return;
+    setError(null);
+    start(async () => {
+      const res = await syncTemplateWeekFromShiftTemplates();
+      if (res.ok) router.refresh();
+      else setError(res.error);
+    });
+  }
+
   if (templateWeek) {
     return (
-      <ScheduleGrid
-        weeks={weeks}
-        weekData={templateWeek}
-        setup={data}
-        timeOff={[]}
-        canEdit={canEdit}
-        templateMode
-      />
+      <div className="space-y-4">
+        {drift && drift.total > 0 ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-800">
+                Out of sync with the Dept/Shift Template
+              </p>
+              <p className="mt-0.5 text-xs text-amber-700">
+                {[
+                  drift.added && `${drift.added} line(s) missing`,
+                  drift.updated && `${drift.updated} changed`,
+                  drift.removed && `${drift.removed} no longer in the template`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
+                . Rebuild to make this grid match the Departments and Dept/Shift
+                Template tabs.
+              </p>
+            </div>
+            <button
+              disabled={pending || !canEdit}
+              onClick={sync}
+              className={btnPrimary}
+            >
+              {pending ? "Rebuilding…" : "Rebuild from template"}
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
+            <p className="text-xs text-slate-500">
+              Shift lines match the Departments and Dept/Shift Template tabs.
+            </p>
+            <button
+              disabled={pending || !canEdit}
+              onClick={sync}
+              className={btnGhost}
+            >
+              {pending ? "Rebuilding…" : "Rebuild from template"}
+            </button>
+          </div>
+        )}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <ScheduleGrid
+          weeks={weeks}
+          weekData={templateWeek}
+          setup={data}
+          timeOff={[]}
+          canEdit={canEdit}
+          templateMode
+        />
+      </div>
     );
   }
 
@@ -1035,7 +1145,7 @@ function AddRoleForm({
 }
 
 // ===========================================================================
-// Week Template (shift template lines)
+// Dept/Shift Template (blank shift lines the Week Template is built from)
 // ===========================================================================
 
 function Shifts({ data }: { data: SetupData }) {
@@ -1043,6 +1153,15 @@ function Shifts({ data }: { data: SetupData }) {
   const [pending, start] = useTransition();
   const [editing, setEditing] = useState<SchedShiftTemplate | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Same department set the Week Template grid shows, in the same order.
+  const departments = useMemo(
+    () =>
+      data.departments
+        .filter((d) => d.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order),
+    [data.departments],
+  );
 
   const rolesByDept = useMemo(() => {
     const m = new Map<string, SchedRole[]>();
@@ -1084,13 +1203,17 @@ function Shifts({ data }: { data: SetupData }) {
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
       <Card>
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">
-          Week template
+        <h2 className="text-sm font-semibold text-slate-700">
+          Dept/Shift Template
         </h2>
+        <p className="mb-3 mt-0.5 text-xs text-slate-400">
+          The canonical shift lines for every active department. The Week
+          Template grid and every new week are built from exactly these lines.
+        </p>
         <div className="space-y-4">
-          {data.departments.map((dept) => {
+          {departments.map((dept) => {
             const lines = data.templates.filter(
-              (t) => t.department_id === dept.id,
+              (t) => t.is_active && t.department_id === dept.id,
             );
             return (
               <div key={dept.id}>
@@ -1163,7 +1286,7 @@ function Shifts({ data }: { data: SetupData }) {
               className={`mt-1 w-full ${inputCls}`}
             >
               <option value="">Select…</option>
-              {data.departments.map((d) => (
+              {departments.map((d) => (
                 <option key={d.id} value={d.id}>
                   {d.name}
                 </option>

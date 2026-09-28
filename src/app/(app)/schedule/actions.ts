@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser, ensureCanEdit } from "@/lib/auth/session";
-import type { AttendanceStatus, ScheduleStatus, ApptReportTrack } from "@/lib/schedule/types";
+import type {
+  AttendanceStatus,
+  ScheduleStatus,
+  ApptReportTrack,
+  SchedShiftTemplate,
+  SchedWeekLine,
+} from "@/lib/schedule/types";
 import { dateForDay, APPT_REPORT_TRACKS } from "@/lib/schedule/types";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
 import { classifyRole, emptyStaffing } from "@/lib/planning/resolve";
@@ -751,13 +757,22 @@ export async function ensureTemplateWeek(): Promise<ActionResult<string>> {
   const weekId = (weekRow as { id: string }).id;
 
   // Snapshot active dept/shift templates -> week lines.
-  const { data: templates } = await supabase
-    .from("sched_shift_template")
-    .select("*")
-    .eq("is_active", true)
-    .order("sort_order");
-  const lines = (templates ?? []).map(
-    (t: Record<string, unknown>, i: number) => ({
+  const [{ data: templates }, { data: activeDepts }] = await Promise.all([
+    supabase
+      .from("sched_shift_template")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order"),
+    supabase.from("sched_department").select("id").eq("is_active", true),
+  ]);
+  const activeDeptIds = new Set(
+    ((activeDepts ?? []) as { id: string }[]).map((d) => d.id),
+  );
+  const lines = (templates ?? [])
+    .filter((t: Record<string, unknown>) =>
+      activeDeptIds.has(t.department_id as string),
+    )
+    .map((t: Record<string, unknown>, i: number) => ({
       week_id: weekId,
       template_id: t.id,
       department_id: t.department_id,
@@ -766,8 +781,7 @@ export async function ensureTemplateWeek(): Promise<ActionResult<string>> {
       start_time: t.start_time,
       end_time: t.end_time,
       sort_order: (t.sort_order as number) ?? i,
-    }),
-  );
+    }));
   if (lines.length > 0) await supabase.from("sched_week_line").insert(lines);
 
   // Snapshot active locations -> week locations.
@@ -800,6 +814,125 @@ export async function ensureTemplateWeek(): Promise<ActionResult<string>> {
 
   revalidateAll();
   return { ok: true, data: weekId };
+}
+
+/**
+ * Make the Week Template's shift lines mirror the Dept/Shift Template exactly:
+ * inserts lines for new template rows, re-syncs drifted ones (department, role,
+ * label, times, order), and drops every line that no longer has a live template
+ * behind it — inactive templates, inactive departments, duplicates, and ad-hoc
+ * lines added straight onto the template grid. Assignments on dropped lines go
+ * with them.
+ */
+export async function syncTemplateWeekFromShiftTemplates(): Promise<
+  ActionResult<{ added: number; updated: number; removed: number }>
+> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+
+  const { data: weekRow } = await supabase
+    .from("sched_week")
+    .select("id")
+    .eq("is_template", true)
+    .maybeSingle();
+  const weekId = (weekRow as { id: string } | null)?.id;
+  if (!weekId)
+    return { ok: false, error: "No Week Template has been saved yet." };
+
+  const [lineRes, tplRes, deptRes] = await Promise.all([
+    supabase.from("sched_week_line").select("*").eq("week_id", weekId),
+    supabase
+      .from("sched_shift_template")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order"),
+    supabase.from("sched_department").select("id").eq("is_active", true),
+  ]);
+  if (lineRes.error) return { ok: false, error: lineRes.error.message };
+  if (tplRes.error) return { ok: false, error: tplRes.error.message };
+
+  const activeDepts = new Set(
+    ((deptRes.data ?? []) as { id: string }[]).map((d) => d.id),
+  );
+  const templates = ((tplRes.data ?? []) as SchedShiftTemplate[]).filter((t) =>
+    activeDepts.has(t.department_id),
+  );
+  const lines = (lineRes.data ?? []) as SchedWeekLine[];
+
+  // First line per template wins; everything else is surplus.
+  const lineByTemplate = new Map<string, SchedWeekLine>();
+  const surplus: string[] = [];
+  for (const l of lines) {
+    if (l.template_id && !lineByTemplate.has(l.template_id))
+      lineByTemplate.set(l.template_id, l);
+    else surplus.push(l.id);
+  }
+
+  const toInsert: Record<string, unknown>[] = [];
+  const toUpdate: { id: string; patch: Record<string, unknown> }[] = [];
+  for (const [i, t] of templates.entries()) {
+    const existing = lineByTemplate.get(t.id);
+    if (!existing) {
+      toInsert.push({
+        week_id: weekId,
+        template_id: t.id,
+        department_id: t.department_id,
+        role_id: t.role_id,
+        label: t.label,
+        start_time: t.start_time,
+        end_time: t.end_time,
+        sort_order: t.sort_order ?? i,
+      });
+      continue;
+    }
+    lineByTemplate.delete(t.id);
+    const patch = {
+      department_id: t.department_id,
+      role_id: t.role_id,
+      label: t.label,
+      start_time: t.start_time,
+      end_time: t.end_time,
+      sort_order: t.sort_order ?? i,
+    };
+    const drifted = (Object.keys(patch) as (keyof typeof patch)[]).some(
+      (k) => (existing[k as keyof SchedWeekLine] ?? null) !== (patch[k] ?? null),
+    );
+    if (drifted) toUpdate.push({ id: existing.id, patch });
+  }
+  // Whatever is left was backed by a template that is gone or deactivated.
+  const toRemove = [...surplus, ...[...lineByTemplate.values()].map((l) => l.id)];
+
+  if (toRemove.length > 0) {
+    const { error } = await supabase
+      .from("sched_week_line")
+      .delete()
+      .in("id", toRemove);
+    if (error) return { ok: false, error: error.message };
+  }
+  if (toInsert.length > 0) {
+    const { error } = await supabase
+      .from("sched_week_line")
+      .insert(toInsert);
+    if (error) return { ok: false, error: error.message };
+  }
+  for (const u of toUpdate) {
+    const { error } = await supabase
+      .from("sched_week_line")
+      .update(u.patch)
+      .eq("id", u.id);
+    if (error) return { ok: false, error: error.message };
+  }
+
+  revalidateAll();
+  return {
+    ok: true,
+    data: {
+      added: toInsert.length,
+      updated: toUpdate.length,
+      removed: toRemove.length,
+    },
+  };
 }
 
 /**
