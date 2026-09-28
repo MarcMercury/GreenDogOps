@@ -753,19 +753,21 @@ function SchedSettingsPanel({
 
       {!canEdit && !hasSetting ? (
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-500">
-          No scheduling settings saved yet. Defaults apply (schedulable, any
-          location, any day).
+          No scheduling settings saved yet — this person is Scheduling Inactive
+          and will not appear in any scheduling grid or eligibility list.
         </p>
       ) : (
         <>
           {canEdit && (
             <p className="mb-3 text-xs text-slate-400">
-              Changes here write to the same settings used in Schedule → Setup →
-              Employees, and edits made there show up here.
+              Scheduling Active decides whether this person appears in the
+              schedule grid, eligibility matrix, and shift pickers. Changes here
+              write to the same settings used in Schedule → Setup → Employees and
+              on the HR / Roster grid.
             </p>
           )}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
-            <SchedFact label="Schedulable">
+            <SchedFact label="Scheduling">
               {canEdit ? (
                 <label className="inline-flex cursor-pointer items-center gap-2">
                   <input
@@ -780,7 +782,7 @@ function SchedSettingsPanel({
                       schedulable ? "text-emerald-700" : "text-slate-500"
                     }`}
                   >
-                    {schedulable ? "Yes" : "No"}
+                    {schedulable ? "Active" : "Inactive"}
                   </span>
                 </label>
               ) : (
@@ -791,7 +793,7 @@ function SchedSettingsPanel({
                       : "bg-slate-100 text-slate-500"
                   }`}
                 >
-                  {schedulable ? "Yes" : "No"}
+                  {schedulable ? "Active" : "Inactive"}
                 </span>
               )}
             </SchedFact>

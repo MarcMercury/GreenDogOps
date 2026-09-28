@@ -363,6 +363,12 @@ const EMPLOYMENT_COMP_EDIT_FIELDS: Record<string, FieldKind> = {
   ce_used: "money",
 };
 
+/**
+ * Virtual roster-grid field for the Scheduling Active checkbox. It is not a
+ * `person` column — it maps to `sched_employee_setting.is_schedulable`.
+ */
+const SCHEDULING_ACTIVE_FIELD = "scheduling_active";
+
 /** Coerce an inbound raw form value to the shape expected for a field kind. */
 function coerceFieldValue(
   kind: FieldKind,
@@ -401,7 +407,16 @@ export async function updateEmployeeField(
 
   const raw = formData.get("value");
 
-  if (field in PERSON_EDIT_FIELDS) {
+  if (field === SCHEDULING_ACTIVE_FIELD) {
+    // Lives on sched_employee_setting, the flag every scheduling surface reads.
+    const { error } = await supabase
+      .from("sched_employee_setting")
+      .upsert(
+        { person_id: personId, is_schedulable: bool(raw) },
+        { onConflict: "person_id" },
+      );
+    if (error) return { ok: false, error: error.message };
+  } else if (field in PERSON_EDIT_FIELDS) {
     const value = coerceFieldValue(PERSON_EDIT_FIELDS[field], raw);
     const patch: Record<string, unknown> = {
       [field]: field === "status" ? (value ?? "employee") : value,

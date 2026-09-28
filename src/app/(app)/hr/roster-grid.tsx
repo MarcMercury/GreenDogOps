@@ -10,6 +10,7 @@ import {
   SCHEDULE_LABELS,
   PAY_TYPE_LABELS,
   SCHEDULE_TYPE_OPTIONS,
+  isSchedulingActive,
 } from "@/lib/hr/types";
 import {
   type Stat,
@@ -143,6 +144,38 @@ export function RosterGrid({
     ),
   };
 
+  // The one switch that decides whether this person appears anywhere in the
+  // Scheduling module (grid shift pickers, eligibility matrix, setup).
+  const schedulingColumn: Column<RosterRow> = {
+    key: "scheduling",
+    header: "Scheduling",
+    value: (r) => (isSchedulingActive(r) ? "Active" : "Inactive"),
+    render: (r) => {
+      const active = isSchedulingActive(r);
+      return (
+        <span className="inline-flex items-center gap-1.5">
+          <EditableCell
+            personId={r.id}
+            field="scheduling_active"
+            kind="checkbox"
+            rawValue={active}
+            display={active ? "Active" : "Inactive"}
+            disabled={!canEdit}
+          />
+          {canEdit && (
+            <span
+              className={`text-xs font-medium ${
+                active ? "text-emerald-700" : "text-slate-400"
+              }`}
+            >
+              {active ? "Active" : "Inactive"}
+            </span>
+          )}
+        </span>
+      );
+    },
+  };
+
   const standardColumns: Column<RosterRow>[] = [
     nameColumn,
     { key: "email", header: "Email", value: (r) => r.email },
@@ -163,6 +196,7 @@ export function RosterGrid({
           : null,
     },
     statusColumn,
+    schedulingColumn,
   ];
 
   // Every field surfaced on the employee Overview + Compensation & Benefits
@@ -309,6 +343,7 @@ export function RosterGrid({
         />
       ),
     },
+    schedulingColumn,
     {
       key: "opportunity",
       header: "Opportunity",
@@ -750,6 +785,11 @@ export function RosterGrid({
 
   const filters: FilterDef<RosterRow>[] = [
     { key: "status", label: "Status", value: (r) => STATUS_LABELS[r.status] },
+    {
+      key: "scheduling",
+      label: "Scheduling",
+      value: (r) => (isSchedulingActive(r) ? "Active" : "Inactive"),
+    },
     {
       key: "location",
       label: "Location",

@@ -330,14 +330,20 @@ export function ScheduleGrid({
     }
     const order = [...setup.departments]
       .sort((a, b) => a.sort_order - b.sort_order)
-      .filter((d) => byDept.has(d.id) || agendaDeptIds.has(d.id));
+      // The template is where shift lines are authored, so every active
+      // department stays visible there even before it has a line.
+      .filter((d) =>
+        templateMode
+          ? d.is_active
+          : byDept.has(d.id) || agendaDeptIds.has(d.id),
+      );
     return order.map((d) => ({
       dept: d,
       lines: (byDept.get(d.id) ?? []).sort(
         (a, b) => a.sort_order - b.sort_order,
       ),
     }));
-  }, [lines, setup.departments, agendaDeptIds]);
+  }, [lines, setup.departments, agendaDeptIds, templateMode]);
 
   // Per-employee shift list for the "Export per employee" printout: every
   // active assignment grouped by person, then sorted by date and start time so
@@ -882,6 +888,27 @@ export function ScheduleGrid({
                     )}
                   </tr>
                 ))}
+                {!collapsedDepts.has(dept.id) && deptLines.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={1 + DAYS.length * Math.max(colCount, 1)}
+                      className="border-b border-slate-200 px-3 py-2 text-left text-xs text-slate-400"
+                      style={{ borderLeft: `3px solid ${dept.color}` }}
+                    >
+                      No shift lines for {dept.name} yet.
+                      {canEdit && (
+                        <button
+                          onClick={() =>
+                            setLineModal({ line: null, deptId: dept.id })
+                          }
+                          className="ml-2 font-semibold text-emerald-600 hover:underline print:hidden"
+                        >
+                          + Add shift line
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )}
               </DeptSection>
             ))}
             {grouped.length === 0 && (
@@ -1938,7 +1965,7 @@ function EligiblePicker({
     const roleMembers = line.role_id ? membersByRole.get(line.role_id) : null;
     return people.filter((p) => {
       const s = settingByPerson.get(p.id);
-      if (s && !s.is_schedulable) return false;
+      if (!s?.is_schedulable) return false;
       if (roleMembers && !roleMembers.has(p.id)) return false;
       // Location eligibility: empty list = any location.
       if (

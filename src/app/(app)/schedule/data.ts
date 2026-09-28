@@ -533,7 +533,7 @@ export async function getPersonScheduleSettings(
 
   return {
     hasSetting: setting != null,
-    isSchedulable: setting?.is_schedulable ?? true,
+    isSchedulable: setting?.is_schedulable ?? false,
     weeklyTarget: setting?.weekly_shift_target ?? null,
     defaultLocationName: locName(setting?.default_location_id ?? null),
     eligibleLocationNames: (setting?.eligible_location_ids ?? [])

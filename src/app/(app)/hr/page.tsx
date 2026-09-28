@@ -33,7 +33,8 @@ export default async function HrRosterPage() {
          benefits_enrolled, benefits_monthly, benefits_annual, last_review_date,
          compliance, separation_date, separation_type, separation_letter_signed,
          separation_notes
-       )`,
+       ),
+       sched_employee_setting ( is_schedulable )`,
       )
       .order("last_name", { ascending: true })
       .range(from, to),
@@ -50,12 +51,17 @@ export default async function HrRosterPage() {
     );
   }
 
-  // Supabase returns the 1:1 relation as an array; normalize to a single object.
+  // Supabase returns the 1:1 relations as arrays; normalize to single objects.
   const rows: RosterRow[] = (data ?? []).map((r) => {
     const emp = (r as { person_employment?: unknown }).person_employment;
+    const sched = (r as { sched_employee_setting?: unknown })
+      .sched_employee_setting;
     const row = {
       ...r,
       person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
+      sched_employee_setting: Array.isArray(sched)
+        ? (sched[0] ?? null)
+        : (sched ?? null),
     } as RosterRow;
     return viewAllComp || row.id === ownPersonId
       ? row

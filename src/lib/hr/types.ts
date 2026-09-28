@@ -79,6 +79,16 @@ export interface PersonEmployment {
 
 export interface RosterRow extends Person {
   person_employment: PersonEmployment | null;
+  /** Scheduling Active flag, from greendogops.sched_employee_setting. */
+  sched_employee_setting: { is_schedulable: boolean } | null;
+}
+
+/**
+ * Whether this person shows up in the Scheduling module (grid shift pickers,
+ * eligibility matrix). No settings row means inactive.
+ */
+export function isSchedulingActive(row: RosterRow): boolean {
+  return row.sched_employee_setting?.is_schedulable ?? false;
 }
 
 /** Employment fields treated as compensation/benefits — admin-only. */

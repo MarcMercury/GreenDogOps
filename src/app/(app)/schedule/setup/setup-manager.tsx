@@ -644,18 +644,18 @@ function Roles({ data }: { data: SetupData }) {
     return s;
   });
 
-  // Roles grouped by department, in configured order — drives the columns. The
+  // Roles grouped by department, in configured order — drives the columns.
+  // Every department defined in the Departments tab gets a section, even before
+  // it has any roles, so the matrix always mirrors the department list. The
   // synthetic Student group is always appended last.
   const deptGroups = useMemo(
     () => [
-      ...data.departments
-        .map((dept) => ({
-          dept,
-          roles: data.roles
-            .filter((r) => r.department_id === dept.id)
-            .sort((a, b) => a.sort_order - b.sort_order),
-        }))
-        .filter((g) => g.roles.length > 0),
+      ...data.departments.map((dept) => ({
+        dept,
+        roles: data.roles
+          .filter((r) => r.department_id === dept.id)
+          .sort((a, b) => a.sort_order - b.sort_order),
+      })),
       STUDENT_GROUP,
     ],
     [data.departments, data.roles],
@@ -666,27 +666,40 @@ function Roles({ data }: { data: SetupData }) {
   );
 
   // Flattened visible columns: expanded departments contribute one column per
-  // role; collapsed departments collapse to a single narrow strip.
+  // role (or a single "no roles" placeholder), collapsed departments collapse to
+  // a single narrow strip.
   const columns = useMemo(() => {
     const cols: Array<
       | { kind: "role"; role: SchedRole }
       | { kind: "collapsed"; deptId: string }
+      | { kind: "empty"; deptId: string }
     > = [];
     for (const g of deptGroups) {
       if (collapsed.has(g.dept.id))
         cols.push({ kind: "collapsed", deptId: g.dept.id });
+      else if (g.roles.length === 0)
+        cols.push({ kind: "empty", deptId: g.dept.id });
       else for (const r of g.roles) cols.push({ kind: "role", role: r });
     }
     return cols;
   }, [deptGroups, collapsed]);
 
-  // Employees — the rows.
+  // Employees — the rows. Only people flagged Scheduling Active in HR / Roster
+  // are ever scheduled, so they are the only ones worth an eligibility row.
+  const schedulablePeople = useMemo(
+    () =>
+      new Set(
+        data.settings.filter((s) => s.is_schedulable).map((s) => s.person_id),
+      ),
+    [data.settings],
+  );
   const people = useMemo(() => {
     const term = q.trim().toLowerCase();
     return data.people
+      .filter((p) => schedulablePeople.has(p.id))
       .filter((p) => !term || gridName(p).toLowerCase().includes(term))
       .sort((a, b) => gridName(a).localeCompare(gridName(b)));
-  }, [data.people, q]);
+  }, [data.people, q, schedulablePeople]);
 
   async function toggle(roleId: string, personId: string) {
     const key = `${roleId}:${personId}`;
@@ -765,7 +778,8 @@ function Roles({ data }: { data: SetupData }) {
             </h2>
             <p className="mt-0.5 text-[11px] text-slate-400">
               Check a box to make an employee eligible for a role. Changes save
-              instantly and mirror the HR profile &amp; schedule grid.
+              instantly and mirror the HR profile &amp; schedule grid. Only
+              people marked Scheduling Active in HR / Roster are listed.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -780,7 +794,18 @@ function Roles({ data }: { data: SetupData }) {
             />
           </div>
         </div>
-        <AddRoleForm data={data} onSaved={() => router.refresh()} />
+        <AddRoleForm
+          data={data}
+          onSaved={(deptId) => {
+            // Reveal the new column instead of burying it in a collapsed strip.
+            setCollapsed((prev) => {
+              const next = new Set(prev);
+              next.delete(deptId);
+              return next;
+            });
+            router.refresh();
+          }}
+        />
         {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
       </Card>
 
@@ -819,7 +844,7 @@ function Roles({ data }: { data: SetupData }) {
                             className="text-[11px] font-semibold"
                             style={{ writingMode: "vertical-rl" }}
                           >
-                            {g.dept.code ?? g.dept.name}
+                            {g.dept.code || g.dept.name}
                           </span>
                         </div>
                       </th>
@@ -828,7 +853,7 @@ function Roles({ data }: { data: SetupData }) {
                   return (
                     <th
                       key={g.dept.id}
-                      colSpan={g.roles.length}
+                      colSpan={Math.max(g.roles.length, 1)}
                       onClick={() => toggleDept(g.dept.id)}
                       title={`Collapse ${g.dept.name}`}
                       className="sticky top-0 z-30 h-9 cursor-pointer select-none whitespace-nowrap border-b border-r border-slate-200 px-3 text-center text-xs font-semibold text-white"
@@ -843,8 +868,19 @@ function Roles({ data }: { data: SetupData }) {
                 })}
               </tr>
               <tr>
-                {columns.map((col) =>
-                  col.kind === "role" ? (
+                {columns.map((col) => {
+                  if (col.kind === "collapsed") return null;
+                  if (col.kind === "empty") {
+                    return (
+                      <th
+                        key={`empty-${col.deptId}`}
+                        className="sticky top-9 z-30 min-w-[7rem] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center align-bottom text-[11px] font-normal italic text-slate-400"
+                      >
+                        No roles yet
+                      </th>
+                    );
+                  }
+                  return (
                     <th
                       key={col.role.id}
                       className="group sticky top-9 z-30 min-w-[3.5rem] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center align-bottom text-[11px] font-medium text-slate-600"
@@ -864,8 +900,8 @@ function Roles({ data }: { data: SetupData }) {
                         )}
                       </div>
                     </th>
-                  ) : null,
-                )}
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -878,10 +914,10 @@ function Roles({ data }: { data: SetupData }) {
                     {gridName(p)}
                   </th>
                   {columns.map((col) => {
-                    if (col.kind === "collapsed") {
+                    if (col.kind === "collapsed" || col.kind === "empty") {
                       return (
                         <td
-                          key={col.deptId}
+                          key={`${col.kind}-${col.deptId}`}
                           className="border-b border-r border-slate-100 bg-slate-50/60 group-hover:bg-emerald-50"
                         />
                       );
@@ -911,7 +947,7 @@ function Roles({ data }: { data: SetupData }) {
                     colSpan={colCount}
                     className="px-3 py-6 text-center text-xs text-slate-400"
                   >
-                    No employees match your search.
+                    No Scheduling Active employees match your search.
                   </td>
                 </tr>
               )}
@@ -928,7 +964,7 @@ function AddRoleForm({
   onSaved,
 }: {
   data: SetupData;
-  onSaved: () => void;
+  onSaved: (departmentId: string) => void;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -938,6 +974,7 @@ function AddRoleForm({
     e.preventDefault();
     setError(null);
     const fd = new FormData(e.currentTarget);
+    const deptId = String(fd.get("department_id") ?? "");
     start(async () => {
       const res = await saveRole(fd);
       if (!res.ok) {
@@ -945,7 +982,7 @@ function AddRoleForm({
         return;
       }
       formRef.current?.reset();
-      onSaved();
+      onSaved(deptId);
     });
   }
 
@@ -1261,7 +1298,7 @@ function Employees({ data }: { data: SetupData }) {
       .filter(
         (p) =>
           !hideNonSchedulable ||
-          (settingByPerson.get(p.id)?.is_schedulable ?? true),
+          (settingByPerson.get(p.id)?.is_schedulable ?? false),
       )
       .sort((a, b) => gridName(a).localeCompare(gridName(b)));
   }, [data.people, q, hideNonSchedulable, settingByPerson]);
@@ -1276,7 +1313,7 @@ function Employees({ data }: { data: SetupData }) {
     scheduleType: (p) => p.schedule_type,
     weeklyTarget: (p) => settingByPerson.get(p.id)?.weekly_shift_target ?? 5,
     preferred: (p) => locName(p.preferred_location_id),
-    schedulable: (p) => ((settingByPerson.get(p.id)?.is_schedulable ?? true) ? 1 : 0),
+    schedulable: (p) => ((settingByPerson.get(p.id)?.is_schedulable ?? false) ? 1 : 0),
   });
 
   function update(
@@ -1291,7 +1328,7 @@ function Employees({ data }: { data: SetupData }) {
   ) {
     const cur = settingByPerson.get(personId);
     const target = patch.target ?? cur?.weekly_shift_target ?? 5;
-    const schedulable = patch.schedulable ?? cur?.is_schedulable ?? true;
+    const schedulable = patch.schedulable ?? cur?.is_schedulable ?? false;
     const loc =
       patch.loc !== undefined ? patch.loc : cur?.default_location_id ?? null;
     const eligibleLocs =
@@ -1331,7 +1368,7 @@ function Employees({ data }: { data: SetupData }) {
               onChange={(e) => setHideNonSchedulable(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
             />
-            Hide non-schedulable
+            Hide scheduling-inactive
           </label>
           <input
             value={q}
@@ -1351,7 +1388,7 @@ function Employees({ data }: { data: SetupData }) {
               <SortHeader label="Preferred location" sortKey="preferred" sort={peopleSort} className="py-2 pr-4 font-medium" />
               <th className="py-2 pr-4 font-medium">Eligible locations</th>
               <th className="py-2 pr-4 font-medium">Available days</th>
-              <SortHeader label="Schedulable" sortKey="schedulable" sort={peopleSort} className="py-2 pr-4 font-medium" />
+              <SortHeader label="Scheduling" sortKey="schedulable" sort={peopleSort} className="py-2 pr-4 font-medium" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -1406,7 +1443,7 @@ function Employees({ data }: { data: SetupData }) {
                   <td className="py-2 pr-4">
                     <div className="flex flex-wrap gap-1">
                       {(() => {
-                        const schedulable = s?.is_schedulable ?? true;
+                        const schedulable = s?.is_schedulable ?? false;
                         const eligible = !schedulable
                           ? []
                           : s?.eligible_location_ids?.length
@@ -1478,7 +1515,8 @@ function Employees({ data }: { data: SetupData }) {
                   <td className="py-2 pr-4">
                     <input
                       type="checkbox"
-                      defaultChecked={s?.is_schedulable ?? true}
+                      defaultChecked={s?.is_schedulable ?? false}
+                      title="Scheduling Active — also editable on the HR / Roster record"
                       onChange={(e) =>
                         update(
                           p.id,
