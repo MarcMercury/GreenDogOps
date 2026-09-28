@@ -13,7 +13,13 @@ import type {
 import { dateForDay, APPT_REPORT_TRACKS } from "@/lib/schedule/types";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
 import { classifyRole, emptyStaffing } from "@/lib/planning/resolve";
-import { DVM_COLORS, guideTracksFor } from "@/lib/planning/tracks";
+import {
+  DVM_COLORS,
+  guideDayWindow,
+  guideTracksFor,
+  planTrackLayout,
+  trackBlockWindow,
+} from "@/lib/planning/tracks";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -2176,28 +2182,17 @@ export async function generateGuideFromCapacity(
     await supabase.from("planning_guide").delete().in("id", priorIds);
   }
 
-  const START = 540; // 9:00
-  const END = 1020; // 17:00
-  const LUNCH = 720; // 12:00
-  const STEP = 30;
-  const times: number[] = [];
-  for (let t = START; t < END; t += STEP) times.push(t);
+  // Each area books on the house cadence for its location: AP patients are
+  // dropped off every 15 minutes through the morning window; NAD/OE sits on the
+  // :00/:30 mark; VE is offset to :15/:45 so the two teams' drop-offs never
+  // collide; and the shared UC/Tech lane rides the half hour across both.
+  const { startMinute: START, endMinute: END } = guideDayWindow(loc?.short_code);
+  const genCols = guideTracksFor(deptLabel, dvmCount, {
+    locationCode: loc?.short_code,
+  });
+  const STEP = Math.min(...genCols.map((c) => c.cadence.stepMinutes));
 
-  const genCols = guideTracksFor(deptLabel, dvmCount);
-
-  // Bookable candidate cells, earliest time first then across columns. Fill the
-  // first `target` (all when target is 0) so bookable count == the tile number.
-  const candidates: { colIdx: number; t: number }[] = [];
-  for (const t of times) {
-    if (t === LUNCH) continue;
-    for (let c = 0; c < genCols.length; c++) candidates.push({ colIdx: c, t });
-  }
-  const fillCount =
-    target > 0 ? Math.min(target, candidates.length) : candidates.length;
-  const bookableCells = new Set<string>();
-  for (let i = 0; i < fillCount; i++) {
-    bookableCells.add(`${candidates[i].colIdx}|${candidates[i].t}`);
-  }
+  const { lanes, total: fillCount } = planTrackLayout(genCols, START, END, target);
 
   const { data: guideRow, error: gErr } = await supabase
     .from("planning_guide")
@@ -2248,18 +2243,34 @@ export async function generateGuideFromCapacity(
 
   const slotRows: Record<string, unknown>[] = [];
   orderedCols.forEach((col, colIdx) => {
-    const type = genCols[colIdx]?.type ?? "nad";
-    for (const t of times) {
-      const isLunch = t === LUNCH;
-      const isBookable = bookableCells.has(`${colIdx}|${t}`);
+    const lane = lanes[colIdx];
+    if (!lane) return;
+    const bookable = new Set(lane.bookable);
+    for (const t of lane.times) {
       slotRows.push({
         guide_id: guideId,
         column_id: col.id,
         start_minute: t,
-        duration_minutes: STEP,
-        type_code: isLunch ? "lunch" : isBookable ? type : "open",
-        label: isLunch ? "Lunch" : null,
+        duration_minutes: lane.track.cadence.stepMinutes,
+        type_code: bookable.has(t) ? lane.track.type : "open",
+        label: null,
         sort_order: 0,
+      });
+    }
+    // The team's block (lunch / treatment time) is one slot spanning the gap,
+    // so the grid shows why the lane goes quiet.
+    const block = trackBlockWindow(lane.track);
+    if (block && block[1] > START && block[0] < END) {
+      const from = Math.max(block[0], START);
+      const to = Math.min(block[1], END);
+      slotRows.push({
+        guide_id: guideId,
+        column_id: col.id,
+        start_minute: from,
+        duration_minutes: to - from,
+        type_code: "lunch",
+        label: to - from > 60 ? "Team block" : "Lunch",
+        sort_order: -1,
       });
     }
   });
