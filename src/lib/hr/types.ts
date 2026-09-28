@@ -79,8 +79,9 @@ export interface PersonEmployment {
 
 export interface RosterRow extends Person {
   person_employment: PersonEmployment | null;
-  /** Scheduling Active flag, from greendogops.sched_employee_setting. */
-  sched_employee_setting: { is_schedulable: boolean } | null;
+  /** Scheduling Active flag, from greendogops.sched_employee_setting. Only the
+   *  roster list joins it in; the profile page reads the full settings row. */
+  sched_employee_setting?: { is_schedulable: boolean } | null;
 }
 
 /**
