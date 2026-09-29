@@ -52,6 +52,8 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17
+          # The runner preinstalls v16; installing 17 does not take over PATH.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Rebuild from baseline and verify
         env:

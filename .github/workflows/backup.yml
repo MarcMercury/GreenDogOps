@@ -66,7 +66,15 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-17 age
+          # The runner preinstalls postgresql-client-16, and installing 17 alongside
+          # it does NOT take over `pg_dump` on PATH. pg_dump refuses to dump from a
+          # newer server than itself, so this must come first.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+
+      - name: Confirm pg_dump major matches the server
+        run: |
           pg_dump --version
+          pg_dump --version | grep -q ' 17\.' || { echo "::error::pg_dump is not 17.x"; exit 1; }
 
       - name: Run backup
         env:
