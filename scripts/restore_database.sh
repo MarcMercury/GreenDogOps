@@ -71,6 +71,8 @@ if [[ "$TARGET" == "$PROD_REF" && "${ALLOW_PROD:-0}" != "1" ]]; then
 fi
 
 : "${DB_PASS:?Set DB_PASS for the TARGET project}"
+# Same trailing-newline trap as backup_database.sh.
+DB_PASS="$(printf '%s' "$DB_PASS" | tr -d '[:space:]')"
 CONN="$(pooler_uri "${TARGET}")"
 export PGPASSWORD="$DB_PASS"
 

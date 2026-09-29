@@ -48,10 +48,16 @@ fi
 : "${SOURCE_REF:?Set SOURCE_REF or SUPABASE_PROJECT_REF in .secrets/supabase.env}"
 : "${DB_PASS:?Set DB_PASS for $SOURCE_REF (Supabase dashboard > Settings > Database)}"
 
+# A secret pasted into a CI settings box often carries a trailing newline, and
+# Postgres then reports "password authentication failed" -- which sends you
+# hunting for the wrong problem entirely.
+DB_PASS="$(printf '%s' "$DB_PASS" | tr -d '[:space:]')"
+
 RECIPIENT="${AGE_RECIPIENT:-}"
 if [[ -z "$RECIPIENT" && -f "$ROOT/.secrets/backup-age-recipient.txt" ]]; then
   RECIPIENT="$(cat "$ROOT/.secrets/backup-age-recipient.txt")"
 fi
+RECIPIENT="$(printf '%s' "$RECIPIENT" | tr -d '[:space:]')"
 # Refuse to write plaintext: these dumps contain employee and client records.
 [[ -n "$RECIPIENT" ]] || { echo "ERROR: no age recipient. Set AGE_RECIPIENT." >&2; exit 1; }
 command -v pg_dump >/dev/null || { echo "ERROR: pg_dump not installed (need >= server major)." >&2; exit 1; }
