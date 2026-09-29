@@ -14,6 +14,17 @@ import { dateForDay, APPT_REPORT_TRACKS } from "@/lib/schedule/types";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
 import { classifyRole, emptyStaffing } from "@/lib/planning/resolve";
 import {
+  checkbox,
+  intInRange,
+  optionalText,
+  optionalTime,
+  optionalUuid,
+  parseForm,
+  requiredText,
+  requiredUuid,
+  z,
+} from "@/lib/validation/form";
+import {
   DVM_COLORS,
   guideDayWindow,
   guideTracksFor,
@@ -62,21 +73,29 @@ function revalidateAll() {
 // SETUP — departments
 // ===========================================================================
 
+const departmentSchema = z.object({
+  id: optionalUuid,
+  name: requiredText(120, "Department name"),
+  code: optionalText(32),
+  // Rendered straight into a style attribute on the grid.
+  color: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() !== "" ? v.trim() : "#64748b"),
+    z.string().regex(/^#[0-9a-fA-F]{6}$/, "Colour must be a hex value like #64748b."),
+  ),
+  sort_order: intInRange(0, 9999, 0),
+  is_active: checkbox,
+  show_in_planning: checkbox,
+});
+
 export async function saveDepartment(formData: FormData): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
-  const supabase = await createClient();
-  const id = str(formData.get("id"));
-  const patch = {
-    name: str(formData.get("name")),
-    code: str(formData.get("code")),
-    color: str(formData.get("color")) ?? "#64748b",
-    sort_order: int(formData.get("sort_order")),
-    is_active: formData.has("is_active") ? bool(formData.get("is_active")) : true,
-    show_in_planning: bool(formData.get("show_in_planning")),
-  };
-  if (!patch.name) return { ok: false, error: "Department name is required." };
 
+  const parsed = parseForm(departmentSchema, formData);
+  if (!parsed.ok) return parsed;
+  const { id, ...patch } = parsed.data;
+
+  const supabase = await createClient();
   const { error } = id
     ? await supabase.from("sched_department").update(patch).eq("id", id)
     : await supabase.from("sched_department").insert(patch);
@@ -160,20 +179,23 @@ export async function saveApptTypeReportTrack(
 // SETUP — roles
 // ===========================================================================
 
+const roleSchema = z.object({
+  id: optionalUuid,
+  department_id: requiredUuid("department"),
+  name: requiredText(120, "Role name"),
+  sort_order: intInRange(0, 9999, 0),
+  is_active: checkbox,
+});
+
 export async function saveRole(formData: FormData): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
-  const supabase = await createClient();
-  const id = str(formData.get("id"));
-  const patch = {
-    department_id: str(formData.get("department_id")),
-    name: str(formData.get("name")),
-    sort_order: int(formData.get("sort_order")),
-    is_active: formData.has("is_active") ? bool(formData.get("is_active")) : true,
-  };
-  if (!patch.department_id) return { ok: false, error: "Pick a department." };
-  if (!patch.name) return { ok: false, error: "Role name is required." };
 
+  const parsed = parseForm(roleSchema, formData);
+  if (!parsed.ok) return parsed;
+  const { id, ...patch } = parsed.data;
+
+  const supabase = await createClient();
   const { error } = id
     ? await supabase.from("sched_role").update(patch).eq("id", id)
     : await supabase.from("sched_role").insert(patch);
@@ -1051,32 +1073,55 @@ async function resolveRoleId(
   return { id: (data as { id: string }).id };
 }
 
+/** Fields shared by adding and editing a shift line. */
+const weekLineFields = {
+  department_id: requiredUuid("department"),
+  role_id: optionalUuid,
+  new_role_name: optionalText(120),
+  label: optionalText(120),
+  start_time: optionalTime,
+  end_time: optionalTime,
+  sort_order: intInRange(0, 9999, 9999),
+};
+
+// A shift ending before it starts silently breaks the interval overlap maths
+// behind double-booking detection, so it is rejected rather than stored.
+const endsAfterStart = (v: { start_time: string | null; end_time: string | null }) =>
+  !v.start_time || !v.end_time || v.end_time > v.start_time;
+const timeOrderMessage = {
+  message: "End time must be after start time.",
+  path: ["end_time"] as const,
+};
+
+const addWeekLineSchema = z
+  .object({ week_id: requiredUuid("week"), ...weekLineFields })
+  .refine(endsAfterStart, timeOrderMessage);
+
+const updateWeekLineSchema = z
+  .object({ id: requiredUuid("line id"), ...weekLineFields })
+  .refine(endsAfterStart, timeOrderMessage);
+
 /** Add an ad-hoc shift line to a week (not derived from a template). */
 export async function addWeekLine(formData: FormData): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
-  const supabase = await createClient();
-  const weekId = str(formData.get("week_id"));
-  const departmentId = str(formData.get("department_id"));
-  if (!weekId || !departmentId)
-    return { ok: false, error: "Missing week or department." };
 
-  const role = await resolveRoleId(
-    supabase,
-    departmentId,
-    str(formData.get("role_id")),
-    str(formData.get("new_role_name")),
-  );
+  const parsed = parseForm(addWeekLineSchema, formData);
+  if (!parsed.ok) return parsed;
+  const v = parsed.data;
+
+  const supabase = await createClient();
+  const role = await resolveRoleId(supabase, v.department_id, v.role_id, v.new_role_name);
   if ("error" in role) return { ok: false, error: role.error };
 
   const { error } = await supabase.from("sched_week_line").insert({
-    week_id: weekId,
-    department_id: departmentId,
+    week_id: v.week_id,
+    department_id: v.department_id,
     role_id: role.id,
-    label: str(formData.get("label")),
-    start_time: str(formData.get("start_time")),
-    end_time: str(formData.get("end_time")),
-    sort_order: int(formData.get("sort_order"), 9999),
+    label: v.label,
+    start_time: v.start_time,
+    end_time: v.end_time,
+    sort_order: v.sort_order,
     is_adhoc: true,
   });
   if (error) return { ok: false, error: error.message };
@@ -1088,31 +1133,26 @@ export async function addWeekLine(formData: FormData): Promise<ActionResult> {
 export async function updateWeekLine(formData: FormData): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
-  const supabase = await createClient();
-  const id = str(formData.get("id"));
-  const departmentId = str(formData.get("department_id"));
-  if (!id) return { ok: false, error: "Missing line id." };
-  if (!departmentId) return { ok: false, error: "Pick a department." };
 
-  const role = await resolveRoleId(
-    supabase,
-    departmentId,
-    str(formData.get("role_id")),
-    str(formData.get("new_role_name")),
-  );
+  const parsed = parseForm(updateWeekLineSchema, formData);
+  if (!parsed.ok) return parsed;
+  const v = parsed.data;
+
+  const supabase = await createClient();
+  const role = await resolveRoleId(supabase, v.department_id, v.role_id, v.new_role_name);
   if ("error" in role) return { ok: false, error: role.error };
 
   const { error } = await supabase
     .from("sched_week_line")
     .update({
-      department_id: departmentId,
+      department_id: v.department_id,
       role_id: role.id,
-      label: str(formData.get("label")),
-      start_time: str(formData.get("start_time")),
-      end_time: str(formData.get("end_time")),
-      sort_order: int(formData.get("sort_order"), 9999),
+      label: v.label,
+      start_time: v.start_time,
+      end_time: v.end_time,
+      sort_order: v.sort_order,
     })
-    .eq("id", id);
+    .eq("id", v.id);
   if (error) return { ok: false, error: error.message };
   revalidateAll();
   return { ok: true };
