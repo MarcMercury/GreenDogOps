@@ -1090,7 +1090,7 @@ const endsAfterStart = (v: { start_time: string | null; end_time: string | null 
   !v.start_time || !v.end_time || v.end_time > v.start_time;
 const timeOrderMessage = {
   message: "End time must be after start time.",
-  path: ["end_time"] as const,
+  path: ["end_time"],
 };
 
 const addWeekLineSchema = z
