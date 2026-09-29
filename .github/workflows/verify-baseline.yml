@@ -1,0 +1,71 @@
+name: Verify database baseline
+
+# supabase/baseline/ is the disaster-recovery path: it is what rebuilds the
+# database if the Supabase project is ever lost. Its failure mode is silent --
+# the files sit in the repo looking plausible for months, and nobody discovers
+# they no longer apply until the day they are needed.
+#
+# This rebuilds from them against a throwaway PostgreSQL on every change, so a
+# broken baseline fails a pull request instead of an emergency. No Supabase
+# credentials, no network calls, no cost.
+
+on:
+  push:
+    branches: [main]
+    paths: ["supabase/**", "scripts/verify_baseline.sh", ".github/workflows/verify-baseline.yml"]
+  pull_request:
+    paths: ["supabase/**", "scripts/verify_baseline.sh", ".github/workflows/verify-baseline.yml"]
+  # The baseline can also rot without anyone touching it -- a migration applied
+  # to production but never folded in leaves it quietly stale.
+  schedule:
+    - cron: "0 11 * * 1"
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: verify
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql 17
+        run: |
+          # The runner ships psql 16; the dump is from a 17 server.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+
+      - name: Rebuild from baseline and verify
+        env:
+          PGHOST: localhost
+          PGPORT: "5432"
+          PGUSER: postgres
+          PGPASSWORD: verify
+          PGDATABASE: postgres
+        run: |
+          chmod +x scripts/verify_baseline.sh
+          scripts/verify_baseline.sh --no-docker | tee /tmp/out.txt
+
+      - name: Summary
+        if: always()
+        run: |
+          { echo "### Baseline verification"; echo ""; echo '```'; cat /tmp/out.txt; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"

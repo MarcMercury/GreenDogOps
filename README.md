@@ -51,22 +51,35 @@ Green Dog Ops lives in **one Supabase project alongside a second app
   gated at the application layer by the `app_user` allow-list + role model, not
   by Supabase Auth membership alone.
 
-One-time project setup: apply the migrations, then Dashboard → Settings → API →
-**Exposed schemas** → add `greendogops`.
+One-time project setup: apply [supabase/baseline](supabase/baseline), then
+Dashboard → Settings → API → **Exposed schemas** → add `greendogops`.
 
-### 2. No RLS — authorization is app-layer
+### 2. RLS is on — but app-layer authorization still does the real work
 
-No table in `greendogops` has Row-Level Security enabled. Authorization is
-enforced entirely in server code (`canAccessModule` / `canEditModule` /
-`smartScopeFor`). Consequences:
+Every one of the 138 tables in `greendogops` has Row-Level Security enabled, with
+136 policies (migrations `0164`/`0165`). That baseline exists for one reason:
+`auth.users` is shared, so ~100 accounts from the other app get the
+`authenticated` role, and table GRANTs alone would let them read everything.
+The blanket `gdo_members_all` policy shuts them out by requiring an active
+`app_user` row.
 
-- **Never grant EXECUTE on a Postgres RPC to `authenticated`.** The Smart Report
-  functions (`smart_query`, `smart_schema`, `smart_value_hints`) are
-  `service_role`-only; a browser-callable version would leak salaries to any
-  logged-in user.
+**RLS is a floor, not the authorization model.** It answers "is this a Green Dog
+Ops user at all", nothing finer. Per-module and per-row rules still live in
+server code (`canAccessModule` / `canEditModule` / `smartScopeFor`), so:
+
 - Every Server Action must re-check permissions. Do not trust the client.
-- The service-role key bypasses everything — server-only, never in a
+- **Never grant EXECUTE on a Postgres RPC to `authenticated`.** `0211` revoked
+  PUBLIC/anon on all routines because `SECURITY DEFINER` functions run as the
+  owner and never consult RLS. A browser-callable `smart_query` would leak
+  salaries to any logged-in user.
+- The service-role key bypasses RLS entirely — server-only, never in a
   `NEXT_PUBLIC_*` variable.
+- Views and materialized views **cannot** enforce RLS, so all of them are
+  revoked from `anon`/`authenticated` and read through `createAdminClient()`.
+
+An event trigger (`greendogops_protect_new_objects`) applies the baseline to
+newly created objects automatically. Audit with
+`select * from greendogops.rls_audit();` — it should always return zero rows.
 
 ### 3. PostgREST row cap
 
@@ -327,7 +340,7 @@ All cron routes authenticate with `CRON_SECRET`; long-running ones set
 
 ## Database migrations
 
-SQL migrations live in [supabase/migrations](supabase/migrations) (210+ files,
+SQL migrations live in [supabase/migrations](supabase/migrations) (220+ files,
 strictly sequential, each scoped to `greendogops`). Apply them with the helper,
 which posts to the Supabase Management API — the same endpoint the dashboard SQL
 editor uses:
@@ -341,6 +354,63 @@ Credentials are read from `.secrets/supabase.env` (gitignored), so the access
 token never enters the repo. The Management API silently hangs on very large
 payloads, so bulk data loads must go through a service-role client script rather
 than a generated `.sql` file.
+
+### The migration history is not replayable — use the baseline
+
+Do **not** try to build a new database by replaying `supabase/migrations/`. It
+aborts partway: several data-seed migrations hard-code UUIDs that were generated
+at runtime and have since been deleted, so their foreign keys no longer resolve.
+
+[supabase/baseline](supabase/baseline) is the rebuild path instead — a snapshot
+of a working database, which by construction has no dangling references. It
+carries the full schema with grants, revokes and RLS policies, the cluster-wide
+event trigger that `pg_dump --schema` omits, and the configuration rows the app
+cannot start without. No operational data.
+
+```bash
+scripts/rebuild_database.sh --to <empty_ref> --verify-against <prod_ref>
+scripts/generate_baseline.sh      # regenerate after any schema migration
+scripts/verify_baseline.sh        # rebuild into a throwaway Postgres and assert
+scripts/compare_schemas.py --a <ref> --b <ref>   # drift; exits 1 on difference
+```
+
+CI runs `verify_baseline.sh` on every change under `supabase/`.
+
+### Environments
+
+| | Project | Used by |
+| --- | --- | --- |
+| Production | `uekumyupkhnpjpdcjfxb` | `main` deployments |
+| Staging | `yzxcuiwklrmxarzjzukr` | Vercel **preview** deployments |
+
+Staging holds configuration plus synthetic people only — no real employee,
+candidate or client records. Repopulate it with
+`scripts/seed_staging.py --to <ref>`. Local `.env.local` deliberately still
+points at production, because the import scripts target production on purpose.
+
+One-time setup on a new project: apply the baseline, then expose the schema —
+`PATCH /v1/projects/<ref>/postgrest` with
+`db_schema=public,graphql_public,greendogops`. A new project exposes only
+`public`, and every request 404s until this is set.
+
+### Backups
+
+Supabase takes daily backups, but they live inside the Supabase account, so
+losing the account loses them too. `.github/workflows/backup.yml` writes
+encrypted dumps that Supabase never holds the key to.
+
+The data is not uniform: 46 `ezyvet_*` ingest tables are ~90% of the volume and
+can be rebuilt by re-running the agent, while the other 92 tables — schedules,
+attendance, HR, CRM, ATS — are only ~47 MB and cannot be regenerated at all. So
+the critical tier runs every four hours and the full tier nightly.
+
+```bash
+scripts/backup_database.sh --critical          # ~7 MB, seconds
+scripts/restore_database.sh --file <f> --to <ref> --data-only
+```
+
+Encryption is `age`, asymmetric: CI holds only the public key. **If
+`.secrets/backup-age-key.txt` is lost, every backup is unreadable.**
 
 ---
 
@@ -398,10 +468,12 @@ src/
     med-ops/ planning/ reporting/ resources/ schedule/ sheets/ slack/
     shared/ supabase/       # domain logic + schema-scoped Supabase clients
 agent/                      # Playwright browser workers (ezyVet, CEbroker, Indeed)
-supabase/migrations/        # sequential, schema-isolated SQL
-scripts/                    # importers, enrichers, probes, SQL helper
+supabase/migrations/        # sequential, schema-isolated SQL (history; not replayable)
+supabase/baseline/          # rebuild path: schema + security + config snapshot
+scripts/                    # importers, enrichers, probes, SQL helper,
+                            # backup/restore, baseline + drift tooling
 public/                     # sample CSV/XLSX exports
-.github/workflows/          # scheduled agent runs
+.github/workflows/          # scheduled agent runs, backups, baseline verification
 ```
 
 Conventions worth knowing:
