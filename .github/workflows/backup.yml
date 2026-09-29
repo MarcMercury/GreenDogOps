@@ -71,6 +71,10 @@ jobs:
       - name: Run backup
         env:
           SOURCE_REF: uekumyupkhnpjpdcjfxb
+          # The pooler prefix is not derivable from the region -- this project is
+          # aws-1 while another in the same region is aws-0. Pinned here because
+          # CI has no Management API token to look it up with. Not a secret.
+          POOLER_HOST: aws-1-us-east-2.pooler.supabase.com
           DB_PASS: ${{ secrets.PROD_DB_PASSWORD }}
           AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
           BACKUP_DIR: ${{ github.workspace }}/.backups

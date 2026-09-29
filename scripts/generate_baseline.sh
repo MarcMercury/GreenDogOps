@@ -19,6 +19,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/supabase-conn.sh
+source "$ROOT/scripts/lib/supabase-conn.sh"
 OUT="$ROOT/supabase/baseline"
 STAGING_ENV="$ROOT/.secrets/supabase-staging.env"
 
@@ -46,8 +48,7 @@ command -v pg_dump >/dev/null || { echo "ERROR: pg_dump not installed." >&2; exi
 # than piped through psql, so they have to be filtered out.
 strip_meta() { grep -vE '^\\(restrict|unrestrict)([[:space:]]|$)'; }
 
-REGION="${REGION:-aws-0-us-east-2}"
-CONN="postgresql://postgres.${SOURCE_REF}@${REGION}.pooler.supabase.com:5432/postgres?sslmode=require"
+CONN="$(pooler_uri "${SOURCE_REF}")"
 export PGPASSWORD="$DB_PASS"
 STAMP="$(date -u +%Y-%m-%d)"
 mkdir -p "$OUT"

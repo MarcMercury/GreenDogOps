@@ -21,6 +21,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/supabase-conn.sh
+source "$ROOT/scripts/lib/supabase-conn.sh"
 KEY="${AGE_KEY_FILE:-$ROOT/.secrets/backup-age-key.txt}"
 
 FILE=""; TARGET=""; DATA_ONLY=0; LIST_ONLY=0
@@ -69,8 +71,7 @@ if [[ "$TARGET" == "$PROD_REF" && "${ALLOW_PROD:-0}" != "1" ]]; then
 fi
 
 : "${DB_PASS:?Set DB_PASS for the TARGET project}"
-REGION="${REGION:-aws-0-us-east-2}"
-CONN="postgresql://postgres.${TARGET}@${REGION}.pooler.supabase.com:5432/postgres?sslmode=require"
+CONN="$(pooler_uri "${TARGET}")"
 export PGPASSWORD="$DB_PASS"
 
 # --disable-triggers is deliberately NOT used: it needs superuser, which

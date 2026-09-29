@@ -27,6 +27,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/supabase-conn.sh
+source "$ROOT/scripts/lib/supabase-conn.sh"
 
 TIER="critical"
 OUT_DIR="${BACKUP_DIR:-$ROOT/.backups}"
@@ -55,10 +57,8 @@ fi
 command -v pg_dump >/dev/null || { echo "ERROR: pg_dump not installed (need >= server major)." >&2; exit 1; }
 command -v age >/dev/null || { echo "ERROR: age not installed (apt-get install age)." >&2; exit 1; }
 
-REGION="${REGION:-aws-0-us-east-2}"
-CONN="postgresql://postgres.${SOURCE_REF}@${REGION}.pooler.supabase.com:5432/postgres?sslmode=require"
+CONN="$(pooler_uri "${SOURCE_REF}")"
 export PGPASSWORD="$DB_PASS"
-
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="$OUT_DIR/gdo-${TIER}-${STAMP}.dump.age"
