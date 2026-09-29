@@ -22,8 +22,14 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+# A SUPABASE_PROJECT_REF already exported by the caller wins over the one in the
+# secrets file, so the same script can be aimed at staging.
+REF_OVERRIDE="${SUPABASE_PROJECT_REF:-}"
+
 # shellcheck disable=SC1090
 set -a; source "$ENV_FILE"; set +a
+
+SUPABASE_PROJECT_REF="${REF_OVERRIDE:-${SUPABASE_PROJECT_REF:-}}"
 
 : "${SUPABASE_ACCESS_TOKEN:?Set SUPABASE_ACCESS_TOKEN in .secrets/supabase.env}"
 : "${SUPABASE_PROJECT_REF:?Set SUPABASE_PROJECT_REF in .secrets/supabase.env}"
