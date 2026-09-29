@@ -1,0 +1,115 @@
+name: Database backup
+
+# Supabase's own daily backups live inside the Supabase account. If that account
+# is lost, closed or compromised, the backups go with it. This workflow writes
+# encrypted dumps to storage under different credentials, with a key Supabase
+# never sees.
+#
+# Two schedules, because the data is not uniform:
+#   critical  ~47 MB of schedules, attendance, HR, CRM, ATS. Irreplaceable, so
+#             it runs every four hours and caps data loss at four hours rather
+#             than the twenty-four that daily backups allow.
+#   full      ~585 MB including the ezyVet ingest tables, which are ~90% of the
+#             volume and can be rebuilt by re-running the ezyVet agent. Nightly.
+#
+# Required repository secrets:
+#   PROD_DB_PASSWORD   Supabase dashboard > Settings > Database > password
+#   AGE_RECIPIENT      age PUBLIC key. Only the public half is needed here, so
+#                      a compromise of this repo cannot decrypt past backups.
+# Optional, for off-site copies (any S3-compatible provider — Backblaze B2,
+# Cloudflare R2, Wasabi, AWS):
+#   S3_BUCKET, S3_ENDPOINT, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"   # critical, every four hours
+    - cron: "30 9 * * *"    # full, 09:30 UTC (about 02:30 Pacific)
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: Which tier to back up
+        type: choice
+        options: [critical, full]
+        default: critical
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Decide tier
+        id: tier
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "tier=${{ inputs.tier }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.event.schedule }}" == "30 9 * * *" ]]; then
+            echo "tier=full" >> "$GITHUB_OUTPUT"
+          else
+            echo "tier=critical" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install pg_dump 17 and age
+        run: |
+          # The distro ships pg_dump 16 and the server runs 17; pg_dump refuses
+          # to dump from a newer server than itself.
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17 age
+          pg_dump --version
+
+      - name: Run backup
+        env:
+          SOURCE_REF: uekumyupkhnpjpdcjfxb
+          DB_PASS: ${{ secrets.PROD_DB_PASSWORD }}
+          AGE_RECIPIENT: ${{ secrets.AGE_RECIPIENT }}
+          BACKUP_DIR: ${{ github.workspace }}/.backups
+        run: |
+          test -n "$DB_PASS" || { echo "::error::PROD_DB_PASSWORD is not set"; exit 1; }
+          test -n "$AGE_RECIPIENT" || { echo "::error::AGE_RECIPIENT is not set"; exit 1; }
+          chmod +x scripts/backup_database.sh
+          scripts/backup_database.sh --${{ steps.tier.outputs.tier }}
+
+      - name: Upload to off-site object storage
+        if: ${{ env.S3_BUCKET != '' }}
+        env:
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          aws s3 cp .backups/ "s3://$S3_BUCKET/gdo/" \
+            --recursive --endpoint-url "$S3_ENDPOINT" --only-show-errors
+          echo "uploaded to $S3_BUCKET"
+
+      # Kept regardless, so there is always a second copy even before object
+      # storage is configured. The artifact is encrypted; GitHub cannot read it.
+      - name: Keep as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gdo-${{ steps.tier.outputs.tier }}-${{ github.run_id }}
+          path: .backups/
+          retention-days: 90
+          if-no-files-found: error
+
+      - name: Summary
+        run: |
+          {
+            echo "### Backup complete"
+            echo ""
+            echo "| file | size |"
+            echo "|---|---|"
+            for f in .backups/*.age; do
+              echo "| \`$(basename "$f")\` | $(du -h "$f" | cut -f1) |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"

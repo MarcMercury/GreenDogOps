@@ -62,3 +62,6 @@ next-env.d.ts
 # Python cache
 __pycache__/
 *.pyc
+
+# local encrypted database backups
+.backups/
