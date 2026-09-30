@@ -113,6 +113,10 @@ jobs:
           path: .backups/
           retention-days: 90
           if-no-files-found: error
+          # .backups is a dot-directory, and upload-artifact@v4 skips hidden
+          # files by default. Without this the dump is created, reported as
+          # written, and then silently discarded with "No files were found".
+          include-hidden-files: true
 
       - name: Summary
         run: |
