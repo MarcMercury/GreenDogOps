@@ -1,4 +1,11 @@
-import { getSetupData, getWeeks, getWeekData, getWeekTimeOff, getAgendaCounts } from "./data";
+import {
+  getSetupData,
+  getWeeks,
+  getWeekData,
+  getWeekDataFor,
+  getWeekTimeOff,
+  getAgendaCounts,
+} from "./data";
 import { ScheduleGrid } from "./schedule-grid";
 import { WeekPicker } from "./week-picker";
 import { PageHeader } from "../_components/ui";
@@ -30,7 +37,34 @@ export default async function SchedulePage({
     weeks[weeks.length - 1] ??
     null;
   const selectedId = weekParam ?? defaultWeek?.id ?? null;
-  const weekData = selectedId ? await getWeekData(selectedId) : null;
+
+  // The week row is already in `weeks`, so the grid, time-off and agenda
+  // queries can all start together. Looking the week up first instead would
+  // serialise them behind it, and behind each other.
+  const selectedWeek = selectedId
+    ? weeks.find((w) => w.id === selectedId) ?? null
+    : null;
+
+  const [weekData, timeOff, agendaCounts] = selectedWeek
+    ? await Promise.all([
+        getWeekDataFor(selectedWeek),
+        getWeekTimeOff(selectedWeek.week_start),
+        getAgendaCounts(selectedWeek.week_start),
+      ])
+    : // A week id in the URL that is not in the list (the template, or one just
+      // deleted) still has to be fetched the long way.
+      selectedId
+      ? await (async () => {
+          const wd = await getWeekData(selectedId);
+          if (!wd) return [null, [], []] as const;
+          const [to, ac] = await Promise.all([
+            getWeekTimeOff(wd.week.week_start),
+            getAgendaCounts(wd.week.week_start),
+          ]);
+          return [wd, to, ac] as const;
+        })()
+      : [null, [], []];
+
   if (!weekData) {
     return (
       <div className="space-y-5">
@@ -48,10 +82,6 @@ export default async function SchedulePage({
       </div>
     );
   }
-
-  const timeOff = await getWeekTimeOff(weekData.week.week_start);
-
-  const agendaCounts = await getAgendaCounts(weekData.week.week_start);
 
   return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} timeOff={timeOff} agendaCounts={agendaCounts} canEdit={canEdit} />;
 }

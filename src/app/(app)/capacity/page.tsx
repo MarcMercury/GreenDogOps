@@ -2,6 +2,7 @@ import {
   getSetupData,
   getWeeks,
   getWeekData,
+  getWeekDataFor,
   getActiveGuides,
   getCapacityRules,
   getAgendaCounts,
@@ -45,11 +46,24 @@ export default async function CapacityPage({
     weeks[weeks.length - 1] ??
     null;
   const selectedId = weekParam ?? defaultWeek?.id ?? null;
-  const weekData = selectedId ? await getWeekData(selectedId) : null;
 
-  const agendaCounts = weekData
-    ? await getAgendaCounts(weekData.week.week_start)
-    : [];
+  // `weeks` already holds the row, so the grid and agenda queries can run
+  // together rather than one behind the other.
+  const selectedWeek = selectedId
+    ? weeks.find((w) => w.id === selectedId) ?? null
+    : null;
+
+  const [weekData, agendaCounts] = selectedWeek
+    ? await Promise.all([
+        getWeekDataFor(selectedWeek),
+        getAgendaCounts(selectedWeek.week_start),
+      ])
+    : selectedId
+      ? await (async () => {
+          const wd = await getWeekData(selectedId);
+          return [wd, wd ? await getAgendaCounts(wd.week.week_start) : []] as const;
+        })()
+      : [null, []];
 
   return (
     <div className="space-y-5">
