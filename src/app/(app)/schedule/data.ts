@@ -289,26 +289,28 @@ export interface WeekData {
   assignments: SchedAssignment[];
 }
 
-/** Full grid payload for a single week. */
-export async function getWeekData(weekId: string): Promise<WeekData | null> {
+/** Full grid payload for a week that has already been loaded.
+ *
+ * Callers that came from the week list already hold the row, so taking it as an
+ * argument removes a lookup from the critical path and lets the caller start
+ * the time-off and agenda queries at the same time instead of after it.
+ */
+export async function getWeekDataFor(week: SchedWeek): Promise<WeekData> {
   const supabase = await createClient();
-  const week = await getWeek(weekId);
-  if (!week) return null;
-
   const [lineRes, locRes, closeRes, eventRes, asgRes] = await Promise.all([
     supabase
       .from("sched_week_line")
       .select("*")
-      .eq("week_id", weekId)
+      .eq("week_id", week.id)
       .order("sort_order"),
     supabase
       .from("sched_week_location")
       .select("*")
-      .eq("week_id", weekId)
+      .eq("week_id", week.id)
       .order("sort_order"),
-    supabase.from("sched_closure").select("*").eq("week_id", weekId),
-    supabase.from("sched_event").select("*").eq("week_id", weekId),
-    supabase.from("sched_assignment").select("*").eq("week_id", weekId),
+    supabase.from("sched_closure").select("*").eq("week_id", week.id),
+    supabase.from("sched_event").select("*").eq("week_id", week.id),
+    supabase.from("sched_assignment").select("*").eq("week_id", week.id),
   ]);
 
   return {
@@ -319,6 +321,13 @@ export async function getWeekData(weekId: string): Promise<WeekData | null> {
     events: (eventRes.data ?? []) as SchedEvent[],
     assignments: (asgRes.data ?? []) as SchedAssignment[],
   };
+}
+
+/** Full grid payload for a single week. */
+export async function getWeekData(weekId: string): Promise<WeekData | null> {
+  const week = await getWeek(weekId);
+  if (!week) return null;
+  return getWeekDataFor(week);
 }
 
 export interface AttendanceRow {
