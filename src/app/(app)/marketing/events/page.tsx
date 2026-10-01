@@ -5,6 +5,7 @@ import type {
   MarketingEvent,
   MarketingEventSource,
   MarketingEventAttendee,
+  MarketingPromotion,
   PersonOption,
   CrmOrgRef,
 } from "@/lib/marketing/types";
@@ -27,7 +28,7 @@ export default async function EventManagementPage({
   const current = await getCurrentUser();
   const canEdit = current ? canEditModule(current.appUser, "marketing") : false;
 
-  const [eventsRes, sourcesRes, attendeesRes, peopleRes, crmOrgsRes, qrCodesRes, qrFormsRes, leadsRes, ceRes] =
+  const [eventsRes, sourcesRes, attendeesRes, peopleRes, crmOrgsRes, promotionsRes, qrCodesRes, qrFormsRes, leadsRes, ceRes] =
     await Promise.all([
       supabase
         .from("marketing_event")
@@ -59,6 +60,11 @@ export default async function EventManagementPage({
         ])
         .order("name", { ascending: true }),
       supabase
+        .from("marketing_promotion")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+      supabase
         .from("qr_code")
         .select("*")
         .order("created_at", { ascending: false }),
@@ -84,6 +90,7 @@ export default async function EventManagementPage({
     attendeesRes.error ||
     peopleRes.error ||
     crmOrgsRes.error ||
+    promotionsRes.error ||
     qrCodesRes.error ||
     qrFormsRes.error ||
     leadsRes.error ||
@@ -109,6 +116,7 @@ export default async function EventManagementPage({
       attendees={(attendeesRes.data ?? []) as MarketingEventAttendee[]}
       people={(peopleRes.data ?? []) as PersonOption[]}
       crmOrgs={(crmOrgsRes.data ?? []) as CrmOrgRef[]}
+      promotions={(promotionsRes.data ?? []) as MarketingPromotion[]}
       qrCodes={(qrCodesRes.data ?? []) as QrCode[]}
       qrForms={(qrFormsRes.data ?? []) as QrForm[]}
       leads={(leadsRes.data ?? []) as QrLead[]}

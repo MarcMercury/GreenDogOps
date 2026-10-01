@@ -12,6 +12,7 @@ import {
   type MarketingEvent,
   type MarketingEventSource,
   type MarketingEventAttendee,
+  type MarketingPromotion,
   type PersonOption,
   type CrmOrgRef,
   EVENT_STATUSES,
@@ -61,6 +62,7 @@ export function EventsWorkspace({
   attendees,
   people,
   crmOrgs,
+  promotions,
   qrCodes,
   qrForms,
   leads,
@@ -73,6 +75,7 @@ export function EventsWorkspace({
   attendees: MarketingEventAttendee[];
   people: PersonOption[];
   crmOrgs: CrmOrgRef[];
+  promotions: MarketingPromotion[];
   qrCodes: QrCode[];
   qrForms: QrForm[];
   leads: QrLead[];
@@ -119,8 +122,10 @@ export function EventsWorkspace({
           attendees={attendees}
           crmOrgs={crmOrgs}
           people={people}
+          promotions={promotions}
           qrCodes={qrCodes}
           qrForms={qrForms}
+          qrLeads={leads}
         />
       ) : view === "calendar" ? (
         <EventsCalendar
@@ -130,8 +135,10 @@ export function EventsWorkspace({
           sources={sources}
           attendees={attendees}
           people={people}
+          promotions={promotions}
           qrCodes={qrCodes}
           qrForms={qrForms}
+          qrLeads={leads}
         />
       ) : (
         <EventLeadsTab
@@ -154,8 +161,10 @@ function EventsCalendar({
   sources,
   attendees,
   people,
+  promotions,
   qrCodes,
   qrForms,
+  qrLeads,
 }: {
   canEdit: boolean;
   events: MarketingEvent[];
@@ -163,8 +172,10 @@ function EventsCalendar({
   sources: MarketingEventSource[];
   attendees: MarketingEventAttendee[];
   people: PersonOption[];
+  promotions: MarketingPromotion[];
   qrCodes: QrCode[];
   qrForms: QrForm[];
+  qrLeads: QrLead[];
 }) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
@@ -371,8 +382,10 @@ function EventsCalendar({
           attendees={editing ? attendeesByEvent.get(editing.id) ?? [] : []}
           canEdit={canEdit}
           people={people}
+          promotions={promotions}
           qrCodes={qrCodes}
           qrForms={qrForms}
+          qrLeads={qrLeads}
           onClose={() => {
             setEditing(null);
             setCreatingOn(null);

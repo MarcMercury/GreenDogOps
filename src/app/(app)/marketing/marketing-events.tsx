@@ -7,6 +7,7 @@ import {
   type MarketingEvent,
   type MarketingEventSource,
   type MarketingEventAttendee,
+  type MarketingPromotion,
   type ChecklistItem,
   type PackingListItem,
   type CrmOrgRef,
@@ -20,10 +21,14 @@ import {
   PACKING_STATUS_STYLES,
   attendeeTypeLabel,
   personLabel,
+  promoStatusLabel,
+  promoTypeLabel,
 } from "@/lib/marketing/types";
 import {
   type QrCode,
   type QrForm,
+  type QrLead,
+  qrLeadStatusLabel,
 } from "@/lib/marketing/qr";
 import { QrPanel } from "@/lib/marketing/qr-panel";
 import {
@@ -108,8 +113,10 @@ export function EventsTab({
   attendees,
   crmOrgs,
   people,
+  promotions,
   qrCodes,
   qrForms,
+  qrLeads,
 }: {
   canEdit: boolean;
   events: MarketingEvent[];
@@ -118,8 +125,10 @@ export function EventsTab({
   attendees: MarketingEventAttendee[];
   crmOrgs: CrmOrgRef[];
   people: PersonOption[];
+  promotions: MarketingPromotion[];
   qrCodes: QrCode[];
   qrForms: QrForm[];
+  qrLeads: QrLead[];
 }) {
   const router = useRouter();
   const [toast, setToast] = useState<string | null>(null);
@@ -130,6 +139,7 @@ export function EventsTab({
   const [showSources, setShowSources] = useState(false);
   const [view, setView] = useState<"all" | "upcoming" | "past">("all");
   const [kind, setKind] = useState<"all" | "marketing" | "ce">("all");
+  const [query, setQuery] = useState("");
 
   function notify(msg: string) {
     setToast(msg);
@@ -148,9 +158,16 @@ export function EventsTab({
 
   const today = new Date().toISOString().slice(0, 10);
   const { upcoming, past } = useMemo(() => {
-    const all = buildUnifiedEvents(events, ceEvents).filter(
-      (e) => kind === "all" || e.kind === kind,
-    );
+    const q = query.trim().toLowerCase();
+    const all = buildUnifiedEvents(events, ceEvents)
+      .filter((e) => kind === "all" || e.kind === kind)
+      .filter(
+        (e) =>
+          !q ||
+          [e.name, e.ownerName, e.location, e.typeLabel].some((v) =>
+            (v ?? "").toLowerCase().includes(q),
+          ),
+      );
     const up: UnifiedEvent[] = [];
     const pa: UnifiedEvent[] = [];
     for (const e of all) {
@@ -163,7 +180,7 @@ export function EventsTab({
     up.sort((a, b) => (a.startsOn ?? "").localeCompare(b.startsOn ?? ""));
     pa.sort((a, b) => (b.startsOn ?? "").localeCompare(a.startsOn ?? ""));
     return { upcoming: up, past: pa };
-  }, [events, ceEvents, kind, today]);
+  }, [events, ceEvents, kind, query, today]);
 
   const attendeesByEvent = useMemo(() => {
     const m = new Map<string, MarketingEventAttendee[]>();
@@ -317,7 +334,17 @@ export function EventsTab({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-slate-500">Scout a source → create an event → plan, promote &amp; staff it → recap the results.</p>
+        <div className="relative w-full sm:w-72">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400" aria-hidden>🔍</span>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search events by name, owner, location…"
+            aria-label="Search events"
+            className={`${fieldInput} pl-9`}
+          />
+        </div>
         <div className="flex items-center gap-2">
           <div className="inline-flex overflow-hidden rounded-lg border border-slate-200">
             {(["all", "marketing", "ce"] as const).map((k) => (
@@ -349,7 +376,8 @@ export function EventsTab({
 
       {(() => {
         const rows = eventSort.sorted;
-        if (rows.length === 0) return <Empty label="No events." />;
+        if (rows.length === 0)
+          return <Empty label={query.trim() ? `No events match “${query.trim()}”.` : "No events."} />;
         return (
           <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm" style={{ maxHeight: "70vh" }}>
             <table className="w-full border-collapse text-sm">
@@ -359,7 +387,7 @@ export function EventsTab({
                   <SortHeader label="Date" sortKey="date" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Type" sortKey="type" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Status" sortKey="status" sort={eventSort} className="px-4 py-2.5 font-semibold" />
-                  <SortHeader label="Owner" sortKey="owner" sort={eventSort} className="px-4 py-2.5 font-semibold" />
+                  <SortHeader label="Owner" sortKey="owner" sort={eventSort} className="w-28 px-4 py-2.5 font-semibold" />
                   <SortHeader label="Location" sortKey="location" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Promo" sortKey="promo" sort={eventSort} className="px-4 py-2.5 font-semibold" />
                   <SortHeader label="Cost" sortKey="cost" sort={eventSort} align="right" className="px-4 py-2.5 font-semibold" />
@@ -388,7 +416,7 @@ export function EventsTab({
                         <Badge className={isCe ? "bg-indigo-50 text-indigo-700" : undefined}>{e.typeLabel}</Badge>
                       </td>
                       <td className="whitespace-nowrap px-4 py-2.5"><Badge className={STATUS_COLORS[e.status]}>{e.statusLabel}</Badge></td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-slate-600">{e.ownerName ?? "—"}</td>
+                      <td className="w-28 max-w-[7rem] truncate px-4 py-2.5 text-slate-600" title={e.ownerName ?? undefined}>{e.ownerName ?? "—"}</td>
                       <td className="max-w-[14rem] truncate px-4 py-2.5 text-slate-600" title={e.location ?? undefined}>{e.location ?? "—"}</td>
                       <td className="whitespace-nowrap px-4 py-2.5">
                         {e.hasPromo ? (
@@ -415,8 +443,10 @@ export function EventsTab({
           attendees={editing === "new" ? [] : attendeesByEvent.get(editing.id) ?? []}
           canEdit={canEdit}
           people={people}
+          promotions={promotions}
           qrCodes={qrCodes}
           qrForms={qrForms}
+          qrLeads={qrLeads}
           onClose={() => setEditing(null)}
           run={run}
         />
@@ -463,7 +493,7 @@ function OptionsSelect({ name, defaultValue, options, placeholder }: { name: str
 // ---------------------------------------------------------------------------
 // Event dialog with Details / Planning / Recap / Attendees
 // ---------------------------------------------------------------------------
-export function EventDialog({ event, defaultDate, sources, attendees, canEdit, people, qrCodes, qrForms, onClose, run }: {
+export function EventDialog({ event, defaultDate, sources, attendees, canEdit, people, promotions, qrCodes, qrForms, qrLeads, onClose, run }: {
   event: MarketingEvent | null;
   /** Pre-fills the start date when creating from a calendar day cell. */
   defaultDate?: string | null;
@@ -471,8 +501,10 @@ export function EventDialog({ event, defaultDate, sources, attendees, canEdit, p
   attendees: MarketingEventAttendee[];
   canEdit: boolean;
   people: PersonOption[];
+  promotions?: MarketingPromotion[];
   qrCodes?: QrCode[];
   qrForms?: QrForm[];
+  qrLeads?: QrLead[];
   onClose: () => void;
   run: Run;
 }) {
@@ -500,6 +532,58 @@ export function EventDialog({ event, defaultDate, sources, attendees, canEdit, p
     () => (event ? (qrCodes ?? []).filter((c) => c.event_id === event.id) : []),
     [qrCodes, event],
   );
+
+  const eventLeads = useMemo(() => {
+    if (!event) return [];
+    const codeIds = new Set(eventQrCodes.map((c) => c.id));
+    return (qrLeads ?? []).filter(
+      (l) => l.event_id === event.id || codeIds.has(l.qr_code_id),
+    );
+  }, [qrLeads, eventQrCodes, event]);
+
+  /** Recap numbers measured from QR scans + captured sign-ups, not typed in. */
+  const measured = useMemo(() => {
+    const key = (name: string | null, email: string | null, phone: string | null) =>
+      (email ?? phone ?? name ?? "").toLowerCase().trim();
+    const contacts = new Set<string>();
+    for (const l of eventLeads) {
+      const k = key(l.full_name, l.email, l.phone);
+      if (k) contacts.add(k);
+    }
+    for (const a of attendees) {
+      const k = key(a.name, a.email, a.phone);
+      if (k) contacts.add(k);
+    }
+    return {
+      scans: eventQrCodes.reduce((n, c) => n + (c.scan_count ?? 0), 0),
+      leads: eventLeads.length,
+      signups: contacts.size,
+      emails: eventLeads.filter((l) => l.email).length,
+      appointments: eventLeads.filter((l) => l.status === "booked" || l.status === "client")
+        .length,
+      newClients: eventLeads.filter((l) => l.status === "client").length,
+      lastScan: eventQrCodes.reduce<string | null>(
+        (a, c) => (c.last_scanned_at && (!a || c.last_scanned_at > a) ? c.last_scanned_at : a),
+        null,
+      ),
+    };
+  }, [eventQrCodes, eventLeads, attendees]);
+
+  const [recap, setRecap] = useState(() => ({
+    attendees: event?.attendees != null ? String(event.attendees) : "",
+    signups: event?.signups != null ? String(event.signups) : "",
+    appointments: event?.appointments != null ? String(event.appointments) : "",
+    coupons_redeemed: event?.coupons_redeemed != null ? String(event.coupons_redeemed) : "",
+  }));
+
+  function autofillRecap() {
+    setRecap((r) => ({
+      ...r,
+      attendees: measured.scans ? String(measured.scans) : r.attendees,
+      signups: measured.signups ? String(measured.signups) : r.signups,
+      appointments: measured.appointments ? String(measured.appointments) : r.appointments,
+    }));
+  }
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -645,6 +729,7 @@ export function EventDialog({ event, defaultDate, sources, attendees, canEdit, p
 
           <EventPromoFields
             event={event}
+            promotions={promotions ?? []}
             hasPromo={hasPromo}
             setHasPromo={setHasPromo}
             eventStart={startsOn}
@@ -675,19 +760,27 @@ export function EventDialog({ event, defaultDate, sources, attendees, canEdit, p
           </div>
 
           {/* Recap */}
-          <fieldset className={`rounded-lg border border-slate-200 p-3 ${tab === "recap" ? "" : "hidden"}`}>
+          <div className={tab === "recap" ? "space-y-4" : "hidden"}>
+          <RecapScanPanel
+            hasEvent={!!event}
+            measured={measured}
+            leads={eventLeads}
+            onAutofill={autofillRecap}
+          />
+          <fieldset className="rounded-lg border border-slate-200 p-3">
             <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Recap / results (ROI)</legend>
             <div className="grid gap-4 sm:grid-cols-4">
-              <div><label className={fieldLabel}>Attendees</label><input name="attendees" defaultValue={event?.attendees ?? ""} className={fieldInput} /></div>
-              <div><label className={fieldLabel}>Sign-ups</label><input name="signups" defaultValue={event?.signups ?? ""} className={fieldInput} /></div>
-              <div><label className={fieldLabel}>Appointments</label><input name="appointments" defaultValue={event?.appointments ?? ""} className={fieldInput} /></div>
-              <div><label className={fieldLabel}>Coupons redeemed</label><input name="coupons_redeemed" defaultValue={event?.coupons_redeemed ?? ""} className={fieldInput} /></div>
+              <div><label className={fieldLabel}>Attendees</label><input name="attendees" value={recap.attendees} onChange={(e) => setRecap({ ...recap, attendees: e.target.value })} className={fieldInput} /></div>
+              <div><label className={fieldLabel}>Sign-ups</label><input name="signups" value={recap.signups} onChange={(e) => setRecap({ ...recap, signups: e.target.value })} className={fieldInput} /></div>
+              <div><label className={fieldLabel}>Appointments</label><input name="appointments" value={recap.appointments} onChange={(e) => setRecap({ ...recap, appointments: e.target.value })} className={fieldInput} /></div>
+              <div><label className={fieldLabel}>Coupons redeemed</label><input name="coupons_redeemed" value={recap.coupons_redeemed} onChange={(e) => setRecap({ ...recap, coupons_redeemed: e.target.value })} className={fieldInput} /></div>
               <div className="sm:col-span-2"><label className={fieldLabel}>Products sold</label><input name="products_sold" defaultValue={event?.products_sold ?? ""} className={fieldInput} /></div>
               <div><label className={fieldLabel}>Redemption codes</label><input name="redemption_codes" defaultValue={event?.redemption_codes ?? ""} className={fieldInput} /></div>
               <div><label className={fieldLabel}>Client spend ($)</label><input name="client_spend" defaultValue={event?.client_spend ?? ""} className={fieldInput} /></div>
             </div>
             <div className="mt-3"><label className={fieldLabel}>Feedback / notes</label><textarea name="feedback" defaultValue={event?.feedback ?? ""} rows={2} className={fieldInput} /></div>
           </fieldset>
+          </div>
 
           <div className="flex items-center justify-between border-t border-slate-100 pt-4">
             <div>
@@ -1080,17 +1173,30 @@ function StaffPicker({
 // ---------------------------------------------------------------------------
 function EventPromoFields({
   event,
+  promotions,
   hasPromo,
   setHasPromo,
   eventStart,
   eventEnd,
 }: {
   event: MarketingEvent | null;
+  promotions: MarketingPromotion[];
   hasPromo: boolean;
   setHasPromo: (v: boolean) => void;
   eventStart: string;
   eventEnd: string;
 }) {
+  const linked = event ? promotions.find((p) => p.source_event_id === event.id) : undefined;
+  // "" = create a new promotion; otherwise the id of an existing one.
+  const [promotionId, setPromotionId] = useState(linked?.id ?? "");
+  const selected = promotions.find((p) => p.id === promotionId);
+
+  // Promotions already owned by a different event are hidden — a promotion
+  // belongs to at most one event, and stealing one would silently unlink it.
+  const selectable = promotions.filter(
+    (p) => !p.source_event_id || p.source_event_id === event?.id,
+  );
+
   return (
     <fieldset className="rounded-lg border border-slate-200 p-3">
       <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Event promotion</legend>
@@ -1109,42 +1215,204 @@ function EventPromoFields({
 
       {hasPromo && (
         <div className="mt-3 space-y-3">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div className="sm:col-span-3">
-              <label className={fieldLabel}>Promotion name</label>
-              <input
-                name="promo_name"
-                defaultValue={event?.promo_name ?? ""}
-                placeholder={event?.name ? `${event.name} promo` : "e.g. $50 off a dental"}
-                className={fieldInput}
-              />
-            </div>
-            <div>
-              <label className={fieldLabel}>Active start</label>
-              <input type="date" name="promo_starts_on" defaultValue={event?.promo_starts_on ?? eventStart} className={fieldInput} />
-            </div>
-            <div>
-              <label className={fieldLabel}>Active end</label>
-              <input type="date" name="promo_ends_on" defaultValue={event?.promo_ends_on ?? eventEnd} className={fieldInput} />
-            </div>
-          </div>
           <div>
-            <label className={fieldLabel}>Promotion details</label>
-            <textarea
-              name="promo_details"
-              defaultValue={event?.promo_details ?? ""}
-              rows={3}
-              placeholder="What's the offer, who can redeem it, and how?"
+            <label className={fieldLabel}>Promotion</label>
+            <select
+              value={promotionId}
+              onChange={(e) => setPromotionId(e.target.value)}
               className={fieldInput}
-            />
+            >
+              <option value="">+ Create a new promotion</option>
+              {selectable.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                  {p.product_code ? ` · ${p.product_code}` : ""} ({promoStatusLabel(p.status)})
+                </option>
+              ))}
+            </select>
+            <input type="hidden" name="promotion_id" value={promotionId} />
           </div>
-          <p className="text-[11px] text-slate-400">
-            Saving adds this to Marketing Mgmt → Promotions and keeps it in sync.
-            Unchecking the box removes it from that list again.
-          </p>
+
+          {selected ? (
+            <>
+              {/* Mirrors so the event row keeps showing the promo it points at. */}
+              <input type="hidden" name="promo_name" value={selected.name} />
+              <input type="hidden" name="promo_details" value={selected.rules ?? ""} />
+              <input type="hidden" name="promo_starts_on" value={selected.active_start ?? ""} />
+              <input type="hidden" name="promo_ends_on" value={selected.active_end ?? ""} />
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium text-slate-800">{selected.name}</span>
+                  <Badge>{promoTypeLabel(selected.promo_type)}</Badge>
+                  <Badge>{promoStatusLabel(selected.status)}</Badge>
+                  <Link
+                    href="/marketing?tab=promotions"
+                    target="_blank"
+                    className="ml-auto text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                  >
+                    Edit in Promotions ↗
+                  </Link>
+                </div>
+                <dl className="mt-2 grid gap-x-4 gap-y-1 text-xs text-slate-600 sm:grid-cols-2">
+                  <div><dt className="inline text-slate-400">Window: </dt><dd className="inline">{selected.duration_text ?? promoWindow(selected.active_start, selected.active_end)}</dd></div>
+                  <div><dt className="inline text-slate-400">Discount: </dt><dd className="inline">{selected.discount_text ?? "—"}</dd></div>
+                  <div><dt className="inline text-slate-400">Code: </dt><dd className="inline font-mono">{selected.product_code ?? "—"}</dd></div>
+                  <div><dt className="inline text-slate-400">Redeem: </dt><dd className="inline">{selected.how_to_redeem ?? "—"}</dd></div>
+                </dl>
+                {selected.rules && <p className="mt-2 text-xs text-slate-500">{selected.rules}</p>}
+              </div>
+              <p className="text-[11px] text-slate-400">
+                This is the same promotion record shown in Marketing Mgmt → Promotions.
+                Edit its terms there; this event just points at it.
+              </p>
+            </>
+          ) : (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="sm:col-span-3">
+                  <label className={fieldLabel}>Promotion name</label>
+                  <input
+                    name="promo_name"
+                    defaultValue={event?.promo_name ?? ""}
+                    placeholder={event?.name ? `${event.name} promo` : "e.g. $50 off a dental"}
+                    className={fieldInput}
+                  />
+                </div>
+                <div>
+                  <label className={fieldLabel}>Active start</label>
+                  <input type="date" name="promo_starts_on" defaultValue={event?.promo_starts_on ?? eventStart} className={fieldInput} />
+                </div>
+                <div>
+                  <label className={fieldLabel}>Active end</label>
+                  <input type="date" name="promo_ends_on" defaultValue={event?.promo_ends_on ?? eventEnd} className={fieldInput} />
+                </div>
+              </div>
+              <div>
+                <label className={fieldLabel}>Promotion details</label>
+                <textarea
+                  name="promo_details"
+                  defaultValue={event?.promo_details ?? ""}
+                  rows={3}
+                  placeholder="What's the offer, who can redeem it, and how?"
+                  className={fieldInput}
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Saving creates this in Marketing Mgmt → Promotions, where it can be
+                edited and reused like any other promotion.
+              </p>
+            </>
+          )}
         </div>
       )}
     </fieldset>
+  );
+}
+
+function promoWindow(start: string | null, end: string | null): string {
+  if (!start && !end) return "—";
+  if (start && end) return `${fmtDate(start)} – ${fmtDate(end)}`;
+  return start ? `From ${fmtDate(start)}` : `Through ${fmtDate(end)}`;
+}
+
+// ---------------------------------------------------------------------------
+// Recap numbers measured from the event's QR scans and captured sign-ups.
+// ---------------------------------------------------------------------------
+function RecapScanPanel({
+  hasEvent,
+  measured,
+  leads,
+  onAutofill,
+}: {
+  hasEvent: boolean;
+  measured: {
+    scans: number;
+    leads: number;
+    signups: number;
+    emails: number;
+    appointments: number;
+    newClients: number;
+    lastScan: string | null;
+  };
+  leads: QrLead[];
+  onAutofill: () => void;
+}) {
+  const [showLeads, setShowLeads] = useState(false);
+
+  if (!hasEvent) {
+    return (
+      <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500">
+        Save the event, generate its QR code, and every scan and sign-up will be
+        counted here automatically.
+      </p>
+    );
+  }
+
+  const stats = [
+    { label: "QR scans", value: measured.scans },
+    { label: "Sign-ups captured", value: measured.signups },
+    { label: "Emails collected", value: measured.emails },
+    { label: "Booked / became clients", value: measured.appointments },
+  ];
+
+  return (
+    <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">
+          Measured from QR scans
+        </p>
+        <div className="flex items-center gap-2">
+          {measured.lastScan && (
+            <span className="text-[11px] text-emerald-700">
+              Last scan {fmtDate(measured.lastScan.slice(0, 10))}
+            </span>
+          )}
+          <button type="button" onClick={onAutofill} className={btnGhost}>
+            ✨ Auto-fill recap
+          </button>
+        </div>
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {stats.map((s) => (
+          <div key={s.label} className="rounded-lg bg-white px-3 py-2 shadow-sm">
+            <div className="text-lg font-semibold text-slate-900">{fmtNum(s.value)}</div>
+            <div className="text-[11px] text-slate-500">{s.label}</div>
+          </div>
+        ))}
+      </div>
+      {measured.leads > 0 && (
+        <>
+          <button
+            type="button"
+            onClick={() => setShowLeads((v) => !v)}
+            className="mt-2 text-xs font-medium text-emerald-700 hover:text-emerald-800"
+          >
+            {showLeads ? "Hide" : "Show"} {measured.leads} captured{" "}
+            {measured.leads === 1 ? "lead" : "leads"}
+          </button>
+          {showLeads && (
+            <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-emerald-200 bg-white">
+              <table className="w-full text-xs">
+                <tbody className="divide-y divide-slate-100">
+                  {leads.map((l) => (
+                    <tr key={l.id}>
+                      <td className="px-3 py-1.5 font-medium text-slate-800">{l.full_name}</td>
+                      <td className="px-3 py-1.5 text-slate-500">{l.email ?? l.phone ?? "—"}</td>
+                      <td className="px-3 py-1.5 text-slate-500">{qrLeadStatusLabel(l.status)}</td>
+                      <td className="px-3 py-1.5 text-right text-slate-400">{fmtDate(l.scanned_at.slice(0, 10))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
+      <p className="mt-2 text-[11px] text-emerald-800/70">
+        Auto-fill writes scans → Attendees, unique sign-ups → Sign-ups, and booked
+        leads → Appointments. Adjust anything by hand before saving.
+      </p>
+    </div>
   );
 }
 
