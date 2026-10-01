@@ -326,23 +326,24 @@ export function serializeFields(fields: QrFormField[]): string {
 /** The after-submission block of a form, as the editors hold it. */
 export interface AfterSubmission {
   post_submit_heading: string;
-  post_submit_message: string;
+  success_message: string;
   show_confirmation: boolean;
   confirmation_note: string;
 }
 
 export const afterSubmissionFrom = (form: QrForm | null): AfterSubmission => ({
   post_submit_heading: form?.post_submit_heading ?? "",
-  post_submit_message: form?.post_submit_message ?? "",
+  success_message: form?.success_message ?? "",
   show_confirmation: form?.show_confirmation ?? false,
   confirmation_note: form?.confirmation_note ?? "",
 });
 
 /**
- * What the scanner sees once they submit. The inputs carry real `name`
- * attributes so a host dialog that posts `new FormData(form)` picks them up
- * without wiring anything; the controlled values are for hosts that build
- * their FormData by hand.
+ * Everything the scanner sees once they submit, in one place — a form has a
+ * single confirmation screen, so it gets a single section here. The inputs
+ * carry real `name` attributes so a host dialog that posts
+ * `new FormData(form)` picks them up without wiring anything; the controlled
+ * values are for hosts that build their FormData by hand.
  */
 export function AfterSubmissionFields({
   value,
@@ -359,7 +360,7 @@ export function AfterSubmissionFields({
         After submission
       </p>
       <p className="mt-0.5 text-[11px] text-slate-400">
-        Shown on the scanner&apos;s phone the moment they submit.
+        The confirmation screen shown on the scanner&apos;s phone the moment they submit.
       </p>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -374,11 +375,11 @@ export function AfterSubmissionFields({
           />
         </div>
         <div>
-          <label className={tinyLabel}>Call to action (large, coloured)</label>
+          <label className={tinyLabel}>Message</label>
           <input
-            name="post_submit_message"
-            value={value.post_submit_message}
-            onChange={(e) => patch({ post_submit_message: e.target.value })}
+            name="success_message"
+            value={value.success_message}
+            onChange={(e) => patch({ success_message: e.target.value })}
             placeholder="Show this screen to spin the prize wheel!"
             className={`mt-1 w-full ${rowInput}`}
           />

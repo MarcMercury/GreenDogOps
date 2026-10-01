@@ -310,7 +310,6 @@ export function CaptureForm({
   intro,
   successMessage,
   postSubmitHeading,
-  postSubmitMessage,
   showConfirmation,
   confirmationNote,
   collectPetName,
@@ -325,7 +324,6 @@ export function CaptureForm({
   intro: string | null;
   successMessage: string | null;
   postSubmitHeading?: string | null;
-  postSubmitMessage?: string | null;
   showConfirmation?: boolean;
   confirmationNote?: string | null;
   collectPetName: boolean;
@@ -355,14 +353,14 @@ export function CaptureForm({
           <h2 className="mt-4 text-xl font-bold text-slate-900">
             {postSubmitHeading?.trim() || "Thanks — you're all set!"}
           </h2>
-          {postSubmitMessage?.trim() && (
-            <p className={`mt-3 text-lg font-semibold ${t.accentText}`}>
-              {postSubmitMessage}
+          {/* The author's own words lead the screen; the fallback stays quiet. */}
+          {successMessage?.trim() ? (
+            <p className={`mt-3 text-lg font-semibold ${t.accentText}`}>{successMessage}</p>
+          ) : (
+            <p className="mt-2 text-sm text-slate-600">
+              The Green Dog Dental team will be in touch shortly.
             </p>
           )}
-          <p className="mt-2 text-sm text-slate-600">
-            {successMessage ?? "The Green Dog Dental team will be in touch shortly."}
-          </p>
           {showConfirmation && result.receipt && (
             <VerificationTicket
               receipt={result.receipt}

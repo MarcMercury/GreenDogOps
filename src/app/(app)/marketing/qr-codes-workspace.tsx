@@ -1078,10 +1078,6 @@ function FormDialog({
             <label className={fieldLabel}>Intro text</label>
             <textarea name="intro" defaultValue={form?.intro ?? ""} rows={2} className={fieldInput} />
           </div>
-          <div className="sm:col-span-2">
-            <label className={fieldLabel}>Thank-you message</label>
-            <input name="success_message" defaultValue={form?.success_message ?? ""} className={fieldInput} />
-          </div>
         </div>
 
         <AfterSubmissionFields value={after} onChange={setAfter} />

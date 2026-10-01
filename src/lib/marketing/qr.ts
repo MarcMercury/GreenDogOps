@@ -134,7 +134,6 @@ export interface QrForm {
   theme: string;
   banner_url: string | null;
   post_submit_heading: string | null;
-  post_submit_message: string | null;
   show_confirmation: boolean;
   confirmation_note: string | null;
   active: boolean;

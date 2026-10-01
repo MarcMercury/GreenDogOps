@@ -304,7 +304,6 @@ type FormDraft = {
   name: string;
   headline: string;
   intro: string;
-  success_message: string;
   collect_pet_name: boolean;
   collect_zip: boolean;
   fields: QrFormField[];
@@ -328,7 +327,6 @@ function QrFormEditor({
     name: form?.name ?? code.label,
     headline: form?.headline ?? "",
     intro: form?.intro ?? "",
-    success_message: form?.success_message ?? "",
     collect_pet_name: form?.collect_pet_name ?? true,
     collect_zip: form?.collect_zip ?? false,
     fields: form?.fields ?? [],
@@ -347,9 +345,8 @@ function QrFormEditor({
     fd.set("name", draft.name);
     fd.set("headline", draft.headline);
     fd.set("intro", draft.intro);
-    fd.set("success_message", draft.success_message);
     fd.set("post_submit_heading", draft.after.post_submit_heading);
-    fd.set("post_submit_message", draft.after.post_submit_message);
+    fd.set("success_message", draft.after.success_message);
     if (draft.after.show_confirmation) fd.set("show_confirmation", "true");
     fd.set("confirmation_note", draft.after.confirmation_note);
     if (draft.collect_pet_name) fd.set("collect_pet_name", "true");
@@ -434,14 +431,6 @@ function QrFormEditor({
             value={draft.intro}
             onChange={(e) => patch({ intro: e.target.value })}
             rows={2}
-            className={fieldInput}
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <label className={fieldLabel}>Thank-you message</label>
-          <input
-            value={draft.success_message}
-            onChange={(e) => patch({ success_message: e.target.value })}
             className={fieldInput}
           />
         </div>

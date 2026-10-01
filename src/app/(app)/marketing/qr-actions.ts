@@ -113,7 +113,6 @@ export async function saveQrForm(formData: FormData): Promise<ActionResult> {
     intro: str(formData.get("intro")),
     success_message: str(formData.get("success_message")),
     post_submit_heading: str(formData.get("post_submit_heading")),
-    post_submit_message: str(formData.get("post_submit_message")),
     show_confirmation: bool(formData.get("show_confirmation")),
     confirmation_note: str(formData.get("confirmation_note")),
     collect_pet_name: bool(formData.get("collect_pet_name")),

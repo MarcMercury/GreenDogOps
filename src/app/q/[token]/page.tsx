@@ -11,7 +11,6 @@ type FormRow = {
   intro: string | null;
   success_message: string | null;
   post_submit_heading: string | null;
-  post_submit_message: string | null;
   show_confirmation: boolean;
   confirmation_note: string | null;
   collect_pet_name: boolean;
@@ -40,7 +39,7 @@ export default async function QrScanPage({
   const { data } = await admin
     .from("qr_code")
     .select(
-      "label, active, target_url, qr_form(headline, intro, success_message, post_submit_heading, post_submit_message, show_confirmation, confirmation_note, collect_pet_name, collect_zip, fields, theme, banner_url, active)",
+      "label, active, target_url, qr_form(headline, intro, success_message, post_submit_heading, show_confirmation, confirmation_note, collect_pet_name, collect_zip, fields, theme, banner_url, active)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -75,7 +74,6 @@ export default async function QrScanPage({
           intro={live?.intro ?? null}
           successMessage={live?.success_message ?? null}
           postSubmitHeading={live?.post_submit_heading ?? null}
-          postSubmitMessage={live?.post_submit_message ?? null}
           showConfirmation={live?.show_confirmation ?? false}
           confirmationNote={live?.confirmation_note ?? null}
           collectPetName={live ? live.collect_pet_name : true}
