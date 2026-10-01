@@ -130,6 +130,8 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
     checklist: parseChecklist(formData),
     packing_list: parsePackingList(formData),
   };
+  const promotionIdRaw = str(formData.get("promotion_id"));
+  const promotionId = promotionIdRaw && UUID_RE.test(promotionIdRaw) ? promotionIdRaw : null;
   let eventId = id;
   if (id) {
     const { error } = await supabase.from("marketing_event").update(patch).eq("id", id);
@@ -144,7 +146,10 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
     eventId = (data as { id: string }).id;
   }
   if (eventId) {
-    const promoErr = await syncEventPromotion(supabase, eventId, patch);
+    const promoErr = await syncEventPromotion(supabase, eventId, {
+      ...patch,
+      promotion_id: promotionId,
+    });
     if (promoErr) return { ok: false, error: promoErr };
   }
   revalidatePath("/marketing/events");
@@ -173,10 +178,12 @@ function promoStatusFor(start: string | null, end: string | null): string {
 }
 
 /**
- * Keep the Promotions tab in sync with an event's promo. An event that HAS a
- * promo owns exactly one marketing_promotion row (source_event_id = event);
- * unchecking the box removes it again, so the promo list only ever lists promos
- * we are actually running. Returns an error message, or null on success.
+ * Attach the event to a row in the shared marketing_promotion list. A promotion
+ * is the same entity everywhere, so the event only ever holds a LINK
+ * (source_event_id) — picking an existing promotion never rewrites its fields,
+ * and unchecking the box unlinks rather than deletes. A new promotion is
+ * created only when the event dialog sends no promotion_id.
+ * Returns an error message, or null on success.
  */
 async function syncEventPromotion(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -185,6 +192,7 @@ async function syncEventPromotion(
     name: string;
     location: string | null;
     has_promo: boolean;
+    promotion_id: string | null;
     promo_name: string | null;
     promo_details: string | null;
     promo_starts_on: string | null;
@@ -194,20 +202,33 @@ async function syncEventPromotion(
   const { data: existing } = await supabase
     .from("marketing_promotion")
     .select("id")
-    .eq("source_event_id", eventId)
-    .maybeSingle();
-  const current = existing as { id: string } | null;
+    .eq("source_event_id", eventId);
+  const linkedIds = ((existing ?? []) as { id: string }[]).map((p) => p.id);
 
-  if (!patch.has_promo) {
-    if (!current) return null;
+  async function unlink(ids: string[]): Promise<string | null> {
+    if (ids.length === 0) return null;
     const { error } = await supabase
       .from("marketing_promotion")
-      .delete()
-      .eq("id", current.id);
+      .update({ source_event_id: null })
+      .in("id", ids);
     return error ? error.message : null;
   }
 
-  const promo = {
+  if (!patch.has_promo) return unlink(linkedIds);
+
+  if (patch.promotion_id) {
+    const err = await unlink(linkedIds.filter((pid) => pid !== patch.promotion_id));
+    if (err) return err;
+    const { error } = await supabase
+      .from("marketing_promotion")
+      .update({ source_event_id: eventId })
+      .eq("id", patch.promotion_id);
+    return error ? error.message : null;
+  }
+
+  const err = await unlink(linkedIds);
+  if (err) return err;
+  const { error } = await supabase.from("marketing_promotion").insert({
     name: patch.promo_name ?? `${patch.name} promo`,
     placement: patch.location,
     status: promoStatusFor(patch.promo_starts_on, patch.promo_ends_on),
@@ -217,10 +238,7 @@ async function syncEventPromotion(
     active_start: patch.promo_starts_on,
     active_end: patch.promo_ends_on,
     source_event_id: eventId,
-  };
-  const { error } = current
-    ? await supabase.from("marketing_promotion").update(promo).eq("id", current.id)
-    : await supabase.from("marketing_promotion").insert(promo);
+  });
   return error ? error.message : null;
 }
 

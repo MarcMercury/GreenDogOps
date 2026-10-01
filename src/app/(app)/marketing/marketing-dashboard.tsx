@@ -1313,9 +1313,9 @@ function PromotionsTab({
                           href="/marketing/events"
                           onClick={(e) => e.stopPropagation()}
                           className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
-                          title="Owned by an event — edit it on the event"
+                          title="Assigned to an event"
                         >
-                          from event ↗
+                          on an event ↗
                         </Link>
                       )}
                       {p.promo_url && (
@@ -1421,9 +1421,9 @@ function PromotionDialog({
       <form onSubmit={onSubmit} className="space-y-4">
         {promo && <input type="hidden" name="id" value={promo.id} />}
         {promo?.source_event_id && (
-          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            This promotion belongs to an event. Edit it on the event&apos;s Planning &amp;
-            promotion tab — changes made here are replaced the next time that event is saved.
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            This promotion is assigned to an event. Edits here are the record — the
+            event links to this promotion rather than keeping its own copy.
           </p>
         )}
         <div>
