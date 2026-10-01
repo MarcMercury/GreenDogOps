@@ -12,12 +12,11 @@ import {
   type QrFormField,
   type QrLead,
   QR_CODE_TYPES,
-  QR_FIELD_TYPES,
   QR_FORM_THEMES,
   qrCodeTypeLabel,
   qrPublicUrl,
-  slugifyFieldKey,
 } from "@/lib/marketing/qr";
+import { FormFieldEditor, serializeFields, AfterSubmissionFields, afterSubmissionFrom } from "@/lib/marketing/form-field-editor";
 import {
   saveQrCode,
   deleteQrCode,
@@ -63,6 +62,7 @@ export type RetailLeadRow = {
   answers: Record<string, string> | null;
   status: string;
   notes: string | null;
+  confirmation_code: string | null;
   scanned_at: string;
 };
 
@@ -203,6 +203,7 @@ export function QrCodesWorkspace({
       answers: l.answers ?? {},
       status: l.status,
       scannedAt: l.scanned_at,
+      confirmationCode: l.confirmation_code ?? null,
       sourceId: l.org_id,
       sourceName: orgName(l.org_id),
       sourceType: "partner",
@@ -1051,22 +1052,12 @@ function FormDialog({
   run: Run;
 }) {
   const [fields, setFields] = useState<QrFormField[]>(form?.fields ?? []);
-
-  function patchField(idx: number, p: Partial<QrFormField>) {
-    setFields((prev) => prev.map((f, i) => (i === idx ? { ...f, ...p } : f)));
-  }
+  const [after, setAfter] = useState(() => afterSubmissionFrom(form));
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    fd.set(
-      "fields_json",
-      JSON.stringify(
-        fields
-          .filter((f) => f.label.trim())
-          .map((f) => ({ ...f, key: f.key || slugifyFieldKey(f.label) })),
-      ),
-    );
+    fd.set("fields_json", serializeFields(fields));
     run(() => saveQrForm(fd), onClose);
   }
 
@@ -1092,6 +1083,8 @@ function FormDialog({
             <input name="success_message" defaultValue={form?.success_message ?? ""} className={fieldInput} />
           </div>
         </div>
+
+        <AfterSubmissionFields value={after} onChange={setAfter} />
 
         <BrandingFields theme={form?.theme ?? "emerald"} bannerUrl={form?.banner_url ?? null} />
 
@@ -1127,76 +1120,7 @@ function FormDialog({
 
         <div>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Custom questions</p>
-          <ul className="space-y-2">
-            {fields.map((f, idx) => (
-              <li key={idx} className="rounded-lg border border-slate-200 p-2">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <input
-                    value={f.label}
-                    onChange={(e) => patchField(idx, { label: e.target.value })}
-                    placeholder="Question…"
-                    className="min-w-[10rem] flex-1 rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-400 focus:outline-none"
-                  />
-                  <select
-                    value={f.type}
-                    onChange={(e) => patchField(idx, { type: e.target.value as QrFormField["type"] })}
-                    className="rounded-md border border-slate-200 px-2 py-1 text-xs"
-                  >
-                    {QR_FIELD_TYPES.map((t) => (
-                      <option key={t.value} value={t.value}>
-                        {t.label}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="flex items-center gap-1 text-[11px] text-slate-500">
-                    <input
-                      type="checkbox"
-                      checked={f.required}
-                      onChange={(e) => patchField(idx, { required: e.target.checked })}
-                      className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600"
-                    />
-                    Required
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => setFields((prev) => prev.filter((_, i) => i !== idx))}
-                    className="px-1 text-slate-300 hover:text-red-600"
-                  >
-                    ✕
-                  </button>
-                </div>
-                {f.type === "select" && (
-                  <input
-                    value={f.options.join(", ")}
-                    onChange={(e) =>
-                      patchField(idx, {
-                        options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                      })
-                    }
-                    placeholder="Options, comma separated"
-                    className="mt-1.5 w-full rounded-md border border-slate-200 px-2 py-1 text-xs focus:border-emerald-400 focus:outline-none"
-                  />
-                )}
-              </li>
-            ))}
-            {fields.length === 0 && (
-              <li className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-center text-[11px] text-slate-400">
-                No extra questions — the form just collects contact details.
-              </li>
-            )}
-          </ul>
-          <button
-            type="button"
-            onClick={() =>
-              setFields((prev) => [
-                ...prev,
-                { key: "", label: "", type: "text", required: false, options: [], placeholder: null },
-              ])
-            }
-            className={`${btnGhost} mt-2`}
-          >
-            ＋ Add question
-          </button>
+          <FormFieldEditor fields={fields} onChange={setFields} canEdit={canEdit} />
         </div>
 
         <div className="flex items-center justify-between border-t border-slate-100 pt-4">

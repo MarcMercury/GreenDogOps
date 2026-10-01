@@ -64,6 +64,8 @@ export interface QrLeadRow {
   answers: Record<string, string>;
   status: string;
   scannedAt: string;
+  /** Shown on the submitter's success screen; searchable here to verify one. */
+  confirmationCode: string | null;
   /** The record the code belongs to (event, promo, clinic, rescue, partner). */
   sourceId: string | null;
   sourceName: string;
@@ -127,6 +129,7 @@ export function buildQrLeadRows(
       answers: l.answers ?? {},
       status: l.status,
       scannedAt: l.scanned_at,
+      confirmationCode: l.confirmation_code ?? null,
       sourceId: source.id,
       sourceName:
         (source.id ? names.get(source.id) : null) ?? code?.label ?? "—",
@@ -222,6 +225,7 @@ export function QrLeadsView({
         r.notes,
         r.sourceName,
         r.codeLabel,
+        r.confirmationCode,
         ...Object.values(r.answers),
       ]
         .filter(Boolean)
@@ -293,6 +297,7 @@ export function QrLeadsView({
         sourceLabel,
         "Type",
         "QR code",
+        "Confirmation",
         "Status",
         "Notes",
         ...answerKeys,
@@ -307,6 +312,7 @@ export function QrLeadsView({
         r.sourceName,
         codeTypeLabel(r.sourceType),
         r.codeLabel ?? "",
+        r.confirmationCode ?? "",
         qrLeadStatusLabel(r.status),
         r.notes ?? "",
         ...answerKeys.map((k) => r.answers[k] ?? ""),
@@ -408,6 +414,11 @@ export function QrLeadsView({
                       </td>
                       <td className="px-3 py-3">
                         <div className="font-medium text-slate-900">{r.fullName}</div>
+                        {r.confirmationCode && (
+                          <div className="mt-0.5 font-mono text-[11px] tracking-wider text-slate-400">
+                            {r.confirmationCode}
+                          </div>
+                        )}
                         {answers.length > 0 && (
                           <div className="mt-0.5 text-[11px] text-slate-400">
                             {answers.map(([k, v]) => `${k}: ${v}`).join(" · ")}

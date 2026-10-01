@@ -167,7 +167,7 @@ export default async function MarketingManagementPage({
     supabase
       .from("crm_retail_lead")
       .select(
-        "id, org_id, full_name, email, phone, pet_name, zip, answers, status, notes, scanned_at",
+        "id, org_id, full_name, email, phone, pet_name, zip, answers, status, notes, confirmation_code, scanned_at",
       )
       .order("scanned_at", { ascending: false })
       .limit(5000),

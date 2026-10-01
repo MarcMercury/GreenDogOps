@@ -33,17 +33,47 @@ export type QrFieldType =
   | "email"
   | "phone"
   | "textarea"
+  | "number"
+  | "date"
+  | "time"
   | "select"
-  | "checkbox";
+  | "radio"
+  | "multiselect"
+  | "scale"
+  | "checkbox"
+  | "heading";
 
-export const QR_FIELD_TYPES: { value: QrFieldType; label: string }[] = [
-  { value: "text", label: "Short text" },
-  { value: "textarea", label: "Paragraph" },
-  { value: "email", label: "Email" },
-  { value: "phone", label: "Phone" },
-  { value: "select", label: "Choose one" },
-  { value: "checkbox", label: "Yes / no" },
+export const QR_FIELD_TYPES: { value: QrFieldType; label: string; group: string }[] = [
+  { value: "text", label: "Short answer", group: "Text" },
+  { value: "textarea", label: "Paragraph", group: "Text" },
+  { value: "email", label: "Email", group: "Text" },
+  { value: "phone", label: "Phone", group: "Text" },
+  { value: "number", label: "Number", group: "Text" },
+  { value: "select", label: "Dropdown", group: "Choice" },
+  { value: "radio", label: "Multiple choice", group: "Choice" },
+  { value: "multiselect", label: "Checkboxes (choose many)", group: "Choice" },
+  { value: "scale", label: "Linear scale", group: "Choice" },
+  { value: "checkbox", label: "Single checkbox (yes / no)", group: "Choice" },
+  { value: "date", label: "Date", group: "Date & time" },
+  { value: "time", label: "Time", group: "Date & time" },
+  { value: "heading", label: "Section heading (no answer)", group: "Layout" },
 ];
+
+/** Types whose answers come from a fixed option list. */
+export const QR_CHOICE_TYPES: QrFieldType[] = ["select", "radio", "multiselect"];
+
+export const fieldHasOptions = (t: QrFieldType): boolean => QR_CHOICE_TYPES.includes(t);
+
+/** Heading blocks are rendered as copy, never submitted. */
+export const fieldIsAnswerable = (t: QrFieldType): boolean => t !== "heading";
+
+/** Sentinel an "Other…" choice posts; the free text rides alongside it. */
+export const OTHER_VALUE = "__other__";
+
+export const otherFieldName = (key: string): string => `custom_${key}__other`;
+
+export const SCALE_MIN_FLOOR = 0;
+export const SCALE_MAX_CEIL = 10;
 
 /** One custom question on a capture form. */
 export interface QrFormField {
@@ -54,7 +84,43 @@ export interface QrFormField {
   required: boolean;
   options: string[];
   placeholder: string | null;
+  /** Help text shown under the question. */
+  description: string | null;
+  /** Choice questions can offer a free-text "Other…" escape hatch. */
+  allowOther: boolean;
+  /** Bounds for `number` and `scale`. */
+  min: number | null;
+  max: number | null;
+  /** End captions for `scale`. */
+  minLabel: string | null;
+  maxLabel: string | null;
 }
+
+/** A question with every key populated — the only way fields should be built. */
+export function newFormField(p: Partial<QrFormField> = {}): QrFormField {
+  return {
+    key: "",
+    label: "",
+    type: "text",
+    required: false,
+    options: [],
+    placeholder: null,
+    description: null,
+    allowOther: false,
+    min: null,
+    max: null,
+    minLabel: null,
+    maxLabel: null,
+    ...p,
+  };
+}
+
+/** The 1–5 default keeps a scale usable the moment it is added. */
+export const scaleRange = (f: QrFormField): number[] => {
+  const min = Math.max(SCALE_MIN_FLOOR, Math.min(f.min ?? 1, SCALE_MAX_CEIL));
+  const max = Math.max(min + 1, Math.min(f.max ?? 5, SCALE_MAX_CEIL));
+  return Array.from({ length: max - min + 1 }, (_, i) => min + i);
+};
 
 export interface QrForm {
   id: string;
@@ -67,9 +133,26 @@ export interface QrForm {
   fields: QrFormField[];
   theme: string;
   banner_url: string | null;
+  post_submit_heading: string | null;
+  post_submit_message: string | null;
+  show_confirmation: boolean;
+  confirmation_note: string | null;
   active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * What the success screen shows back to the person who just submitted. The
+ * confirmation code is the point: at an event it is the only thing staff can
+ * check before the leads list has refreshed, so it is minted by the database
+ * on insert and read back rather than generated in the browser.
+ */
+export interface CaptureReceipt {
+  confirmationCode: string;
+  fullName: string;
+  /** ISO timestamp of the insert, per the database clock. */
+  submittedAt: string;
 }
 
 /**
@@ -90,6 +173,8 @@ export interface QrFormTheme {
   accentText: string;
   focus: string;
   successIcon: string;
+  /** Backdrop for the post-submission verification ticket. */
+  ticket: string;
 }
 
 export const QR_FORM_THEMES: QrFormTheme[] = [
@@ -103,6 +188,7 @@ export const QR_FORM_THEMES: QrFormTheme[] = [
     accentText: "text-emerald-700",
     focus: "focus:border-emerald-500 focus:ring-emerald-500",
     successIcon: "bg-emerald-100 text-emerald-600",
+    ticket: "border-emerald-300 bg-emerald-50",
   },
   {
     value: "sky",
@@ -114,6 +200,7 @@ export const QR_FORM_THEMES: QrFormTheme[] = [
     accentText: "text-sky-700",
     focus: "focus:border-sky-500 focus:ring-sky-500",
     successIcon: "bg-sky-100 text-sky-600",
+    ticket: "border-sky-300 bg-sky-50",
   },
   {
     value: "violet",
@@ -125,6 +212,7 @@ export const QR_FORM_THEMES: QrFormTheme[] = [
     accentText: "text-violet-700",
     focus: "focus:border-violet-500 focus:ring-violet-500",
     successIcon: "bg-violet-100 text-violet-600",
+    ticket: "border-violet-300 bg-violet-50",
   },
   {
     value: "amber",
@@ -136,6 +224,7 @@ export const QR_FORM_THEMES: QrFormTheme[] = [
     accentText: "text-amber-700",
     focus: "focus:border-amber-500 focus:ring-amber-500",
     successIcon: "bg-amber-100 text-amber-600",
+    ticket: "border-amber-300 bg-amber-50",
   },
   {
     value: "rose",
@@ -147,6 +236,7 @@ export const QR_FORM_THEMES: QrFormTheme[] = [
     accentText: "text-rose-700",
     focus: "focus:border-rose-500 focus:ring-rose-500",
     successIcon: "bg-rose-100 text-rose-600",
+    ticket: "border-rose-300 bg-rose-50",
   },
   {
     value: "slate",
@@ -158,6 +248,7 @@ export const QR_FORM_THEMES: QrFormTheme[] = [
     accentText: "text-slate-800",
     focus: "focus:border-slate-500 focus:ring-slate-500",
     successIcon: "bg-slate-200 text-slate-700",
+    ticket: "border-slate-400 bg-slate-50",
   },
 ];
 
@@ -202,6 +293,7 @@ export interface QrLead {
   status: string;
   notes: string | null;
   source: string;
+  confirmation_code: string | null;
   scanned_at: string;
   created_at: string;
   updated_at: string;
@@ -297,145 +389,107 @@ export function slugifyFieldKey(label: string): string {
 /** The questions a brand-new event form starts with. */
 export function defaultEventFormFields(): QrFormField[] {
   return [
-    {
+    newFormField({
       key: "interest",
       label: "What are you most interested in?",
-      type: "select",
-      required: false,
+      type: "radio",
       options: ["Dental cleaning", "Wellness exam", "Grooming", "Just saying hi"],
-      placeholder: null,
-    },
-    {
+    }),
+    newFormField({
       key: "opt_in",
       label: "Email me Green Dog news & offers",
       type: "checkbox",
-      required: false,
-      options: [],
-      placeholder: null,
-    },
+    }),
   ];
 }
 
 /** A CE course code captures the attendee details CE Broker rosters need. */
 export function defaultCeFormFields(): QrFormField[] {
   return [
-    {
-      key: "practice",
-      label: "Practice / clinic",
-      type: "text",
-      required: false,
-      options: [],
-      placeholder: null,
-    },
-    {
+    newFormField({ key: "practice", label: "Practice / clinic", type: "text" }),
+    newFormField({
       key: "role",
       label: "Your role",
       type: "select",
-      required: false,
-      options: ["Veterinarian", "Technician", "Assistant", "Practice manager", "Student", "Other"],
-      placeholder: null,
-    },
-    {
+      options: ["Veterinarian", "Technician", "Assistant", "Practice manager", "Student"],
+      allowOther: true,
+    }),
+    newFormField({
       key: "license",
       label: "License number (for CE credit)",
       type: "text",
-      required: false,
-      options: [],
-      placeholder: null,
-    },
+    }),
   ];
 }
 
 /** A referral clinic hands this to a client they are sending to Green Dog. */
 export function defaultReferralFormFields(): QrFormField[] {
   return [
-    {
+    newFormField({
       key: "referred_by",
       label: "Who referred you?",
       type: "text",
-      required: false,
-      options: [],
       placeholder: "Doctor or staff member",
-    },
-    {
+    }),
+    newFormField({
       key: "reason",
       label: "What does your pet need?",
-      type: "select",
-      required: false,
+      type: "radio",
       options: [
         "Dental cleaning",
         "Extractions / oral surgery",
         "Second opinion",
         "Not sure yet",
       ],
-      placeholder: null,
-    },
+    }),
   ];
 }
 
 /** Rescue & shelter codes go out with an adopter's paperwork. */
 export function defaultRescueFormFields(): QrFormField[] {
   return [
-    {
-      key: "adoption_date",
-      label: "When did you adopt?",
-      type: "text",
-      required: false,
-      options: [],
-      placeholder: "Month / year",
-    },
-    {
+    newFormField({ key: "adoption_date", label: "When did you adopt?", type: "date" }),
+    newFormField({
       key: "interest",
       label: "What are you most interested in?",
-      type: "select",
-      required: false,
+      type: "radio",
       options: ["New adopter exam", "Dental cleaning", "Wellness exam", "Just saying hi"],
-      placeholder: null,
-    },
+    }),
   ];
 }
 
 /** An influencer's code goes in their bio, stories and printed collateral. */
 export function defaultInfluencerFormFields(): QrFormField[] {
   return [
-    {
+    newFormField({
       key: "platform",
       label: "Where did you find us?",
-      type: "select",
-      required: false,
-      options: ["Instagram", "TikTok", "YouTube", "Facebook", "In person", "Somewhere else"],
-      placeholder: null,
-    },
-    {
+      type: "radio",
+      options: ["Instagram", "TikTok", "YouTube", "Facebook", "In person"],
+      allowOther: true,
+    }),
+    newFormField({
       key: "interest",
       label: "What are you most interested in?",
-      type: "select",
-      required: false,
+      type: "multiselect",
       options: ["Dental cleaning", "Wellness exam", "Grooming", "Just saying hi"],
-      placeholder: null,
-    },
-    {
+    }),
+    newFormField({
       key: "opt_in",
       label: "Email me Green Dog news & offers",
       type: "checkbox",
-      required: false,
-      options: [],
-      placeholder: null,
-    },
+    }),
   ];
 }
 
 /** Promotion codes are printed on the flyer for the offer itself. */
 export function defaultPromoFormFields(): QrFormField[] {
   return [
-    {
+    newFormField({
       key: "opt_in",
       label: "Email me Green Dog news & offers",
       type: "checkbox",
-      required: false,
-      options: [],
-      placeholder: null,
-    },
+    }),
   ];
 }
 
@@ -444,28 +498,51 @@ export function parseFormFields(raw: unknown): QrFormField[] {
   if (!Array.isArray(raw)) return [];
   const allowed = new Set(QR_FIELD_TYPES.map((t) => t.value));
   const out: QrFormField[] = [];
+  const seen = new Set<string>();
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v)
+      ? v
+      : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))
+        ? Number(v)
+        : null;
+  const str = (v: unknown, max: number): string | null =>
+    typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null;
+
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const r = item as Record<string, unknown>;
     const label = typeof r.label === "string" ? r.label.trim() : "";
     if (!label) continue;
-    const type = allowed.has(r.type as QrFieldType)
-      ? (r.type as QrFieldType)
-      : "text";
-    out.push({
-      key: typeof r.key === "string" && r.key ? r.key : slugifyFieldKey(label),
-      label: label.slice(0, 160),
-      type,
-      required: r.required === true,
-      options: Array.isArray(r.options)
-        ? r.options.map((o) => String(o).slice(0, 80)).filter(Boolean).slice(0, 20)
-        : [],
-      placeholder:
-        typeof r.placeholder === "string" && r.placeholder.trim()
-          ? r.placeholder.trim().slice(0, 120)
-          : null,
-    });
-    if (out.length >= 25) break;
+    const type = allowed.has(r.type as QrFieldType) ? (r.type as QrFieldType) : "text";
+
+    // Answers are keyed by `key`, so a duplicate would silently overwrite.
+    let key = typeof r.key === "string" && r.key ? r.key : slugifyFieldKey(label);
+    if (seen.has(key)) {
+      let n = 2;
+      while (seen.has(`${key}_${n}`)) n += 1;
+      key = `${key}_${n}`;
+    }
+    seen.add(key);
+
+    out.push(
+      newFormField({
+        key,
+        label: label.slice(0, 160),
+        type,
+        required: r.required === true,
+        options: fieldHasOptions(type) && Array.isArray(r.options)
+          ? r.options.map((o) => String(o).slice(0, 80)).filter(Boolean).slice(0, 50)
+          : [],
+        placeholder: str(r.placeholder, 120),
+        description: str(r.description, 300),
+        allowOther: fieldHasOptions(type) && r.allowOther === true,
+        min: num(r.min),
+        max: num(r.max),
+        minLabel: str(r.minLabel, 40),
+        maxLabel: str(r.maxLabel, 40),
+      }),
+    );
+    if (out.length >= 50) break;
   }
   return out;
 }
@@ -474,31 +551,87 @@ const MAX_ANSWER_LENGTH = 500;
 
 /**
  * Collect the answers to a form's custom questions from an untrusted public
- * submission. Only keys the form actually declares are read, select answers
- * must be one of the declared options, and every value is clamped.
+ * submission. Only keys the form actually declares are read, choice answers
+ * must match a declared option, and every value is clamped.
  */
 export function readFormAnswers(
   fields: QrFormField[],
   formData: FormData,
 ): { answers: Record<string, string> } | { error: string } {
   const answers: Record<string, string> = {};
+  const clamp = (s: string) => (s.length > MAX_ANSWER_LENGTH ? s.slice(0, MAX_ANSWER_LENGTH) : s);
+  const missing = (f: QrFormField) => ({ error: `Please answer: ${f.label}` });
+
   for (const f of fields) {
-    const raw = formData.get(`custom_${f.key}`);
-    let value =
-      f.type === "checkbox"
-        ? raw === "on" || raw === "true"
-          ? "Yes"
-          : "No"
-        : raw == null
-          ? ""
-          : String(raw).trim();
-    if (f.type === "select" && value && !f.options.includes(value)) {
-      return { error: "Please choose one of the listed options." };
+    if (!fieldIsAnswerable(f.type)) continue;
+    const name = `custom_${f.key}`;
+    let value = "";
+
+    if (f.type === "checkbox") {
+      const raw = formData.get(name);
+      value = raw === "on" || raw === "true" ? "Yes" : "No";
+      if (f.required && value === "No") return missing(f);
+    } else if (f.type === "multiselect") {
+      const picked: string[] = [];
+      for (const raw of formData.getAll(name)) {
+        const v = String(raw).trim();
+        if (!v) continue;
+        if (v === OTHER_VALUE) {
+          const other = String(formData.get(otherFieldName(f.key)) ?? "").trim();
+          if (!f.allowOther) return { error: `Please answer: ${f.label}` };
+          if (other) picked.push(clamp(other));
+          continue;
+        }
+        if (!f.options.includes(v)) {
+          return { error: "Please choose from the listed options." };
+        }
+        picked.push(v);
+      }
+      if (f.required && picked.length === 0) return missing(f);
+      value = clamp(picked.join(", "));
+    } else if (f.type === "select" || f.type === "radio") {
+      const raw = String(formData.get(name) ?? "").trim();
+      if (raw === OTHER_VALUE) {
+        if (!f.allowOther) return { error: "Please choose from the listed options." };
+        value = clamp(String(formData.get(otherFieldName(f.key)) ?? "").trim());
+        if (f.required && !value) return missing(f);
+      } else if (raw && !f.options.includes(raw)) {
+        return { error: "Please choose from the listed options." };
+      } else {
+        value = raw;
+        if (f.required && !value) return missing(f);
+      }
+    } else if (f.type === "scale") {
+      const raw = String(formData.get(name) ?? "").trim();
+      if (raw) {
+        const allowedSteps = scaleRange(f);
+        if (!allowedSteps.includes(Number(raw))) {
+          return { error: `Please choose a value for: ${f.label}` };
+        }
+      }
+      value = raw;
+      if (f.required && !value) return missing(f);
+    } else if (f.type === "number") {
+      const raw = String(formData.get(name) ?? "").trim();
+      if (raw) {
+        const n = Number(raw);
+        if (!Number.isFinite(n)) return { error: `Please enter a number for: ${f.label}` };
+        if (f.min != null && n < f.min) return { error: `${f.label} must be at least ${f.min}.` };
+        if (f.max != null && n > f.max) return { error: `${f.label} must be at most ${f.max}.` };
+        value = String(n);
+      }
+      if (f.required && !value) return missing(f);
+    } else if (f.type === "date" || f.type === "time") {
+      const raw = String(formData.get(name) ?? "").trim();
+      const shape = f.type === "date" ? /^\d{4}-\d{2}-\d{2}$/ : /^\d{2}:\d{2}$/;
+      if (raw && !shape.test(raw)) return { error: `Please check the ${f.type} for: ${f.label}` };
+      value = raw;
+      if (f.required && !value) return missing(f);
+    } else {
+      value = clamp(String(formData.get(name) ?? "").trim());
+      if (f.required && !value) return missing(f);
     }
-    if (value.length > MAX_ANSWER_LENGTH) value = value.slice(0, MAX_ANSWER_LENGTH);
-    if (f.required && (value === "" || (f.type === "checkbox" && value === "No"))) {
-      return { error: `Please answer: ${f.label}` };
-    }
+
     if (value !== "") answers[f.key] = value;
   }
   return { answers };

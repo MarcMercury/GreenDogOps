@@ -2,9 +2,11 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
-import { parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
+import { type CaptureReceipt, parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
 
-export type LeadResult = { ok: true } | { ok: false; error: string };
+export type LeadResult =
+  | { ok: true; receipt?: CaptureReceipt }
+  | { ok: false; error: string };
 
 function clean(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -94,18 +96,30 @@ export async function submitRetailLead(
     };
   }
 
-  const { error: insErr } = await admin.from("crm_retail_lead").insert({
-    org_id: orgId,
-    full_name: fullName,
-    email,
-    phone,
-    pet_name: petName,
-    zip,
-    answers: read.answers,
-    source: "qr_scan",
-    status: "new",
-  });
+  const { data: lead, error: insErr } = await admin
+    .from("crm_retail_lead")
+    .insert({
+      org_id: orgId,
+      full_name: fullName,
+      email,
+      phone,
+      pet_name: petName,
+      zip,
+      answers: read.answers,
+      source: "qr_scan",
+      status: "new",
+    })
+    .select("confirmation_code, created_at")
+    .single();
   if (insErr) return { ok: false, error: "Could not submit. Please try again." };
 
-  return { ok: true };
+  const row = lead as { confirmation_code: string; created_at: string };
+  return {
+    ok: true,
+    receipt: {
+      confirmationCode: row.confirmation_code,
+      fullName,
+      submittedAt: row.created_at,
+    },
+  };
 }

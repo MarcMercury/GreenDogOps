@@ -2,9 +2,11 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
-import { parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
+import { type CaptureReceipt, parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
 
-export type QrLeadResult = { ok: true } | { ok: false; error: string };
+export type QrLeadResult =
+  | { ok: true; receipt?: CaptureReceipt }
+  | { ok: false; error: string };
 
 function clean(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -98,23 +100,35 @@ export async function submitQrLead(
     };
   }
 
-  const { error: insErr } = await admin.from("qr_lead").insert({
-    qr_code_id: code.id,
-    event_id: code.event_id,
-    ce_event_id: code.ce_event_id,
-    org_id: code.org_id,
-    referral_partner_id: code.referral_partner_id,
-    influencer_id: code.influencer_id,
-    full_name: fullName,
-    email,
-    phone,
-    pet_name: formRow?.collect_pet_name === false ? null : petName,
-    zip: formRow && !formRow.collect_zip ? null : zip,
-    answers: read.answers,
-    source: "qr_scan",
-    status: "new",
-  });
+  const { data: lead, error: insErr } = await admin
+    .from("qr_lead")
+    .insert({
+      qr_code_id: code.id,
+      event_id: code.event_id,
+      ce_event_id: code.ce_event_id,
+      org_id: code.org_id,
+      referral_partner_id: code.referral_partner_id,
+      influencer_id: code.influencer_id,
+      full_name: fullName,
+      email,
+      phone,
+      pet_name: formRow?.collect_pet_name === false ? null : petName,
+      zip: formRow && !formRow.collect_zip ? null : zip,
+      answers: read.answers,
+      source: "qr_scan",
+      status: "new",
+    })
+    .select("confirmation_code, created_at")
+    .single();
   if (insErr) return { ok: false, error: "Could not submit. Please try again." };
 
-  return { ok: true };
+  const row = lead as { confirmation_code: string; created_at: string };
+  return {
+    ok: true,
+    receipt: {
+      confirmationCode: row.confirmation_code,
+      fullName,
+      submittedAt: row.created_at,
+    },
+  };
 }

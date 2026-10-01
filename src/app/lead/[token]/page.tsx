@@ -10,6 +10,10 @@ type FormRow = {
   headline: string | null;
   intro: string | null;
   success_message: string | null;
+  post_submit_heading: string | null;
+  post_submit_message: string | null;
+  show_confirmation: boolean;
+  confirmation_note: string | null;
   collect_pet_name: boolean;
   collect_zip: boolean;
   fields: unknown;
@@ -47,7 +51,7 @@ export default async function RetailLeadPage({
   const { data: codeData } = await admin
     .from("qr_code")
     .select(
-      "active, target_url, qr_form(headline, intro, success_message, collect_pet_name, collect_zip, fields, theme, banner_url, active)",
+      "active, target_url, qr_form(headline, intro, success_message, post_submit_heading, post_submit_message, show_confirmation, confirmation_note, collect_pet_name, collect_zip, fields, theme, banner_url, active)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -79,6 +83,10 @@ export default async function RetailLeadPage({
             form?.success_message ??
             `Green Dog Dental will be in touch shortly. Thanks for visiting ${partner.name}.`
           }
+          postSubmitHeading={form?.post_submit_heading ?? null}
+          postSubmitMessage={form?.post_submit_message ?? null}
+          showConfirmation={form?.show_confirmation ?? false}
+          confirmationNote={form?.confirmation_note ?? null}
           collectPetName={form ? form.collect_pet_name : true}
           collectZip={form?.collect_zip ?? false}
           fields={parseFormFields(form?.fields)}

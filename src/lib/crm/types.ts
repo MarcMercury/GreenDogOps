@@ -262,6 +262,7 @@ export interface CrmRetailLead {
   status: string;
   notes: string | null;
   source: string;
+  confirmation_code: string | null;
   created_at: string;
   updated_at: string;
 }

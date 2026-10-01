@@ -10,10 +10,9 @@ import {
   type QrFormField,
   type QrLead,
   type QrSubject,
-  QR_FIELD_TYPES,
   qrPublicUrl,
-  slugifyFieldKey,
 } from "@/lib/marketing/qr";
+import { FormFieldEditor, serializeFields, AfterSubmissionFields, afterSubmissionFrom, type AfterSubmission } from "@/lib/marketing/form-field-editor";
 import {
   createQrCodeFor,
   deleteQrCode,
@@ -309,6 +308,7 @@ type FormDraft = {
   collect_pet_name: boolean;
   collect_zip: boolean;
   fields: QrFormField[];
+  after: AfterSubmission;
 };
 
 function QrFormEditor({
@@ -332,16 +332,11 @@ function QrFormEditor({
     collect_pet_name: form?.collect_pet_name ?? true,
     collect_zip: form?.collect_zip ?? false,
     fields: form?.fields ?? [],
+    after: afterSubmissionFrom(form),
   }));
 
   function patch(p: Partial<FormDraft>) {
     setDraft((prev) => ({ ...prev, ...p }));
-  }
-  function patchField(idx: number, p: Partial<QrFormField>) {
-    setDraft((prev) => ({
-      ...prev,
-      fields: prev.fields.map((f, i) => (i === idx ? { ...f, ...p } : f)),
-    }));
   }
 
   function save() {
@@ -353,17 +348,14 @@ function QrFormEditor({
     fd.set("headline", draft.headline);
     fd.set("intro", draft.intro);
     fd.set("success_message", draft.success_message);
+    fd.set("post_submit_heading", draft.after.post_submit_heading);
+    fd.set("post_submit_message", draft.after.post_submit_message);
+    if (draft.after.show_confirmation) fd.set("show_confirmation", "true");
+    fd.set("confirmation_note", draft.after.confirmation_note);
     if (draft.collect_pet_name) fd.set("collect_pet_name", "true");
     if (draft.collect_zip) fd.set("collect_zip", "true");
     fd.set("active", "true");
-    fd.set(
-      "fields_json",
-      JSON.stringify(
-        draft.fields
-          .filter((f) => f.label.trim())
-          .map((f) => ({ ...f, key: f.key || slugifyFieldKey(f.label) })),
-      ),
-    );
+    fd.set("fields_json", serializeFields(draft.fields));
     run(() => saveQrForm(fd));
   }
 
@@ -478,89 +470,18 @@ function QrFormEditor({
       </div>
 
       <div className="mt-4">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Custom questions
-        </p>
-        <ul className="space-y-2">
-          {draft.fields.map((f, idx) => (
-            <li key={idx} className="rounded-lg border border-slate-200 bg-white p-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <input
-                  value={f.label}
-                  onChange={(e) => patchField(idx, { label: e.target.value })}
-                  placeholder="Question…"
-                  className="min-w-[10rem] flex-1 rounded-md border border-slate-200 px-2 py-1 text-sm focus:border-emerald-400 focus:outline-none"
-                />
-                <select
-                  value={f.type}
-                  onChange={(e) => patchField(idx, { type: e.target.value as QrFormField["type"] })}
-                  className="rounded-md border border-slate-200 px-2 py-1 text-xs"
-                >
-                  {QR_FIELD_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-                <label className="flex items-center gap-1 text-[11px] text-slate-500">
-                  <input
-                    type="checkbox"
-                    checked={f.required}
-                    onChange={(e) => patchField(idx, { required: e.target.checked })}
-                    className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600"
-                  />
-                  Required
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      fields: prev.fields.filter((_, i) => i !== idx),
-                    }))
-                  }
-                  className="px-1 text-slate-300 hover:text-red-600"
-                >
-                  ✕
-                </button>
-              </div>
-              {f.type === "select" && (
-                <input
-                  value={f.options.join(", ")}
-                  onChange={(e) =>
-                    patchField(idx, {
-                      options: e.target.value.split(",").map((s) => s.trim()).filter(Boolean),
-                    })
-                  }
-                  placeholder="Options, comma separated"
-                  className="mt-1.5 w-full rounded-md border border-slate-200 px-2 py-1 text-xs focus:border-emerald-400 focus:outline-none"
-                />
-              )}
-            </li>
-          ))}
-          {draft.fields.length === 0 && (
-            <li className="rounded-lg border border-dashed border-slate-200 px-3 py-3 text-center text-[11px] text-slate-400">
-              No extra questions — the form just collects contact details.
-            </li>
-          )}
-        </ul>
-        {canEdit && (
-          <button
-            type="button"
-            onClick={() =>
-              setDraft((prev) => ({
-                ...prev,
-                fields: [
-                  ...prev.fields,
-                  { key: "", label: "", type: "text", required: false, options: [], placeholder: null },
-                ],
-              }))
-            }
-            className={`${btnGhost} mt-2`}
-          >
-            ＋ Add question
-          </button>
-        )}
+        <AfterSubmissionFields
+          value={draft.after}
+          onChange={(after) => patch({ after })}
+        />
+      </div>
+
+      <div className="mt-4">
+        <FormFieldEditor
+          fields={draft.fields}
+          onChange={(fields) => setDraft((prev) => ({ ...prev, fields }))}
+          canEdit={canEdit}
+        />
       </div>
     </div>
   );
