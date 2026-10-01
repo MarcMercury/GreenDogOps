@@ -257,17 +257,31 @@ export async function getWeeks(): Promise<SchedWeek[]> {
   return (data ?? []) as SchedWeek[];
 }
 
-/** Full grid payload for the saved Week Template, or null if none exists yet. */
-export async function getTemplateWeekData(): Promise<WeekData | null> {
+/** Saved week templates, newest first by name. */
+export async function getTemplates(): Promise<SchedWeek[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("sched_week")
-    .select("id")
+    .select("*")
+    .eq("is_template", true)
+    .order("title");
+  return (data ?? []) as SchedWeek[];
+}
+
+/** Full grid payload for one template. */
+export async function getTemplateWeekData(
+  templateId: string,
+): Promise<WeekData | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("sched_week")
+    .select("*")
+    .eq("id", templateId)
     .eq("is_template", true)
     .maybeSingle();
-  const id = (data as { id: string } | null)?.id;
-  if (!id) return null;
-  return getWeekData(id);
+  const week = data as SchedWeek | null;
+  if (!week) return null;
+  return getWeekDataFor(week);
 }
 
 export async function getWeek(weekId: string): Promise<SchedWeek | null> {

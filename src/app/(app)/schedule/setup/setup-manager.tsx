@@ -31,7 +31,10 @@ import {
   setStudentRoleFlags,
   saveApptTypeDept,
   saveApptTypeReportTrack,
-  ensureTemplateWeek,
+  createTemplate,
+  renameTemplate,
+  duplicateTemplate,
+  deleteTemplate,
   syncTemplateWeekFromShiftTemplates,
 } from "../actions";
 import { ScheduleGrid } from "../schedule-grid";
@@ -76,17 +79,25 @@ const btnGhost =
 export function SetupManager({
   data,
   apptTypeMappings,
+  templates,
   templateWeek,
+  selectedTemplateId,
   weeks,
   canEdit,
+  initialTab = "departments",
 }: {
   data: SetupData;
   apptTypeMappings: ApptTypeDeptMapping[];
+  templates: SchedWeek[];
   templateWeek: WeekData | null;
+  selectedTemplateId: string | null;
   weeks: SchedWeek[];
   canEdit: boolean;
+  /** Sub-tab to open on load. The tabs are local state, so a link to a
+   *  specific template would otherwise land on Departments. */
+  initialTab?: SubTab;
 }) {
-  const [tab, setTab] = useState<SubTab>("departments");
+  const [tab, setTab] = useState<SubTab>(initialTab);
 
   return (
     <div className="space-y-4">
@@ -112,7 +123,9 @@ export function SetupManager({
       {tab === "week-template" && (
         <WeekTemplate
           data={data}
+          templates={templates}
           templateWeek={templateWeek}
+          selectedTemplateId={selectedTemplateId}
           weeks={weeks}
           canEdit={canEdit}
         />
@@ -177,12 +190,16 @@ function templateDrift(data: SetupData, lines: SchedWeekLine[]) {
 
 function WeekTemplate({
   data,
+  templates,
   templateWeek,
+  selectedTemplateId,
   weeks,
   canEdit,
 }: {
   data: SetupData;
+  templates: SchedWeek[];
   templateWeek: WeekData | null;
+  selectedTemplateId: string | null;
   weeks: SchedWeek[];
   canEdit: boolean;
 }) {
@@ -195,101 +212,199 @@ function WeekTemplate({
     [data, templateWeek],
   );
 
-  function sync() {
-    if (
-      !window.confirm(
-        "Rebuild the Week Template's shift lines from the Departments and Dept/Shift Template setups?\n\nLines that are no longer in the Dept/Shift Template — including any added straight onto this grid — are removed along with their staffing.",
-      )
-    )
-      return;
+  /** Run an action, surfacing its error rather than failing silently. */
+  function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
     setError(null);
     start(async () => {
-      const res = await syncTemplateWeekFromShiftTemplates();
+      const res = await fn();
       if (res.ok) router.refresh();
-      else setError(res.error);
+      else setError(res.error ?? "Something went wrong.");
     });
   }
 
-  if (templateWeek) {
-    return (
-      <div className="space-y-4">
-        {drift && drift.total > 0 ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-            <div>
-              <p className="text-sm font-semibold text-amber-800">
-                Out of sync with the Dept/Shift Template
-              </p>
-              <p className="mt-0.5 text-xs text-amber-700">
-                {[
-                  drift.added && `${drift.added} line(s) missing`,
-                  drift.updated && `${drift.updated} changed`,
-                  drift.removed && `${drift.removed} no longer in the template`,
-                ]
-                  .filter(Boolean)
-                  .join(" · ")}
-                . Rebuild to make this grid match the Departments and Dept/Shift
-                Template tabs.
-              </p>
-            </div>
-            <button
-              disabled={pending || !canEdit}
-              onClick={sync}
-              className={btnPrimary}
-            >
-              {pending ? "Rebuilding…" : "Rebuild from template"}
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
-            <p className="text-xs text-slate-500">
-              Shift lines match the Departments and Dept/Shift Template tabs.
-            </p>
-            <button
-              disabled={pending || !canEdit}
-              onClick={sync}
-              className={btnGhost}
-            >
-              {pending ? "Rebuilding…" : "Rebuild from template"}
-            </button>
-          </div>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-        <ScheduleGrid
-          weeks={weeks}
-          weekData={templateWeek}
-          setup={data}
-          timeOff={[]}
-          canEdit={canEdit}
-          templateMode
-        />
-      </div>
-    );
+  function create() {
+    const name = window.prompt("Name this template", "Standard Week");
+    if (name === null) return;
+    setError(null);
+    start(async () => {
+      const res = await createTemplate(name);
+      if (res.ok && res.data) {
+        router.push(`/schedule/setup?template=${res.data}`);
+        router.refresh();
+      } else if (!res.ok) {
+        setError(res.error);
+      }
+    });
   }
 
+  function rename(t: SchedWeek) {
+    const name = window.prompt("Rename template", t.title ?? "");
+    if (name === null) return;
+    run(() => renameTemplate(t.id, name));
+  }
+
+  function duplicate(t: SchedWeek) {
+    const name = window.prompt(
+      "Name for the copy",
+      `${t.title ?? "Template"} (copy)`,
+    );
+    if (name === null) return;
+    setError(null);
+    start(async () => {
+      const res = await duplicateTemplate(t.id, name);
+      if (res.ok && res.data) {
+        router.push(`/schedule/setup?template=${res.data}`);
+        router.refresh();
+      } else if (!res.ok) {
+        setError(res.error);
+      }
+    });
+  }
+
+  function remove(t: SchedWeek) {
+    if (
+      !window.confirm(
+        `Delete the template “${t.title}”?\n\nIts shift lines and staffing go with it. Weeks already built from it are not affected.`,
+      )
+    )
+      return;
+    run(() => deleteTemplate(t.id));
+  }
+
+  function sync() {
+    if (!selectedTemplateId) return;
+    if (
+      !window.confirm(
+        "Rebuild this template's shift lines from the Departments and Dept/Shift Template setups?\n\nLines that are no longer in the Dept/Shift Template — including any added straight onto this grid — are removed along with their staffing.",
+      )
+    )
+      return;
+    run(() => syncTemplateWeekFromShiftTemplates(selectedTemplateId));
+  }
+
+  const selected = templates.find((t) => t.id === selectedTemplateId) ?? null;
+
   return (
-    <Card>
-      <h2 className="text-base font-semibold text-slate-800">Week Template</h2>
-      <p className="mt-1 max-w-2xl text-sm text-slate-500">
-        Build a reusable copy of the full weekly schedule — shift lines with
-        employees assigned to each shift — and keep it as a template. From the
-        Grid tab you can then apply it to any week with a single click.
-      </p>
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      <button
-        disabled={pending || !canEdit}
-        onClick={() =>
-          start(async () => {
-            setError(null);
-            const res = await ensureTemplateWeek();
-            if (res.ok) router.refresh();
-            else setError(res.error);
-          })
-        }
-        className={`${btnPrimary} mt-4`}
-      >
-        {pending ? "Creating…" : "Create Week Template"}
-      </button>
-    </Card>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Templates:
+        </span>
+        {templates.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => router.push(`/schedule/setup?template=${t.id}`)}
+            aria-current={t.id === selectedTemplateId ? "page" : undefined}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+              t.id === selectedTemplateId
+                ? "bg-slate-900 text-white"
+                : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+            }`}
+          >
+            {t.title}
+          </button>
+        ))}
+        <button
+          onClick={create}
+          disabled={pending || !canEdit}
+          className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50"
+        >
+          + New template
+        </button>
+
+        {selected && canEdit && (
+          <span className="ml-auto flex items-center gap-1.5">
+            <button onClick={() => rename(selected)} disabled={pending} className={btnGhost}>
+              Rename
+            </button>
+            <button onClick={() => duplicate(selected)} disabled={pending} className={btnGhost}>
+              Duplicate
+            </button>
+            <button
+              onClick={() => remove(selected)}
+              disabled={pending}
+              className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+            >
+              Delete
+            </button>
+          </span>
+        )}
+      </div>
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+
+      {templateWeek && selected ? (
+        <>
+          {drift && drift.total > 0 ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+              <div>
+                <p className="text-sm font-semibold text-amber-800">
+                  “{selected.title}” is out of sync with the Dept/Shift Template
+                </p>
+                <p className="mt-0.5 text-xs text-amber-700">
+                  {[
+                    drift.added && `${drift.added} line(s) missing`,
+                    drift.updated && `${drift.updated} changed`,
+                    drift.removed && `${drift.removed} no longer in the template`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                  . Rebuild to make this grid match the Departments and
+                  Dept/Shift Template tabs.
+                </p>
+              </div>
+              <button
+                disabled={pending || !canEdit}
+                onClick={sync}
+                className={btnPrimary}
+              >
+                {pending ? "Rebuilding…" : "Rebuild from template"}
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-2.5">
+              <p className="text-xs text-slate-500">
+                Shift lines match the Departments and Dept/Shift Template tabs.
+              </p>
+              <button
+                disabled={pending || !canEdit}
+                onClick={sync}
+                className={btnGhost}
+              >
+                {pending ? "Rebuilding…" : "Rebuild from template"}
+              </button>
+            </div>
+          )}
+          <ScheduleGrid
+            weeks={weeks}
+            weekData={templateWeek}
+            setup={data}
+            timeOff={[]}
+            canEdit={canEdit}
+            templateMode
+          />
+        </>
+      ) : (
+        <Card>
+          <h2 className="text-base font-semibold text-slate-800">
+            Week Templates
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
+            Build reusable copies of a full weekly schedule — shift lines with
+            employees assigned to each shift — and keep as many as you need, for
+            example a standard week, a short-staffed week, and a summer
+            rotation. From the Grid tab you can apply any of them to any week.
+          </p>
+          <button
+            disabled={pending || !canEdit}
+            onClick={create}
+            className={`${btnPrimary} mt-4`}
+          >
+            {pending ? "Creating…" : "Create your first template"}
+          </button>
+        </Card>
+      )}
+    </div>
   );
 }
 

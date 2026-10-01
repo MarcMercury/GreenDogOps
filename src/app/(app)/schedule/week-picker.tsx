@@ -48,16 +48,20 @@ export function WeekPicker({
   weeks,
   selectedId,
   basePath = "/schedule",
+  templates = [],
 }: {
   weeks: SchedWeek[];
   selectedId: string | null;
   basePath?: string;
+  /** Saved week templates, for the apply control. Only the grid passes these. */
+  templates?: SchedWeek[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [newWeek, setNewWeek] = useState<string>(weekStartFor(new Date()));
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [templateId, setTemplateId] = useState<string>("");
   const currentWeekStart = weekStartFor(new Date());
 
   // getWeeks() returns newest first; the rail reads left to right in time.
@@ -148,18 +152,24 @@ export function WeekPicker({
 
   function useTemplate() {
     if (!selectedId) {
-      setError("Open a week first, then apply the template to it.");
+      setError("Open a week first, then apply a template to it.");
       return;
     }
+    const chosen = templateId || templates[0]?.id;
+    if (!chosen) {
+      setError("No templates saved yet — create one in Set Up › Week Template.");
+      return;
+    }
+    const name = templates.find((t) => t.id === chosen)?.title ?? "template";
     if (
       !window.confirm(
-        "Replace this week's shifts and staffing with the saved Week Template? Existing entries for this week will be overwritten.",
+        `Replace this week's shifts and staffing with “${name}”? Existing entries for this week will be overwritten.`,
       )
     )
       return;
     setError(null);
     start(async () => {
-      const res = await applyWeekTemplate(selectedId);
+      const res = await applyWeekTemplate(selectedId, chosen);
       if (res.ok) {
         router.refresh();
       } else {
@@ -306,15 +316,34 @@ export function WeekPicker({
           >
             Copy previous week
           </button>
-          {basePath === "/schedule" && (
-            <button
-              onClick={useTemplate}
-              disabled={pending || !selectedId}
-              title="Replace the open week's shifts and staffing with the saved Week Template"
-              className="rounded-lg border border-sky-600 px-3 py-1.5 text-sm font-medium text-sky-700 transition hover:bg-sky-50 disabled:opacity-50"
-            >
-              Use template
-            </button>
+          {basePath === "/schedule" && templates.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              {/* Only worth choosing between when there is more than one. */}
+              {templates.length > 1 && (
+                <select
+                  value={templateId || templates[0].id}
+                  onChange={(e) => setTemplateId(e.target.value)}
+                  aria-label="Template to apply"
+                  className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none"
+                >
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button
+                onClick={useTemplate}
+                disabled={pending || !selectedId}
+                title="Replace the open week's shifts and staffing with the chosen template"
+                className="rounded-lg border border-sky-600 px-3 py-1.5 text-sm font-medium text-sky-700 transition hover:bg-sky-50 disabled:opacity-50"
+              >
+                {templates.length > 1
+                  ? "Use template"
+                  : `Use “${templates[0].title}”`}
+              </button>
+            </span>
           )}
           <button
             onClick={create}

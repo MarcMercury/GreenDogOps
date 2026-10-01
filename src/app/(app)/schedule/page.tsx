@@ -5,6 +5,7 @@ import {
   getWeekDataFor,
   getWeekTimeOff,
   getAgendaCounts,
+  getTemplates,
 } from "./data";
 import { ScheduleGrid } from "./schedule-grid";
 import { WeekPicker } from "./week-picker";
@@ -21,10 +22,11 @@ export default async function SchedulePage({
   searchParams: Promise<{ week?: string }>;
 }) {
   const { week: weekParam } = await searchParams;
-  const [weeks, setup, current] = await Promise.all([
+  const [weeks, setup, current, templates] = await Promise.all([
     getWeeks(),
     getSetupData(),
     getCurrentUser(),
+    getTemplates(),
   ]);
   const canEdit = current ? canEditModule(current.appUser, "schedule") : false;
 
@@ -83,5 +85,15 @@ export default async function SchedulePage({
     );
   }
 
-  return <ScheduleGrid weeks={weeks} weekData={weekData} setup={setup} timeOff={timeOff} agendaCounts={agendaCounts} canEdit={canEdit} />;
+  return (
+    <ScheduleGrid
+      weeks={weeks}
+      weekData={weekData}
+      setup={setup}
+      timeOff={timeOff}
+      agendaCounts={agendaCounts}
+      canEdit={canEdit}
+      templates={templates}
+    />
+  );
 }
