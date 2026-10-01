@@ -20,6 +20,7 @@ import {
   optionalTime,
   optionalUuid,
   parseForm,
+  parseInput,
   requiredText,
   requiredUuid,
   z,
@@ -754,34 +755,46 @@ async function cloneWeekContents(
 }
 
 /**
- * Find (or lazily create) the single reusable Week Template. The template is a
- * normal sched_week flagged is_template=true so the admin can populate it with
- * shift lines and staffed assignments on the grid, then apply it to any week.
+ * Create a named week template: a normal sched_week flagged is_template, which
+ * the admin populates with shift lines and staffed assignments on the grid and
+ * then applies to any week.
+ *
+ * Templates all sit on the same sentinel week_start; 0214 made the week_start
+ * uniqueness constraint apply only to real weeks so they can.
  */
-export async function ensureTemplateWeek(): Promise<ActionResult<string>> {
+export async function createTemplate(
+  name: string,
+): Promise<ActionResult<string>> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
+
+  const parsed = parseInput(z.object({ name: requiredText(80, "Template name") }), {
+    name,
+  });
+  if (!parsed.ok) return parsed;
+
   const supabase = await createClient();
   const me = await actor();
-
-  const { data: existing } = await supabase
-    .from("sched_week")
-    .select("id")
-    .eq("is_template", true)
-    .maybeSingle();
-  if (existing) return { ok: true, data: (existing as { id: string }).id };
 
   const { data: weekRow, error: weekErr } = await supabase
     .from("sched_week")
     .insert({
       week_start: TEMPLATE_WEEK_START,
+      title: parsed.data.name,
       status: "draft",
       is_template: true,
       created_by: me.id,
     })
     .select("id")
     .single();
-  if (weekErr) return { ok: false, error: weekErr.message };
+  if (weekErr) {
+    return {
+      ok: false,
+      error: isDuplicate(weekErr.message)
+        ? `A template called “${parsed.data.name}” already exists.`
+        : weekErr.message,
+    };
+  }
   const weekId = (weekRow as { id: string }).id;
 
   // Snapshot active dept/shift templates -> week lines.
@@ -844,24 +857,159 @@ export async function ensureTemplateWeek(): Promise<ActionResult<string>> {
   return { ok: true, data: weekId };
 }
 
+/** Postgres reports both the name index and the title check as 23505/23514. */
+function isDuplicate(message: string): boolean {
+  return /duplicate key|already exists|sched_week_template_title_idx/i.test(message);
+}
+
+/** Rename a template. Names are unique case-insensitively. */
+export async function renameTemplate(
+  templateId: string,
+  name: string,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+
+  const parsed = parseInput(
+    z.object({
+      templateId: requiredUuid("template id"),
+      name: requiredText(80, "Template name"),
+    }),
+    { templateId, name },
+  );
+  if (!parsed.ok) return parsed;
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("sched_week")
+    .update({ title: parsed.data.name })
+    .eq("id", parsed.data.templateId)
+    .eq("is_template", true);
+  if (error) {
+    return {
+      ok: false,
+      error: isDuplicate(error.message)
+        ? `A template called “${parsed.data.name}” already exists.`
+        : error.message,
+    };
+  }
+  revalidateAll();
+  return { ok: true };
+}
+
+/** Copy a template, including its shift lines and staffing, under a new name. */
+export async function duplicateTemplate(
+  templateId: string,
+  name: string,
+): Promise<ActionResult<string>> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+
+  const parsed = parseInput(
+    z.object({
+      templateId: requiredUuid("template id"),
+      name: requiredText(80, "Template name"),
+    }),
+    { templateId, name },
+  );
+  if (!parsed.ok) return parsed;
+
+  const supabase = await createClient();
+  const me = await actor();
+
+  const { data: source } = await supabase
+    .from("sched_week")
+    .select("id")
+    .eq("id", parsed.data.templateId)
+    .eq("is_template", true)
+    .maybeSingle();
+  if (!source) return { ok: false, error: "That template no longer exists." };
+
+  const { data: created, error } = await supabase
+    .from("sched_week")
+    .insert({
+      week_start: TEMPLATE_WEEK_START,
+      title: parsed.data.name,
+      status: "draft",
+      is_template: true,
+      created_by: me.id,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    return {
+      ok: false,
+      error: isDuplicate(error.message)
+        ? `A template called “${parsed.data.name}” already exists.`
+        : error.message,
+    };
+  }
+
+  const newId = (created as { id: string }).id;
+  const cloned = await cloneWeekContents(
+    supabase,
+    parsed.data.templateId,
+    newId,
+    TEMPLATE_WEEK_START,
+    me.id,
+  );
+  if (!cloned.ok) return cloned;
+
+  revalidateAll();
+  return { ok: true, data: newId };
+}
+
+/** Delete a template and everything on its grid. */
+export async function deleteTemplate(
+  templateId: string,
+): Promise<ActionResult> {
+  const gate = await ensureCanEdit("schedule");
+  if (!gate.ok) return gate;
+
+  const parsed = parseInput(
+    z.object({ templateId: requiredUuid("template id") }),
+    { templateId },
+  );
+  if (!parsed.ok) return parsed;
+
+  const supabase = await createClient();
+  // Guarded on is_template so a mistyped id can never delete a real week.
+  const { error } = await supabase
+    .from("sched_week")
+    .delete()
+    .eq("id", parsed.data.templateId)
+    .eq("is_template", true);
+  if (error) return { ok: false, error: error.message };
+  revalidateAll();
+  return { ok: true };
+}
+
 /**
- * Make the Week Template's shift lines mirror the Dept/Shift Template exactly:
+ * Make a template's shift lines mirror the Dept/Shift Template exactly:
  * inserts lines for new template rows, re-syncs drifted ones (department, role,
  * label, times, order), and drops every line that no longer has a live template
  * behind it — inactive templates, inactive departments, duplicates, and ad-hoc
  * lines added straight onto the template grid. Assignments on dropped lines go
  * with them.
  */
-export async function syncTemplateWeekFromShiftTemplates(): Promise<
-  ActionResult<{ added: number; updated: number; removed: number }>
-> {
+export async function syncTemplateWeekFromShiftTemplates(
+  templateId: string,
+): Promise<ActionResult<{ added: number; updated: number; removed: number }>> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
+
+  const parsed = parseInput(
+    z.object({ templateId: requiredUuid("template id") }),
+    { templateId },
+  );
+  if (!parsed.ok) return parsed;
+
   const supabase = await createClient();
 
   const { data: weekRow } = await supabase
     .from("sched_week")
     .select("id")
+    .eq("id", parsed.data.templateId)
     .eq("is_template", true)
     .maybeSingle();
   const weekId = (weekRow as { id: string } | null)?.id;
@@ -970,43 +1118,54 @@ export async function syncTemplateWeekFromShiftTemplates(): Promise<
  */
 export async function applyWeekTemplate(
   weekId: string,
+  templateId: string,
 ): Promise<ActionResult<string>> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
+
+  const parsed = parseInput(
+    z.object({
+      weekId: requiredUuid("week id"),
+      templateId: requiredUuid("template id"),
+    }),
+    { weekId, templateId },
+  );
+  if (!parsed.ok) return parsed;
+
   const supabase = await createClient();
   const me = await actor();
 
   const { data: template } = await supabase
     .from("sched_week")
     .select("id")
+    .eq("id", parsed.data.templateId)
     .eq("is_template", true)
     .maybeSingle();
-  const templateId = (template as { id: string } | null)?.id;
-  if (!templateId)
-    return { ok: false, error: "No Week Template has been saved yet." };
+  if (!template)
+    return { ok: false, error: "That template no longer exists." };
 
   const { data: target } = await supabase
     .from("sched_week")
     .select("id, week_start, is_template")
-    .eq("id", weekId)
+    .eq("id", parsed.data.weekId)
     .maybeSingle();
   const targetRow = target as
     | { id: string; week_start: string; is_template: boolean }
     | null;
   if (!targetRow) return { ok: false, error: "That week no longer exists." };
   if (targetRow.is_template)
-    return { ok: false, error: "Cannot apply the template onto itself." };
+    return { ok: false, error: "Cannot apply a template onto a template." };
 
   // Wipe the target week so the template lands cleanly.
-  await supabase.from("sched_assignment").delete().eq("week_id", weekId);
-  await supabase.from("sched_closure").delete().eq("week_id", weekId);
-  await supabase.from("sched_week_location").delete().eq("week_id", weekId);
-  await supabase.from("sched_week_line").delete().eq("week_id", weekId);
+  await supabase.from("sched_assignment").delete().eq("week_id", targetRow.id);
+  await supabase.from("sched_closure").delete().eq("week_id", targetRow.id);
+  await supabase.from("sched_week_location").delete().eq("week_id", targetRow.id);
+  await supabase.from("sched_week_line").delete().eq("week_id", targetRow.id);
 
   const cloned = await cloneWeekContents(
     supabase,
-    templateId,
-    weekId,
+    parsed.data.templateId,
+    targetRow.id,
     targetRow.week_start,
     me.id,
   );

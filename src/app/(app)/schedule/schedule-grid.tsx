@@ -135,6 +135,7 @@ export function ScheduleGrid({
   agendaCounts = [],
   canEdit = false,
   templateMode = false,
+  templates = [],
 }: {
   weeks: SchedWeek[];
   weekData: WeekData;
@@ -143,6 +144,7 @@ export function ScheduleGrid({
   agendaCounts?: AgendaCount[];
   canEdit?: boolean;
   templateMode?: boolean;
+  templates?: SchedWeek[];
 }) {
   const router = useRouter();
   const [, start] = useTransition();
@@ -593,6 +595,7 @@ export function ScheduleGrid({
         enabled={enabled}
         setEnabled={setEnabled}
         templateMode={templateMode}
+        templates={templates}
         onPrintGrid={() => setPrintMode("grid")}
         onPrintEmployee={() => setPrintMode("employee")}
         onExportCsv={downloadWiwCsv}
@@ -1105,6 +1108,7 @@ function Toolbar({
   enabled,
   setEnabled,
   templateMode = false,
+  templates = [],
   onPrintGrid,
   onPrintEmployee,
   onExportCsv,
@@ -1116,6 +1120,7 @@ function Toolbar({
   enabled: Set<string>;
   setEnabled: (s: Set<string>) => void;
   templateMode?: boolean;
+  templates?: SchedWeek[];
   onPrintGrid: () => void;
   onPrintEmployee: () => void;
   onExportCsv: () => void;
@@ -1159,7 +1164,9 @@ function Toolbar({
         )}
       </div>
 
-      {!templateMode && <WeekPicker weeks={weeks} selectedId={week.id} />}
+      {!templateMode && (
+        <WeekPicker weeks={weeks} selectedId={week.id} templates={templates} />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
