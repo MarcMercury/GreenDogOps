@@ -53,14 +53,11 @@ export async function getGuides(): Promise<PlanningGuide[]> {
 /** Full grid payload (guide + columns + slots) for a single guide. */
 export async function getGuideData(guideId: string): Promise<GuideData | null> {
   const supabase = await createClient();
-  const { data: guide } = await supabase
-    .from("planning_guide")
-    .select("*")
-    .eq("id", guideId)
-    .maybeSingle();
-  if (!guide) return null;
 
-  const [colRes, slotRes] = await Promise.all([
+  // Columns and slots filter on guide_id directly, so none of the three waits
+  // on the guide row; fetching it first only added a round trip.
+  const [guideRes, colRes, slotRes] = await Promise.all([
+    supabase.from("planning_guide").select("*").eq("id", guideId).maybeSingle(),
     supabase
       .from("planning_guide_column")
       .select("*")
@@ -74,8 +71,10 @@ export async function getGuideData(guideId: string): Promise<GuideData | null> {
       .order("sort_order"),
   ]);
 
+  if (!guideRes.data) return null;
+
   return {
-    guide: guide as PlanningGuide,
+    guide: guideRes.data as PlanningGuide,
     columns: (colRes.data ?? []) as PlanningGuideColumn[],
     slots: (slotRes.data ?? []) as PlanningGuideSlot[],
   };
