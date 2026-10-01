@@ -330,38 +330,70 @@ export async function getWeekData(weekId: string): Promise<WeekData | null> {
   return getWeekDataFor(week);
 }
 
+/**
+ * The only assignment columns the attendance rollup reads. `select("*")` pulled
+ * all nineteen for every shift in every published week, which is most of the
+ * payload and none of it used.
+ *
+ * `attendance_status`, `work_date` and `removed_post_publish` are required
+ * together: effectiveAttendance() treats a still-"scheduled" shift on a
+ * published past date as present, so dropping any of them changes the tallies.
+ */
+const ATTENDANCE_ASSIGNMENT_COLS =
+  "id, week_id, person_id, work_date, attendance_status, removed_post_publish";
+
+type AttendanceAssignment = Pick<
+  SchedAssignment,
+  "id" | "week_id" | "person_id" | "work_date" | "attendance_status" | "removed_post_publish"
+>;
+
 export interface AttendanceRow {
-  assignment: SchedAssignment;
+  assignment: AttendanceAssignment;
   person: SchedPerson | null;
   week_start: string;
   published: boolean;
 }
 
+
 /**
  * Fetch every row matching a `week_id IN (...)` filter, paging past PostgREST's
  * `max_rows` cap (1000). Without this the attendance rollup silently loses the
  * oldest published shifts once the schedule grows beyond a single page.
+ *
+ * Pages are counted first and then fetched together. Walking them one after the
+ * other costs a round trip per thousand rows, which grows with the schedule.
  */
 async function fetchAllAssignmentsForWeeks(
   supabase: Awaited<ReturnType<typeof createClient>>,
   weekIds: string[],
-): Promise<SchedAssignment[]> {
+): Promise<AttendanceAssignment[]> {
   if (weekIds.length === 0) return [];
   const PAGE = 1000;
-  const all: SchedAssignment[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+
+  const page = (from: number) =>
+    supabase
       .from("sched_assignment")
-      .select("*")
+      .select(ATTENDANCE_ASSIGNMENT_COLS)
       .in("week_id", weekIds)
       .order("work_date", { ascending: false })
       .order("id", { ascending: true })
       .range(from, from + PAGE - 1);
-    if (error || !data || data.length === 0) break;
-    all.push(...(data as SchedAssignment[]));
-    if (data.length < PAGE) break;
-  }
-  return all;
+
+  const { count, error: countErr } = await supabase
+    .from("sched_assignment")
+    .select("id", { count: "exact", head: true })
+    .in("week_id", weekIds);
+  if (countErr) return [];
+
+  const total = count ?? 0;
+  if (total === 0) return [];
+
+  const offsets = Array.from(
+    { length: Math.ceil(total / PAGE) },
+    (_, i) => i * PAGE,
+  );
+  const pages = await Promise.all(offsets.map((from) => page(from)));
+  return pages.flatMap((p) => (p.data ?? []) as unknown as AttendanceAssignment[]);
 }
 
 /** Resolved-attendance assignments across published weeks, for the rollup. */
