@@ -1,5 +1,5 @@
 import "server-only";
-import type { calendar_v3 } from "googleapis";
+import type { calendar_v3 } from "@googleapis/calendar";
 import { getCalendarClient } from "./google";
 import { getGoogleCalendars, type GoogleCalendarConfig } from "./config";
 import { createAdminClient } from "@/lib/supabase/admin";

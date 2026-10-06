@@ -1,5 +1,6 @@
 import "server-only";
-import { google, type gmail_v1 } from "googleapis";
+import { gmail as gmailApi, type gmail_v1 } from "@googleapis/gmail";
+import { OAuth2Client } from "google-auth-library";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { TimeOffKind } from "@/lib/hr/types";
 
@@ -65,9 +66,9 @@ function getGmailClient(): gmail_v1.Gmail {
         "in .env.local / Vercel.",
     );
   }
-  const auth = new google.auth.OAuth2(clientId, clientSecret);
+  const auth = new OAuth2Client(clientId, clientSecret);
   auth.setCredentials({ refresh_token: refreshToken, scope: GMAIL_SCOPE });
-  return google.gmail({ version: "v1", auth });
+  return gmailApi({ version: "v1", auth });
 }
 
 /** Resolve (creating if needed) the label id stamped on processed mail. */

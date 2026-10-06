@@ -1,15 +1,15 @@
 import "server-only";
-import { google } from "googleapis";
+import { sheets as sheetsApi } from "@googleapis/sheets";
+import { drive as driveApi } from "@googleapis/drive";
+import { JWT, OAuth2Client } from "google-auth-library";
 
 /**
- * googleapis bundles its own copy of google-auth-library, and the two copies'
- * classes are structurally incompatible (private fields). Deriving the type
- * from the `google.auth` namespace keeps it identical to what the API clients
- * actually accept.
+ * The per-API @googleapis packages must resolve to the SAME google-auth-library
+ * copy as this import: two copies' classes are structurally incompatible
+ * (private fields), so one auth client could not be shared by Sheets and Drive.
+ * package.json pins google-auth-library directly so npm hoists a single copy.
  */
-type GoogleAuthClient =
-  | InstanceType<typeof google.auth.OAuth2>
-  | InstanceType<typeof google.auth.JWT>;
+type GoogleAuthClient = OAuth2Client | JWT;
 
 /**
  * Server-side Google reader for the connected spreadsheets.
@@ -45,7 +45,7 @@ function userAuth(slot: string): GoogleAuthClient | null {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   if (!refreshToken || !clientId || !clientSecret) return null;
-  const client = new google.auth.OAuth2(clientId, clientSecret);
+  const client = new OAuth2Client(clientId, clientSecret);
   client.setCredentials({ refresh_token: refreshToken });
   return client;
 }
@@ -54,7 +54,7 @@ function serviceAuth(): GoogleAuthClient | null {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
   if (!raw) return null;
   const creds = JSON.parse(raw) as { client_email: string; private_key: string };
-  return new google.auth.JWT({
+  return new JWT({
     email: creds.client_email,
     key: creds.private_key.replace(/\\n/g, "\n"),
     scopes: READ_SCOPES,
@@ -115,7 +115,7 @@ export async function readSheetRange(
   range: string,
 ): Promise<SheetGrid> {
   const { value } = await withIdentity(async (auth) => {
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = sheetsApi({ version: "v4", auth });
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range,
@@ -129,7 +129,7 @@ export async function readSheetRange(
 /** Tab titles in the workbook, in sheet order. */
 export async function listSheetTabs(spreadsheetId: string): Promise<string[]> {
   const { value } = await withIdentity(async (auth) => {
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = sheetsApi({ version: "v4", auth });
     const res = await sheets.spreadsheets.get({ spreadsheetId, fields: "sheets.properties.title" });
     return (res.data.sheets ?? [])
       .map((s) => s.properties?.title ?? "")
@@ -148,7 +148,7 @@ export async function getSpreadsheetModifiedTime(
 ): Promise<string | null> {
   try {
     const { value } = await withIdentity(async (auth) => {
-      const drive = google.drive({ version: "v3", auth });
+      const drive = driveApi({ version: "v3", auth });
       const res = await drive.files.get({
         fileId: spreadsheetId,
         fields: "modifiedTime",

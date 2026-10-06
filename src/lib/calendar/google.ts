@@ -1,5 +1,6 @@
 import "server-only";
-import { google, type calendar_v3 } from "googleapis";
+import { calendar as calendarApi, type calendar_v3 } from "@googleapis/calendar";
+import { JWT } from "google-auth-library";
 
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
 
@@ -33,10 +34,10 @@ function loadCredentials(): ServiceAccountCredentials {
 /** Read-only Google Calendar client authenticated as the service account. */
 export function getCalendarClient(): calendar_v3.Calendar {
   const creds = loadCredentials();
-  const auth = new google.auth.JWT({
+  const auth = new JWT({
     email: creds.client_email,
     key: creds.private_key,
     scopes: [CALENDAR_SCOPE],
   });
-  return google.calendar({ version: "v3", auth });
+  return calendarApi({ version: "v3", auth });
 }
