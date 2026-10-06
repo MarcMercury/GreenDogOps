@@ -50,3 +50,60 @@ export function PostToSlackButton({
     </span>
   );
 }
+
+/**
+ * One-time @channel announcement of a candidate. Once posted, later stage
+ * changes and scheduled interviews reply in that post's thread, so the button
+ * locks to "Announced ✓".
+ */
+export function AnnounceButton({
+  announcedAt,
+  onAnnounce,
+}: {
+  /** null = not yet announced; otherwise the announced_at timestamp (may be ""). */
+  announcedAt: string | null;
+  onAnnounce: () => Promise<{ ok: true } | { ok: false; error: string }>;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  if (announcedAt !== null) {
+    const when = announcedAt
+      ? new Date(announcedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+      : "";
+    return (
+      <span
+        title="Updates post in the announcement's Slack thread"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700"
+      >
+        📣 Announced ✓{when ? ` ${when}` : ""}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2">
+      {error && <span className="text-xs text-red-600">{error}</span>}
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          if (
+            !window.confirm(
+              "Announce this candidate in the Slack recruiting channel? This @channel post notifies everyone.",
+            )
+          )
+            return;
+          setError(null);
+          startTransition(async () => {
+            const result = await onAnnounce();
+            if (!result.ok) setError(result.error);
+          });
+        }}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:opacity-50"
+      >
+        {pending ? "Announcing…" : "📣 Announce in Slack"}
+      </button>
+    </span>
+  );
+}

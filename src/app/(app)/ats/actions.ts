@@ -2,9 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentUser, ensureCanEdit, recordAudit } from "@/lib/auth/session";
+import { getCurrentUser, ensureCanEdit, recordAudit, type CurrentUser } from "@/lib/auth/session";
 import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { logProfileTransition } from "@/lib/shared/transition-log";
 import { isAdminRole } from "@/lib/auth/permissions";
@@ -21,12 +22,27 @@ import {
   type ParseResumeResult,
   type CreateCandidatesResult,
 } from "@/lib/ats/import-types";
-import { ACCEPTED_LEAD_STAGE, DECLINED_STAGE, type CandidateDocument, type CandidateRow, type PersonInterview } from "@/lib/ats/types";
 import {
-  buildCandidateSummary,
-  buildInterviewSummary,
-} from "@/lib/ats/slack-summary";
-import { postSlackMessage } from "@/lib/slack/client";
+  ACCEPTED_LEAD_STAGE,
+  DECLINED_STAGE,
+  ACTIVITY_TYPE_LABELS,
+  POSITION_PRIORITY_LABELS,
+  POSITION_STATUS_LABELS,
+  isRecruitingStage,
+  type CandidateDocument,
+  type CandidateRow,
+  type PersonInterview,
+} from "@/lib/ats/types";
+import { buildInterviewSummary } from "@/lib/ats/slack-summary";
+import {
+  buildAnnouncementMessage,
+  buildInterviewScheduledMessage,
+  buildStageChangeMessage,
+  candidateName,
+  candidateProfileUrl,
+  notifyCandidateThread,
+} from "@/lib/ats/slack-notify";
+import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 
 function str(v: FormDataEntryValue | null): string | null {
@@ -52,6 +68,60 @@ function phone(v: FormDataEntryValue | null): string | null {
 }
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
+
+function actorName(current: CurrentUser): string {
+  return current.appUser.full_name ?? current.email.split("@")[0];
+}
+
+/**
+ * Record a recruiting stage move: a History-tab transition row plus a Slack
+ * reply in the candidate's announcement thread. The Slack post runs after the
+ * response so a slow Slack API never holds up the save.
+ */
+async function recordStageChange(
+  personId: string,
+  fromStage: string | null,
+  toStage: string | null,
+  current: CurrentUser,
+): Promise<void> {
+  if ((fromStage ?? "") === (toStage ?? "")) return;
+  const name = actorName(current);
+  await logProfileTransition({
+    personId,
+    eventType: "stage_change",
+    fromStage,
+    toStage,
+    actorId: current.authId,
+    actorName: name,
+  });
+  if (!isSlackConfigured()) return;
+  after(async () => {
+    const admin = createAdminClient();
+    const { data } = await admin
+      .from("person")
+      .select("full_name, first_name, last_name")
+      .eq("id", personId)
+      .maybeSingle();
+    if (!data) return;
+    await notifyCandidateThread({
+      personId,
+      text: buildStageChangeMessage(candidateName(data), fromStage, toStage, name),
+      username: name,
+      actorId: current.authId,
+      actorEmail: current.email,
+    });
+  });
+}
+
+async function currentStage(personId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("person_recruiting")
+    .select("stage")
+    .eq("person_id", personId)
+    .maybeSingle();
+  return (data as { stage?: string | null } | null)?.stage ?? null;
+}
 
 export async function updateCandidate(
   personId: string,
@@ -79,8 +149,12 @@ export async function updateCandidate(
     .eq("id", personId);
   if (pErr) return { ok: false, error: pErr.message };
 
+  const fromStage = await currentStage(personId);
   const recPatch = {
     person_id: personId,
+    ...(formData.has("target_position_id")
+      ? { target_position_id: str(formData.get("target_position_id")) }
+      : {}),
     pipeline: str(formData.get("pipeline")),
     stage: str(formData.get("stage")),
     target_title: str(formData.get("target_title")),
@@ -104,6 +178,33 @@ export async function updateCandidate(
     .from("person_recruiting")
     .upsert(recPatch, { onConflict: "person_id" });
   if (rErr) return { ok: false, error: rErr.message };
+
+  await recordStageChange(personId, fromStage, recPatch.stage, gate.current);
+
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath("/ats");
+  return { ok: true };
+}
+
+/** Inline stage change from the pipeline list or profile header. */
+export async function updateCandidateStage(
+  personId: string,
+  stage: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  if (!isRecruitingStage(stage)) return { ok: false, error: "Unknown stage." };
+
+  const fromStage = await currentStage(personId);
+  if (fromStage === stage) return { ok: true };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_recruiting")
+    .upsert({ person_id: personId, stage }, { onConflict: "person_id" });
+  if (error) return { ok: false, error: error.message };
+
+  await recordStageChange(personId, fromStage, stage, gate.current);
 
   revalidatePath(`/ats/${personId}`);
   revalidatePath("/ats");
@@ -154,7 +255,22 @@ export async function saveInterview(
     recommendation: str(formData.get("recommendation")),
     summary: str(formData.get("summary")),
     responses: cleanResponses,
+    start_time: str(formData.get("start_time")),
+    end_time: str(formData.get("end_time")),
   };
+
+  // Note what was scheduled before so only a newly scheduled (or rescheduled)
+  // interview is announced — not every edit to notes or grades.
+  type ScheduledSnapshot = Pick<PersonInterview, "status" | "interview_date" | "start_time">;
+  let before: ScheduledSnapshot | null = null;
+  if (id) {
+    const { data } = await supabase
+      .from("person_interview")
+      .select("status, interview_date, start_time")
+      .eq("id", id)
+      .maybeSingle();
+    before = data as ScheduledSnapshot | null;
+  }
 
   const { error } = id
     ? await supabase.from("person_interview").update(patch).eq("id", id)
@@ -162,7 +278,35 @@ export async function saveInterview(
 
   if (error) return { ok: false, error: error.message };
 
+  const newlyScheduled =
+    patch.status === "scheduled" &&
+    patch.interview_date != null &&
+    (!before ||
+      before.status !== "scheduled" ||
+      before.interview_date !== patch.interview_date ||
+      (before.start_time ?? "").slice(0, 5) !== (patch.start_time ?? "").slice(0, 5));
+  if (newlyScheduled && isSlackConfigured()) {
+    const current = gate.current;
+    after(async () => {
+      const admin = createAdminClient();
+      const { data } = await admin
+        .from("person")
+        .select("full_name, first_name, last_name")
+        .eq("id", personId)
+        .maybeSingle();
+      if (!data) return;
+      await notifyCandidateThread({
+        personId,
+        text: buildInterviewScheduledMessage(candidateName(data), patch),
+        username: actorName(current),
+        actorId: current.authId,
+        actorEmail: current.email,
+      });
+    });
+  }
+
   revalidatePath(`/ats/${personId}`);
+  revalidatePath("/calendar");
   return { ok: true };
 }
 
@@ -204,6 +348,7 @@ async function loadCandidateRow(personId: string): Promise<CandidateRow | null> 
          follow_up_date, notes, target_title, candidate_location,
          relevant_experience, education, job_location, interest_level,
          external_status, source_detail, screening_answers, application_history,
+         slack_announce_ts, slack_announce_channel, announced_at, announced_by,
          created_at, updated_at
        )`,
     )
@@ -237,6 +382,7 @@ async function postSummary(
     channelKey: "hiring",
     text,
     username: appUser.full_name ?? email.split("@")[0],
+    threadTs: row.person_recruiting?.slack_announce_ts ?? undefined,
   });
   if (!result.ok) return { ok: false, error: result.error ?? "Slack post failed." };
 
@@ -252,12 +398,87 @@ async function postSummary(
   return { ok: true };
 }
 
-export async function postCandidateSummaryToSlack(
-  personId: string,
-): Promise<SaveResult> {
-  return postSummary(personId, "candidate", async (row) =>
-    buildCandidateSummary(row),
-  );
+/**
+ * Post the candidate announcement (the team's numbered format, @channel) and
+ * remember its ts so later stage changes and interviews reply in its thread.
+ * Each candidate is announced once.
+ */
+export async function announceCandidate(personId: string): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  if (!isSlackConfigured()) {
+    return { ok: false, error: "Slack isn't configured (SLACK_BOT_TOKEN is not set)." };
+  }
+
+  const row = await loadCandidateRow(personId);
+  if (!row) return { ok: false, error: "Candidate not found." };
+  if (row.person_recruiting?.slack_announce_ts) {
+    return {
+      ok: false,
+      error: "Already announced — updates reply in the original Slack thread.",
+    };
+  }
+
+  // Resume link: the explicit URL if one was entered, else the newest uploaded
+  // resume (signed for a week so the link still works when the team reads it).
+  let resumeLink = row.person_recruiting?.resume_url ?? null;
+  if (!resumeLink) {
+    const admin = createAdminClient();
+    const { data: doc } = await admin
+      .from("person_document")
+      .select("storage_path")
+      .eq("person_id", personId)
+      .ilike("category", "resume")
+      .order("uploaded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const path = (doc as { storage_path?: string } | null)?.storage_path;
+    if (path) {
+      const { data: signed } = await admin.storage
+        .from(DOCUMENTS_BUCKET)
+        .createSignedUrl(path, 60 * 60 * 24 * 7);
+      resumeLink = signed?.signedUrl ?? null;
+    }
+  }
+
+  const { appUser, email, authId } = gate.current;
+  const result = await postSlackMessage({
+    channelKey: "hiring",
+    text: buildAnnouncementMessage(row, resumeLink, candidateProfileUrl(personId)),
+    username: actorName(gate.current),
+  });
+  if (!result.ok) return { ok: false, error: result.error ?? "Slack post failed." };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("person_recruiting")
+    .upsert(
+      {
+        person_id: personId,
+        slack_announce_ts: result.ts ?? null,
+        slack_announce_channel: result.channel ?? null,
+        announced_at: new Date().toISOString(),
+        announced_by: authId,
+      },
+      { onConflict: "person_id" },
+    );
+
+  await recordAudit({
+    actorId: appUser.id,
+    actorEmail: email,
+    action: "slack.post",
+    entity: "person",
+    entityId: personId,
+    summary: "Announced candidate in Slack",
+    metadata: { channel: result.channel, ts: result.ts },
+  });
+
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath("/ats");
+  if (error) {
+    return { ok: false, error: `Posted to Slack, but couldn't save the thread link: ${error.message}` };
+  }
+  return { ok: true };
 }
 
 export async function postInterviewSummaryToSlack(
@@ -458,15 +679,28 @@ export async function hireCandidate(personId: string): Promise<void> {
     .eq("id", personId);
   // Seed the employment row and stamp a hire date if one isn't set yet.
   const today = new Date().toISOString().slice(0, 10);
-  const { data: emp } = await supabase
-    .from("person_employment")
-    .select("hire_date")
-    .eq("person_id", personId)
-    .maybeSingle();
+  // The position they were recruited for carries over unless HR already set one.
+  const [{ data: emp }, { data: recRow }] = await Promise.all([
+    supabase
+      .from("person_employment")
+      .select("hire_date, position_id")
+      .eq("person_id", personId)
+      .maybeSingle(),
+    supabase
+      .from("person_recruiting")
+      .select("target_position_id")
+      .eq("person_id", personId)
+      .maybeSingle(),
+  ]);
+  const existing = emp as { hire_date?: string | null; position_id?: string | null } | null;
   await supabase.from("person_employment").upsert(
     {
       person_id: personId,
-      hire_date: (emp as { hire_date?: string | null } | null)?.hire_date ?? today,
+      hire_date: existing?.hire_date ?? today,
+      position_id:
+        existing?.position_id ??
+        (recRow as { target_position_id?: string | null } | null)?.target_position_id ??
+        null,
     },
     { onConflict: "person_id" },
   );
@@ -536,6 +770,7 @@ async function setReviewStatus(
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
+  const fromStage = await currentStage(personId);
   const { error } = await supabase
     .from("person_recruiting")
     .update({
@@ -546,6 +781,18 @@ async function setReviewStatus(
     })
     .eq("person_id", personId);
   if (error) return { ok: false, error: error.message };
+
+  // History only — accepting from the queue doesn't post to Slack; the
+  // recruiter announces the candidate once they've screened them.
+  await logProfileTransition({
+    personId,
+    eventType: "review_triage",
+    fromStage,
+    toStage: stage,
+    detail: reviewStatus === "accepted" ? "Accepted from the review queue" : "Declined from the review queue",
+    actorId: gate.current.authId,
+    actorName: actorName(gate.current),
+  });
 
   await recordAudit({
     actorId: gate.current.authId,
@@ -894,7 +1141,9 @@ export async function createCandidate(
 
   const recPatch = {
     person_id: person.id,
+    target_position_id: str(formData.get("target_position_id")),
     target_title: str(formData.get("target_title")),
+    candidate_location: str(formData.get("candidate_location")),
     pipeline: str(formData.get("pipeline")),
     stage: str(formData.get("stage")),
     source: str(formData.get("source")),
@@ -929,4 +1178,232 @@ export async function createCandidate(
 
   revalidatePath("/ats");
   return { ok: true, id: person.id };
+}
+
+// ---------------------------------------------------------------------------
+// Activity log (calls / texts / emails / notes) and follow-up tasks. In-app
+// only — these never post to Slack.
+// ---------------------------------------------------------------------------
+
+export async function addRecruitingActivity(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+
+  const body = str(formData.get("body"));
+  if (!body) return { ok: false, error: "Write what happened." };
+  const type = str(formData.get("activity_type")) ?? "note";
+  if (!(type in ACTIVITY_TYPE_LABELS)) return { ok: false, error: "Unknown activity type." };
+  const occurredAt = str(formData.get("occurred_at"));
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("recruiting_activity").insert({
+    person_id: personId,
+    activity_type: type,
+    body,
+    ...(occurredAt ? { occurred_at: new Date(occurredAt).toISOString() } : {}),
+    created_by: gate.current.authId,
+    created_by_name: actorName(gate.current),
+  });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/ats/${personId}`);
+  return { ok: true };
+}
+
+export async function deleteRecruitingActivity(
+  personId: string,
+  activityId: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("recruiting_activity")
+    .delete()
+    .eq("id", activityId)
+    .eq("person_id", personId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/ats/${personId}`);
+  return { ok: true };
+}
+
+export async function addRecruitingTask(
+  personId: string,
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+
+  const title = str(formData.get("title"));
+  if (!title) return { ok: false, error: "Give the follow-up a title." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("recruiting_task").insert({
+    person_id: personId,
+    title,
+    details: str(formData.get("details")),
+    due_date: str(formData.get("due_date")),
+    created_by: gate.current.authId,
+    created_by_name: actorName(gate.current),
+  });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath("/ats");
+  return { ok: true };
+}
+
+export async function toggleRecruitingTask(
+  personId: string,
+  taskId: string,
+  done: boolean,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("recruiting_task")
+    .update({ is_done: done, completed_at: done ? new Date().toISOString() : null })
+    .eq("id", taskId)
+    .eq("person_id", personId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath("/ats");
+  return { ok: true };
+}
+
+export async function deleteRecruitingTask(
+  personId: string,
+  taskId: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("recruiting_task")
+    .delete()
+    .eq("id", taskId)
+    .eq("person_id", personId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/ats/${personId}`);
+  revalidatePath("/ats");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Open positions board — the hiring needs the team used to track in a Slack
+// canvas ("need another Van Nuys CSR", "MyPet truck tech top priority").
+// Rows live on the shared `position` table, which HR also references by id.
+// ---------------------------------------------------------------------------
+
+export async function savePosition(
+  _prev: SaveResult | null,
+  formData: FormData,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+
+  const id = str(formData.get("position_id"));
+  const title = str(formData.get("title"));
+  if (!title) return { ok: false, error: "Enter a position title." };
+  const priority = str(formData.get("priority")) ?? "normal";
+  const status = str(formData.get("status")) ?? "open";
+  if (!(priority in POSITION_PRIORITY_LABELS)) return { ok: false, error: "Unknown priority." };
+  if (!(status in POSITION_STATUS_LABELS)) return { ok: false, error: "Unknown status." };
+  const openings = Math.max(1, Math.round(num(formData.get("openings")) ?? 1));
+
+  const patch = {
+    title,
+    location: str(formData.get("location")),
+    priority,
+    status,
+    openings,
+    notes: str(formData.get("notes")),
+  };
+
+  const supabase = await createClient();
+  const { error } = id
+    ? await supabase.from("position").update(patch).eq("id", id)
+    : await supabase.from("position").insert(patch);
+  if (error) {
+    if (error.code === "23505") {
+      return { ok: false, error: "A position with that title and location already exists." };
+    }
+    return { ok: false, error: error.message };
+  }
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: id ? "update" : "create",
+    entity: "position",
+    entityId: id ?? undefined,
+    summary: `${id ? "Updated" : "Opened"} position ${title}${patch.location ? ` (${patch.location})` : ""}`,
+  });
+
+  revalidatePath("/ats");
+  return { ok: true };
+}
+
+export async function setPositionStatus(
+  positionId: string,
+  status: string,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  if (!(status in POSITION_STATUS_LABELS)) return { ok: false, error: "Unknown status." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("position")
+    .update({ status })
+    .eq("id", positionId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/ats");
+  return { ok: true };
+}
+
+/**
+ * Admin only, and only for positions nobody is linked to — `position` is shared
+ * with HR (person_employment.position_id), so deleting a used one would blank
+ * employees' positions. Close it instead.
+ */
+export async function deletePosition(positionId: string): Promise<SaveResult> {
+  const current = await getCurrentUser();
+  if (!current || !isAdminRole(current.appUser.role)) {
+    return { ok: false, error: "Only an admin can delete a position. Close it instead." };
+  }
+  const supabase = await createClient();
+  const [{ count: employees }, { count: candidates }] = await Promise.all([
+    supabase
+      .from("person_employment")
+      .select("person_id", { count: "exact", head: true })
+      .eq("position_id", positionId),
+    supabase
+      .from("person_recruiting")
+      .select("person_id", { count: "exact", head: true })
+      .eq("target_position_id", positionId),
+  ]);
+  if ((employees ?? 0) > 0 || (candidates ?? 0) > 0) {
+    return {
+      ok: false,
+      error: `This position is linked to ${employees ?? 0} employee(s) and ${candidates ?? 0} candidate(s). Mark it Closed instead.`,
+    };
+  }
+  const { error } = await supabase.from("position").delete().eq("id", positionId);
+  if (error) return { ok: false, error: error.message };
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "delete",
+    entity: "position",
+    entityId: positionId,
+    summary: "Deleted position",
+  });
+  revalidatePath("/ats");
+  return { ok: true };
 }

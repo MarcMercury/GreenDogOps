@@ -3,11 +3,15 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ACCEPTED_LEAD_STAGE,
   RECRUITING_PIPELINE_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
+  RECRUITING_STAGE_OPTIONS,
+  type PositionRow,
 } from "@/lib/ats/types";
 import { PhoneInput } from "@/lib/shared/phone-input";
 import { createCandidate } from "./actions";
+import { PositionPicker } from "./position-picker";
 
 const inputCls =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -69,9 +73,11 @@ function Select({
 export function AddCandidateDialog({
   open,
   onClose,
+  positions,
 }: {
   open: boolean;
   onClose: () => void;
+  positions: PositionRow[];
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -139,13 +145,27 @@ export function AddCandidateDialog({
                 Pipeline
               </h3>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Position applied for" name="target_title" />
+                <PositionPicker
+                  positions={positions}
+                  className={inputCls}
+                  labelClassName={labelCls}
+                />
+                <Field label="Location (where they live / want to work)" name="candidate_location" />
                 <Select
                   label="Pipeline"
                   name="pipeline"
                   options={RECRUITING_PIPELINE_OPTIONS}
                 />
-                <Field label="Stage" name="stage" />
+                <label className="flex flex-col gap-1">
+                  <span className={labelCls}>Stage</span>
+                  <select name="stage" defaultValue={ACCEPTED_LEAD_STAGE} className={inputCls}>
+                    {RECRUITING_STAGE_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <Select
                   label="Source (found on)"
                   name="source"

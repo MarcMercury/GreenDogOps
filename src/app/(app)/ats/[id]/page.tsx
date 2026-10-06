@@ -5,7 +5,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
 import { isSlackConfigured } from "@/lib/slack/client";
-import type { CandidateRow, PersonInterview } from "@/lib/ats/types";
+import type {
+  CandidateRow,
+  PersonInterview,
+  PositionRow,
+  RecruitingActivity,
+  RecruitingTask,
+} from "@/lib/ats/types";
 import type { PersonDocument, PersonDocumentWithUrl } from "@/lib/hr/types";
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { CandidateProfile } from "./candidate-profile";
@@ -14,10 +20,13 @@ export const dynamic = "force-dynamic";
 
 export default async function CandidateDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string | string[] }>;
 }) {
   const { id } = await params;
+  const { tab } = await searchParams;
   const supabase = await createClient();
   const current = await getCurrentUser();
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
@@ -35,7 +44,9 @@ export default async function CandidateDetailPage({
          follow_up_date, notes, target_title, review_status, reviewed_at,
          reviewed_by, candidate_location, relevant_experience, education,
          job_location, interest_level, external_status, source_detail,
-         screening_answers, application_history, created_at, updated_at
+         screening_answers, application_history, slack_announce_ts,
+         slack_announce_channel, announced_at, announced_by, created_at,
+         updated_at
        )`,
     )
     .eq("id", id)
@@ -103,6 +114,26 @@ export default async function CandidateDetailPage({
     .order("created_at", { ascending: false });
   const transitions = (transitionData ?? []) as ProfileTransition[];
 
+  const [{ data: activityData }, { data: taskData }, { data: positionData }] =
+    await Promise.all([
+      supabase
+        .from("recruiting_activity")
+        .select("*")
+        .eq("person_id", id)
+        .order("occurred_at", { ascending: false }),
+      supabase
+        .from("recruiting_task")
+        .select("*")
+        .eq("person_id", id)
+        .order("is_done", { ascending: true })
+        .order("due_date", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false }),
+      supabase.from("position").select("*").order("title", { ascending: true }),
+    ]);
+  const activities = (activityData ?? []) as RecruitingActivity[];
+  const tasks = (taskData ?? []) as RecruitingTask[];
+  const positions = (positionData ?? []) as PositionRow[];
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link href="/ats" className="text-sm text-emerald-700 hover:text-emerald-900">
@@ -126,6 +157,10 @@ export default async function CandidateDetailPage({
         interviews={interviews}
         documents={documentsWithUrls}
         transitions={transitions}
+        activities={activities}
+        tasks={tasks}
+        positions={positions}
+        initialTab={typeof tab === "string" ? tab : undefined}
         isAdmin={isAdmin}
         canEdit={canEdit}
         slackEnabled={canEdit && isSlackConfigured()}

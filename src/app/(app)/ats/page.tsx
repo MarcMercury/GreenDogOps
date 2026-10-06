@@ -1,12 +1,22 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
-import type { CandidateRow, CandidateInterviewMeta } from "@/lib/ats/types";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
+import type {
+  CandidateRow,
+  CandidateInterviewMeta,
+  CandidateTaskMeta,
+  PositionRow,
+} from "@/lib/ats/types";
 import { AtsExplorer } from "./ats-explorer";
 
 export const dynamic = "force-dynamic";
 
 export default async function AtsPage() {
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const canEdit = current ? canEditModule(current.appUser, "ats") : false;
+  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
 
   const { data, error } = await fetchAllRows<Record<string, unknown>>((from, to) =>
     supabase
@@ -21,7 +31,9 @@ export default async function AtsPage() {
          follow_up_date, notes, target_title, review_status, reviewed_at,
          reviewed_by, candidate_location, relevant_experience, education,
          job_location, interest_level, external_status, source_detail,
-         screening_answers, application_history, created_at, updated_at
+         screening_answers, application_history, slack_announce_ts,
+         slack_announce_channel, announced_at, announced_by, created_at,
+         updated_at
        )`,
       )
       .eq("status", "applicant")
@@ -127,5 +139,32 @@ export default async function AtsPage() {
     }
   }
 
-  return <AtsExplorer rows={rows} />;
+  // Open follow-up tasks per candidate (count + earliest due date) for the
+  // "Follow-ups due" panel. Only open tasks, so this stays small.
+  const { data: taskData } = await fetchAllRows<{ person_id: string; due_date: string | null }>(
+    (from, to) =>
+      supabase
+        .from("recruiting_task")
+        .select("person_id, due_date")
+        .eq("is_done", false)
+        .range(from, to),
+  );
+  const taskMeta = new Map<string, CandidateTaskMeta>();
+  for (const t of taskData ?? []) {
+    const m = taskMeta.get(t.person_id) ?? { open: 0, next_due: null };
+    m.open += 1;
+    if (t.due_date && (m.next_due === null || t.due_date < m.next_due)) {
+      m.next_due = t.due_date;
+    }
+    taskMeta.set(t.person_id, m);
+  }
+  for (const r of rows) r.task_meta = taskMeta.get(r.id) ?? null;
+
+  const { data: positionData } = await supabase
+    .from("position")
+    .select("*")
+    .order("title", { ascending: true });
+  const positions = (positionData ?? []) as PositionRow[];
+
+  return <AtsExplorer rows={rows} positions={positions} canEdit={canEdit} isAdmin={isAdmin} />;
 }

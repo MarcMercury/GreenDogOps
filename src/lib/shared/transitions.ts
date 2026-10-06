@@ -22,6 +22,8 @@ export const TRANSITION_EVENT_LABELS: Record<string, string> = {
   direct_entry: "Direct entry",
   documents_migrated: "Documents migrated",
   status_change: "Status changed",
+  stage_change: "Recruiting stage changed",
+  review_triage: "Review queue decision",
 };
 
 export const STAGE_LABELS: Record<string, string> = {

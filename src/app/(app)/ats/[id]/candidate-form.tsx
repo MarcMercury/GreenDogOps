@@ -6,21 +6,23 @@ import {
   type CandidateRow,
   type ScreeningAnswer,
   type ApplicationHistoryEntry,
+  type PositionRow,
   RECRUITING_PIPELINE_OPTIONS,
   RECRUITING_SOURCE_OPTIONS,
-  RECRUITING_POSITION_OPTIONS,
+  RECRUITING_STAGE_OPTIONS,
   RECRUITING_INTEREST_OPTIONS,
 } from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { PhoneInput } from "@/lib/shared/phone-input";
 import { CopyForSlackButton } from "./copy-for-slack";
-import { PostToSlackButton } from "./post-to-slack";
+import { AnnounceButton } from "./post-to-slack";
+import { PositionPicker } from "../position-picker";
 import { buildCandidateSummary } from "@/lib/ats/slack-summary";
 import {
   updateCandidate,
   hireCandidate,
   deleteCandidate,
-  postCandidateSummaryToSlack,
+  announceCandidate,
   type SaveResult,
 } from "../actions";
 
@@ -264,12 +266,14 @@ export function CandidateForm({
   isAdmin = false,
   canEdit = false,
   slackEnabled = false,
+  positions = [],
   hidden = false,
 }: {
   row: CandidateRow;
   isAdmin?: boolean;
   canEdit?: boolean;
   slackEnabled?: boolean;
+  positions?: PositionRow[];
   hidden?: boolean;
 }) {
   const rec = row.person_recruiting;
@@ -293,11 +297,10 @@ export function CandidateForm({
           label="Copy candidate summary"
           getText={() => buildCandidateSummary(row)}
         />
-        {slackEnabled && (
-          <PostToSlackButton
-            label="Post candidate summary"
-            confirmMessage="Post this candidate summary to the Slack hiring channel?"
-            onPost={() => postCandidateSummaryToSlack(row.id)}
+        {slackEnabled && canEdit && (
+          <AnnounceButton
+            announcedAt={rec?.slack_announce_ts ? (rec.announced_at ?? "") : null}
+            onAnnounce={() => announceCandidate(row.id)}
           />
         )}
         {canEdit && (
@@ -320,20 +323,21 @@ export function CandidateForm({
       </Section>
 
       <Section title="Pipeline">
-        <Field
-          label="Position applied for"
-          name="target_title"
-          defaultValue={rec?.target_title}
-          list="recruiting-position-options"
+        <PositionPicker
+          positions={positions}
+          defaultPositionId={rec?.target_position_id}
+          defaultTitle={rec?.target_title}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          labelClassName="text-xs font-medium text-slate-500"
         />
-        <datalist id="recruiting-position-options">
-          {RECRUITING_POSITION_OPTIONS.map((p) => (
-            <option key={p} value={p} />
-          ))}
-        </datalist>
         <OpportunityTypeField defaultValue={row.opportunity_type} />
         <Select label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} options={RECRUITING_PIPELINE_OPTIONS} />
-        <Field label="Stage" name="stage" defaultValue={rec?.stage} />
+        <Select
+          label="Stage"
+          name="stage"
+          defaultValue={rec?.stage}
+          options={RECRUITING_STAGE_OPTIONS.map((s) => ({ value: s, label: s }))}
+        />
         <Select label="Source (found on)" name="source" defaultValue={rec?.source} options={RECRUITING_SOURCE_OPTIONS} />
         <Field label="Source detail" name="source_detail" defaultValue={rec?.source_detail} />
         <Field label="Applied to location" name="job_location" defaultValue={rec?.job_location} />

@@ -25,6 +25,10 @@ export interface PersonRecruiting {
   source_detail: string | null;
   screening_answers: ScreeningAnswer[] | null;
   application_history: ApplicationHistoryEntry[] | null;
+  slack_announce_ts: string | null;
+  slack_announce_channel: string | null;
+  announced_at: string | null;
+  announced_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -65,6 +69,29 @@ export type ReviewStatus = "pending" | "accepted" | "declined";
 export const ACCEPTED_LEAD_STAGE = "New Lead";
 export const DECLINED_STAGE = "Declined";
 
+// The recruiting team's stages, in pipeline order. The stage column stays free
+// text so legacy/imported values still display; the dropdowns offer these.
+export const RECRUITING_STAGE_OPTIONS = [
+  "New Lead",
+  "Contacted",
+  "Phone Screen",
+  "Zoom/Virtual Interview",
+  "In-Person / Shadow Day",
+  "Doc Call",
+  "Offer",
+  "Hired",
+  "Hold for Future",
+  "No Response",
+  "Passed",
+  "Declined",
+] as const;
+
+export type RecruitingStage = (typeof RECRUITING_STAGE_OPTIONS)[number];
+
+export function isRecruitingStage(v: string): v is RecruitingStage {
+  return (RECRUITING_STAGE_OPTIONS as readonly string[]).includes(v);
+}
+
 export interface InterviewResponse {
   question: string;
   answer: string | null;
@@ -82,6 +109,8 @@ export interface PersonInterview {
   recommendation: string | null;
   summary: string | null;
   responses: InterviewResponse[];
+  start_time: string | null;
+  end_time: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -185,6 +214,102 @@ export interface CandidateRow {
   updated_at: string;
   person_recruiting: PersonRecruiting | null;
   interview_meta?: CandidateInterviewMeta | null;
+  task_meta?: CandidateTaskMeta | null;
+}
+
+// Open follow-up tasks per candidate for the pipeline list view.
+export interface CandidateTaskMeta {
+  open: number;
+  next_due: string | null; // earliest due date among open tasks
+}
+
+/** A logged call / text / email / note on a candidate. In-app only. */
+export interface RecruitingActivity {
+  id: string;
+  person_id: string;
+  activity_type: string;
+  body: string;
+  occurred_at: string;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+export const ACTIVITY_TYPE_LABELS: Record<string, string> = {
+  call: "Call",
+  text: "Text",
+  email: "Email",
+  note: "Note",
+};
+
+/** A dated follow-up on a candidate. */
+export interface RecruitingTask {
+  id: string;
+  person_id: string;
+  title: string;
+  details: string | null;
+  due_date: string | null;
+  is_done: boolean;
+  completed_at: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** An open (or recently filled) position on the hiring board. */
+export interface PositionRow {
+  id: string;
+  title: string;
+  location: string | null;
+  priority: string;
+  status: string;
+  openings: number;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export const POSITION_STATUS_LABELS: Record<string, string> = {
+  open: "Open",
+  on_hold: "On Hold",
+  filled: "Filled",
+  closed: "Closed",
+};
+
+export const POSITION_STATUS_BADGE: Record<string, string> = {
+  open: "bg-emerald-100 text-emerald-800",
+  on_hold: "bg-amber-100 text-amber-800",
+  filled: "bg-blue-100 text-blue-800",
+  closed: "bg-slate-200 text-slate-600",
+};
+
+export const POSITION_PRIORITY_LABELS: Record<string, string> = {
+  high: "High",
+  normal: "Normal",
+  low: "Low",
+};
+
+export const POSITION_PRIORITY_BADGE: Record<string, string> = {
+  high: "bg-rose-100 text-rose-700",
+  normal: "bg-slate-100 text-slate-600",
+  low: "bg-slate-50 text-slate-400",
+};
+
+/** "CSR — Van Nuys" */
+export function positionLabel(p: Pick<PositionRow, "title" | "location">): string {
+  return p.location ? `${p.title} — ${p.location}` : p.title;
+}
+
+/** "10:30 AM" from a pg time ("10:30:00") or an <input type="time"> value. */
+export function formatTime(t: string | null | undefined): string | null {
+  if (!t) return null;
+  const [hh, mm] = t.split(":");
+  const h = Number(hh);
+  if (Number.isNaN(h)) return t;
+  const suffix = h >= 12 ? "PM" : "AM";
+  return `${h % 12 === 0 ? 12 : h % 12}:${mm ?? "00"} ${suffix}`;
 }
 
 // Lightweight per-candidate interview rollup for the pipeline list view.
@@ -240,6 +365,8 @@ export function bucketForStage(stage: string | null): StageBucket {
     s.includes("decision") ||
     s.includes("new lead") ||
     s.includes("phone") ||
+    s.includes("contact") ||
+    s.includes("doc call") ||
     // Job-board dispositions carried in by the Indeed import.
     s.includes("contacting") ||
     s === "reviewed"

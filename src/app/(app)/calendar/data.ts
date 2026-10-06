@@ -165,8 +165,11 @@ type InterviewRow = {
   id: string;
   interview_date: string | null;
   interview_type: string | null;
+  start_time: string | null;
+  end_time: string | null;
   location: string | null;
   status: string | null;
+  person_id: string;
   person: PersonName | PersonName[] | null;
 };
 
@@ -178,7 +181,9 @@ async function getInterviews(
   const { data } = await fetchAllRows<InterviewRow>((from, to) =>
     supabase
       .from("person_interview")
-      .select(`id, interview_date, interview_type, location, status, person:person_id (${PERSON_COLS})`)
+      .select(
+        `id, person_id, interview_date, interview_type, start_time, end_time, location, status, person:person_id (${PERSON_COLS})`,
+      )
       .not("interview_date", "is", null)
       .neq("status", "cancelled")
       .gte("interview_date", start)
@@ -187,6 +192,10 @@ async function getInterviews(
   );
   return (data ?? []).map((r) => {
     const kind = r.interview_type?.replace(/_/g, " ") ?? "interview";
+    const { iso, allDay } = combineDateTime(r.interview_date!, r.start_time);
+    const endTime = r.end_time
+      ? combineDateTime(r.interview_date!, r.end_time).iso
+      : null;
     return {
       id: itemId("interview", r.id),
       source: "interview" as const,
@@ -194,11 +203,11 @@ async function getInterviews(
       title: `Interview: ${displayName(firstPerson(r.person))}`,
       description: kind,
       location: r.location,
-      start: `${r.interview_date}T00:00:00`,
-      end: null,
-      allDay: true,
+      start: iso,
+      end: endTime,
+      allDay,
       status: "confirmed" as const,
-      href: "/ats",
+      href: `/ats/${r.person_id}`,
       editable: false,
     };
   });
