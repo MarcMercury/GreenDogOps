@@ -1,6 +1,7 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
+import { normalizePositionTitle } from "./normalize";
 
 // ---------------------------------------------------------------------------
 // Shared applicant intake.
@@ -132,9 +133,10 @@ async function storeResume(admin: Admin, personId: string, resume: ApplicantResu
  * name (Indeed email notifications have a name but no email).
  */
 export async function createApplicantProfile(
-  input: ApplicantInput,
+  rawInput: ApplicantInput,
   resumes: ApplicantResume[] = [],
 ): Promise<IntakeOutcome> {
+  const input = { ...rawInput, targetTitle: normalizePositionTitle(rawInput.targetTitle) };
   let first = input.firstName;
   let last = input.lastName;
   if (!first && !last && input.fullName) {

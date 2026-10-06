@@ -30,6 +30,10 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import {
+  normalizeJobLocation,
+  normalizePositionTitle,
+} from "../src/lib/ats/normalize.ts";
 
 const [, , CSV_PATH, PEOPLE_JSON, OUT_DIR] = process.argv;
 if (!CSV_PATH || !PEOPLE_JSON || !OUT_DIR) {
@@ -212,8 +216,8 @@ function zipFrom(answers, candidateLocation) {
 // Indeed's own pipeline status -> our stage + intake triage state.
 const STATUS_MAP = {
   "awaiting review": { stage: null, review: "pending" },
-  reviewed: { stage: "Reviewed", review: "accepted" },
-  contacting: { stage: "Contacting", review: "accepted" },
+  reviewed: { stage: "New Lead", review: "accepted" },
+  contacting: { stage: "Contacted", review: "accepted" },
   hired: { stage: "Hired", review: "accepted" },
   rejected: { stage: "Declined", review: "declined" },
 };
@@ -305,8 +309,8 @@ function profileFor(group) {
     candidateLocation: firstSet("candidateLocation"),
     relevantExperience: firstSet("relevantExperience"),
     education: firstSet("education"),
-    targetTitle: latest.jobTitle,
-    jobLocation: latest.jobLocation,
+    targetTitle: normalizePositionTitle(latest.jobTitle),
+    jobLocation: normalizeJobLocation(latest.jobLocation),
     interestLevel: latest.interestLevel,
     externalStatus: latest.externalStatus,
     sourceDetail: latest.sourceDetail,

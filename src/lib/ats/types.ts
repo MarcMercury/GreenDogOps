@@ -149,23 +149,40 @@ export const RECRUITING_SOURCE_OPTIONS = [
   { value: "GD Website", label: "GD Website" },
   { value: "Social Media", label: "Social Media" },
   { value: "Facebook", label: "Facebook" },
+  { value: "LinkedIn", label: "LinkedIn" },
   { value: "Personal Referral", label: "Personal Referral" },
+  { value: "College / School", label: "College / School" },
+  { value: "Walk-in", label: "Walk-in" },
+  { value: "Recruiter Outreach", label: "Recruiter Outreach" },
+  { value: "Veterinary America", label: "Veterinary America" },
   { value: "Other", label: "Other" },
 ] as const;
 
-// Common positions candidates apply for. Used as datalist suggestions on the
-// import/edit forms; the field stays free-text so unusual titles still save.
+// Canonical positions (see normalizePositionTitle in ./normalize). Used as
+// datalist suggestions on the import/edit forms; the field stays free-text so
+// unusual titles still save.
 export const RECRUITING_POSITION_OPTIONS = [
   "DVM",
   "CSR",
+  "Remote CSR",
   "Vet Tech",
+  "Senior Vet Tech",
+  "RVT",
+  "Exotics RVT",
+  "Clinic Tech",
   "Vet Assistant",
-  "Practice Manager",
-  "Receptionist",
+  "Dental Tech",
+  "Mobile Vet Tech / Driver",
   "Kennel Technician",
   "Groomer",
-  "Remote CSR",
-  "Volunteer / Extern",
+  "Facilities / Cleaning",
+  "Practice Manager",
+  "Executive Assistant",
+  "Recruiting Assistant",
+  "Marketing",
+  "Extern",
+  "Intern",
+  "Volunteer",
 ] as const;
 
 export const INTERVIEW_STATUS_LABELS: Record<string, string> = {
@@ -431,6 +448,15 @@ export const STAGE_BUCKET_LABELS: Record<StageBucket, string> = {
 export function bucketForStage(stage: string | null): StageBucket {
   const s = (stage ?? "").toLowerCase();
   if (!s) return "other";
+  // Checked before the hired/active keywords so "Offer Declined", "Do not
+  // contact" and "Separated (No Rehire)" aren't miscounted.
+  if (
+    s.includes("declined") ||
+    s.includes("do not contact") ||
+    s.includes("separated") ||
+    s.includes("seperated")
+  )
+    return "passed";
   if (s.includes("hire") && !s.includes("no hire")) return "hired";
   if (s.includes("future") || s.includes("hold") || s.includes("remain")) return "future";
   if (
