@@ -27,11 +27,15 @@ const STATUS_ORDER: Record<string, number> = { open: 0, on_hold: 1, filled: 2, c
 export function PositionsBoard({
   positions,
   rows,
+  roles,
+  locations,
   canEdit,
   isAdmin,
 }: {
   positions: PositionRow[];
   rows: CandidateRow[];
+  roles: { id: string; name: string }[];
+  locations: { id: string; name: string }[];
   canEdit: boolean;
   isAdmin: boolean;
 }) {
@@ -150,6 +154,8 @@ export function PositionsBoard({
       {editing && (
         <PositionDialog
           position={editing === "new" ? null : editing}
+          roles={roles}
+          locations={locations}
           isAdmin={isAdmin}
           onClose={() => setEditing(null)}
         />
@@ -198,16 +204,24 @@ function StatusSelect({ position, canEdit }: { position: PositionRow; canEdit: b
 
 function PositionDialog({
   position,
+  roles,
+  locations,
   isAdmin,
   onClose,
 }: {
   position: PositionRow | null;
+  roles: { id: string; name: string }[];
+  locations: { id: string; name: string }[];
   isAdmin: boolean;
   onClose: () => void;
 }) {
   const [state, formAction, pending] = useActionState(savePosition, null);
   const [deleting, startDelete] = useTransition();
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const selectedRole = roles.find((role) => role.name === position?.title);
+  const selectedLocation = locations.find(
+    (location) => location.name === position?.location,
+  );
 
   useEffect(() => {
     if (state?.ok) onClose();
@@ -243,25 +257,94 @@ function PositionDialog({
                 {state && !state.ok ? state.error : deleteError}
               </p>
             ) : null}
-            <label className="flex flex-col gap-1">
-              <span className={labelCls}>Title</span>
-              <input
-                name="title"
-                required
-                defaultValue={position?.title ?? ""}
-                placeholder="CSR, Lead Tech, DVM…"
-                className={inputCls}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className={labelCls}>Location</span>
-              <input
-                name="location"
-                defaultValue={position?.location ?? ""}
-                placeholder="Van Nuys, Venice, MyPet truck…"
-                className={inputCls}
-              />
-            </label>
+            {position ? (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className={labelCls}>Position</span>
+                  <select
+                    name="role_id"
+                    defaultValue={selectedRole?.id ?? "__current_role__"}
+                    required
+                    className={`${inputCls} w-full`}
+                  >
+                    {!selectedRole && (
+                      <option value="__current_role__">
+                        {position.title} (current; not in active roles)
+                      </option>
+                    )}
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={labelCls}>Clinic location</span>
+                  <select
+                    name="location_id"
+                    defaultValue={
+                      selectedLocation?.id ??
+                      (position.location ? "__current_location__" : "")
+                    }
+                    className={`${inputCls} w-full`}
+                  >
+                    <option value="">— None —</option>
+                    {!selectedLocation && position.location && (
+                      <option value="__current_location__">
+                        {position.location} (current; not an active clinic)
+                      </option>
+                    )}
+                    {locations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className={labelCls}>Positions</span>
+                  <select
+                    name="role_ids"
+                    multiple
+                    required
+                    size={Math.min(roles.length, 5) || 2}
+                    className={`${inputCls} w-full`}
+                  >
+                    {roles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] text-slate-400">
+                    Select one or more system roles. Use Ctrl-click (Cmd-click on Mac) for multiple.
+                  </span>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className={labelCls}>Clinic locations</span>
+                  <select
+                    name="location_ids"
+                    multiple
+                    required
+                    size={Math.min(locations.length, 5) || 2}
+                    className={`${inputCls} w-full`}
+                  >
+                    {locations.map((location) => (
+                      <option key={location.id} value={location.id}>
+                        {location.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] text-slate-400">
+                    Each role/clinic combination becomes a separate position, with the openings count applied to each. Use Ctrl-click (Cmd-click on Mac) for multiple.
+                  </span>
+                </label>
+              </>
+            )}
             <label className="flex flex-col gap-1">
               <span className={labelCls}>Priority</span>
               <select

@@ -46,11 +46,15 @@ function localToday(): string {
 export function AtsExplorer({
   rows,
   positions,
+  roles,
+  locations,
   canEdit,
   isAdmin,
 }: {
   rows: CandidateRow[];
   positions: PositionRow[];
+  roles: { id: string; name: string }[];
+  locations: { id: string; name: string }[];
   canEdit: boolean;
   isAdmin: boolean;
 }) {
@@ -315,6 +319,8 @@ export function AtsExplorer({
         <PositionsBoard
           positions={positions}
           rows={pipelineRows}
+          roles={roles}
+          locations={locations}
           canEdit={canEdit}
           isAdmin={isAdmin}
         />

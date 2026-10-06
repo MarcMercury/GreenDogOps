@@ -1309,41 +1309,135 @@ export async function savePosition(
   if (!gate.ok) return gate;
 
   const id = str(formData.get("position_id"));
-  const title = str(formData.get("title"));
-  if (!title) return { ok: false, error: "Enter a position title." };
   const priority = str(formData.get("priority")) ?? "normal";
   const status = str(formData.get("status")) ?? "open";
   if (!(priority in POSITION_PRIORITY_LABELS)) return { ok: false, error: "Unknown priority." };
   if (!(status in POSITION_STATUS_LABELS)) return { ok: false, error: "Unknown status." };
   const openings = Math.max(1, Math.round(num(formData.get("openings")) ?? 1));
-
-  const patch = {
-    title,
-    location: str(formData.get("location")),
-    priority,
-    status,
-    openings,
-    notes: str(formData.get("notes")),
-  };
-
   const supabase = await createClient();
-  const { error } = id
-    ? await supabase.from("position").update(patch).eq("id", id)
-    : await supabase.from("position").insert(patch);
-  if (error) {
-    if (error.code === "23505") {
-      return { ok: false, error: "A position with that title and location already exists." };
-    }
-    return { ok: false, error: error.message };
+
+  const currentPosition = id
+    ? await supabase
+        .from("position")
+        .select("title, location")
+        .eq("id", id)
+        .maybeSingle()
+    : null;
+  if (currentPosition?.error) {
+    return { ok: false, error: currentPosition.error.message };
+  }
+  if (id && !currentPosition?.data) {
+    return { ok: false, error: "The position being edited could not be found." };
   }
 
+  const roleValues = id
+    ? [str(formData.get("role_id"))].filter((value): value is string => value !== null)
+    : formData
+        .getAll("role_ids")
+        .map((value) => String(value).trim())
+        .filter(Boolean);
+  const locationValues = id
+    ? [str(formData.get("location_id")) ?? ""]
+    : formData
+        .getAll("location_ids")
+        .map((value) => String(value).trim())
+        .filter(Boolean);
+
+  if (roleValues.length === 0) {
+    return { ok: false, error: "Select at least one system role." };
+  }
+  if (locationValues.length === 0) {
+    return { ok: false, error: "Select at least one clinic location." };
+  }
+
+  const roleIds = roleValues.filter((value) => value !== "__current_role__");
+  const locationIds = locationValues.filter(
+    (value) => value !== "" && value !== "__current_location__",
+  );
+  const roleNames = new Map<string, string>();
+  if (roleIds.length > 0) {
+    const { data, error } = await supabase
+      .from("sched_role")
+      .select("id, name")
+      .in("id", roleIds)
+      .eq("is_active", true);
+    if (error) return { ok: false, error: error.message };
+    for (const role of data ?? []) roleNames.set(role.id, role.name);
+  }
+  const locationNames = new Map<string, string>();
+  if (locationIds.length > 0) {
+    const { data, error } = await supabase
+      .from("location")
+      .select("id, name")
+      .in("id", locationIds)
+      .eq("is_active", true)
+      .eq("kind", "clinic");
+    if (error) return { ok: false, error: error.message };
+    for (const location of data ?? []) locationNames.set(location.id, location.name);
+  }
+
+  const current = currentPosition?.data;
+  const titles = roleValues.map((value) => {
+    if (value === "__current_role__" && id && current) return current.title;
+    return roleNames.get(value) ?? null;
+  });
+  const locations = locationValues.map((value) => {
+    if (value === "__current_location__" && id && current) return current.location;
+    if (value === "") return null;
+    return locationNames.get(value) ?? null;
+  });
+  if (titles.some((title) => !title)) {
+    return { ok: false, error: "Select roles from the active system role list." };
+  }
+  if (locations.some((location, index) => location === null && locationValues[index] !== "")) {
+    return { ok: false, error: "Select clinic locations from the active location list." };
+  }
+  if (id && (titles.length !== 1 || locations.length !== 1)) {
+    return { ok: false, error: "Edit one position at a time." };
+  }
+  if (!id && locations.some((location) => location === null)) {
+    return { ok: false, error: "Select clinic locations from the active location list." };
+  }
+
+  const selectedTitles = titles.filter(
+    (title): title is string => title !== null,
+  );
+  const notes = str(formData.get("notes"));
+  const records = selectedTitles.flatMap((title) =>
+    locations.map((location) => ({
+      title,
+      location,
+      priority,
+      status,
+      openings,
+      notes,
+    })),
+  );
+
+  const result = id
+    ? await supabase.from("position").update(records[0]).eq("id", id)
+    : await supabase.from("position").insert(records);
+  if (result.error) {
+    if (result.error.code === "23505") {
+      return {
+        ok: false,
+        error: "One or more selected role and location combinations already exist.",
+      };
+    }
+    return { ok: false, error: result.error.message };
+  }
+
+  const summary =
+    id
+      ? `Updated position ${records[0].title}${records[0].location ? ` (${records[0].location})` : ""}`
+      : `Opened ${records.length} position${records.length === 1 ? "" : "s"} for ${selectedTitles.join(", ")} at ${locations.join(", ")}`;
   await recordAudit({
     actorId: gate.current.authId,
     actorEmail: gate.current.email,
     action: id ? "update" : "create",
     entity: "position",
     entityId: id ?? undefined,
-    summary: `${id ? "Updated" : "Opened"} position ${title}${patch.location ? ` (${patch.location})` : ""}`,
+    summary,
   });
 
   revalidatePath("/ats");

@@ -160,11 +160,53 @@ export default async function AtsPage() {
   }
   for (const r of rows) r.task_meta = taskMeta.get(r.id) ?? null;
 
-  const { data: positionData } = await supabase
-    .from("position")
-    .select("*")
-    .order("title", { ascending: true });
-  const positions = (positionData ?? []) as PositionRow[];
+  const [{ data: positionData }, { data: roleData, error: roleError }, { data: locationData, error: locationError }] =
+    await Promise.all([
+      supabase.from("position").select("*").order("title", { ascending: true }),
+      supabase
+        .from("sched_role")
+        .select("id, name")
+        .eq("is_active", true)
+        .order("name", { ascending: true }),
+      supabase
+        .from("location")
+        .select("id, name")
+        .eq("is_active", true)
+        .eq("kind", "clinic")
+        .order("sort_order", { ascending: true })
+        .order("name", { ascending: true }),
+    ]);
 
-  return <AtsExplorer rows={rows} positions={positions} canEdit={canEdit} isAdmin={isAdmin} />;
+  if (roleError || locationError) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <h1 className="text-2xl font-semibold text-slate-900">Recruiting (ATS)</h1>
+        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          Could not load position options: {roleError?.message ?? locationError?.message}
+        </p>
+      </div>
+    );
+  }
+
+  const positions = (positionData ?? []) as PositionRow[];
+  const roles = Array.from(
+    new Map(
+      ((roleData ?? []) as { id: string; name: string }[]).map((role) => [
+        role.name,
+        { id: role.id, name: role.name },
+      ]),
+    ).values(),
+  );
+  const locations = (locationData ?? []) as { id: string; name: string }[];
+
+  return (
+    <AtsExplorer
+      rows={rows}
+      positions={positions}
+      roles={roles}
+      locations={locations}
+      canEdit={canEdit}
+      isAdmin={isAdmin}
+    />
+  );
 }
