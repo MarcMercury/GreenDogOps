@@ -1,12 +1,19 @@
 "use client";
 
-import { useActionState, useEffect, useState, useTransition } from "react";
+import { Fragment, useActionState, useEffect, useState, useTransition } from "react";
 import {
+  POSITION_DAY_SHORT,
+  POSITION_EMPLOYMENT_LABELS,
+  POSITION_PAY_TYPE_LABELS,
   POSITION_PRIORITY_BADGE,
   POSITION_PRIORITY_LABELS,
   POSITION_STATUS_BADGE,
   POSITION_STATUS_LABELS,
+  POSITION_WORK_LOCATION_LABELS,
   bucketForStage,
+  formatDaysNeeded,
+  formatPayRange,
+  formatShift,
   type CandidateRow,
   type PositionRow,
 } from "@/lib/ats/types";
@@ -15,6 +22,14 @@ import { deletePosition, savePosition, setPositionStatus } from "./actions";
 const inputCls =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 const labelCls = "text-sm font-medium text-slate-700";
+
+/** Monday-first for display; values stay 0=Sun..6=Sat. */
+const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+const DAY_PRESETS = [
+  { label: "Weekdays", days: [1, 2, 3, 4, 5] },
+  { label: "Weekends", days: [0, 6] },
+  { label: "All", days: [0, 1, 2, 3, 4, 5, 6] },
+];
 
 const PRIORITY_ORDER: Record<string, number> = { high: 0, normal: 1, low: 2 };
 const STATUS_ORDER: Record<string, number> = { open: 0, on_hold: 1, filled: 2, closed: 3 };
@@ -41,6 +56,14 @@ export function PositionsBoard({
 }) {
   const [editing, setEditing] = useState<PositionRow | "new" | null>(null);
   const [showClosed, setShowClosed] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const activeByPosition = new Map<string, number>();
   for (const r of rows) {
@@ -113,9 +136,38 @@ export function PositionsBoard({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {visible.map((p) => (
-                <tr key={p.id} className="align-top">
-                  <td className="px-4 py-3 font-medium text-slate-900">{p.title}</td>
+              {visible.map((p) => {
+                const meta = positionMeta(p);
+                const hasDetails = Boolean(p.description || p.requirements);
+                const isOpen = expanded.has(p.id);
+                return (
+                <Fragment key={p.id}>
+                <tr className="align-top">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-slate-900">{p.title}</div>
+                    {meta.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {meta.map((m) => (
+                          <span
+                            key={m}
+                            className="whitespace-nowrap rounded-md bg-slate-100 px-1.5 py-0.5 text-xs text-slate-600"
+                          >
+                            {m}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {hasDetails && (
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(p.id)}
+                        aria-expanded={isOpen}
+                        className="mt-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-900"
+                      >
+                        {isOpen ? "Hide role details" : "Role details"}
+                      </button>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-slate-700">{p.location ?? "—"}</td>
                   <td className="px-4 py-3">
                     <span
@@ -145,7 +197,33 @@ export function PositionsBoard({
                     </td>
                   )}
                 </tr>
-              ))}
+                {isOpen && hasDetails && (
+                  <tr className="bg-slate-50/60">
+                    <td colSpan={canEdit ? 8 : 7} className="px-4 py-4">
+                      <div className="grid gap-4 text-sm sm:grid-cols-2">
+                        {p.description && (
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                              Duties &amp; summary
+                            </div>
+                            <p className="mt-1 whitespace-pre-wrap text-slate-700">{p.description}</p>
+                          </div>
+                        )}
+                        {p.requirements && (
+                          <div>
+                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                              Requirements
+                            </div>
+                            <p className="mt-1 whitespace-pre-wrap text-slate-700">{p.requirements}</p>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -162,6 +240,26 @@ export function PositionsBoard({
       )}
     </div>
   );
+}
+
+function positionMeta(p: PositionRow): string[] {
+  const out: string[] = [];
+  if (p.employment_type) out.push(POSITION_EMPLOYMENT_LABELS[p.employment_type] ?? p.employment_type);
+  const days = formatDaysNeeded(p.days_needed);
+  if (days) out.push(days);
+  const shift = formatShift(p.shift_start, p.shift_end);
+  if (shift) out.push(shift);
+  if (p.hours_per_week) out.push(`${Number(p.hours_per_week)} hrs/wk`);
+  if (p.work_location_type && p.work_location_type !== "in_house") {
+    out.push(POSITION_WORK_LOCATION_LABELS[p.work_location_type] ?? p.work_location_type);
+  }
+  const pay = formatPayRange(p);
+  if (pay) out.push(pay);
+  if (p.target_start_date) {
+    const d = new Date(`${p.target_start_date}T00:00:00`);
+    out.push(`Start ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`);
+  }
+  return out;
 }
 
 function StatusSelect({ position, canEdit }: { position: PositionRow; canEdit: boolean }) {
@@ -221,6 +319,19 @@ function PositionDialog({
   const [roleIds, setRoleIds] = useState<Set<string>>(new Set());
   const [locationIds, setLocationIds] = useState<Set<string>>(new Set());
   const [openings, setOpenings] = useState<number>(position?.openings ?? 1);
+  const [employmentType, setEmploymentType] = useState<string | null>(
+    position?.employment_type ?? null,
+  );
+  const [payType, setPayType] = useState<string | null>(position?.pay_type ?? "hourly");
+  const [days, setDays] = useState<Set<number>>(new Set(position?.days_needed ?? []));
+  const toggleDay = (d: number) =>
+    setDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(d)) next.delete(d);
+      else next.add(d);
+      return next;
+    });
+  const daysSummary = formatDaysNeeded([...days]);
   const selectedRole = roles.find((role) => role.name === position?.title);
   const selectedLocation = locations.find(
     (location) => location.name === position?.location,
@@ -288,6 +399,7 @@ function PositionDialog({
               </p>
             )}
 
+            <Section title="Role & clinic">
             {position ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Position">
@@ -375,7 +487,172 @@ function PositionDialog({
                 </div>
               </>
             )}
+            </Section>
 
+            <Section
+              title="Schedule"
+              description="When this person needs to work."
+            >
+              <Field label="Employment type">
+                <Segmented
+                  name="employment_type"
+                  options={POSITION_EMPLOYMENT_LABELS}
+                  value={employmentType}
+                  onChange={setEmploymentType}
+                  clearable
+                  className="grid-cols-2 sm:grid-cols-4"
+                />
+              </Field>
+              <Field label="Days needed" hint={daysSummary ?? "Flexible"}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid flex-1 grid-cols-7 gap-1.5">
+                    {DAY_ORDER.map((d) => {
+                      const on = days.has(d);
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          aria-pressed={on}
+                          aria-label={POSITION_DAY_SHORT[d]}
+                          onClick={() => toggleDay(d)}
+                          className={`min-w-0 rounded-lg border py-2 text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+                            on
+                              ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
+                              : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50"
+                          }`}
+                        >
+                          {POSITION_DAY_SHORT[d]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-1">
+                    {DAY_PRESETS.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => setDays(new Set(p.days))}
+                        className="rounded-md px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 hover:text-emerald-900"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    {days.size > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setDays(new Set())}
+                        className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                      >
+                        Clear
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {[...days].map((d) => (
+                  <input key={d} type="hidden" name="days_needed" value={d} />
+                ))}
+              </Field>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <Field label="Shift start">
+                  <input
+                    name="shift_start"
+                    type="time"
+                    defaultValue={position?.shift_start?.slice(0, 5) ?? ""}
+                    className={`${inputCls} w-full`}
+                  />
+                </Field>
+                <Field label="Shift end">
+                  <input
+                    name="shift_end"
+                    type="time"
+                    defaultValue={position?.shift_end?.slice(0, 5) ?? ""}
+                    className={`${inputCls} w-full`}
+                  />
+                </Field>
+                <Field label="Hours / week">
+                  <input
+                    name="hours_per_week"
+                    type="number"
+                    min={1}
+                    max={80}
+                    step="0.5"
+                    inputMode="decimal"
+                    defaultValue={position?.hours_per_week ?? ""}
+                    placeholder="e.g. 40"
+                    className={`${inputCls} w-full`}
+                  />
+                </Field>
+                <Field label="Work setting">
+                  <select
+                    name="work_location_type"
+                    defaultValue={position?.work_location_type ?? ""}
+                    className={`${inputCls} w-full`}
+                  >
+                    <option value="">—</option>
+                    {Object.entries(POSITION_WORK_LOCATION_LABELS).map(([v, l]) => (
+                      <option key={v} value={v}>
+                        {l}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+            </Section>
+
+            <Section title="Pay & start date">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,0.8fr)]">
+                <Field label="Pay range">
+                  <div className="flex items-center gap-2">
+                    <MoneyInput name="pay_min" defaultValue={position?.pay_min} placeholder="Min" />
+                    <span className="text-slate-400">–</span>
+                    <MoneyInput name="pay_max" defaultValue={position?.pay_max} placeholder="Max" />
+                  </div>
+                </Field>
+                <Field label="Per">
+                  <Segmented
+                    name="pay_type"
+                    options={POSITION_PAY_TYPE_LABELS}
+                    value={payType}
+                    onChange={(v) => setPayType(v ?? "hourly")}
+                    className="grid-cols-2"
+                  />
+                </Field>
+                <Field label="Target start date">
+                  <input
+                    name="target_start_date"
+                    type="date"
+                    defaultValue={position?.target_start_date ?? ""}
+                    className={`${inputCls} w-full`}
+                  />
+                </Field>
+              </div>
+            </Section>
+
+            <Section
+              title="Role details"
+              description="What the recruiter should pitch and screen for."
+            >
+              <Field label="Duties & summary" hint="Optional">
+                <textarea
+                  name="description"
+                  rows={3}
+                  defaultValue={position?.description ?? ""}
+                  placeholder="e.g. Front desk for a busy 3-doctor practice — check-ins, phones, scheduling, payments."
+                  className={`${inputCls} w-full resize-y`}
+                />
+              </Field>
+              <Field label="Requirements" hint="Optional">
+                <textarea
+                  name="requirements"
+                  rows={3}
+                  defaultValue={position?.requirements ?? ""}
+                  placeholder="e.g. 1+ yr vet clinic experience, bilingual Spanish preferred, RVT license required."
+                  className={`${inputCls} w-full resize-y`}
+                />
+              </Field>
+            </Section>
+
+            <Section title="Tracking">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <Field label="Priority">
                 <div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1">
@@ -439,15 +716,16 @@ function PositionDialog({
               </Field>
             </div>
 
-            <Field label="Notes" hint="Optional">
+            <Field label="Internal notes" hint="Optional">
               <textarea
                 name="notes"
-                rows={3}
+                rows={2}
                 defaultValue={position?.notes ?? ""}
                 placeholder="e.g. Lesly moving remote — last in-house day Sept 17"
                 className={`${inputCls} w-full resize-y`}
               />
             </Field>
+            </Section>
           </div>
 
           <div className="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/80 px-6 py-4">
@@ -496,6 +774,95 @@ function PositionDialog({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-4 border-t border-slate-100 pt-6 first:border-t-0 first:pt-0">
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400">{title}</h3>
+        {description && <p className="mt-0.5 text-sm text-slate-500">{description}</p>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Segmented({
+  name,
+  options,
+  value,
+  onChange,
+  clearable,
+  className = "",
+}: {
+  name: string;
+  options: Record<string, string>;
+  value: string | null;
+  onChange: (next: string | null) => void;
+  clearable?: boolean;
+  className?: string;
+}) {
+  return (
+    <div role="radiogroup" className={`grid gap-1 rounded-lg bg-slate-100 p-1 ${className}`}>
+      <input type="hidden" name={name} value={value ?? ""} />
+      {Object.entries(options).map(([v, l]) => {
+        const on = value === v;
+        return (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={on}
+            onClick={() => onChange(on && clearable ? null : v)}
+            className={`rounded-md px-2 py-1.5 text-center text-sm font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
+              on
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {l}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MoneyInput({
+  name,
+  defaultValue,
+  placeholder,
+}: {
+  name: string;
+  defaultValue: number | null | undefined;
+  placeholder: string;
+}) {
+  return (
+    <div className="relative min-w-0 flex-1">
+      <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-slate-400">
+        $
+      </span>
+      <input
+        name={name}
+        type="number"
+        min={0}
+        step="0.01"
+        inputMode="decimal"
+        defaultValue={defaultValue ?? ""}
+        placeholder={placeholder}
+        className={`${inputCls} w-full pl-7 tabular-nums`}
+      />
     </div>
   );
 }

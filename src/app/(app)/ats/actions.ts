@@ -28,6 +28,9 @@ import {
   ACTIVITY_TYPE_LABELS,
   POSITION_PRIORITY_LABELS,
   POSITION_STATUS_LABELS,
+  POSITION_EMPLOYMENT_LABELS,
+  POSITION_WORK_LOCATION_LABELS,
+  POSITION_PAY_TYPE_LABELS,
   isRecruitingStage,
   type CandidateDocument,
   type CandidateRow,
@@ -1314,6 +1317,65 @@ export async function savePosition(
   if (!(priority in POSITION_PRIORITY_LABELS)) return { ok: false, error: "Unknown priority." };
   if (!(status in POSITION_STATUS_LABELS)) return { ok: false, error: "Unknown status." };
   const openings = Math.max(1, Math.round(num(formData.get("openings")) ?? 1));
+
+  const employmentType = str(formData.get("employment_type"));
+  if (employmentType && !(employmentType in POSITION_EMPLOYMENT_LABELS)) {
+    return { ok: false, error: "Unknown employment type." };
+  }
+  const workLocationType = str(formData.get("work_location_type"));
+  if (workLocationType && !(workLocationType in POSITION_WORK_LOCATION_LABELS)) {
+    return { ok: false, error: "Unknown work setting." };
+  }
+  const daysNeeded = [
+    ...new Set(
+      formData
+        .getAll("days_needed")
+        .map((value) => Number(value))
+        .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6),
+    ),
+  ].sort((a, b) => a - b);
+  const timePattern = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/;
+  const shiftStart = str(formData.get("shift_start"));
+  const shiftEnd = str(formData.get("shift_end"));
+  if ((shiftStart && !timePattern.test(shiftStart)) || (shiftEnd && !timePattern.test(shiftEnd))) {
+    return { ok: false, error: "Enter shift times as HH:MM." };
+  }
+  const hoursPerWeek = num(formData.get("hours_per_week"));
+  if (hoursPerWeek !== null && (hoursPerWeek <= 0 || hoursPerWeek > 80)) {
+    return { ok: false, error: "Hours per week must be between 1 and 80." };
+  }
+  const payMin = num(formData.get("pay_min"));
+  const payMax = num(formData.get("pay_max"));
+  if ((payMin !== null && payMin < 0) || (payMax !== null && payMax < 0)) {
+    return { ok: false, error: "Pay can't be negative." };
+  }
+  if (payMin !== null && payMax !== null && payMin > payMax) {
+    return { ok: false, error: "Minimum pay can't be higher than maximum pay." };
+  }
+  const hasPay = payMin !== null || payMax !== null;
+  const payTypeInput = str(formData.get("pay_type"));
+  if (payTypeInput && !(payTypeInput in POSITION_PAY_TYPE_LABELS)) {
+    return { ok: false, error: "Unknown pay type." };
+  }
+  const payType = hasPay ? (payTypeInput ?? "hourly") : null;
+  const targetStartDate = str(formData.get("target_start_date"));
+  if (targetStartDate && !/^\d{4}-\d{2}-\d{2}$/.test(targetStartDate)) {
+    return { ok: false, error: "Enter a valid start date." };
+  }
+  const details = {
+    employment_type: employmentType,
+    days_needed: daysNeeded,
+    shift_start: shiftStart,
+    shift_end: shiftEnd,
+    hours_per_week: hoursPerWeek,
+    work_location_type: workLocationType,
+    pay_min: payMin,
+    pay_max: payMax,
+    pay_type: payType,
+    target_start_date: targetStartDate,
+    description: str(formData.get("description")),
+    requirements: str(formData.get("requirements")),
+  };
   const supabase = await createClient();
 
   const currentPosition = id
@@ -1411,6 +1473,7 @@ export async function savePosition(
       status,
       openings,
       notes,
+      ...details,
     })),
   );
 

@@ -1,3 +1,10 @@
+import {
+  SCHEDULE_LABELS,
+  WORK_LOCATION_LABELS,
+  type WorkLocationType,
+  type WorkSchedule,
+} from "../hr/types";
+
 export interface PersonRecruiting {
   person_id: string;
   target_position_id: string | null;
@@ -266,9 +273,78 @@ export interface PositionRow {
   status: string;
   openings: number;
   notes: string | null;
+  employment_type: WorkSchedule | null;
+  /** Weekdays that must be covered, 0=Sun..6=Sat; empty = flexible. */
+  days_needed: number[] | null;
+  shift_start: string | null;
+  shift_end: string | null;
+  hours_per_week: number | null;
+  work_location_type: WorkLocationType | null;
+  pay_min: number | null;
+  pay_max: number | null;
+  pay_type: PositionPayType | null;
+  target_start_date: string | null;
+  description: string | null;
+  requirements: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export type PositionPayType = "hourly" | "salary";
+
+export const POSITION_EMPLOYMENT_LABELS: Record<WorkSchedule, string> = SCHEDULE_LABELS;
+export const POSITION_WORK_LOCATION_LABELS: Record<WorkLocationType, string> =
+  WORK_LOCATION_LABELS;
+export const POSITION_PAY_TYPE_LABELS: Record<PositionPayType, string> = {
+  hourly: "Hourly",
+  salary: "Salary",
+};
+
+/** Sunday-first, matching the schedule module's 0=Sun..6=Sat numbering. */
+export const POSITION_DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+/** "Mon–Fri", "Sat, Sun", "Every day", or "Mon, Wed, Fri". */
+export function formatDaysNeeded(days: number[] | null | undefined): string | null {
+  if (!days || days.length === 0) return null;
+  const set = new Set(days);
+  if (set.size === 7) return "Every day";
+  const weekdays = [1, 2, 3, 4, 5];
+  if (set.size === 5 && weekdays.every((d) => set.has(d))) return "Mon–Fri";
+  if (set.size === 2 && set.has(0) && set.has(6)) return "Sat, Sun";
+  // Monday-first reads more naturally for recruiters.
+  return [1, 2, 3, 4, 5, 6, 0]
+    .filter((d) => set.has(d))
+    .map((d) => POSITION_DAY_SHORT[d])
+    .join(", ");
+}
+
+/** "$22–$28/hr", "$85k–$110k/yr", "From $25/hr". */
+export function formatPayRange(
+  p: Pick<PositionRow, "pay_min" | "pay_max" | "pay_type">,
+): string | null {
+  const { pay_min: min, pay_max: max, pay_type: type } = p;
+  if (min == null && max == null) return null;
+  const fmt = (n: number) =>
+    type === "salary" && n >= 1000
+      ? `$${Number((n / 1000).toFixed(1))}k`
+      : `$${Number(n.toFixed(2)).toLocaleString("en-US")}`;
+  const unit = type === "salary" ? "/yr" : type === "hourly" ? "/hr" : "";
+  if (min != null && max != null) {
+    return min === max ? `${fmt(min)}${unit}` : `${fmt(min)}–${fmt(max)}${unit}`;
+  }
+  return min != null ? `From ${fmt(min)}${unit}` : `Up to ${fmt(max as number)}${unit}`;
+}
+
+/** "8:00 AM – 6:00 PM" from two pg times. */
+export function formatShift(
+  start: string | null | undefined,
+  end: string | null | undefined,
+): string | null {
+  const s = formatTime(start);
+  const e = formatTime(end);
+  if (s && e) return `${s} – ${e}`;
+  return s ? `Starts ${s}` : e ? `Ends ${e}` : null;
 }
 
 export const POSITION_STATUS_LABELS: Record<string, string> = {
