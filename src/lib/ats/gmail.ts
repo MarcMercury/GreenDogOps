@@ -9,6 +9,8 @@ import {
   type ApplicantResume,
 } from "@/lib/ats/applicant-intake";
 import type { ParsedCandidate } from "@/lib/ats/import-types";
+import { isAllowedResumeHost, parseCareersForm } from "@/lib/ats/careers-form";
+import { normalizeJobLocation } from "@/lib/ats/normalize";
 
 // ---------------------------------------------------------------------------
 // Gmail applicant intake (greendogcareers@gmail.com).
@@ -30,14 +32,16 @@ const IMPORTED_LABEL = "GD-Imported";
 // Only real applications: Indeed per-candidate "New application" notifications
 // (conversation-*@indeedemail.com), Indeed's bundled digests of the same
 // (employers-noreply@indeed.com, several candidates per message), and direct
-// website submissions from the careers form (gv-clients.com). Everything else
-// in the inbox is ignored.
+// website submissions from the careers form (gv-clients.com — subject
+// "Career Application NNNN", or "Webform submission from: Apply for a
+// position" since late Aug 2026). Everything else in the inbox is ignored.
 // Gmail requires the label/date filters INSIDE each OR group — a leading
 // filter before `(A OR B)` silently matches nothing.
 const DEFAULT_QUERY =
   '(from:indeedemail.com subject:"New application" newer_than:120d -label:GD-Imported)' +
   ' OR (from:employers-noreply@indeed.com subject:"New application" newer_than:120d -label:GD-Imported)' +
-  ' OR (from:gv-clients.com "Career Application" newer_than:120d -label:GD-Imported)';
+  ' OR (from:gv-clients.com "Career Application" newer_than:120d -label:GD-Imported)' +
+  ' OR (from:gv-clients.com subject:"Webform submission" "Apply for a position" newer_than:120d -label:GD-Imported)';
 const DEFAULT_MAX = 25;
 // Attachment extensions we treat as a resume worth parsing / storing.
 const RESUME_EXT = /\.(pdf|docx?|rtf|txt|png|jpe?g|webp)$/i;
@@ -183,13 +187,6 @@ function indeedCandidateLink(bodyText: string): string | null {
   );
 }
 
-/** Pull a single `*Label*` field value from the gv-clients form body. */
-function gvField(body: string, label: string): string | null {
-  const m = body.match(new RegExp("\\*\\s*" + label + "\\s*\\*\\s*([^*\\[]+)", "i"));
-  const v = m ? m[1].trim() : null;
-  return v || null;
-}
-
 /**
  * Build an applicant from an Indeed "New application" notification.
  *
@@ -293,24 +290,75 @@ function parseIndeedBundle(subject: string, bodyText: string): ApplicantInput[] 
   return out;
 }
 
-/** Build an applicant from a gv-clients "Career Application" form email. */
-function parseGvClientsApplication(bodyText: string): ApplicantInput | null {
-  const first = gvField(bodyText, "First Name");
-  const last = gvField(bodyText, "Last Name");
-  const email = gvField(bodyText, "Email");
-  if (!first && !last && !email) return null;
-  const cover = bodyText.match(/\*\s*Cover Letter\s*\*\s*([\s\S]+)/i)?.[1]?.trim() ?? null;
+/** Build an applicant from a website careers form (gv-clients.com) email. */
+function parseGvClientsApplication(bodyText: string): {
+  input: ApplicantInput;
+  resumeLink: { fileName: string; url: string } | null;
+} | null {
+  const form = parseCareersForm(bodyText);
+  if (!form) return null;
   return {
-    firstName: first,
-    lastName: last,
-    fullName: null,
-    email,
-    phone: gvField(bodyText, "Phone Number"),
-    source: "GD Website",
-    targetTitle: gvField(bodyText, "Role Applying For"),
-    applicationDate: todayISO(),
-    notes: cover,
+    input: {
+      firstName: form.firstName,
+      lastName: form.lastName,
+      fullName: form.fullName,
+      email: form.email,
+      phone: form.phone,
+      source: "GD Website",
+      targetTitle: form.role,
+      jobLocation: normalizeJobLocation(form.location),
+      applicationDate: todayISO(),
+      notes:
+        [form.location && `Practice/Location: ${form.location}`, form.coverLetter]
+          .filter(Boolean)
+          .join("\n\n") || null,
+    },
+    resumeLink: form.resume,
   };
+}
+
+const RESUME_DOWNLOAD_MAX_BYTES = 15 * 1024 * 1024;
+const RESUME_DOWNLOAD_TIMEOUT_MS = 15_000;
+
+/**
+ * Download a resume the careers form linked to instead of attaching. Redirects
+ * are followed by hand so every hop stays on the form / website hosts.
+ * Returns null on any failure — the applicant is still created without it.
+ */
+async function downloadLinkedResume(link: {
+  fileName: string;
+  url: string;
+}): Promise<ApplicantResume | null> {
+  let url = link.url;
+  try {
+    for (let hop = 0; hop < 5; hop++) {
+      if (!isAllowedResumeHost(url)) return null;
+      const res = await fetch(url, {
+        redirect: "manual",
+        signal: AbortSignal.timeout(RESUME_DOWNLOAD_TIMEOUT_MS),
+      });
+      const location = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && location) {
+        url = new URL(location, url).toString();
+        continue;
+      }
+      if (!res.ok) return null;
+      const declared = Number(res.headers.get("content-length"));
+      if (declared > RESUME_DOWNLOAD_MAX_BYTES) return null;
+      const contentType = (res.headers.get("content-type") ?? "").split(";")[0].trim();
+      if (/^text\/html/i.test(contentType)) return null; // login / error page
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length === 0 || buffer.length > RESUME_DOWNLOAD_MAX_BYTES) return null;
+      return {
+        fileName: link.fileName,
+        contentType: contentType || "application/octet-stream",
+        buffer,
+      };
+    }
+  } catch (err) {
+    console.error("[ats] resume download failed:", err);
+  }
+  return null;
 }
 
 type Outcome = "created" | "reapplied" | "duplicate" | "skipped";
@@ -350,9 +398,16 @@ async function ingestOne(
     // Bundled digest: several candidates in a single message.
     inputs = parseIndeedBundle(subject, bodyText);
   } else if (fromLc.includes("gv-clients.com")) {
-    // Direct website submission with structured form fields.
+    // Direct website submission with structured form fields. The resume is
+    // uploaded to the website and only linked from the email.
     const one = parseGvClientsApplication(bodyText);
-    if (one) inputs = [one];
+    if (one) {
+      inputs = [one.input];
+      if (resumes.length === 0 && one.resumeLink) {
+        const linked = await downloadLinkedResume(one.resumeLink);
+        if (linked) resumes.push(linked);
+      }
+    }
   } else {
     // Fallback for anything else: AI-extract from a resume attachment or body.
     let candidate: ParsedCandidate | null = null;

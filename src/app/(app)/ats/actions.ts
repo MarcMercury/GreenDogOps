@@ -52,6 +52,7 @@ import {
   candidateProfileUrl,
   notifyCandidateThread,
 } from "@/lib/ats/slack-notify";
+import { esc } from "@/lib/ats/slack-messages";
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 
@@ -307,7 +308,7 @@ export async function saveInterview(
       if (!data) return;
       await notifyCandidateThread({
         personId,
-        text: buildInterviewScheduledMessage(candidateName(data), patch),
+        text: buildInterviewScheduledMessage(candidateName(data), patch, actorName(current)),
         username: actorName(current),
         actorId: current.authId,
         actorEmail: current.email,
@@ -416,6 +417,10 @@ async function postSummary(
 export async function announceCandidate(personId: string): Promise<SaveResult> {
   const gate = await ensureCanEdit("ats");
   if (!gate.ok) return gate;
+  return postAnnouncement(personId, gate.current);
+}
+
+async function postAnnouncement(personId: string, current: CurrentUser): Promise<SaveResult> {
   if (!isSlackConfigured()) {
     return { ok: false, error: "Slack isn't configured (SLACK_BOT_TOKEN is not set)." };
   }
@@ -451,11 +456,11 @@ export async function announceCandidate(personId: string): Promise<SaveResult> {
     }
   }
 
-  const { appUser, email, authId } = gate.current;
+  const { appUser, email, authId } = current;
   const result = await postSlackMessage({
     channelKey: "hiring",
     text: buildAnnouncementMessage(row, resumeLink, candidateProfileUrl(personId)),
-    username: actorName(gate.current),
+    username: actorName(current),
   });
   if (!result.ok) return { ok: false, error: result.error ?? "Slack post failed." };
 
@@ -729,6 +734,26 @@ export async function hireCandidate(personId: string): Promise<void> {
     actorName: current?.appUser.full_name ?? current?.email ?? null,
   });
 
+  if (isSlackConfigured()) {
+    after(async () => {
+      const admin = createAdminClient();
+      const { data } = await admin
+        .from("person")
+        .select("full_name, first_name, last_name")
+        .eq("id", personId)
+        .maybeSingle();
+      if (!data) return;
+      const by = current ? actorName(current) : null;
+      await notifyCandidateThread({
+        personId,
+        text: `🎉 *${esc(candidateName(data))}* was hired${by ? ` — ${esc(by)}` : ""}`,
+        username: by,
+        actorId: current?.authId ?? null,
+        actorEmail: current?.email ?? null,
+      });
+    });
+  }
+
   revalidatePath(`/ats/${personId}`);
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/ats");
@@ -792,8 +817,8 @@ async function setReviewStatus(
     .eq("person_id", personId);
   if (error) return { ok: false, error: error.message };
 
-  // History only — accepting from the queue doesn't post to Slack; the
-  // recruiter announces the candidate once they've screened them.
+  // History only here — an accepted applicant is announced in Slack by
+  // acceptCandidate once the status change has landed.
   await logProfileTransition({
     personId,
     eventType: "review_triage",
@@ -818,9 +843,23 @@ async function setReviewStatus(
   return { ok: true };
 }
 
-/** Accept a pending applicant: promote to an active lead in the pipeline. */
+/**
+ * Accept a pending applicant: promote to an active lead in the pipeline and
+ * announce them in the Slack hiring channel (summary + profile link). A Slack
+ * failure doesn't undo the accept — the profile's Announce button stays
+ * available to retry.
+ */
 export async function acceptCandidate(personId: string): Promise<SaveResult> {
-  return setReviewStatus(personId, "accepted", ACCEPTED_LEAD_STAGE);
+  const result = await setReviewStatus(personId, "accepted", ACCEPTED_LEAD_STAGE);
+  if (!result.ok || !isSlackConfigured()) return result;
+
+  const current = await getCurrentUser();
+  if (!current) return result;
+  const announced = await postAnnouncement(personId, current);
+  if (!announced.ok) {
+    console.error("[ats] auto-announce on accept failed:", announced.error);
+  }
+  return result;
 }
 
 /** Reject a pending applicant: mark Declined but keep for re-apply detection. */

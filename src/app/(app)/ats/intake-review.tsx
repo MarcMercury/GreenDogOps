@@ -73,7 +73,8 @@ function renderNotesWithLinks(text: string): React.ReactNode[] {
 /**
  * Intake review queue: auto-ingested applicants (Gmail / Indeed) awaiting a
  * recruiter's accept or reject decision. Accepting promotes them to an active
- * lead; rejecting marks them Declined (kept for re-apply detection).
+ * lead and announces them in Slack; rejecting marks them Declined (kept for
+ * re-apply detection).
  */
 export function IntakeReview({ rows }: { rows: CandidateRow[] }) {
   const router = useRouter();
@@ -252,6 +253,7 @@ function ReviewCard({
           <button
             onClick={onAccept}
             disabled={busy}
+            title="Accept into the pipeline and announce in the Slack hiring channel"
             className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
           >
             {busy ? "…" : "✓ Accept"}

@@ -125,7 +125,7 @@ export interface PersonInterview {
 export const INTERVIEW_TYPE_LABELS: Record<string, string> = {
   phone_screen: "Phone Screen",
   in_person: "In-Person Interview",
-  working_interview: "Working Interview",
+  working_interview: "Working Interview / Shadow Day",
   final: "Final / Decision",
   other: "Other",
 };

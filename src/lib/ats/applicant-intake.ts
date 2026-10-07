@@ -28,6 +28,8 @@ export interface ApplicantInput {
   source: string;
   /** Position applied for, when known. */
   targetTitle: string | null;
+  /** Clinic / location applied to, when known. */
+  jobLocation?: string | null;
   /** ISO date (yyyy-mm-dd) the application was received. */
   applicationDate: string;
   notes: string | null;
@@ -216,6 +218,7 @@ export async function createApplicantProfile(
       person_id: personId,
       source: input.source,
       target_title: input.targetTitle,
+      job_location: input.jobLocation ?? null,
       application_date: input.applicationDate,
       notes: input.notes,
       review_status: "pending",
