@@ -229,9 +229,12 @@ export function comparisonLine(
     return `• ${name} — ${fmt(cur.value)}  ${delta(cur.value, pri.value)} _(was ${fmt(pri.value)})_`;
   }
   const d = delta(perDay(cur.value, cur.days), perDay(pri.value, pri.days));
+  // "▲ 4.2% per day" and "flat per day" both read correctly; "new per day" and
+  // "— per day" do not, and those two carry no rate to qualify anyway.
+  const rate = d === "new" || d === "—" ? d : `${d} per day`;
   const unit = cur.days === 1 ? "day" : "days";
   return (
-    `• ${name} — ${fmt(cur.value)} over ${cur.days} open ${unit}  ${d} per day ` +
+    `• ${name} — ${fmt(cur.value)} over ${cur.days} open ${unit}  ${rate} ` +
     `_(was ${fmt(pri.value)} over ${pri.days})_`
   );
 }

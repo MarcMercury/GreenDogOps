@@ -169,6 +169,21 @@ describe("comparisonLine", () => {
     ).toBe("• Venice — 120 over 4 open days  flat per day _(was 180 over 6)_");
   });
 
+  it("does not say 'per day' where there is no rate to qualify", () => {
+    expect(
+      comparisonLine("Sherman Oaks", { value: 12, days: 3 }, { value: 0, days: 2 }, fmtNum),
+    ).toBe("• Sherman Oaks — 12 over 3 open days  new _(was 0 over 2)_");
+    expect(
+      comparisonLine("Sherman Oaks", { value: 0, days: 3 }, { value: 0, days: 2 }, fmtNum),
+    ).toBe("• Sherman Oaks — 0 over 3 open days  — _(was 0 over 2)_");
+  });
+
+  it("uses the singular when a clinic traded a single day", () => {
+    expect(
+      comparisonLine("Sherman Oaks", { value: 10, days: 1 }, { value: 30, days: 3 }, fmtNum),
+    ).toBe("• Sherman Oaks — 10 over 1 open day  flat per day _(was 30 over 3)_");
+  });
+
   it("bolds the total row", () => {
     expect(
       comparisonLine("Total", { value: 10, days: 3 }, { value: 5, days: 3 }, fmtNum, true),
