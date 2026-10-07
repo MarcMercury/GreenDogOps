@@ -57,6 +57,11 @@ import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { cityOrZipLookup } from "@/lib/shared/zip-lookup";
 import { guessDocumentCategory } from "@/lib/ats/document-category";
+import {
+  APP_EDIT_MARKER,
+  applicationFromFormData,
+  type ApplicationDetails,
+} from "@/lib/ats/application";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -136,6 +141,21 @@ async function currentStage(personId: string): Promise<string | null> {
   return (data as { stage?: string | null } | null)?.stage ?? null;
 }
 
+/** The application as edited on the profile, keeping what the editor doesn't show. */
+async function editedApplication(
+  personId: string,
+  formData: FormData,
+): Promise<ApplicationDetails> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("person_recruiting")
+    .select("application")
+    .eq("person_id", personId)
+    .maybeSingle();
+  const base = (data as { application?: ApplicationDetails | null } | null)?.application ?? null;
+  return applicationFromFormData(formData, base);
+}
+
 export async function updateCandidate(
   personId: string,
   _prev: SaveResult | null,
@@ -189,6 +209,9 @@ export async function updateCandidate(
     interest_level: str(formData.get("interest_level")),
     status_notes: str(formData.get("status_notes")),
     notes: str(formData.get("notes")),
+    ...(formData.get(APP_EDIT_MARKER) === "1"
+      ? { application: await editedApplication(personId, formData) }
+      : {}),
   };
   const { error: rErr } = await supabase
     .from("person_recruiting")

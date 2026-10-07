@@ -44,7 +44,7 @@ export default async function CandidateDetailPage({
          follow_up_date, notes, target_title, review_status, reviewed_at,
          reviewed_by, candidate_location, relevant_experience, education,
          job_location, interest_level, external_status, source_detail,
-         screening_answers, application_history, slack_announce_ts,
+         screening_answers, application_history, application, slack_announce_ts,
          slack_announce_channel, announced_at, announced_by, created_at,
          updated_at
        )`,

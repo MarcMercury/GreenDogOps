@@ -73,7 +73,13 @@ Indeed is our main source of candidates. Indeed applications usually arrive **wi
 The careers page form is connected to the Ops ATS. You don't need to do anything here.
 
 - When a candidate submits the form, the submission goes to the careers inbox. **About every 5 minutes**, the ATS pulls it in and creates a candidate profile.
-- The profile includes: **Name, Email, Phone, Role Applying For, Practice/Location, Cover letter/notes, Source = "GD Website",** and the **uploaded resume** (PDF/Word/image), downloaded from the form and saved on the candidate's Documents tab.
+- The profile includes: **Name, Email, Phone, Role Applying For, Practice/Location, Cover letter/notes, Source,** and the **uploaded resume** (PDF/Word/image), downloaded from the form and saved on the candidate's Documents tab. A resume pasted as text is saved there too.
+- **Source** is "Indeed" when the applicant came from an Indeed ad's link (see *Per-ad links* below), otherwise their answer to "How did you hear about us?", otherwise "GD Website".
+- Everything else on the full application form lands on the profile, split across tabs:
+  - **Overview:** the editable recruiting record, plus an **Application snapshot** (start date, availability, pay, experience, license, languages, and any ⚠ eligibility flags).
+  - **Application:** position and availability, contact preferences, eligibility, written responses, acknowledgements and signature, posting/tracking, job-board screening answers, application history, and any **Other answers** the ATS didn't recognize.
+  - **Experience & Skills:** experience, employment history, education and credentials, role-specific details (DVM / RVT / foreign-graduate / remote setup), skills grids, languages and references.
+  - Recruiters can correct any of it with **✎ Edit details**, then **Save changes**.
 - **Repeat applicants** are recognized automatically and added to their existing profile, so we don't get duplicates.
 - Every new applicant starts in **Recruiting (ATS) → Review Queue** with status *Pending*.
 
@@ -81,13 +87,27 @@ The careers page form is connected to the Ops ATS. You don't need to do anything
 
 | Field | Required |
 |---|---|
-| Name | ✅ |
+| Name (or First Name + Last Name) | ✅ |
 | Email | ✅ |
 | Phone Number | ✅ |
 | Role Applying For | ✅ |
 | Practice/Location | ✅ |
 | Resume (file upload) | ✅ |
 | Cover Letter / Notes | Optional |
+
+### For IT: how form fields map into the ATS
+
+The ATS reads the form's notification email, so **field labels matter** (matching ignores case, punctuation and anything in parentheses). The full list of labels and accepted alternatives lives in `src/lib/ats/application.ts`. A field with a label the ATS doesn't recognize still shows on the profile under **Other answers**, so nothing is lost.
+
+- **Keep sending from the same form.** The inbox poller only picks up submissions from `gv-clients.com` titled "Apply for a position" (or "Career Application"). A new form name or sender needs the poller's query updated.
+- **Uploads** must be labelled starting with "Upload…" (e.g. *Upload Resume*, *Upload Cover Letter*). Files are only downloaded from `gv-clients.com` / `greendogdental.com`.
+- **Address:** *City*, *State*, *ZIP Code*. **Pasted resume:** *Paste Resume*.
+- **Multi-select answers** can arrive comma-separated or one per line.
+- **Employment history:** *Employer 1*, *Job Title 1*, *Employer City 1*, *Start Date 1*, *End Date 1*, *Duties 1*, *Reason for Leaving 1*, *May We Contact 1* (then `2`, `3`).
+- **References:** *Reference 1 Name*, *Reference 1 Relationship*, *Reference 1 Company*, *Reference 1 Phone*, *Reference 1 Email* (then `2`, `3`).
+- **Languages:** *Languages Spoken*, plus an optional *&lt;Language&gt; Fluency* (e.g. *Spanish Fluency*).
+- **Skills grids:** one field per skill, labelled with the skill (e.g. *Venipuncture*, *Multi-line Phones*), answered None / Learning / Competent / Can Train Others.
+- **Per-ad links:** hidden fields *Source*, *Job ID*, *UTM Source*, *UTM Medium* and *UTM Campaign*, filled from the URL. Example: `…/apply?source=Indeed&job_id=VT-104`.
 
 > Note: Indeed applications may also show up in the Review Queue directly from Indeed's notification emails. These often have **only a name and role**. If the person hasn't submitted the careers form yet, deny them or leave them pending (see Step 3). The auto-reply has already asked them to complete the form.
 

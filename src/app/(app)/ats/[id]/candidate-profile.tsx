@@ -24,7 +24,8 @@ import type { PersonDocumentWithUrl } from "@/lib/hr/types";
 import { DOCUMENT_CATEGORY_LABELS } from "@/lib/hr/types";
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
-import { CandidateForm } from "./candidate-form";
+import { CandidateForm, type CandidateFormTab } from "./candidate-form";
+import { applicationHasData } from "@/lib/ats/application";
 import { CopyForSlackButton } from "./copy-for-slack";
 import { PostToSlackButton } from "./post-to-slack";
 import { buildInterviewSummary } from "@/lib/ats/slack-summary";
@@ -42,10 +43,20 @@ import {
   type SaveResult,
 } from "../actions";
 
-type TabKey = "profile" | "interviews" | "activity" | "documents" | "history";
+type TabKey =
+  | "profile"
+  | "application"
+  | "experience"
+  | "interviews"
+  | "activity"
+  | "documents"
+  | "history";
 
+// "profile" stays the Overview key so existing ?tab=profile links still work.
 const TABS: Array<{ key: TabKey; label: string }> = [
-  { key: "profile", label: "Profile" },
+  { key: "profile", label: "Overview" },
+  { key: "application", label: "Application" },
+  { key: "experience", label: "Experience & Skills" },
   { key: "interviews", label: "Interview Tracking" },
   { key: "activity", label: "Activity & Tasks" },
   { key: "documents", label: "Documents" },
@@ -83,6 +94,11 @@ export function CandidateProfile({
   );
   const openTasks = tasks.filter((t) => !t.is_done).length;
   const rec = row.person_recruiting;
+  const hasApplication = applicationHasData(rec?.application);
+  const formTab: CandidateFormTab | null =
+    activeTab === "profile" || activeTab === "application" || activeTab === "experience"
+      ? activeTab
+      : null;
 
   const heading =
     row.full_name ||
@@ -126,6 +142,12 @@ export function CandidateProfile({
                 }`}
               >
                 {t.label}
+                {t.key === "application" && hasApplication && (
+                  <span
+                    className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 align-middle"
+                    title="Website application on file"
+                  />
+                )}
                 {count > 0 && (
                   <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-600">
                     {count}
@@ -137,14 +159,16 @@ export function CandidateProfile({
         </nav>
       </div>
 
-      {/* Profile form stays mounted so unsaved edits survive a tab switch. */}
+      {/* One form spans Overview / Application / Experience and stays mounted,
+          so unsaved edits survive a tab switch and one Save covers all three. */}
       <CandidateForm
         row={row}
         isAdmin={isAdmin}
         canEdit={canEdit}
         slackEnabled={slackEnabled}
         positions={positions}
-        hidden={activeTab !== "profile"}
+        tab={formTab}
+        onNavigate={setActiveTab}
       />
 
       {activeTab === "interviews" && (

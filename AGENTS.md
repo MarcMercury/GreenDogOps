@@ -15,3 +15,7 @@ GH_TOKEN="$GITHUB_TOKEN" gh pr list # gh needs GH_TOKEN
 ```
 
 Never print the token value.
+
+# Verification
+
+Never use the VS Code integrated browser (or any browser automation) to test or verify changes — it hangs. Verify with typecheck, lint, and unit tests instead.

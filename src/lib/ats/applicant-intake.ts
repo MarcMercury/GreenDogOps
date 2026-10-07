@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { normalizePositionTitle } from "./normalize";
 import { guessDocumentCategory } from "./document-category";
+import { applicationHasData, type ApplicationDetails } from "./application";
 
 // ---------------------------------------------------------------------------
 // Shared applicant intake.
@@ -34,6 +35,14 @@ export interface ApplicantInput {
   /** ISO date (yyyy-mm-dd) the application was received. */
   applicationDate: string;
   notes: string | null;
+  postalCode?: string | null;
+  /** Where the applicant lives, e.g. "Reseda, CA". */
+  candidateLocation?: string | null;
+  sourceDetail?: string | null;
+  education?: string | null;
+  relevantExperience?: string | null;
+  /** Full website application (person_recruiting.application). */
+  application?: ApplicationDetails | null;
 }
 
 /** Any file that came with an application (resume, cover letter, …). */
@@ -216,6 +225,7 @@ export async function createApplicantProfile(
         .eq("person_id", existing.personId)
         .maybeSingle();
       const prevNotes = (prev as { notes?: string | null } | null)?.notes ?? null;
+      const application = applicationHasData(input.application) ? input.application : undefined;
       await admin
         .from("person_recruiting")
         .update({
@@ -224,6 +234,7 @@ export async function createApplicantProfile(
           reviewed_by: null,
           application_date: input.applicationDate,
           notes: [prevNotes, reapplyNote].filter(Boolean).join("\n\n"),
+          ...(application ? { application } : {}),
         })
         .eq("person_id", existing.personId);
       for (const resume of resumes) {
@@ -233,6 +244,14 @@ export async function createApplicantProfile(
     }
     // Still in the pipeline: no new profile, but keep any new documents (e.g.
     // a follow-up email with the cover letter) on the existing candidate.
+    // An Indeed notice followed by the full website form lands here too, so
+    // the richer application is kept.
+    if (applicationHasData(input.application)) {
+      await admin
+        .from("person_recruiting")
+        .update({ application: input.application })
+        .eq("person_id", existing.personId);
+    }
     for (const resume of resumes) {
       await storeResume(admin, existing.personId, resume);
     }
@@ -248,6 +267,7 @@ export async function createApplicantProfile(
       full_name: fullName,
       email: input.email,
       phone_mobile: formatPhoneNumber(input.phone),
+      postal_code: input.postalCode ?? null,
     })
     .select("id")
     .single();
@@ -269,6 +289,11 @@ export async function createApplicantProfile(
       application_date: input.applicationDate,
       notes: input.notes,
       review_status: "pending",
+      candidate_location: input.candidateLocation ?? null,
+      source_detail: input.sourceDetail ?? null,
+      education: input.education ?? null,
+      relevant_experience: input.relevantExperience ?? null,
+      ...(applicationHasData(input.application) ? { application: input.application } : {}),
     },
     { onConflict: "person_id" },
   );

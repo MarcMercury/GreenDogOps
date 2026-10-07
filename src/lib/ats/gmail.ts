@@ -17,6 +17,9 @@ import {
 } from "@/lib/ats/careers-form";
 import { normalizeJobLocation } from "@/lib/ats/normalize";
 import { guessDocumentCategory } from "@/lib/ats/document-category";
+import { applicationScalars, isFullApplication } from "@/lib/ats/application";
+import { cityOrZipLookup } from "@/lib/shared/zip-lookup";
+import { formatCityState, normalizeUsZip } from "@/lib/shared/zip";
 
 // ---------------------------------------------------------------------------
 // Gmail applicant intake (greendogcareers@gmail.com).
@@ -299,13 +302,21 @@ function parseIndeedBundle(subject: string, bodyText: string): ApplicantInput[] 
 }
 
 /** Build an applicant from a website careers form (gv-clients.com) email. */
-function parseGvClientsApplication(bodyText: string): {
+async function parseGvClientsApplication(bodyText: string): Promise<{
   input: ApplicantInput;
   uploads: CareersFormUpload[];
   coverLetter: string | null;
-} | null {
+  pastedResume: string | null;
+} | null> {
   const form = parseCareersForm(bodyText);
   if (!form) return null;
+  const app = form.application;
+  const scalars = applicationScalars(app);
+  const firstLocation = (app.answers?.locations as string[] | undefined)?.find(
+    (l) => l !== "Open to any",
+  );
+  const city = formatCityState(form.city, form.state);
+  const hasApplication = isFullApplication(app);
   return {
     input: {
       firstName: form.firstName,
@@ -313,10 +324,16 @@ function parseGvClientsApplication(bodyText: string): {
       fullName: form.fullName,
       email: form.email,
       phone: form.phone,
-      source: "GD Website",
+      source: scalars.source,
+      sourceDetail: hasApplication ? scalars.sourceDetail : null,
       targetTitle: form.role,
-      jobLocation: normalizeJobLocation(form.location),
+      jobLocation: normalizeJobLocation(firstLocation ?? form.location),
       applicationDate: todayISO(),
+      postalCode: normalizeUsZip(form.zip) ?? form.zip,
+      candidateLocation: await cityOrZipLookup(city, form.zip),
+      education: scalars.education,
+      relevantExperience: scalars.relevantExperience,
+      application: hasApplication ? { ...app, received_at: new Date().toISOString() } : null,
       notes:
         [form.location && `Practice/Location: ${form.location}`, form.coverLetter]
           .filter(Boolean)
@@ -324,6 +341,7 @@ function parseGvClientsApplication(bodyText: string): {
     },
     uploads: form.uploads,
     coverLetter: form.coverLetter,
+    pastedResume: form.pastedResume,
   };
 }
 
@@ -418,7 +436,7 @@ async function ingestOne(
     // Direct website submission with structured form fields. Files are
     // either attached to the email (older format) or uploaded to the website
     // and only linked from it (current format) — collect both.
-    const one = parseGvClientsApplication(bodyText);
+    const one = await parseGvClientsApplication(bodyText);
     if (one) {
       inputs = [one.input];
       const attachedNames = new Set(resumes.map((r) => r.fileName.toLowerCase()));
@@ -429,6 +447,8 @@ async function ingestOne(
       }
       const typedCover = textDocument("Cover letter.txt", one.coverLetter, "cover_letter");
       if (typedCover) resumes.push(typedCover);
+      const typedResume = textDocument("Resume (pasted).txt", one.pastedResume, "resume");
+      if (typedResume) resumes.push(typedResume);
     }
   } else {
     // Fallback for anything else: AI-extract from a resume attachment or body.

@@ -4,6 +4,7 @@ import {
   type WorkLocationType,
   type WorkSchedule,
 } from "../hr/types";
+import type { ApplicationDetails } from "./application";
 
 export interface PersonRecruiting {
   person_id: string;
@@ -32,6 +33,8 @@ export interface PersonRecruiting {
   source_detail: string | null;
   screening_answers: ScreeningAnswer[] | null;
   application_history: ApplicationHistoryEntry[] | null;
+  /** Full website application; only loaded on the candidate profile. */
+  application?: ApplicationDetails | null;
   slack_announce_ts: string | null;
   slack_announce_channel: string | null;
   announced_at: string | null;

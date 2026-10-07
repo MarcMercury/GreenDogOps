@@ -13,6 +13,7 @@
 // ---------------------------------------------------------------------------
 
 import { guessDocumentCategory } from "./document-category";
+import { applicationFromLabels, matchKey, type ApplicationDetails } from "./application";
 
 export interface CareersFormUpload {
   fileName: string;
@@ -30,12 +31,47 @@ export interface CareersFormFields {
   role: string | null;
   location: string | null;
   coverLetter: string | null;
+  /** Resume typed into a text box instead of uploaded. */
+  pastedResume: string | null;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
   /**
    * Every file the applicant uploaded (resume, cover letter, …), referenced by
    * numbered link footnotes rather than attached to the email.
    */
   uploads: CareersFormUpload[];
+  /** Everything else on the form (availability, eligibility, experience, …). */
+  application: ApplicationDetails;
 }
+
+// Labels read into the top-level fields above, so they aren't repeated as
+// unmatched `extra` answers on the application.
+const TOP_LEVEL_LABELS = new Set(
+  [
+    "first name",
+    "last name",
+    "name",
+    "full name",
+    "email",
+    "email address",
+    "phone number",
+    "phone",
+    "role applying for",
+    "position",
+    "role",
+    "practice/location",
+    "location",
+    "cover letter",
+    "paste resume",
+    "resume text",
+    "city",
+    "state",
+    "zip code",
+    "zip",
+    "postal code",
+  ].map(matchKey),
+);
 
 const LABEL_LINE = /^\*([^*\n]+)\*[ \t]*\r?$/gm;
 const FOOTNOTE_LINE = /^\[(\d+)\]\s+(\S+)/gm;
@@ -113,10 +149,13 @@ export function parseCareersForm(body: string): CareersFormFields | null {
   // "Upload Cover Letter" field is picked up alongside the resume.
   const links = footnotes(body);
   const uploads: CareersFormUpload[] = [];
+  const fileFields = new Set<string>();
   let coverLetterIsFile = false;
   for (const [key, raw] of fields) {
+    if (isUploadField(key)) fileFields.add(key);
     const ref = raw.match(FILE_REF) ?? (isUploadField(key) ? raw.match(ANY_REF) : null);
     if (!ref) continue;
+    fileFields.add(key);
     const url = links.get(ref[2]);
     if (!url || !/^https?:\/\//i.test(url)) continue;
     const fileName = ref[1].trim();
@@ -129,17 +168,46 @@ export function parseCareersForm(body: string): CareersFormFields | null {
     });
   }
 
+  // Everything that isn't identity or a file goes onto the application.
+  const answerFields = new Map<string, string>();
+  for (const [key, raw] of fields) {
+    if (fileFields.has(key)) continue;
+    const v = clean(raw);
+    if (v) answerFields.set(key, v);
+  }
+  const { application, consumed } = applicationFromLabels(answerFields);
+  const extra: Array<{ label: string; value: string }> = [];
+  for (const [key, value] of answerFields) {
+    const k = matchKey(key);
+    if (consumed.has(k) || TOP_LEVEL_LABELS.has(k)) continue;
+    extra.push({ label: originalLabel(body, key), value });
+  }
+  if (extra.length) application.extra = extra;
+
   return {
     firstName,
     lastName,
     fullName,
     email: email?.replace(/^mailto:/i, "") ?? null,
     phone: get("phone number", "phone"),
-    role: get("role applying for", "position"),
+    role: get("role applying for", "position", "role"),
     location: get("practice/location", "location"),
     coverLetter: coverLetterIsFile ? null : get("cover letter"),
+    pastedResume: get("paste resume", "resume text"),
+    city: get("city"),
+    state: get("state"),
+    zip: get("zip code", "zip", "postal code"),
     uploads,
+    application,
   };
+}
+
+/** The label as the form wrote it (keys are lower-cased for lookup). */
+function originalLabel(body: string, key: string): string {
+  for (const m of body.matchAll(LABEL_LINE)) {
+    if (labelKey(m[1]) === key) return m[1].replace(/:\s*$/, "").trim();
+  }
+  return key;
 }
 
 // Hosts the resume link may pass through: the form's click-tracking domain and

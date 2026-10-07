@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   type CandidateRow,
@@ -19,6 +19,8 @@ import { AnnounceButton } from "./post-to-slack";
 import { PositionPicker } from "../position-picker";
 import { ZipCityFields } from "../zip-city-fields";
 import { buildCandidateSummary } from "@/lib/ats/slack-summary";
+import { APP_EDIT_MARKER, roleGroupsFor, type AppTab } from "@/lib/ats/application";
+import { ApplicationSnapshot, ApplicationTabPanel } from "./application-panel";
 import {
   updateCandidate,
   hireCandidate,
@@ -158,7 +160,7 @@ function ScreeningAnswers({ answers }: { answers: ScreeningAnswer[] }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Screening questions
+        Job-board screening questions
       </h2>
       <dl className="space-y-3">
         {answers.map((a, i) => (
@@ -262,31 +264,55 @@ function DeleteButton({ personId }: { personId: string }) {
   );
 }
 
+/** Profile tabs whose content lives in this one form (so Save covers all three). */
+export type CandidateFormTab = "profile" | AppTab;
+
 export function CandidateForm({
   row,
   isAdmin = false,
   canEdit = false,
   slackEnabled = false,
   positions = [],
-  hidden = false,
+  tab,
+  onNavigate,
 }: {
   row: CandidateRow;
   isAdmin?: boolean;
   canEdit?: boolean;
   slackEnabled?: boolean;
   positions?: PositionRow[];
-  hidden?: boolean;
+  /** Which part of the form to show; null hides the form (another tab is open). */
+  tab: CandidateFormTab | null;
+  onNavigate?: (tab: CandidateFormTab) => void;
 }) {
   const rec = row.person_recruiting;
   const answers = rec?.screening_answers ?? [];
   const history = rec?.application_history ?? [];
+  const application = rec?.application ?? null;
+  const groups = useMemo(() => roleGroupsFor(rec?.target_title), [rec?.target_title]);
+  const [editingApp, setEditingApp] = useState(false);
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
-    (prev, fd) => updateCandidate(row.id, prev, fd),
+    async (prev, fd) => {
+      const r = await updateCandidate(row.id, prev, fd);
+      if (r.ok) setEditingApp(false);
+      return r;
+    },
     null,
   );
 
+  const show = (t: CandidateFormTab) => (tab === t ? "space-y-5" : "hidden");
+  const panelProps = {
+    app: application,
+    groups,
+    editing: editingApp,
+    canEdit,
+    onEdit: () => setEditingApp(true),
+    onCancel: () => setEditingApp(false),
+  };
+
   return (
-    <form action={formAction} className={`mt-3 space-y-5 ${hidden ? "hidden" : ""}`}>
+    <form action={formAction} className={`mt-3 space-y-5 ${tab == null ? "hidden" : ""}`}>
+      {editingApp && <input type="hidden" name={APP_EDIT_MARKER} value="1" />}
       <div className="flex flex-wrap items-center justify-end gap-3">
         {result?.ok === true && (
           <span className="text-sm text-emerald-700">Saved ✓</span>
@@ -312,79 +338,90 @@ export function CandidateForm({
         )}
       </div>
 
-      <Section title="Candidate">
-        <Field label="First name" name="first_name" defaultValue={row.first_name} />
-        <Field label="Last name" name="last_name" defaultValue={row.last_name} />
-        <Field label="Email" name="email" type="email" defaultValue={row.email} />
-        <Field label="Cell phone" name="phone_mobile" type="tel" defaultValue={row.phone_mobile} />
-        <Field label="Home phone" name="phone_home" type="tel" defaultValue={row.phone_home} />
-        <Field label="Other phone" name="phone_other" type="tel" defaultValue={row.phone_other} />
-        <Field label="Date of birth" name="date_of_birth" type="date" defaultValue={row.date_of_birth} />
-        <ZipCityFields
-          defaultZip={row.postal_code}
-          defaultCity={rec?.candidate_location}
-          inputClassName="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          labelClassName="text-xs font-medium text-slate-500"
-        />
-      </Section>
+      <div className={show("profile")}>
+        <ApplicationSnapshot app={application} onOpen={(t) => onNavigate?.(t)} />
 
-      <Section title="Pipeline">
-        <PositionPicker
-          positions={positions}
-          defaultPositionId={rec?.target_position_id}
-          defaultTitle={rec?.target_title}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-          labelClassName="text-xs font-medium text-slate-500"
-        />
-        <OpportunityTypeField defaultValue={row.opportunity_type} />
-        <Select label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} options={RECRUITING_PIPELINE_OPTIONS} />
-        <Select
-          label="Stage"
-          name="stage"
-          defaultValue={rec?.stage}
-          options={RECRUITING_STAGE_OPTIONS.map((s) => ({ value: s, label: s }))}
-        />
-        <Select label="Source (found on)" name="source" defaultValue={rec?.source} options={RECRUITING_SOURCE_OPTIONS} />
-        <Field label="Source detail" name="source_detail" defaultValue={rec?.source_detail} />
-        <Field label="Applied to location" name="job_location" defaultValue={rec?.job_location} />
-        <Select
-          label="Interest level"
-          name="interest_level"
-          defaultValue={rec?.interest_level}
-          options={RECRUITING_INTEREST_OPTIONS}
-        />
-        <Field label="Application date" name="application_date" type="date" defaultValue={rec?.application_date} />
-        <Field label="Interview date" name="interview_date" type="date" defaultValue={rec?.interview_date} />
-        <Field label="Score" name="score" type="number" defaultValue={rec?.score} />
-        <Field label="Resume" name="resume_url" defaultValue={rec?.resume_url} />
-        <Field label="Follow-up date" name="follow_up_date" type="date" defaultValue={rec?.follow_up_date} />
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            name="keep_for_future"
-            type="checkbox"
-            defaultChecked={rec?.keep_for_future ?? false}
-            className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+        <Section title="Candidate">
+          <Field label="First name" name="first_name" defaultValue={row.first_name} />
+          <Field label="Last name" name="last_name" defaultValue={row.last_name} />
+          <Field label="Email" name="email" type="email" defaultValue={row.email} />
+          <Field label="Cell phone" name="phone_mobile" type="tel" defaultValue={row.phone_mobile} />
+          <Field label="Home phone" name="phone_home" type="tel" defaultValue={row.phone_home} />
+          <Field label="Other phone" name="phone_other" type="tel" defaultValue={row.phone_other} />
+          <Field label="Date of birth" name="date_of_birth" type="date" defaultValue={row.date_of_birth} />
+          <ZipCityFields
+            defaultZip={row.postal_code}
+            defaultCity={rec?.candidate_location}
+            inputClassName="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            labelClassName="text-xs font-medium text-slate-500"
           />
-          Keep for future
-        </label>
-      </Section>
+        </Section>
 
-      <Section title="Background">
-        <Field
-          label="Relevant experience"
-          name="relevant_experience"
-          defaultValue={rec?.relevant_experience}
-        />
-        <Field label="Education" name="education" defaultValue={rec?.education} />
-      </Section>
+        <Section title="Pipeline">
+          <PositionPicker
+            positions={positions}
+            defaultPositionId={rec?.target_position_id}
+            defaultTitle={rec?.target_title}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            labelClassName="text-xs font-medium text-slate-500"
+          />
+          <OpportunityTypeField defaultValue={row.opportunity_type} />
+          <Select label="Pipeline" name="pipeline" defaultValue={rec?.pipeline} options={RECRUITING_PIPELINE_OPTIONS} />
+          <Select
+            label="Stage"
+            name="stage"
+            defaultValue={rec?.stage}
+            options={RECRUITING_STAGE_OPTIONS.map((s) => ({ value: s, label: s }))}
+          />
+          <Select label="Source (found on)" name="source" defaultValue={rec?.source} options={RECRUITING_SOURCE_OPTIONS} />
+          <Field label="Source detail" name="source_detail" defaultValue={rec?.source_detail} />
+          <Field label="Applied to location" name="job_location" defaultValue={rec?.job_location} />
+          <Select
+            label="Interest level"
+            name="interest_level"
+            defaultValue={rec?.interest_level}
+            options={RECRUITING_INTEREST_OPTIONS}
+          />
+          <Field label="Application date" name="application_date" type="date" defaultValue={rec?.application_date} />
+          <Field label="Interview date" name="interview_date" type="date" defaultValue={rec?.interview_date} />
+          <Field label="Score" name="score" type="number" defaultValue={rec?.score} />
+          <Field label="Resume" name="resume_url" defaultValue={rec?.resume_url} />
+          <Field label="Follow-up date" name="follow_up_date" type="date" defaultValue={rec?.follow_up_date} />
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              name="keep_for_future"
+              type="checkbox"
+              defaultChecked={rec?.keep_for_future ?? false}
+              className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+            />
+            Keep for future
+          </label>
+        </Section>
 
-      {answers.length > 0 && <ScreeningAnswers answers={answers} />}
-      {history.length > 0 && <ApplicationHistory entries={history} />}
+        <Section title="Background">
+          <Field
+            label="Relevant experience"
+            name="relevant_experience"
+            defaultValue={rec?.relevant_experience}
+          />
+          <Field label="Education" name="education" defaultValue={rec?.education} />
+        </Section>
 
-      <Section title="Notes">
-        <TextArea label="Status notes" name="status_notes" defaultValue={rec?.status_notes} />
-        <TextArea label="Recruiting notes" name="notes" defaultValue={rec?.notes} />
-      </Section>
+        <Section title="Notes">
+          <TextArea label="Status notes" name="status_notes" defaultValue={rec?.status_notes} />
+          <TextArea label="Recruiting notes" name="notes" defaultValue={rec?.notes} />
+        </Section>
+      </div>
+
+      <div className={show("application")}>
+        <ApplicationTabPanel tab="application" {...panelProps} />
+        {answers.length > 0 && <ScreeningAnswers answers={answers} />}
+        {history.length > 0 && <ApplicationHistory entries={history} />}
+      </div>
+
+      <div className={show("experience")}>
+        <ApplicationTabPanel tab="experience" {...panelProps} />
+      </div>
 
       <div className="flex justify-end gap-3 pb-8">
         {isAdmin && <DeleteButton personId={row.id} />}
