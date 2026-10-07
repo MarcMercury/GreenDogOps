@@ -1,3 +1,7 @@
+# Always re-read this file
+
+Re-read AGENTS.md at the start of every task and before reporting any failure or blocker (git, GitHub, deploy, credentials, etc.). It changes during sessions.
+
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know
 
