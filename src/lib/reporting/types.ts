@@ -284,6 +284,20 @@ export interface LocationPeriodRow {
   unique_clients: number;
 }
 
+/**
+ * One clinic on one day, from report_location_daily() (migration 0222). Rows
+ * exist only for days a clinic actually billed, so a missing row means either a
+ * closure or a gap in the ezyVet invoice ingest.
+ */
+export interface LocationDailyRow {
+  location_key: LocationKey;
+  location_label: string;
+  service_date: string;
+  appointments: number;
+  revenue: number;
+  unique_clients: number;
+}
+
 export interface SpeciesRow {
   species_group: string;
   appointments: number;

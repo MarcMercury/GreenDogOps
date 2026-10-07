@@ -8,9 +8,11 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 /**
- * Weekly reporting digest to the #ops-reporting Slack channel: appointments and
- * revenue per clinic month-to-date vs the prior month through the same day, and
- * an appointment-type breakdown per clinic for last week vs the week before.
+ * Weekly reporting digest to the #ops-reporting Slack channel: appointments,
+ * revenue and an appointment-type breakdown per clinic for the last complete
+ * business week (Mon–Sat) against the business week before it. Sundays are
+ * excluded and each clinic is normalized by its own open days, so Sherman Oaks'
+ * Mon/Wed/Fri schedule is never compared against a six-day week.
  *
  * Scheduled Mondays (see vercel.json), after the overnight ezyVet ingest and
  * matview refresh. CRON_SECRET-gated; lives under /api/agents/ so the proxy

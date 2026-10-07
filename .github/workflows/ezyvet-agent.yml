@@ -5,11 +5,14 @@ name: ezyVet Daily Ingest Agent
 # GitHub API, passing run_id/agent_key/target_date).
 on:
   schedule:
-    # 6:00 AM Pacific, year-round. GitHub cron is UTC-only and has no DST
+    # 6:00 AM Pacific, year-round. GitHub cron is UTC-only with no DST
     # awareness, so we fire at BOTH 13:00 UTC (6 AM PDT) and 14:00 UTC (6 AM
-    # PST); the `gate` job below runs the ingest only when the local Pacific
-    # hour is actually 06, so exactly one run happens per day.
-    - cron: "0 13,14 * * *"
+    # PST). They are listed as SEPARATE entries on purpose: that makes
+    # `github.event.schedule` identify which trigger fired, so the gate below
+    # can judge a run by the slot it was scheduled for rather than by the
+    # wall clock when it actually arrived.
+    - cron: "0 13 * * *"
+    - cron: "0 14 * * *"
   workflow_dispatch:
     inputs:
       run_id:
@@ -29,8 +32,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # DST-safe gate: for scheduled runs, proceed only when it is 6 AM in Los
-  # Angeles (so the 13:00/14:00 UTC pair collapses to one 6 AM Pacific run).
+  # Decide whether this trigger should actually ingest.
+  #
+  # The old gate asked "is the Pacific hour exactly 06?" and skipped otherwise.
+  # GitHub delivers scheduled runs late under load, so on 2026-10-03 and
+  # 10-04 the 13:00 UTC trigger did not arrive until 14:30 and 14:49; the gate
+  # read 7 AM, skipped, and the workflow still reported success. Oct 2 and Oct 3
+  # invoice data were silently never ingested and the weekly digest reported the
+  # hole as a 73% collapse in business.
+  #
+  # Two independent reasons to proceed now, so neither a late nor a dropped
+  # trigger can lose a day:
+  #   1. This is the slot that corresponds to 6 AM Pacific under the CURRENT DST
+  #      offset, however late it was delivered.
+  #   2. The target day has no invoice rows yet. That makes the other trigger a
+  #      free retry, and makes the whole workflow self-healing: any run that
+  #      finds the day missing will fill it.
   # Manual (workflow_dispatch) runs always proceed.
   gate:
     runs-on: ubuntu-latest
@@ -38,21 +55,48 @@ jobs:
       run: ${{ steps.check.outputs.run }}
     steps:
       - id: check
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          SCHEDULE: ${{ github.event.schedule }}
         run: |
+          set -euo pipefail
           if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "Manual run — proceeding."
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          HOUR=$(TZ=America/Los_Angeles date +%H)
-          echo "Los Angeles hour: $HOUR"
-          if [ "$HOUR" = "06" ]; then
-            echo "6 AM Pacific — proceeding."
+
+          # -0700 = PDT, so 13:00 UTC is the 6 AM slot; -0800 = PST, so 14:00 is.
+          OFFSET=$(TZ=America/Los_Angeles date +%z)
+          if [ "$OFFSET" = "-0700" ]; then WANTED="0 13 * * *"; else WANTED="0 14 * * *"; fi
+          echo "Pacific offset $OFFSET — 6 AM slot is '$WANTED', this run is '$SCHEDULE'."
+
+          if [ "$SCHEDULE" = "$WANTED" ]; then
+            echo "Scheduled 6 AM Pacific slot — proceeding."
             echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "Not 6 AM Pacific — skipping this scheduled trigger."
-            echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+
+          # Not this run's slot. Only step in if the day is genuinely missing.
+          TARGET=$(TZ=America/Los_Angeles date -d 'yesterday' +%F)
+          STATUS=$(curl -fsS --retry 3 --retry-delay 5 --max-time 30 \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$APP_BASE_URL/api/agents/ezyvet/invoice-lines?date=$TARGET" || echo '')
+          echo "Freshness for $TARGET: ${STATUS:-<unreachable>}"
+
+          case "$STATUS" in
+            *'"ingested":false'*)
+              echo "$TARGET never ingested — the 6 AM slot was dropped. Catching up."
+              echo "run=true" >> "$GITHUB_OUTPUT" ;;
+            *'"ingested":true'*)
+              echo "$TARGET already ingested — nothing to do."
+              echo "run=false" >> "$GITHUB_OUTPUT" ;;
+            *)
+              # Fail open: a broken freshness check must not cost a day of data.
+              echo "Freshness check unavailable — running rather than risk a gap."
+              echo "run=true" >> "$GITHUB_OUTPUT" ;;
+          esac
 
   ingest:
     needs: gate
