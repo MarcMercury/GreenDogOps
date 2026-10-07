@@ -79,9 +79,7 @@ export function AtsExplorer({
     (r) => r.person_recruiting?.review_status !== "pending",
   );
 
-  const [tab, setTab] = useState<"pipeline" | "review" | "positions">(
-    reviewRows.length > 0 ? "review" : "pipeline",
-  );
+  const [tab, setTab] = useState<"pipeline" | "review" | "positions">("pipeline");
 
   const counts: Record<string, number> = {};
   for (const r of pipelineRows) {
