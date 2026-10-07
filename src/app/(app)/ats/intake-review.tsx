@@ -319,7 +319,7 @@ function ReviewCard({
               )}
               {rec?.candidate_location && (
                 <div className="flex gap-2">
-                  <dt className="w-20 shrink-0 text-slate-400">Location</dt>
+                  <dt className="w-20 shrink-0 text-slate-400">City</dt>
                   <dd>{rec.candidate_location}</dd>
                 </div>
               )}

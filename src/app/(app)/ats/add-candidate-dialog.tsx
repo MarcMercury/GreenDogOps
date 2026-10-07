@@ -12,6 +12,7 @@ import {
 import { PhoneInput } from "@/lib/shared/phone-input";
 import { createCandidate } from "./actions";
 import { PositionPicker } from "./position-picker";
+import { ZipCityFields } from "./zip-city-fields";
 
 const inputCls =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -90,6 +91,7 @@ export function AddCandidateDialog({
     startTransition(async () => {
       const res = await createCandidate(formData);
       if (res.ok) {
+        if (res.warning) alert(res.warning);
         onClose();
         router.push(`/ats/${res.id}`);
       } else {
@@ -137,6 +139,7 @@ export function AddCandidateDialog({
                 <Field label="Cell phone" name="phone_mobile" type="tel" />
                 <Field label="Home phone" name="phone_home" type="tel" />
                 <Field label="Other phone" name="phone_other" type="tel" />
+                <ZipCityFields inputClassName={inputCls} labelClassName={labelCls} />
               </div>
             </section>
 
@@ -150,7 +153,6 @@ export function AddCandidateDialog({
                   className={inputCls}
                   labelClassName={labelCls}
                 />
-                <Field label="Location (where they live / want to work)" name="candidate_location" />
                 <Select
                   label="Pipeline"
                   name="pipeline"
@@ -183,6 +185,24 @@ export function AddCandidateDialog({
                   Keep for future
                 </label>
               </div>
+            </section>
+
+            <section>
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Documents
+              </h3>
+              <label className="flex flex-col gap-1">
+                <span className={labelCls}>
+                  Resume, cover letter, etc. — attached to the candidate&apos;s Documents tab
+                </span>
+                <input
+                  name="documents"
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.rtf,.txt,.odt,.pages,.png,.jpg,.jpeg,.webp,.heic"
+                  className="text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-emerald-700 hover:file:bg-emerald-100"
+                />
+              </label>
             </section>
 
             <section>

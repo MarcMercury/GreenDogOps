@@ -55,6 +55,8 @@ import {
 import { esc } from "@/lib/ats/slack-messages";
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
+import { cityOrZipLookup } from "@/lib/shared/zip-lookup";
+import { guessDocumentCategory } from "@/lib/ats/document-category";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -177,7 +179,10 @@ export async function updateCandidate(
     resume_url: str(formData.get("resume_url")),
     keep_for_future: bool(formData.get("keep_for_future")),
     follow_up_date: str(formData.get("follow_up_date")),
-    candidate_location: str(formData.get("candidate_location")),
+    candidate_location: await cityOrZipLookup(
+      str(formData.get("candidate_location")),
+      personPatch.postal_code,
+    ),
     relevant_experience: str(formData.get("relevant_experience")),
     education: str(formData.get("education")),
     job_location: normalizeJobLocation(str(formData.get("job_location"))),
@@ -547,7 +552,7 @@ async function storePersonDocument(
   const { error: dbErr } = await admin.from("person_document").insert({
     person_id: personId,
     title: meta.title ?? file.name,
-    category: meta.category ?? null,
+    category: meta.category ?? guessDocumentCategory(file.name, "other"),
     storage_path: storagePath,
     file_name: file.name,
     mime_type: file.type || null,
@@ -1010,7 +1015,7 @@ export async function createCandidates(
         source_detail: c.source_detail,
         score: c.score,
         application_date: c.application_date ?? uploadedOn,
-        candidate_location: c.candidate_location,
+        candidate_location: await cityOrZipLookup(c.candidate_location, c.postal_code),
         relevant_experience: c.relevant_experience,
         education: c.education,
         job_location: normalizeJobLocation(c.job_location),
@@ -1099,7 +1104,10 @@ export async function createResumeCandidate(
       source_detail: candidate.source_detail,
       score: candidate.score,
       application_date: candidate.application_date ?? uploadedOn,
-      candidate_location: candidate.candidate_location,
+      candidate_location: await cityOrZipLookup(
+        candidate.candidate_location,
+        candidate.postal_code,
+      ),
       relevant_experience: candidate.relevant_experience,
       education: candidate.education,
       job_location: normalizeJobLocation(candidate.job_location),
@@ -1114,7 +1122,7 @@ export async function createResumeCandidate(
   if (file && file.size > 0) {
     const stored = await storePersonDocument(person.id, file, {
       title: file.name,
-      category: "Resume",
+      category: guessDocumentCategory(file.name, "resume"),
       source: "Resume upload (ATS)",
     });
     documentSaved = stored.ok;
@@ -1141,14 +1149,15 @@ export async function createResumeCandidate(
 }
 
 export type CreateCandidateResult =
-  | { ok: true; id: string }
+  | { ok: true; id: string; warning?: string }
   | { ok: false; error: string };
 
 /**
  * Create a single recruiting candidate from a manual entry form. Inserts a
  * `person` (status = applicant) plus, when any recruiting field is provided, a
- * `person_recruiting` row. Returns the new person id so the caller can open the
- * candidate detail view.
+ * `person_recruiting` row, and attaches any uploaded documents (resume, cover
+ * letter, …) to the candidate's Documents tab. Returns the new person id so the
+ * caller can open the candidate detail view.
  */
 export async function createCandidate(
   formData: FormData,
@@ -1166,6 +1175,13 @@ export async function createCandidate(
     return { ok: false, error: "Enter a name or email to create a candidate." };
   }
 
+  const documents = formData
+    .getAll("documents")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  const tooBig = documents.find((f) => f.size > 25 * 1024 * 1024);
+  if (tooBig) return { ok: false, error: `${tooBig.name} exceeds the 25 MB limit.` };
+
+  const postalCode = str(formData.get("postal_code"));
   const { data: person, error: pErr } = await supabase
     .from("person")
     .insert({
@@ -1178,7 +1194,7 @@ export async function createCandidate(
       phone_home: phone(formData.get("phone_home")),
       phone_other: phone(formData.get("phone_other")),
       date_of_birth: str(formData.get("date_of_birth")),
-      postal_code: str(formData.get("postal_code")),
+      postal_code: postalCode,
       opportunity_type: str(formData.get("opportunity_type")),
     })
     .select("id")
@@ -1192,7 +1208,7 @@ export async function createCandidate(
     person_id: person.id,
     target_position_id: str(formData.get("target_position_id")),
     target_title: normalizePositionTitle(str(formData.get("target_title"))),
-    candidate_location: str(formData.get("candidate_location")),
+    candidate_location: await cityOrZipLookup(str(formData.get("candidate_location")), postalCode),
     pipeline: normalizePipeline(str(formData.get("pipeline"))),
     stage: normalizeStage(str(formData.get("stage"))),
     source: normalizeSource(str(formData.get("source"))),
@@ -1225,8 +1241,29 @@ export async function createCandidate(
     summary: `Added recruiting candidate ${fullName ?? email ?? person.id}`,
   });
 
+  // The candidate exists either way; a failed attachment is reported so the
+  // recruiter can re-upload it from the Documents tab.
+  const failedDocs: string[] = [];
+  for (const file of documents) {
+    const stored = await storePersonDocument(person.id, file, {
+      title: file.name,
+      category: guessDocumentCategory(file.name, documents.length === 1 ? "resume" : "other"),
+      source: "Uploaded in ATS",
+    });
+    if (!stored.ok) failedDocs.push(`${file.name} (${stored.error})`);
+  }
+
   revalidatePath("/ats");
-  return { ok: true, id: person.id };
+  revalidatePath(`/ats/${person.id}`);
+  return {
+    ok: true,
+    id: person.id,
+    ...(failedDocs.length
+      ? {
+          warning: `Candidate saved, but these documents failed to attach: ${failedDocs.join(", ")}. Re-upload them from the Documents tab.`,
+        }
+      : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

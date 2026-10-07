@@ -97,6 +97,7 @@ export function CandidateProfile({
           <p className="mt-0.5 text-sm text-slate-500">
             {rec?.target_title ?? "Candidate"}
             {rec?.pipeline ? ` · ${rec.pipeline}` : ""}
+            {rec?.candidate_location ? ` · 📍 ${rec.candidate_location}` : ""}
           </p>
         </div>
       </div>

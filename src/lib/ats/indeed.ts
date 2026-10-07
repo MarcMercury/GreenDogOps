@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import {
   createApplicantProfile,
   splitName,
+  textDocument,
   type ApplicantResume,
 } from "@/lib/ats/applicant-intake";
 
@@ -153,8 +154,15 @@ export async function ingestIndeedApplication(
       fileName: file.fileName || "resume",
       contentType: file.contentType || "application/octet-stream",
       buffer: Buffer.from(file.data, "base64"),
+      category: "resume",
     });
+  } else {
+    // Indeed Resume profiles arrive as text only.
+    const text = textDocument("Resume (Indeed).txt", applicant?.resume?.text, "resume");
+    if (text) resumes.push(text);
   }
+  const coverDoc = textDocument("Cover letter.txt", coverLetter, "cover_letter");
+  if (coverDoc) resumes.push(coverDoc);
 
   const outcome = await createApplicantProfile(
     {

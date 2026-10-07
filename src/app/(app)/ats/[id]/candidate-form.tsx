@@ -17,6 +17,7 @@ import { PhoneInput } from "@/lib/shared/phone-input";
 import { CopyForSlackButton } from "./copy-for-slack";
 import { AnnounceButton } from "./post-to-slack";
 import { PositionPicker } from "../position-picker";
+import { ZipCityFields } from "../zip-city-fields";
 import { buildCandidateSummary } from "@/lib/ats/slack-summary";
 import {
   updateCandidate,
@@ -319,7 +320,12 @@ export function CandidateForm({
         <Field label="Home phone" name="phone_home" type="tel" defaultValue={row.phone_home} />
         <Field label="Other phone" name="phone_other" type="tel" defaultValue={row.phone_other} />
         <Field label="Date of birth" name="date_of_birth" type="date" defaultValue={row.date_of_birth} />
-        <Field label="ZIP / postal code" name="postal_code" defaultValue={row.postal_code} />
+        <ZipCityFields
+          defaultZip={row.postal_code}
+          defaultCity={rec?.candidate_location}
+          inputClassName="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          labelClassName="text-xs font-medium text-slate-500"
+        />
       </Section>
 
       <Section title="Pipeline">
@@ -364,11 +370,6 @@ export function CandidateForm({
       </Section>
 
       <Section title="Background">
-        <Field
-          label="Candidate location"
-          name="candidate_location"
-          defaultValue={rec?.candidate_location}
-        />
         <Field
           label="Relevant experience"
           name="relevant_experience"

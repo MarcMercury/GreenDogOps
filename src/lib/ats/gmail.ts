@@ -4,13 +4,19 @@ import { OAuth2Client } from "google-auth-library";
 import { extractResumeCandidate } from "@/lib/ats/import";
 import {
   createApplicantProfile,
+  textDocument,
   todayISO,
   type ApplicantInput,
   type ApplicantResume,
 } from "@/lib/ats/applicant-intake";
 import type { ParsedCandidate } from "@/lib/ats/import-types";
-import { isAllowedResumeHost, parseCareersForm } from "@/lib/ats/careers-form";
+import {
+  isAllowedResumeHost,
+  parseCareersForm,
+  type CareersFormUpload,
+} from "@/lib/ats/careers-form";
 import { normalizeJobLocation } from "@/lib/ats/normalize";
+import { guessDocumentCategory } from "@/lib/ats/document-category";
 
 // ---------------------------------------------------------------------------
 // Gmail applicant intake (greendogcareers@gmail.com).
@@ -43,8 +49,10 @@ const DEFAULT_QUERY =
   ' OR (from:gv-clients.com "Career Application" newer_than:120d -label:GD-Imported)' +
   ' OR (from:gv-clients.com subject:"Webform submission" "Apply for a position" newer_than:120d -label:GD-Imported)';
 const DEFAULT_MAX = 25;
-// Attachment extensions we treat as a resume worth parsing / storing.
-const RESUME_EXT = /\.(pdf|docx?|rtf|txt|png|jpe?g|webp)$/i;
+// Attachment extensions we treat as an application document (resume, cover
+// letter, certificate…) worth parsing / storing.
+const DOCUMENT_EXT = /\.(pdf|docx?|rtf|txt|odt|pages|png|jpe?g|gif|webp|heic)$/i;
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|heic)$/i;
 
 export interface GmailIngestResult {
   ok: boolean;
@@ -120,7 +128,7 @@ interface ExtractedMessage {
   attachments: { partId: string; filename: string; mimeType: string; attachmentId: string }[];
 }
 
-/** Walk the MIME tree collecting the best body text + resume attachments. */
+/** Walk the MIME tree collecting the best body text + document attachments. */
 function walkParts(payload: gmail_v1.Schema$MessagePart | undefined): ExtractedMessage {
   let plain = "";
   let html = "";
@@ -293,7 +301,8 @@ function parseIndeedBundle(subject: string, bodyText: string): ApplicantInput[] 
 /** Build an applicant from a website careers form (gv-clients.com) email. */
 function parseGvClientsApplication(bodyText: string): {
   input: ApplicantInput;
-  resumeLink: { fileName: string; url: string } | null;
+  uploads: CareersFormUpload[];
+  coverLetter: string | null;
 } | null {
   const form = parseCareersForm(bodyText);
   if (!form) return null;
@@ -313,7 +322,8 @@ function parseGvClientsApplication(bodyText: string): {
           .filter(Boolean)
           .join("\n\n") || null,
     },
-    resumeLink: form.resume,
+    uploads: form.uploads,
+    coverLetter: form.coverLetter,
   };
 }
 
@@ -321,14 +331,11 @@ const RESUME_DOWNLOAD_MAX_BYTES = 15 * 1024 * 1024;
 const RESUME_DOWNLOAD_TIMEOUT_MS = 15_000;
 
 /**
- * Download a resume the careers form linked to instead of attaching. Redirects
+ * Download a file the careers form linked to instead of attaching. Redirects
  * are followed by hand so every hop stays on the form / website hosts.
  * Returns null on any failure — the applicant is still created without it.
  */
-async function downloadLinkedResume(link: {
-  fileName: string;
-  url: string;
-}): Promise<ApplicantResume | null> {
+async function downloadLinkedResume(link: CareersFormUpload): Promise<ApplicantResume | null> {
   let url = link.url;
   try {
     for (let hop = 0; hop < 5; hop++) {
@@ -353,6 +360,7 @@ async function downloadLinkedResume(link: {
         fileName: link.fileName,
         contentType: contentType || "application/octet-stream",
         buffer,
+        category: link.category,
       };
     }
   } catch (err) {
@@ -378,8 +386,17 @@ async function ingestOne(
     ? new Date(Number(message.internalDate)).toISOString().slice(0, 10)
     : todayISO();
 
-  // Gather resume-like attachments (skip inline images / logos with no name).
-  const resumeParts = attachments.filter((a) => RESUME_EXT.test(a.filename));
+  const isIndeedNotice = fromLc.includes("indeedemail.com") && /new application/i.test(subject);
+  const isIndeedDigest = fromLc.includes("employers-noreply@indeed.com");
+
+  // Gather every document-like attachment (skip inline parts with no name).
+  // A digest covers several candidates, so its files can't be pinned on any
+  // one of them; images on Indeed notices are logos, not applicant files.
+  const resumeParts = isIndeedDigest
+    ? []
+    : attachments.filter(
+        (a) => DOCUMENT_EXT.test(a.filename) && !(isIndeedNotice && IMAGE_EXT.test(a.filename)),
+      );
   const resumes: ApplicantResume[] = [];
   for (const part of resumeParts) {
     const buffer = await fetchAttachment(gmail, message.id!, part.attachmentId);
@@ -390,33 +407,36 @@ async function ingestOne(
 
   let inputs: ApplicantInput[] = [];
 
-  if (fromLc.includes("indeedemail.com") && /new application/i.test(subject)) {
+  if (isIndeedNotice) {
     // Indeed strips PII from notifications: we get name + role only.
     const one = parseIndeedApplication(from, subject, bodyText);
     if (one) inputs = [one];
-  } else if (fromLc.includes("employers-noreply@indeed.com")) {
+  } else if (isIndeedDigest) {
     // Bundled digest: several candidates in a single message.
     inputs = parseIndeedBundle(subject, bodyText);
   } else if (fromLc.includes("gv-clients.com")) {
-    // Direct website submission with structured form fields. The resume is
-    // uploaded to the website and only linked from the email.
+    // Direct website submission with structured form fields. Files are
+    // either attached to the email (older format) or uploaded to the website
+    // and only linked from it (current format) — collect both.
     const one = parseGvClientsApplication(bodyText);
     if (one) {
       inputs = [one.input];
-      if (resumes.length === 0 && one.resumeLink) {
-        const linked = await downloadLinkedResume(one.resumeLink);
+      const attachedNames = new Set(resumes.map((r) => r.fileName.toLowerCase()));
+      for (const upload of one.uploads) {
+        if (attachedNames.has(upload.fileName.toLowerCase())) continue;
+        const linked = await downloadLinkedResume(upload);
         if (linked) resumes.push(linked);
       }
+      const typedCover = textDocument("Cover letter.txt", one.coverLetter, "cover_letter");
+      if (typedCover) resumes.push(typedCover);
     }
   } else {
     // Fallback for anything else: AI-extract from a resume attachment or body.
     let candidate: ParsedCandidate | null = null;
-    if (resumes.length > 0) {
-      const r = await extractResumeCandidate(
-        resumes[0].fileName,
-        resumes[0].contentType,
-        resumes[0].buffer,
-      );
+    const primary =
+      resumes.find((d) => guessDocumentCategory(d.fileName, "resume") === "resume") ?? resumes[0];
+    if (primary) {
+      const r = await extractResumeCandidate(primary.fileName, primary.contentType, primary.buffer);
       if (r.ok) candidate = r.candidate;
     }
     if (!candidate && bodyText) {

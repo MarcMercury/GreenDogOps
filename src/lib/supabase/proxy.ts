@@ -71,7 +71,8 @@ export async function updateSession(request: NextRequest) {
     // Medical Boards daily rollover cron self-authenticates via CRON_SECRET.
     pathname.startsWith("/api/med-ops/boards/rollover") ||
     // ATS intake endpoints self-authenticate: the Gmail cron via CRON_SECRET,
-    // the Indeed Apply webhook via its X-Indeed-Signature HMAC.
+    // the Indeed Apply webhook via its X-Indeed-Signature HMAC, and the ZIP →
+    // city lookup via the signed-in user's session (getCurrentUser).
     pathname.startsWith("/api/ats/") ||
     // Agent endpoints self-authenticate via the CRON_SECRET bearer token
     // (worker run status, ezyVet data sinks, run creation).

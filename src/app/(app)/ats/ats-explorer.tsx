@@ -148,7 +148,7 @@ export function AtsExplorer({
     },
     {
       key: "candidate_location",
-      header: "Location",
+      header: "City",
       value: (r) => r.person_recruiting?.candidate_location,
     },
     {

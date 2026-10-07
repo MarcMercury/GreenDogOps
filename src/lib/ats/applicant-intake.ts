@@ -2,6 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { normalizePositionTitle } from "./normalize";
+import { guessDocumentCategory } from "./document-category";
 
 // ---------------------------------------------------------------------------
 // Shared applicant intake.
@@ -35,10 +36,13 @@ export interface ApplicantInput {
   notes: string | null;
 }
 
+/** Any file that came with an application (resume, cover letter, …). */
 export interface ApplicantResume {
   fileName: string;
   contentType: string;
   buffer: Buffer;
+  /** DOCUMENT_CATEGORY_LABELS key; guessed from the file name when omitted. */
+  category?: string;
 }
 
 export type IntakeOutcome =
@@ -58,6 +62,25 @@ export function splitName(full: string): { first: string | null; last: string | 
 /** Today as an ISO date string (yyyy-mm-dd). */
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Wrap text the applicant typed into a form (cover letter, plain-text resume)
+ * as a .txt document so it lands on the Documents tab with the other files.
+ */
+export function textDocument(
+  fileName: string,
+  text: string | null | undefined,
+  category: string,
+): ApplicantResume | null {
+  const body = text?.trim();
+  if (!body) return null;
+  return {
+    fileName,
+    contentType: "text/plain; charset=utf-8",
+    buffer: Buffer.from(body + "\n", "utf-8"),
+    category,
+  };
 }
 
 /**
@@ -101,36 +124,55 @@ async function findExistingApplicant(
   return null;
 }
 
-/** Store a resume on the candidate's document shelf (best-effort, non-fatal). */
+/**
+ * Store an application document on the candidate's document shelf
+ * (best-effort, non-fatal). Skips a file already on the shelf under the same
+ * name and size, so a re-sent application doesn't stack duplicate copies.
+ */
 async function storeResume(admin: Admin, personId: string, resume: ApplicantResume): Promise<void> {
   if (resume.buffer.length === 0) return;
-  const safeName = (resume.fileName || "resume").replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const fileName = resume.fileName?.trim() || "resume";
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "_");
   const contentType = resume.contentType || "application/octet-stream";
-  const storagePath = `${personId}/${Date.now()}_${safeName}`;
 
+  const { data: existing } = await admin
+    .from("person_document")
+    .select("id")
+    .eq("person_id", personId)
+    .eq("file_name", fileName)
+    .eq("size_bytes", resume.buffer.length)
+    .limit(1);
+  if (existing && existing.length > 0) return;
+
+  const storagePath = `${personId}/${Date.now()}_${safeName}`;
   const { error: upErr } = await admin.storage
     .from(DOCUMENTS_BUCKET)
     .upload(storagePath, resume.buffer, { contentType, upsert: false });
-  if (upErr) return;
+  if (upErr) {
+    console.error(`[ats] document upload failed for ${personId}:`, upErr.message);
+    return;
+  }
 
   const { error: dbErr } = await admin.from("person_document").insert({
     person_id: personId,
-    title: safeName,
-    category: "Resume",
+    title: fileName,
+    category: resume.category ?? guessDocumentCategory(fileName, "resume"),
     storage_path: storagePath,
-    file_name: safeName,
+    file_name: fileName,
     mime_type: contentType,
     size_bytes: resume.buffer.length,
     source: "Inbound application",
   });
   if (dbErr) {
+    console.error(`[ats] document record failed for ${personId}:`, dbErr.message);
     await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
   }
 }
 
 /**
  * Create a recruiting candidate (`person` status = applicant + a
- * `person_recruiting` row) and attach any resumes. De-duplicates against
+ * `person_recruiting` row) and attach every document that came with the
+ * application (resume, cover letter, …). De-duplicates against
  * recent applications from the same source. Requires at least an email or a
  * name (Indeed email notifications have a name but no email).
  */
@@ -188,6 +230,11 @@ export async function createApplicantProfile(
         await storeResume(admin, existing.personId, resume);
       }
       return { status: "reapplied", personId: existing.personId };
+    }
+    // Still in the pipeline: no new profile, but keep any new documents (e.g.
+    // a follow-up email with the cover letter) on the existing candidate.
+    for (const resume of resumes) {
+      await storeResume(admin, existing.personId, resume);
     }
     return { status: "duplicate" };
   }

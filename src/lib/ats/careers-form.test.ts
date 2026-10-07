@@ -72,7 +72,7 @@ describe("parseCareersForm", () => {
       role: "Receptionist",
       location: "State-of-the-Art Veterinary Hospital in Van Nuys",
       coverLetter: "Dear Hiring Manager,\nI love dogs.",
-      resume: { fileName: "Jane Doe Resume .pdf", url: TRACK },
+      uploads: [{ fileName: "Jane Doe Resume .pdf", url: TRACK, category: "resume" }],
     });
   });
 
@@ -87,8 +87,37 @@ describe("parseCareersForm", () => {
       role: "Senior Veterinary Technician",
       location: null,
       coverLetter: "RVT of 30 years.",
-      resume: { fileName: "resume.new (1).pdf", url: TRACK },
+      uploads: [{ fileName: "resume.new (1).pdf", url: TRACK, category: "resume" }],
     });
+  });
+
+  it("collects every uploaded file, including a cover letter upload", () => {
+    const body = [
+      "*Name*",
+      "Sam Lee",
+      "*Email*",
+      "sam@example.com [1]",
+      "*Upload Resume*",
+      "Sam_Lee.pdf [2]",
+      "     (90 KB)",
+      "*Cover Letter*",
+      "Sam_Lee_CL.docx [3]",
+      "     (20 KB)",
+      "",
+      "[1] mailto:sam@example.com",
+      `[2] ${TRACK}&f=1`,
+      `[3] ${TRACK}&f=2`,
+    ].join("\n");
+    const f = parseCareersForm(body);
+    expect(f?.coverLetter).toBeNull();
+    expect(f?.uploads).toEqual([
+      { fileName: "Sam_Lee.pdf", url: `${TRACK}&f=1`, category: "resume" },
+      { fileName: "Sam_Lee_CL.docx", url: `${TRACK}&f=2`, category: "cover_letter" },
+    ]);
+  });
+
+  it("does not treat a linked email address as an upload", () => {
+    expect(parseCareersForm(WEBFORM)?.uploads).toHaveLength(1);
   });
 
   it("returns null when there is no identity", () => {
