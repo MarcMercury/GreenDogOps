@@ -326,7 +326,7 @@ export function AtsExplorer({
         />
       ) : (
         <>
-          <StatGrid stats={stats} />
+          <StatGrid stats={stats} compact />
 
           {followUpsDue.length > 0 && (
             <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3">

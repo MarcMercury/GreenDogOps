@@ -31,20 +31,42 @@ export function compactCurrency(n: number | null | undefined): string {
 // ---------------------------------------------------------------------------
 export type Stat = { label: string; value: string; tone?: string };
 
-export function StatCard({ label, value, tone }: Stat) {
+export function StatCard({ label, value, tone, compact }: Stat & { compact?: boolean }) {
   return (
-    <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-      <div className={`text-2xl font-bold ${tone ?? "text-slate-900"}`}>{value}</div>
-      <div className="mt-0.5 text-xs font-medium text-slate-500">{label}</div>
+    <div
+      className={`rounded-xl border border-slate-200/80 bg-white shadow-sm ${
+        compact ? "px-3 py-2" : "p-4"
+      }`}
+    >
+      <div
+        className={`${compact ? "text-lg leading-tight" : "text-2xl"} font-bold ${
+          tone ?? "text-slate-900"
+        }`}
+      >
+        {value}
+      </div>
+      <div
+        className={`mt-0.5 font-medium text-slate-500 ${
+          compact ? "truncate text-[11px]" : "text-xs"
+        }`}
+      >
+        {label}
+      </div>
     </div>
   );
 }
 
-export function StatGrid({ stats }: { stats: Stat[] }) {
+export function StatGrid({ stats, compact }: { stats: Stat[]; compact?: boolean }) {
   return (
-    <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <div
+      className={
+        compact
+          ? "mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7"
+          : "mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6"
+      }
+    >
       {stats.map((s) => (
-        <StatCard key={s.label} label={s.label} value={s.value} tone={s.tone} />
+        <StatCard key={s.label} label={s.label} value={s.value} tone={s.tone} compact={compact} />
       ))}
     </div>
   );
