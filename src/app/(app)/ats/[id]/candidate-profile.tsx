@@ -1256,7 +1256,7 @@ function DocumentsPanel({
                 <DeleteButton
                   label="this document"
                   onConfirm={() =>
-                    deleteCandidateDocument(personId, d.id, d.storage_path)
+                    deleteCandidateDocument(personId, d.id)
                   }
                 />
               )}

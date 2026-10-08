@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ensureCanEdit, getCurrentUser, recordAudit } from "@/lib/auth/session";
+import { ensureCanEdit, ensureCanEditSensitiveHr, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
+import { currentRate, upsertCompensation } from "@/lib/hr/compensation";
+import { safeUploadContentType } from "@/lib/security/upload";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
 import { normalizeJobTitle } from "@/lib/hr/job-titles";
 import { formatPhoneNumber } from "@/lib/shared/phone";
@@ -165,13 +167,6 @@ export async function createEmployee(
     hire_date: str(formData.get("hire_date")),
     original_hire_date:
       str(formData.get("original_hire_date")) ?? str(formData.get("hire_date")),
-    ...(isAdmin
-      ? {
-          pay_type: str(formData.get("pay_type")),
-          current_rate: num(formData.get("current_rate")),
-          annual_wages: num(formData.get("annual_wages")),
-        }
-      : {}),
   };
 
   const { error: eErr } = await supabase
@@ -182,6 +177,28 @@ export async function createEmployee(
     // Roll back the orphaned person so we don't leave a half-created record.
     await supabase.from("person").delete().eq("id", personId);
     return { ok: false, error: eErr.message };
+  }
+
+  // Compensation columns are service-role only (migration 0227).
+  if (isAdmin) {
+    const comp = {
+      pay_type: str(formData.get("pay_type")),
+      current_rate: num(formData.get("current_rate")),
+      annual_wages: num(formData.get("annual_wages")),
+    };
+    const { error: cErr } = await upsertCompensation(personId, comp);
+    if (cErr) return { ok: false, error: cErr };
+    if (comp.pay_type != null || comp.current_rate != null || comp.annual_wages != null) {
+      await recordAudit({
+        actorId: gate.current.authId,
+        actorEmail: gate.current.email,
+        action: "compensation.set",
+        entity: "person",
+        entityId: personId,
+        summary: "Set compensation on new employee",
+        metadata: { fields: Object.keys(comp) },
+      });
+    }
   }
 
   await ensureAuthUserForPerson(personId);
@@ -229,18 +246,16 @@ export async function updateEmployee(
   // Compensation/benefits fields are admin-only. Non-admins never submit them,
   // so we omit them entirely to avoid overwriting with null.
   let compPatch: Record<string, unknown> = {};
+  let rateAudit: { old: number | null; new: number | null } | null = null;
   if (isAdmin) {
     const newRate = num(formData.get("current_rate"));
 
     // When the pay rate changes, stamp the change date and remember the prior
     // rate so the Compensation tab can show "Last compensation change".
-    const { data: existing } = await supabase
-      .from("person_employment")
-      .select("current_rate")
-      .eq("person_id", personId)
-      .maybeSingle();
-    const oldRate = existing?.current_rate ?? null;
-    const rateChanged = existing != null && newRate !== oldRate;
+    const existing = await currentRate(personId);
+    const oldRate = existing.rate;
+    const rateChanged = existing.found && newRate !== oldRate;
+    if (rateChanged) rateAudit = { old: oldRate, new: newRate };
 
     compPatch = {
       pay_type: str(formData.get("pay_type")),
@@ -282,7 +297,6 @@ export async function updateEmployee(
     separation_type: str(formData.get("separation_type")),
     separation_letter_signed: bool(formData.get("separation_letter_signed")),
     separation_notes: str(formData.get("separation_notes")),
-    ...compPatch,
   };
 
   const { error: eErr } = await supabase
@@ -290,6 +304,24 @@ export async function updateEmployee(
     .upsert({ person_id: personId, ...empPatch }, { onConflict: "person_id" });
 
   if (eErr) return { ok: false, error: eErr.message };
+
+  if (isAdmin) {
+    const { error: cErr } = await upsertCompensation(personId, compPatch);
+    if (cErr) return { ok: false, error: cErr };
+    await recordAudit({
+      actorId: gate.current.authId,
+      actorEmail: gate.current.email,
+      action: rateAudit ? "compensation.rate_changed" : "compensation.saved",
+      entity: "person",
+      entityId: personId,
+      summary: rateAudit
+        ? "Changed pay rate on employee profile"
+        : "Saved compensation on employee profile",
+      metadata: rateAudit
+        ? { old_rate: rateAudit.old, new_rate: rateAudit.new }
+        : { fields: Object.keys(compPatch) },
+    });
+  }
 
   await ensureAuthUserForPerson(personId);
 
@@ -458,25 +490,34 @@ export async function updateEmployeeField(
     }
     const value = coerceFieldValue(EMPLOYMENT_COMP_EDIT_FIELDS[field], raw);
     const patch: Record<string, unknown> = { [field]: value };
+    let oldValue: unknown = undefined;
 
     // Mirror the profile form: stamp the change date + prior rate on a raise.
     if (field === "current_rate") {
-      const { data: existing } = await supabase
-        .from("person_employment")
-        .select("current_rate")
-        .eq("person_id", personId)
-        .maybeSingle();
-      const oldRate = existing?.current_rate ?? null;
-      if (existing != null && value !== oldRate) {
+      const existing = await currentRate(personId);
+      const oldRate = existing.rate;
+      oldValue = oldRate;
+      if (existing.found && value !== oldRate) {
         patch.previous_rate = oldRate;
         patch.latest_wage_change_date = new Date().toISOString().slice(0, 10);
       }
     }
 
-    const { error } = await supabase
-      .from("person_employment")
-      .upsert({ person_id: personId, ...patch }, { onConflict: "person_id" });
-    if (error) return { ok: false, error: error.message };
+    // Compensation columns are service-role only (migration 0227).
+    const { error } = await upsertCompensation(personId, patch);
+    if (error) return { ok: false, error };
+    await recordAudit({
+      actorId: gate.current.authId,
+      actorEmail: gate.current.email,
+      action: "compensation.field_changed",
+      entity: "person",
+      entityId: personId,
+      summary: `Changed ${field} from the HR roster`,
+      metadata:
+        field === "current_rate"
+          ? { field, old_value: oldValue ?? null, new_value: value }
+          : { field },
+    });
   } else {
     return { ok: false, error: "This field is not editable." };
   }
@@ -676,6 +717,29 @@ export async function importRosterFile(formData: FormData): Promise<ImportRoster
   };
 }
 
+/** Audit trail for a roster CSV export (the file itself is built in the browser). */
+export async function logRosterExport(
+  dataset: string,
+  rowCount: number,
+  columnCount: number,
+): Promise<void> {
+  const current = await getCurrentUser();
+  if (!current) return;
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "export.hr_roster",
+    entity: "person",
+    summary: `Exported ${rowCount} roster row(s) (${String(dataset).slice(0, 40)})`,
+    metadata: {
+      dataset: String(dataset).slice(0, 40),
+      rows: Number(rowCount) || 0,
+      columns: Number(columnCount) || 0,
+      role: current.appUser.role,
+    },
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Reviews
 // ---------------------------------------------------------------------------
@@ -698,7 +762,8 @@ async function refreshLastReviewDate(
     .order("review_date", { ascending: false })
     .limit(1);
   const latest = (data?.[0]?.review_date as string | undefined) ?? null;
-  await supabase
+  // last_review_date is a compensation-tab column (service role only).
+  await createAdminClient()
     .from("person_employment")
     .update({ last_review_date: latest })
     .eq("person_id", personId);
@@ -709,7 +774,7 @@ export async function saveReview(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("review_id"));
@@ -740,7 +805,7 @@ export async function deleteReview(
   personId: string,
   reviewId: string,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
@@ -762,7 +827,7 @@ export async function saveDisciplinaryAction(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("action_id"));
@@ -795,7 +860,7 @@ export async function deleteDisciplinaryAction(
   personId: string,
   actionId: string,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
@@ -816,7 +881,7 @@ export async function saveAsset(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const id = str(formData.get("asset_id"));
@@ -848,7 +913,7 @@ export async function deleteAsset(
   personId: string,
   assetId: string,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const { error } = await supabase
@@ -869,7 +934,7 @@ export async function saveOnboarding(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
@@ -910,7 +975,7 @@ export async function addComplianceEntry(
   personId: string,
   formData: FormData,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
@@ -943,7 +1008,7 @@ export async function deleteComplianceEntry(
   personId: string,
   entryId: string,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
@@ -972,7 +1037,7 @@ export async function saveLicense(
   licenseId: string | null,
   formData: FormData,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
@@ -1007,7 +1072,7 @@ export async function deleteLicense(
   personId: string,
   licenseId: string,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const supabase = await createClient();
 
@@ -1154,7 +1219,7 @@ export async function uploadDocument(
   _prev: SaveResult | null,
   formData: FormData,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -1168,11 +1233,14 @@ export async function uploadDocument(
 
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
   const storagePath = `${personId}/${Date.now()}_${safeName}`;
+  // Never trust the browser's MIME type: derive it from an allow-list so an
+  // uploaded .html/.svg can never render inline from a signed URL.
+  const contentType = safeUploadContentType(file.name);
 
   const { error: upErr } = await admin.storage
     .from(DOCUMENTS_BUCKET)
     .upload(storagePath, file, {
-      contentType: file.type || "application/octet-stream",
+      contentType,
       upsert: false,
     });
 
@@ -1184,7 +1252,7 @@ export async function uploadDocument(
     category: str(formData.get("category")),
     storage_path: storagePath,
     file_name: file.name,
-    mime_type: file.type || null,
+    mime_type: contentType,
     size_bytes: file.size,
   });
 
@@ -1194,27 +1262,60 @@ export async function uploadDocument(
     return { ok: false, error: dbErr.message };
   }
 
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "hr_document.upload",
+    entity: "person",
+    entityId: personId,
+    summary: `Uploaded HR document "${file.name}"`,
+    metadata: { category: str(formData.get("category")), size_bytes: file.size },
+  });
+
   revalidatePath(`/hr/${personId}`);
   return { ok: true };
 }
 
+// The storage path is looked up server-side so a caller cannot point the
+// delete at another file in the bucket.
 export async function deleteDocument(
   personId: string,
   documentId: string,
-  storagePath: string,
 ): Promise<SaveResult> {
-  const gate = await ensureCanEdit("hr");
+  const gate = await ensureCanEditSensitiveHr();
   if (!gate.ok) return gate;
   const admin = createAdminClient();
 
-  await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+  const { data: doc } = await admin
+    .from("person_document")
+    .select("id, storage_path, file_name")
+    .eq("id", documentId)
+    .eq("person_id", personId)
+    .maybeSingle();
+  const found = doc as { id: string; storage_path: string | null; file_name: string | null } | null;
+  if (!found) return { ok: false, error: "Document not found." };
+
+  if (found.storage_path) {
+    await admin.storage.from(DOCUMENTS_BUCKET).remove([found.storage_path]);
+  }
 
   const { error } = await admin
     .from("person_document")
     .delete()
-    .eq("id", documentId);
+    .eq("id", documentId)
+    .eq("person_id", personId);
 
   if (error) return { ok: false, error: error.message };
+
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "hr_document.delete",
+    entity: "person",
+    entityId: personId,
+    summary: `Deleted HR document "${found.file_name ?? documentId}"`,
+    metadata: { document_id: documentId },
+  });
 
   revalidatePath(`/hr/${personId}`);
   return { ok: true };

@@ -30,6 +30,8 @@ interface ResendEvent {
   };
 }
 
+const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+
 /** Verify a Svix-signed payload. Returns true when any signature matches. */
 function verifySignature(
   secret: string,
@@ -77,6 +79,16 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Svix signs the timestamp; reject anything outside its standard 5-minute
+  // tolerance so a captured request cannot be replayed later.
+  const sentAt = Number(svixTimestamp);
+  if (!Number.isFinite(sentAt) || Math.abs(Date.now() / 1000 - sentAt) > WEBHOOK_TOLERANCE_SECONDS) {
+    return NextResponse.json(
+      { ok: false, error: "Stale or invalid timestamp." },
+      { status: 401 },
+    );
+  }
+
   const body = await req.text();
   if (!verifySignature(secret, svixId, svixTimestamp, body, svixSignature)) {
     return NextResponse.json(
@@ -115,8 +127,10 @@ export async function POST(req: NextRequest) {
   );
 
   if (error) {
-    // Return 500 so Resend retries rather than dropping the event.
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    // Return 500 so Resend retries rather than dropping the event. Details stay
+    // in the server log, not the response.
+    console.error("[email/webhook] store failed:", error.message);
+    return NextResponse.json({ ok: false, error: "Could not store event." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true }, { status: 200 });

@@ -70,3 +70,31 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Problem:** `scripts/supabase-sql.sh -f big.sql` never returns.
 - **Fix:** bulk data goes through a service-role client script, not a generated `.sql` file.
 - **Evidence:** README "Database migrations".
+
+### `permission denied for column` on person_employment
+- **Problem:** a user-scoped query (`createClient()`) that selects or embeds `person_employment(*)` or any pay/benefit column fails with `42501 permission denied for column current_rate`.
+- **Root cause:** migration 0227 grants `authenticated` only the non-compensation columns (column-level grants); compensation is service-role only.
+- **Fix:** list non-compensation columns explicitly in the user query; load compensation with `loadCompensation()` / write with `upsertCompensation()` from `src/lib/hr/compensation.ts` after the app-level check.
+- **Prevent:** `src/lib/hr/types.test.ts` pins `COMPENSATION_FIELDS` to the revoked set.
+- **Evidence:** `scripts/security_rls_matrix.sql` on staging 2026-10-08 (`read_comp: denied`, `read_hire_date` allowed for every role).
+
+### supabase-js `.select()` needs a literal string
+- **Problem:** interpolating a column list (`` `person_employment ( ${COLS} )` ``) into `.select()` makes the query type a `ParserError`, failing `tsc` ("Spread types may only be created from object types", "not assignable to PageResult").
+- **Fix:** write the select as one string literal (duplicate the column list if needed), or cast the query when the string is genuinely dynamic.
+- **Evidence:** scoped `tsc` on `hr/page.tsx` 2026-10-08.
+
+### Verifying a commit in a worktree: tsc and next build do work
+- **Problem:** the shared checkout mixes sessions' edits, and `tsc` OOMs there.
+- **Fix:** `git worktree add --detach /workspaces/<dir> <sha>` (same filesystem), copy in only the files being committed, then `cp -al /workspaces/GreenDogOps/node_modules node_modules` (hard links — instant, no extra disk). There, `NODE_OPTIONS=--max-old-space-size=2300 npx tsc --noEmit` and `npx next build` both complete. A **symlinked** `node_modules` breaks `next build` (Turbopack: "Symlink node_modules could not be resolved… leaves the filesystem root"), though lint/vitest are fine with it.
+- **Evidence:** full `tsc` rc=0 and `next build` success on 2026-10-08 for the 0227 security commit.
+
+### Testing RLS as each role without real users
+- **Fix:** in one `do $$ … $$` block: create fixtures, `update app_user set role = …`, `perform set_config('request.jwt.claims', '{"sub":…,"role":"authenticated","aal":"aal1"}', true)`, `execute 'set local role authenticated'`, probe, `execute 'reset role'`, repeat — then `raise exception` with the results so everything rolls back. Template: `scripts/security_rls_matrix.sql` (staging only).
+- **Evidence:** `RLS_MATRIX PASS` on staging 2026-10-08; fixture rows absent afterwards.
+
+
+### Service-role actions silently bypass new RLS
+- **Problem:** after 0227 locked employee documents to HR roles, `getCandidateDocuments` (ATS) still let any signed-in user fetch an employee's HR documents, and `deleteCandidateDocument` deleted any client-supplied storage path — both use `createAdminClient()`, so RLS never ran.
+- **Fix:** service-role paths must apply the same rule in TypeScript (`personDocumentAccess()` in `permissions.ts`, mirroring the `person_document` policy) and look up storage paths server-side.
+- **Prevent:** when tightening a policy, grep for `admin.from("<table>")` and `.storage.from(` on the same data — not just user-scoped queries.
+- **Evidence:** code review of the 0227 commit, 2026-10-08; regression test in `src/lib/auth/permissions.test.ts`.

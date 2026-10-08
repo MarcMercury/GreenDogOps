@@ -4,11 +4,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { AppUser, ModuleKey } from "./permissions";
+import { aalFromAccessToken, isMfaEnforced, mfaRequirement, roleRequiresMfa } from "./mfa";
 import {
   isAdminRole,
   canAccessModule,
   canEditModule,
   canEditGeneral,
+  canViewSensitiveHr,
 } from "./permissions";
 
 export interface CurrentUser {
@@ -17,18 +19,27 @@ export interface CurrentUser {
   appUser: AppUser;
 }
 
+export type AuthState =
+  | { kind: "anon" }
+  | { kind: "not_gdo"; email: string | null }
+  | {
+      kind: "mfa_challenge" | "mfa_enroll";
+      current: CurrentUser;
+      verifiedFactorIds: string[];
+    }
+  | { kind: "ok"; current: CurrentUser; verifiedFactorIds: string[]; aal: string | null };
+
 /**
- * Resolve the signed-in auth user AND their Green Dog Ops `app_user` row.
- * Returns null if there is no session, or if the user is not an active
- * GDO user (auth.users is shared with EmployeeGMGDD, so a session alone is
- * NOT sufficient to access GDO). Cached per request.
+ * Resolve the request's authentication state: no session, a session that is
+ * not an active GDO user, a GDO user who still owes a two-step code (or must
+ * enroll), or fully signed in. Cached per request.
  */
-export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+export const getAuthState = cache(async (): Promise<AuthState> => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return null;
+  if (!user) return { kind: "anon" };
 
   const { data } = await supabase
     .from("app_user")
@@ -37,16 +48,58 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
     .maybeSingle();
 
   const appUser = data as AppUser | null;
-  if (!appUser || !appUser.is_active) return null;
+  if (!appUser || !appUser.is_active) {
+    return { kind: "not_gdo", email: user.email ?? null };
+  }
 
-  return { authId: user.id, email: user.email ?? appUser.email, appUser };
+  const current: CurrentUser = {
+    authId: user.id,
+    email: user.email ?? appUser.email,
+    appUser,
+  };
+
+  // getUser() above validated this session's access token with the auth
+  // server, and its factor list comes from the server — not the cookie.
+  const verifiedFactorIds = (user.factors ?? [])
+    .filter((f) => f.status === "verified")
+    .map((f) => f.id);
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const aal = aalFromAccessToken(session?.access_token);
+
+  const roleRequires = roleRequiresMfa(appUser.role);
+  const requirement = mfaRequirement({
+    hasVerifiedFactor: verifiedFactorIds.length > 0,
+    aal,
+    roleRequires,
+    enforced: roleRequires && verifiedFactorIds.length === 0 ? await isMfaEnforced() : false,
+  });
+  if (requirement === "challenge") return { kind: "mfa_challenge", current, verifiedFactorIds };
+  if (requirement === "enroll") return { kind: "mfa_enroll", current, verifiedFactorIds };
+  return { kind: "ok", current, verifiedFactorIds, aal };
 });
 
-/** Require an active GDO user, else redirect to login. */
+/**
+ * Resolve the signed-in auth user AND their Green Dog Ops `app_user` row.
+ * Returns null if there is no session, if the user is not an active GDO user
+ * (auth.users is shared with EmployeeGMGDD, so a session alone is NOT
+ * sufficient to access GDO), or if two-step verification is still pending.
+ * Cached per request.
+ */
+export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  const state = await getAuthState();
+  return state.kind === "ok" ? state.current : null;
+});
+
+/** Require an active GDO user, else redirect to login (or the two-step page). */
 export async function requireUser(): Promise<CurrentUser> {
-  const current = await getCurrentUser();
-  if (!current) redirect("/login");
-  return current;
+  const state = await getAuthState();
+  if (state.kind === "mfa_challenge" || state.kind === "mfa_enroll") {
+    redirect("/login/mfa");
+  }
+  if (state.kind !== "ok") redirect("/login");
+  return state.current;
 }
 
 /** Require an owner/admin, else redirect to the dashboard. */
@@ -88,6 +141,20 @@ export async function ensureCanEdit(moduleKey: ModuleKey): Promise<EditGate> {
     return { ok: false, error: NO_EDIT_MESSAGE };
   }
   return { ok: true, current };
+}
+
+/**
+ * Gate for the sensitive HR-file records (reviews, discipline, assets,
+ * onboarding/compliance, licenses, documents). Requires HR edit rights AND a
+ * role that sees full HR files — matching the `hr_edit` RLS predicate (0227).
+ */
+export async function ensureCanEditSensitiveHr(): Promise<EditGate> {
+  const gate = await ensureCanEdit("hr");
+  if (!gate.ok) return gate;
+  if (!canViewSensitiveHr(gate.current.appUser.role)) {
+    return { ok: false, error: NO_EDIT_MESSAGE };
+  }
+  return gate;
 }
 
 /**

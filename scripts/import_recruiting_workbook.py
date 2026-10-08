@@ -17,13 +17,14 @@ Usage:
     python3 scripts/import_recruiting_workbook.py \
         --xlsx /tmp/recruiting.xlsx \
         --db-json /tmp/db_persons.json \
-        --out scripts/recruiting_workbook_import.sql
+        --out .secrets/data/recruiting_workbook_import.sql
 """
 from __future__ import annotations
 
 import argparse
 import json
 import re
+import os
 import sys
 from datetime import date, datetime
 
@@ -593,7 +594,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--xlsx", default="/tmp/recruiting.xlsx")
     ap.add_argument("--db-json", default="/tmp/db_persons.json")
-    ap.add_argument("--out", default="scripts/recruiting_workbook_import.sql")
+    ap.add_argument("--out", default=".secrets/data/recruiting_workbook_import.sql")
     args = ap.parse_args()
 
     wb = openpyxl.load_workbook(args.xlsx, data_only=True)
@@ -609,6 +610,7 @@ def main():
     cands = dedupe(cands)
     by_email, by_name = load_db(args.db_json)
     sql = emit(cands, by_email, by_name)
+    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as f:
         f.write(sql)
     sys.stderr.write(f"wrote {args.out}\n")

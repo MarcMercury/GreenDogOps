@@ -1,9 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { RosterRow } from "@/lib/hr/types";
-import { redactCompensation } from "@/lib/hr/types";
+import { redactPrivate } from "@/lib/hr/types";
+import {
+  loadCompensation,
+  withCompensation,
+} from "@/lib/hr/compensation";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canViewAllCompensation, canEditModule } from "@/lib/auth/permissions";
+import {
+  canViewAllCompensation,
+  canEditModule,
+  seesPrivateHrFields,
+} from "@/lib/auth/permissions";
 import { RosterGrid } from "./roster-grid";
 
 export const dynamic = "force-dynamic";
@@ -17,28 +25,33 @@ export default async function HrRosterPage() {
   const canEdit = current ? canEditModule(current.appUser, "hr") : false;
   const ownPersonId = current?.appUser.person_id ?? null;
 
-  const { data, error } = await fetchAllRows<Record<string, unknown>>((from, to) =>
-    supabase
-      .from("person")
-      .select(
-        `id, status, first_name, last_name, grid_name, full_name,
+  // Compensation columns are not readable by the API role (migration 0227);
+  // they are loaded below with the service role for the people this viewer may
+  // see — everyone for comp roles, otherwise just their own record.
+  const [{ data, error }, comp] = await Promise.all([
+    fetchAllRows<Record<string, unknown>>((from, to) =>
+      supabase
+        .from("person")
+        .select(
+          `id, status, first_name, last_name, grid_name, full_name,
        email, phone_mobile, phone_home, phone_other, date_of_birth, postal_code, work_location_type,
      opportunity_type, avatar_url, is_active, notes, source_contact_id, status_changed_at, created_at, updated_at,
        person_employment (
-         person_id, position_id, location_id, offer_title, adp_job_title,
+         person_id, position_id, location_id, preferred_location_id, offer_title, adp_job_title,
          flsa_status, work_schedule, schedule_type, days_per_week, hire_date, original_hire_date,
-         pay_type, current_rate, previous_rate, latest_wage_change_date,
-         biweekly_wage, annual_wages, pto_allotment, pto_policy_allotment,
-         pto_used, pto_available, pto_notes, ce_budget, ce_used, ce_remaining,
-         benefits_enrolled, benefits_monthly, benefits_annual, last_review_date,
+         pto_allotment, pto_policy_allotment, pto_used, pto_available, pto_notes,
          compliance, separation_date, separation_type, separation_letter_signed,
          separation_notes
        ),
        sched_employee_setting ( is_schedulable )`,
-      )
-      .order("last_name", { ascending: true })
-      .range(from, to),
-  );
+        )
+        .order("last_name", { ascending: true })
+        .range(from, to),
+    ),
+    viewAllComp
+      ? loadCompensation("all")
+      : loadCompensation(ownPersonId ? [ownPersonId] : []),
+  ]);
 
   if (error) {
     return (
@@ -63,9 +76,10 @@ export default async function HrRosterPage() {
         ? (sched[0] ?? null)
         : (sched ?? null),
     } as RosterRow;
-    return viewAllComp || row.id === ownPersonId
-      ? row
-      : redactCompensation(row);
+    const withComp = withCompensation(row, comp.get(row.id));
+    return current && !seesPrivateHrFields(current.appUser, row.id)
+      ? redactPrivate(withComp)
+      : withComp;
   });
 
   return (

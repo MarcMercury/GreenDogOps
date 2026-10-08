@@ -1,5 +1,6 @@
 "use server";
 
+import { allowPublicSubmission, TOO_MANY_MESSAGE } from "@/lib/security/rate-limit";
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { storeResume } from "@/lib/ats/applicant-intake";
@@ -25,6 +26,7 @@ export type QuestionnaireResult =
  * the only credential; each link takes one submission.
  */
 export async function submitQuestionnaire(token: string, fd: FormData): Promise<QuestionnaireResult> {
+  if (!(await allowPublicSubmission("forms", 20))) return { ok: false, error: TOO_MANY_MESSAGE };
   const admin = createAdminClient();
   const { data } = await admin
     .from("recruiting_form_request")

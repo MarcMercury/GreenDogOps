@@ -24,7 +24,7 @@ import {
 import { opportunityShortLabel, OPPORTUNITY_TYPES } from "@/lib/shared/opportunity-types";
 import { NewEmployeeWizard } from "./new-employee-wizard";
 import { EditableCell, type SelectOption } from "./editable-cell";
-import { importRosterFile } from "./actions";
+import { importRosterFile, logRosterExport } from "./actions";
 
 const STATUS_BADGE: Record<EmploymentStatus, string> = {
   prospect: "bg-amber-100 text-amber-800",
@@ -825,13 +825,11 @@ export function RosterGrid({
         description="Employee roster, status & assignments"
         count={rows.length}
         countLabel="people"
-        onExport={() =>
-          exportColumnsCsv(
-            detailedEnabled ? "hr-roster-detailed" : "hr-roster",
-            columns,
-            rows,
-          )
-        }
+        onExport={() => {
+          const dataset = detailedEnabled ? "hr-roster-detailed" : "hr-roster";
+          exportColumnsCsv(dataset, columns, rows);
+          void logRosterExport(dataset, rows.length, columns.length);
+        }}
         importAccept=".csv,.xls,.xlsx"
         onImport={(f) => {
           if (importing) return;

@@ -54,24 +54,39 @@ Green Dog Ops lives in **one Supabase project alongside a second app
 One-time project setup: apply [supabase/baseline](supabase/baseline), then
 Dashboard → Settings → API → **Exposed schemas** → add `greendogops`.
 
-### 2. RLS is on — but app-layer authorization still does the real work
+### 2. RLS: membership floor + sensitive HR boundaries in the database
 
-Every one of the 138 tables in `greendogops` has Row-Level Security enabled, with
-136 policies (migrations `0164`/`0165`). That baseline exists for one reason:
-`auth.users` is shared, so ~100 accounts from the other app get the
-`authenticated` role, and table GRANTs alone would let them read everything.
-The blanket `gdo_members_all` policy shuts them out by requiring an active
-`app_user` row.
+Every table in `greendogops` has Row-Level Security enabled (migrations
+`0164`/`0165`). `auth.users` is shared, so ~100 accounts from the other app get
+the `authenticated` role; the blanket `gdo_members_all` policy shuts them out by
+requiring an active `app_user` row — and, once a user has enrolled two-step
+verification, an AAL2 session.
 
-**RLS is a floor, not the authorization model.** It answers "is this a Green Dog
-Ops user at all", nothing finer. Per-module and per-row rules still live in
-server code (`canAccessModule` / `canEditModule` / `smartScopeFor`), so:
+Migration `0227` moves the sensitive HR boundaries into the database too, so
+calling the REST API directly with a user's own token cannot reach past what
+the app shows them (see [docs/security.md](docs/security.md)):
+
+- `person_review`, `person_disciplinary_action`, `person_asset`,
+  `person_compliance_entry`, `person_onboarding_item`, `person_license`: HR
+  roles (owner/admin/executive/manager) or the employee's own record only.
+- `person_document`, `profile_transition_log`: same, plus candidates
+  (`prospect`/`applicant`) for anyone with Recruiting access.
+- **Compensation columns on `person_employment` are not granted to
+  `authenticated` at all.** Read/write them with `src/lib/hr/compensation.ts`
+  (service role) after the app-level check. A column *added* to
+  `person_employment` must be explicitly granted unless it is compensation.
+- `audit_log` is append-only (no API access; a trigger blocks
+  UPDATE/DELETE/TRUNCATE for every role).
+
+Everything else is still gated in server code (`canAccessModule` /
+`canEditModule` / `smartScopeFor`), so:
 
 - Every Server Action must re-check permissions. Do not trust the client.
 - **Never grant EXECUTE on a Postgres RPC to `authenticated`.** `0211` revoked
   PUBLIC/anon on all routines because `SECURITY DEFINER` functions run as the
   owner and never consult RLS. A browser-callable `smart_query` would leak
-  salaries to any logged-in user.
+  salaries to any logged-in user. (Role checks inside policies are inline
+  subqueries on `app_user`, not helper RPCs.)
 - The service-role key bypasses RLS entirely — server-only, never in a
   `NEXT_PUBLIC_*` variable.
 - Views and materialized views **cannot** enforce RLS, so all of them are
@@ -80,6 +95,8 @@ server code (`canAccessModule` / `canEditModule` / `smartScopeFor`), so:
 An event trigger (`greendogops_protect_new_objects`) applies the baseline to
 newly created objects automatically. Audit with
 `select * from greendogops.rls_audit();` — it should always return zero rows.
+Verify the role boundaries on staging with
+`scripts/security_rls_matrix.sql` (prints `RLS_MATRIX PASS`).
 
 ### 3. PostgREST row cap
 
@@ -203,7 +220,7 @@ defaults, in both directions.
 | **Manager / HR** | Edits everything except Admin, Reporting, and Emp Reporting; can view all compensation. |
 | **Schedule Admin** | Edits every module they can see; no Admin panel, no all-compensation view. |
 | **Marketing Admin** | Same pages as Schedule Admin, but the Operations section (Calendar, Scheduling, Planning) is view-only. |
-| **Staff** | Read-only everywhere except Admin and Email Templates; sees only their own compensation. |
+| **Staff** | Read-only everywhere except Admin and Email Templates; sees only their own compensation. On other people's HR profiles sees only General + Shift Eligibility, without personal fields (DOB, home ZIP/phones, notes, PTO, separation). |
 
 `admin`, `reporting`, and `emp_reporting` are admin-only by default and can be
 granted per user. `/reporting/smart` is an explicit exception
@@ -216,6 +233,13 @@ Key helpers:
 - `canEditModule(user, key)` — write rights, with the Admin-panel and
   Marketing-Admin/Operations carve-outs.
 - `canViewAllCompensation(role)` / `canViewCredentials(role)`.
+- `canViewSensitiveHr(role)` / `hasRestrictedHrView(user, personId)` /
+  `seesPrivateHrFields(user, personId)` — the HR-file boundary, mirrored in SQL
+  by the `hr_full` / `hr_edit` predicates in the RLS policies (migration `0227`).
+- Two-step verification: `src/lib/auth/mfa.ts`; enforcement for
+  Owner/Admin/Executive/Manager is the **Admin → Settings → Require two-step
+  verification** switch (ships off). Anyone who has enrolled is always asked
+  for a code.
 - `moduleForPathname(path)` — longest-prefix route → module mapping used by the
   `(app)` layout to gate whole route subtrees.
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { safeUploadContentType } from "@/lib/security/upload";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { normalizeJobLocation, normalizePositionTitle } from "./normalize";
@@ -190,7 +191,8 @@ export async function storeResume(
   if (resume.buffer.length === 0) return null;
   const fileName = resume.fileName?.trim() || "resume";
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "_");
-  const contentType = resume.contentType || "application/octet-stream";
+  // Derived from an allow-list, never the sender-supplied MIME type.
+  const contentType = safeUploadContentType(fileName, resume.contentType);
 
   const { data: existing } = await admin
     .from("person_document")

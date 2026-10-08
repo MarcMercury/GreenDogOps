@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getAuthState } from "@/lib/auth/session";
 import { NoAccess } from "../(app)/_components/no-access";
 
 /**
@@ -13,14 +12,11 @@ export default async function PatientWindowLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const current = await getCurrentUser();
-  if (!current) {
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) redirect("/login");
-    return <NoAccess email={user.email ?? null} />;
+  const state = await getAuthState();
+  if (state.kind === "anon") redirect("/login");
+  if (state.kind === "mfa_challenge" || state.kind === "mfa_enroll") {
+    redirect("/login/mfa");
   }
+  if (state.kind === "not_gdo") return <NoAccess email={state.email} />;
   return <div className="min-h-screen bg-slate-50">{children}</div>;
 }

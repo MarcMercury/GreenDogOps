@@ -117,6 +117,44 @@ export function redactCompensation(row: RosterRow): RosterRow {
   return { ...row, person_employment: emp as unknown as PersonEmployment };
 }
 
+/**
+ * Personal (non-work) fields hidden from read-only viewers on other people's
+ * records. Work contact details (email, mobile) stay visible.
+ */
+export const PRIVATE_PERSON_FIELDS: Array<keyof Person> = [
+  "date_of_birth",
+  "postal_code",
+  "phone_home",
+  "phone_other",
+  "notes",
+];
+
+/** Attendance / separation / onboarding-compliance details on the employment row. */
+export const PRIVATE_EMPLOYMENT_FIELDS: Array<keyof PersonEmployment> = [
+  "pto_allotment",
+  "pto_policy_allotment",
+  "pto_used",
+  "pto_available",
+  "pto_notes",
+  "separation_type",
+  "separation_letter_signed",
+  "separation_notes",
+];
+
+/** Return a copy of the row with personal and HR-private fields removed. */
+export function redactPrivate(row: RosterRow): RosterRow {
+  const person = { ...row } as Record<string, unknown>;
+  for (const field of PRIVATE_PERSON_FIELDS) person[field] = null;
+  let emp = row.person_employment;
+  if (emp) {
+    const e = { ...emp } as Record<string, unknown>;
+    for (const field of PRIVATE_EMPLOYMENT_FIELDS) e[field] = null;
+    e.compliance = {};
+    emp = e as unknown as PersonEmployment;
+  }
+  return { ...(person as unknown as RosterRow), person_employment: emp };
+}
+
 export interface PersonReview {
   id: string;
   person_id: string;

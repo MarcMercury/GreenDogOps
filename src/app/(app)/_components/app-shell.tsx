@@ -323,6 +323,12 @@ function UserFooter({
           <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600">
             {ROLE_LABELS[role]}
           </span>
+          <Link
+            href="/login/mfa?setup=1"
+            className="block text-[10px] text-slate-400 hover:text-emerald-600"
+          >
+            Two-step verification
+          </Link>
         </div>
       </div>
       <form action="/auth/signout" method="post">

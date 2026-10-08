@@ -15,6 +15,17 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `actions.ts` export calls a permission helper; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest`; migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.
 - **Risk:** low; may surface existing violations that need triage.
 
+### Security follow-ups from the ASVS L2 pass (0227)
+- **Why:** items deliberately left out of the 0227 security commit; see `docs/security.md` §11 for owner-only actions.
+- **Scope:**
+  - Regenerate `supabase/baseline` once staging has caught up with production (staging lacked 0215–0224 on 2026-10-08, and `generate_baseline.sh` reads staging by default).
+  - ATS Slack announcements post a 7-day signed resume URL (`src/lib/ats/slack-announce.ts`) — link to `/ats/<id>` instead.
+  - `recordAudit()` swallows failures; consider surfacing audit-write errors for security events.
+  - Indeed webhook has HMAC but no replay window (Indeed sends no timestamp) — confirm ingest is idempotent per application id.
+  - Decide whether to enforce `security.session_timeout_minutes` (would sign out always-on board displays).
+  - Consider whether `person.date_of_birth` is needed at all (data minimisation).
+- **Risk:** low each.
+
 ## P2 — Reliability
 
 ### Unified integration-health view

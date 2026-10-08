@@ -1608,7 +1608,7 @@ function DocumentsPanel({
               </div>
               <DeleteButton
                 label="this document"
-                onConfirm={() => deleteDocument(personId, d.id, d.storage_path)}
+                onConfirm={() => deleteDocument(personId, d.id)}
               />
             </li>
           ))}

@@ -17,6 +17,7 @@ import {
   revokeAccess,
   linkUserToPerson,
   resetUserPassword,
+  resetUserMfa,
 } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -46,21 +47,27 @@ const PW_BANNERS: Record<string, { tone: "ok" | "error"; text: string }> = {
   error: { tone: "error", text: "Could not update the password. Try again." },
 };
 
+const MFA_BANNERS: Record<string, { tone: "ok" | "error"; text: string }> = {
+  reset: { tone: "ok", text: "Two-step verification reset." },
+  error: { tone: "error", text: "Could not reset two-step verification. Try again." },
+};
+
 export default async function UserDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ pw?: string; roster?: string; saved?: string }>;
+  searchParams: Promise<{ pw?: string; roster?: string; saved?: string; mfa?: string }>;
 }) {
   const { id } = await params;
-  const { pw, roster, saved } = await searchParams;
+  const { pw, roster, saved, mfa } = await searchParams;
   const admin = createAdminClient();
-  const { data } = await admin
-    .from("app_user")
-    .select("*")
-    .eq("id", id)
-    .maybeSingle();
+  const [{ data }, { data: factorData }] = await Promise.all([
+    admin.from("app_user").select("*").eq("id", id).maybeSingle(),
+    admin.auth.admin.mfa.listFactors({ userId: id }),
+  ]);
+  const mfaFactors = (factorData?.factors ?? []).filter((f) => f.status === "verified");
+  const mfaBanner = mfa ? MFA_BANNERS[mfa] : undefined;
 
   const user = data as AppUser | null;
   if (!user) notFound();
@@ -392,6 +399,54 @@ export default async function UserDetailPage({
             </button>
           </div>
         </form>
+      </Panel>
+
+      <Panel
+        title="Two-step verification"
+        description={
+          mfaFactors.length > 0
+            ? "This user signs in with an authenticator app. Reset it if they lose their phone; they will set it up again on their next sign-in."
+            : "Not set up. The user can turn it on from the link under their name in the sidebar."
+        }
+      >
+        {mfaBanner ? (
+          <p
+            className={`mb-3 rounded-lg px-3 py-2 text-sm ${
+              mfaBanner.tone === "ok"
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-rose-50 text-rose-700"
+            }`}
+          >
+            {mfaBanner.text}
+          </p>
+        ) : null}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-slate-600">
+            {mfaFactors.length > 0 ? (
+              <>
+                <span className="font-medium text-emerald-700">● On</span>
+                <span className="text-slate-400">
+                  {" "}
+                  · since{" "}
+                  {new Date(mfaFactors[0].created_at).toLocaleDateString()}
+                </span>
+              </>
+            ) : (
+              <span className="text-slate-400">○ Off</span>
+            )}
+          </p>
+          {mfaFactors.length > 0 ? (
+            <form action={resetUserMfa}>
+              <input type="hidden" name="id" value={user.id} />
+              <button
+                type="submit"
+                className="rounded-lg border border-amber-200 bg-white px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50"
+              >
+                Reset two-step verification
+              </button>
+            </form>
+          ) : null}
+        </div>
       </Panel>
 
       <Panel

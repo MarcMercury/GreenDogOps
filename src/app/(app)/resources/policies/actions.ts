@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { safeUploadContentType } from "@/lib/security/upload";
 import { getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { isEditorRole } from "@/lib/auth/permissions";
 
@@ -86,7 +87,7 @@ export async function uploadPolicyDocument(
   const { error: upErr } = await admin.storage
     .from(RESOURCES_BUCKET)
     .upload(storagePath, file, {
-      contentType: file.type || "application/octet-stream",
+      contentType: safeUploadContentType(file.name, file.type),
       upsert: false,
     });
 

@@ -219,6 +219,59 @@ export function canViewAllCompensation(role: AppRole): boolean {
 }
 
 /**
+ * Roles that see every employee's full HR file (reviews, discipline, documents,
+ * assets, onboarding/compliance, history). Mirrors the database function
+ * `hr_full` predicate in the RLS policies of migration 0227.
+ */
+export function canViewSensitiveHr(role: AppRole): boolean {
+  return isEditorRole(role);
+}
+
+/**
+ * The HR profile shows only General + Shift Eligibility when the viewer is a
+ * Schedule/Marketing Admin, or Staff looking at someone else's record.
+ */
+export function hasRestrictedHrView(user: AppUser, personId: string): boolean {
+  if (user.role === "schedule_admin" || user.role === "marketing_admin") return true;
+  return user.role === "staff" && user.person_id !== personId;
+}
+
+/**
+ * Read-only Staff do not see other employees' personal fields (date of birth,
+ * home ZIP/phones, notes, PTO and separation details).
+ */
+export function seesPrivateHrFields(user: AppUser, personId: string): boolean {
+  return user.role !== "staff" || user.person_id === personId;
+}
+
+/** People still in recruiting (not yet, or never, employees). */
+export function isCandidateStatus(status: string | null | undefined): boolean {
+  return status === "prospect" || status === "applicant";
+}
+
+/**
+ * Who may read / change a person's documents (the shared `person_document`
+ * shelf HR and Recruiting both use). Mirrors the `person_document` RLS policies
+ * in migration 0227, for code paths that use the service-role client.
+ */
+export function personDocumentAccess(
+  user: AppUser,
+  personId: string,
+  personStatus: string | null | undefined,
+): { read: boolean; edit: boolean } {
+  if (!user.is_active) return { read: false, edit: false };
+  const candidate = isCandidateStatus(personStatus);
+  const ownRecord = user.person_id !== null && user.person_id === personId;
+  const hrFull = canViewSensitiveHr(user.role);
+  return {
+    read: hrFull || ownRecord || (candidate && canAccessModule(user, "ats")),
+    edit:
+      (hrFull && canEditModule(user, "hr")) ||
+      (candidate && canEditModule(user, "ats")),
+  };
+}
+
+/**
  * Roles allowed to reveal stored logins/passwords (e.g. the marketing
  * Resources directory). Admins, Managers, and Schedule Admins may click to
  * see them; Staff may not. (Owner/Executive are above Admin and also allowed.)

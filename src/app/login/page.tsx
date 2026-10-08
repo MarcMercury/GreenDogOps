@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { recordAudit } from "@/lib/auth/session";
+import { rateLimit, requestMeta } from "@/lib/security/rate-limit";
 
 export default async function LoginPage({
   searchParams,
@@ -88,14 +90,51 @@ export default async function LoginPage({
 
 async function signIn(formData: FormData) {
   "use server";
-  const email = String(formData.get("email") ?? "");
+  const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
 
+  // Throttle guessing: per account and per network, 15-minute windows. Sized
+  // so a clinic full of staff behind one IP signing in at shift start passes.
+  const meta = await requestMeta();
+  const allowed =
+    (await rateLimit(`login:email:${email.toLowerCase()}`, 10, 900)) &&
+    (await rateLimit(`login:ip:${meta.ip}`, 60, 900));
+  if (!allowed) {
+    await recordAudit({
+      actorId: null,
+      actorEmail: email || null,
+      action: "auth.login_throttled",
+      entity: "auth",
+      summary: "Sign-in blocked by rate limit",
+      metadata: { ip: meta.ip, user_agent: meta.userAgent },
+    });
+    redirect(
+      `/login?error=${encodeURIComponent("Too many sign-in attempts. Please wait 15 minutes and try again.")}`,
+    );
+  }
+
   const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
+    await recordAudit({
+      actorId: null,
+      actorEmail: email || null,
+      action: "auth.login_failed",
+      entity: "auth",
+      summary: "Failed sign-in",
+      metadata: { ip: meta.ip, user_agent: meta.userAgent, code: error.code ?? null },
+    });
     redirect(`/login?error=${encodeURIComponent(error.message)}`);
   }
+
+  await recordAudit({
+    actorId: data.user?.id ?? null,
+    actorEmail: data.user?.email ?? email,
+    action: "auth.login",
+    entity: "auth",
+    summary: "Signed in",
+    metadata: { ip: meta.ip, user_agent: meta.userAgent },
+  });
   redirect("/");
 }

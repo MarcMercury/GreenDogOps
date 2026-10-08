@@ -1,5 +1,6 @@
 "use server";
 
+import { allowPublicSubmission, TOO_MANY_MESSAGE } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 
@@ -38,6 +39,7 @@ export async function submitCeSignup(
   _prev: SignupResult | null,
   formData: FormData,
 ): Promise<SignupResult> {
+  if (!(await allowPublicSubmission("ce_signup", 60))) return { ok: false, error: TOO_MANY_MESSAGE };
   const name = clean(formData.get("name"));
   const email = clean(formData.get("email"));
   const phone = formatPhoneNumber(clean(formData.get("phone")));

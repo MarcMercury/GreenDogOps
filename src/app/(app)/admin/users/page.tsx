@@ -77,9 +77,23 @@ export default async function UsersPage({
 
   const unlinkedCount = appUsers.filter((u) => !u.person_id).length;
 
+  // Access review: two-step status and last real sign-in from Supabase Auth.
+  const authById = new Map(
+    (authList?.users ?? []).map((a) => [
+      a.id,
+      {
+        mfa: (a.factors ?? []).some((f) => f.status === "verified"),
+        lastSignIn: a.last_sign_in_at ?? null,
+      },
+    ]),
+  );
+
   const userRows: UserRow[] = appUsers.map((u) => {
     const roster = u.person_id ? rosterById.get(u.person_id) : null;
+    const auth = authById.get(u.id);
     return {
+      mfa_enabled: auth?.mfa ?? false,
+      last_sign_in_at: auth?.lastSignIn ?? null,
       id: u.id,
       full_name: u.full_name,
       email: u.email,

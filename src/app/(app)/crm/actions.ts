@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { safeUploadContentType } from "@/lib/security/upload";
 import { ensureEditor, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { logProfileTransition } from "@/lib/shared/transition-log";
 import {
@@ -240,7 +241,7 @@ export async function uploadOrgDocument(
   const { error: upErr } = await admin.storage
     .from(CRM_DOCUMENTS_BUCKET)
     .upload(storagePath, file, {
-      contentType: file.type || "application/octet-stream",
+      contentType: safeUploadContentType(file.name, file.type),
       upsert: false,
     });
   if (upErr) return { ok: false, error: upErr.message };
@@ -332,7 +333,7 @@ export async function uploadContactDocument(
   const { error: upErr } = await admin.storage
     .from(CRM_DOCUMENTS_BUCKET)
     .upload(storagePath, file, {
-      contentType: file.type || "application/octet-stream",
+      contentType: safeUploadContentType(file.name, file.type),
       upsert: false,
     });
   if (upErr) return { ok: false, error: upErr.message };

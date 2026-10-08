@@ -15,6 +15,8 @@ export interface UserRow {
   role: AppRole;
   is_active: boolean;
   last_seen_at: string | null;
+  last_sign_in_at: string | null;
+  mfa_enabled: boolean;
 }
 
 function lastSeen(iso: string | null): string {
@@ -35,6 +37,8 @@ export function UsersTable({ users }: { users: UserRow[] }) {
     role: (u) => u.role,
     status: (u) => (u.is_active ? 1 : 0),
     lastSeen: (u) => u.last_seen_at,
+    lastSignIn: (u) => u.last_sign_in_at,
+    mfa: (u) => (u.mfa_enabled ? 1 : 0),
   });
 
   return (
@@ -46,6 +50,8 @@ export function UsersTable({ users }: { users: UserRow[] }) {
             <SortHeader label="Roster profile" sortKey="roster" sort={sort} className="px-3 py-2.5" />
             <SortHeader label="Role" sortKey="role" sort={sort} className="px-3 py-2.5" />
             <SortHeader label="Status" sortKey="status" sort={sort} className="px-3 py-2.5" />
+            <SortHeader label="2-step" sortKey="mfa" sort={sort} className="px-3 py-2.5" />
+            <SortHeader label="Last sign-in" sortKey="lastSignIn" sort={sort} className="px-3 py-2.5" />
             <SortHeader label="Last seen" sortKey="lastSeen" sort={sort} className="px-3 py-2.5" />
             <th className="px-5 py-2.5"></th>
           </tr>
@@ -93,6 +99,14 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                   <span className="text-slate-400">○ Inactive</span>
                 )}
               </td>
+              <td className="px-3 py-3">
+                {u.mfa_enabled ? (
+                  <span className="text-emerald-600">● On</span>
+                ) : (
+                  <span className="text-slate-400">○ Off</span>
+                )}
+              </td>
+              <td className="px-3 py-3 text-slate-500">{lastSeen(u.last_sign_in_at)}</td>
               <td className="px-3 py-3 text-slate-500">{lastSeen(u.last_seen_at)}</td>
               <td className="px-5 py-3 text-right">
                 <Link

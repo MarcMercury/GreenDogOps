@@ -23,7 +23,15 @@ there, or that need a sharper statement for agents.
 | Calendar view of CE events, interviews, time-off | projected at read time | copy into `calendar_event` |
 | ezyVet reporting roll-ups | materialized views via `refresh_ezyvet_reporting()` | recompute per request |
 | Who may use the app | `app_user` (not `auth.users`, which is shared) | gate on Supabase Auth alone |
+| Compensation values (`person_employment` pay/benefit columns) | read/write via `src/lib/hr/compensation.ts` (service role) after `canViewAllCompensation` / own-record check | select them through the user-scoped client — the columns are not granted (0227) |
+| Who sees the confidential HR file | `canViewSensitiveHr` / `hasRestrictedHrView` in `permissions.ts`, mirrored by the `hr_full`/`hr_edit` RLS predicates in 0227 | change one side without the other (run `scripts/security_rls_matrix.sql`) |
 
 ## Decisions log
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
+
+### 2026-10-08 — Sensitive HR boundaries enforced in the database (migration 0227)
+- **Context:** 0164's `gdo_members_all` let every active `app_user` (Staff included) read/write every table through PostgREST with their own token — salaries, reviews, discipline, the audit log — regardless of what the UI hid. OWASP ASVS L2 review.
+- **Decision:** keep `gdo_members_all` as the floor, but replace it on the HR-file tables with role-aware policies (inline subqueries on `app_user`, no helper RPCs per AGENTS.md); drop table-level SELECT/INSERT/UPDATE on `person_employment` for `authenticated` and re-grant only non-compensation columns; make `audit_log` append-only (trigger) and service-role only; require AAL2 in `is_gdo_user()` once a user has a verified MFA factor. Staff on other people's HR profiles get the same restricted view Schedule Admins already had. See `docs/security.md`.
+- **Consequences:** any user-scoped query that selects a compensation column now fails with `42501`; a column added to `person_employment` must be granted explicitly. Changing role semantics in `permissions.ts` must be mirrored in the 0227 predicates — `scripts/security_rls_matrix.sql` (staging) and `permissions.test.ts` pin both.
+

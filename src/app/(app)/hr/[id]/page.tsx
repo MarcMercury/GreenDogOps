@@ -16,10 +16,20 @@ import type {
   PersonComplianceEntry,
   PersonLicense,
 } from "@/lib/hr/types";
-import { redactCompensation } from "@/lib/hr/types";
+import { redactPrivate } from "@/lib/hr/types";
+import {
+  loadCompensation,
+  withCompensation,
+} from "@/lib/hr/compensation";
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canViewAllCompensation, canEditModule, isAdminRole } from "@/lib/auth/permissions";
+import {
+  canViewAllCompensation,
+  canEditModule,
+  hasRestrictedHrView,
+  isAdminRole,
+  seesPrivateHrFields,
+} from "@/lib/auth/permissions";
 import {
   getPersonAttendance,
   getPersonScheduleSettings,
@@ -50,10 +60,14 @@ export default async function EmployeeDetailPage({
   const isAdmin = current ? isAdminRole(current.appUser.role) : false;
   // Schedule Admins and Marketing Admins share the same restricted HR view:
   // the sensitive tabs (reviews, disciplinary, documents, assets, history) are
-  // hidden from both.
-  const isScheduleAdmin =
-    current?.appUser.role === "schedule_admin" ||
-    current?.appUser.role === "marketing_admin";
+  // hidden from both. Staff get the same view on anyone else's record. The
+  // sensitive datasets are not even loaded for a restricted viewer (RLS in
+  // migration 0227 enforces the same boundary in the database).
+  const isScheduleAdmin = current ? hasRestrictedHrView(current.appUser, id) : true;
+  const showPrivate = current ? seesPrivateHrFields(current.appUser, id) : false;
+  // Attendance/PTO feed fields on the always-mounted employee form, so they are
+  // kept for anyone who can edit; read-only Staff on another record skip them.
+  const loadAttendance = showPrivate;
 
   const { data, error } = await supabase
     .from("person")
@@ -64,10 +78,7 @@ export default async function EmployeeDetailPage({
        person_employment (
          person_id, position_id, location_id, preferred_location_id, offer_title, adp_job_title,
          flsa_status, work_schedule, schedule_type, days_per_week, hire_date, original_hire_date,
-         pay_type, current_rate, previous_rate, latest_wage_change_date,
-         biweekly_wage, annual_wages, pto_allotment, pto_policy_allotment,
-         pto_used, pto_available, pto_notes, ce_budget, ce_used, ce_remaining,
-         benefits_enrolled, benefits_monthly, benefits_annual, last_review_date,
+         pto_allotment, pto_policy_allotment, pto_used, pto_available, pto_notes,
          compliance, separation_date, separation_type, separation_letter_signed,
          separation_notes
        ),
@@ -94,21 +105,27 @@ export default async function EmployeeDetailPage({
 
   const emp = (data as { person_employment?: unknown }).person_employment;
   const rec = (data as { person_recruiting?: unknown }).person_recruiting;
-  const rawRow: RosterRow = {
+  const baseRow: RosterRow = {
     ...data,
     person_employment: Array.isArray(emp) ? (emp[0] ?? null) : (emp ?? null),
   } as RosterRow;
-  const row = canViewComp ? rawRow : redactCompensation(rawRow);
+  const comp = canViewComp ? await loadCompensation([id]) : new Map();
+  const compRow = withCompensation(baseRow, comp.get(id));
+  const row = showPrivate ? compRow : redactPrivate(compRow);
 
   const recruitingRaw = Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null);
   const recruiting = recruitingRaw as PersonRecruitingSummary | null;
 
+  const none = Promise.resolve({ data: [] as unknown[] });
+
   // Stage-movement history (Student CRM → ATS → Roster) for the History tab.
-  const { data: transitionData } = await supabase
-    .from("profile_transition_log")
-    .select("*")
-    .eq("person_id", id)
-    .order("created_at", { ascending: false });
+  const { data: transitionData } = isScheduleAdmin
+    ? await none
+    : await supabase
+        .from("profile_transition_log")
+        .select("*")
+        .eq("person_id", id)
+        .order("created_at", { ascending: false });
   const transitions = (transitionData ?? []) as ProfileTransition[];
 
   // Sub-records for the Reviews / Assets / Documents / Attendance / Onboarding tabs.
@@ -123,55 +140,70 @@ export default async function EmployeeDetailPage({
     complianceRes,
     licensesRes,
   ] = await Promise.all([
-    supabase
-      .from("person_review")
-      .select("*")
-      .eq("person_id", id)
-      .order("review_date", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("person_disciplinary_action")
-      .select("*")
-      .eq("person_id", id)
-      .order("incident_date", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("person_asset")
-      .select("*")
-      .eq("person_id", id)
-      .order("assigned_date", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("person_document")
-      .select("*")
-      .eq("person_id", id)
-      .order("uploaded_at", { ascending: false }),
-    supabase
-      .from("person_pto_day")
-      .select("*")
-      .eq("person_id", id)
-      .order("pto_date", { ascending: false }),
-    supabase
-      .from("person_time_off")
-      .select("*")
-      .eq("person_id", id)
-      .order("start_date", { ascending: false }),
-    supabase
-      .from("person_onboarding_item")
-      .select("*")
-      .eq("person_id", id),
-    supabase
-      .from("person_compliance_entry")
-      .select("*")
-      .eq("person_id", id)
-      .order("completed_date", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("person_license")
-      .select("*")
-      .eq("person_id", id)
-      .order("expiration_date", { ascending: true, nullsFirst: false })
-      .order("created_at", { ascending: true }),
+    isScheduleAdmin
+      ? none
+      : supabase
+          .from("person_review")
+          .select("*")
+          .eq("person_id", id)
+          .order("review_date", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false }),
+    isScheduleAdmin
+      ? none
+      : supabase
+          .from("person_disciplinary_action")
+          .select("*")
+          .eq("person_id", id)
+          .order("incident_date", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false }),
+    isScheduleAdmin
+      ? none
+      : supabase
+          .from("person_asset")
+          .select("*")
+          .eq("person_id", id)
+          .order("assigned_date", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false }),
+    isScheduleAdmin
+      ? none
+      : supabase
+          .from("person_document")
+          .select("*")
+          .eq("person_id", id)
+          .order("uploaded_at", { ascending: false }),
+    loadAttendance
+      ? supabase
+          .from("person_pto_day")
+          .select("*")
+          .eq("person_id", id)
+          .order("pto_date", { ascending: false })
+      : none,
+    loadAttendance
+      ? supabase
+          .from("person_time_off")
+          .select("*")
+          .eq("person_id", id)
+          .order("start_date", { ascending: false })
+      : none,
+    isScheduleAdmin
+      ? none
+      : supabase.from("person_onboarding_item").select("*").eq("person_id", id),
+    isScheduleAdmin
+      ? none
+      : supabase
+          .from("person_compliance_entry")
+          .select("*")
+          .eq("person_id", id)
+          .order("completed_date", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false }),
+    isScheduleAdmin
+      ? none
+      : supabase
+          .from("person_license")
+          .select("*")
+          .eq("person_id", id)
+          .order("expiration_date", { ascending: true, nullsFirst: false })
+          .order("created_at", { ascending: true }),
   ]);
 
   const reviews = (reviewsRes.data ?? []) as PersonReview[];
@@ -188,7 +220,23 @@ export default async function EmployeeDetailPage({
   // Attendance tab. Editing stays in Schedule → Setup → Employees.
   // Eligibility is editable here and writes the same rows as Schedule → Setup.
   const [attendance, scheduleSettings, eligibility] = await Promise.all([
-    getPersonAttendance(id),
+    loadAttendance
+      ? getPersonAttendance(id)
+      : Promise.resolve<Awaited<ReturnType<typeof getPersonAttendance>>>({
+          tally: {
+            total: 0,
+            present: 0,
+            late: 0,
+            late_excused: 0,
+            absent: 0,
+            absent_excused: 0,
+            no_show: 0,
+            pto: 0,
+            scheduled: 0,
+          },
+          score: null,
+          records: [],
+        }),
     getPersonScheduleSettings(id),
     getPersonEligibility(id),
   ]);

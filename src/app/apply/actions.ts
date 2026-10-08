@@ -1,5 +1,6 @@
 "use server";
 
+import { allowPublicSubmission, TOO_MANY_MESSAGE } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   createApplicantProfile,
@@ -61,6 +62,7 @@ const CORE_RESPONSE_FIELDS: RecruitingFormField[] = [
  * careers form and Indeed.
  */
 export async function submitApplication(formId: string, fd: FormData): Promise<SubmitResult> {
+  if (!(await allowPublicSubmission("apply", 20))) return { ok: false, error: TOO_MANY_MESSAGE };
   // Bots fill every field; people never see this one.
   if (str(fd.get("website"))) return { ok: true };
 

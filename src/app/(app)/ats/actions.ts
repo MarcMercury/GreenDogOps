@@ -8,7 +8,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser, ensureCanEdit, recordAudit, type CurrentUser } from "@/lib/auth/session";
 import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { logProfileTransition } from "@/lib/shared/transition-log";
-import { isAdminRole } from "@/lib/auth/permissions";
+import { isAdminRole, personDocumentAccess } from "@/lib/auth/permissions";
+import { safeUploadContentType } from "@/lib/security/upload";
 import {
   workbookToRows,
   rowsToCandidates,
@@ -717,6 +718,19 @@ export async function postInterviewSummaryToSlack(
 // ---------------------------------------------------------------------------
 const DOCUMENTS_BUCKET = "employee-documents";
 
+const NO_DOCUMENT_ACCESS = "You do not have permission to access this person's documents.";
+
+/** The person's status, for the HR-file vs. Recruiting document rule. */
+async function personStatusOf(personId: string): Promise<string | null> {
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("person")
+    .select("status")
+    .eq("id", personId)
+    .maybeSingle();
+  return (data as { status: string } | null)?.status ?? null;
+}
+
 /**
  * Store an uploaded file on a person's document shelf (the shared
  * `employee-documents` bucket + `person_document` row that HR also reads).
@@ -732,11 +746,13 @@ async function storePersonDocument(
   const admin = createAdminClient();
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
   const storagePath = `${personId}/${Date.now()}_${safeName}`;
+  // Never trust the browser's MIME type (see src/lib/security/upload.ts).
+  const contentType = safeUploadContentType(file.name, file.type);
 
   const { error: upErr } = await admin.storage
     .from(DOCUMENTS_BUCKET)
     .upload(storagePath, file, {
-      contentType: file.type || "application/octet-stream",
+      contentType,
       upsert: false,
     });
   if (upErr) return { ok: false, error: upErr.message };
@@ -747,7 +763,7 @@ async function storePersonDocument(
     category: meta.category ?? guessDocumentCategory(file.name, "other"),
     storage_path: storagePath,
     file_name: file.name,
-    mime_type: file.type || null,
+    mime_type: contentType,
     size_bytes: file.size,
     source: meta.source ?? "Uploaded in ATS",
   });
@@ -766,6 +782,10 @@ export async function uploadCandidateDocument(
 ): Promise<SaveResult> {
   const gate = await ensureCanEdit("ats");
   if (!gate.ok) return gate;
+  // Once hired, the shelf is the confidential HR file (RLS 0227 mirrors this).
+  if (!personDocumentAccess(gate.current.appUser, personId, await personStatusOf(personId)).edit) {
+    return { ok: false, error: NO_DOCUMENT_ACCESS };
+  }
 
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
@@ -787,20 +807,36 @@ export async function uploadCandidateDocument(
   return { ok: true };
 }
 
+// The storage path is looked up server-side so a caller cannot point the
+// delete at another file in the bucket.
 export async function deleteCandidateDocument(
   personId: string,
   documentId: string,
-  storagePath: string,
 ): Promise<SaveResult> {
   const gate = await ensureCanEdit("ats");
   if (!gate.ok) return gate;
+  if (!personDocumentAccess(gate.current.appUser, personId, await personStatusOf(personId)).edit) {
+    return { ok: false, error: NO_DOCUMENT_ACCESS };
+  }
   const admin = createAdminClient();
 
-  await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+  const { data: doc } = await admin
+    .from("person_document")
+    .select("id, storage_path")
+    .eq("id", documentId)
+    .eq("person_id", personId)
+    .maybeSingle();
+  const found = doc as { id: string; storage_path: string | null } | null;
+  if (!found) return { ok: false, error: "Document not found." };
+
+  if (found.storage_path) {
+    await admin.storage.from(DOCUMENTS_BUCKET).remove([found.storage_path]);
+  }
   const { error } = await admin
     .from("person_document")
     .delete()
-    .eq("id", documentId);
+    .eq("id", documentId)
+    .eq("person_id", personId);
   if (error) return { ok: false, error: error.message };
 
   revalidatePath(`/ats/${personId}`);
@@ -812,7 +848,8 @@ export async function deleteCandidateDocument(
  * Fetch a candidate's attached documents (resumes, cover letters, etc.) with
  * short-lived signed download URLs. Used by the Review Queue's expandable tile
  * to show attachments on demand without generating signed URLs for the whole
- * queue up front. Read-gated to any signed-in user.
+ * queue up front. Same rule as the person_document RLS: candidates for anyone
+ * with Recruiting access; an employee's shelf only for HR roles or themself.
  */
 export async function getCandidateDocuments(
   personId: string,
@@ -822,6 +859,9 @@ export async function getCandidateDocuments(
 > {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "You are not signed in." };
+  if (!personDocumentAccess(current.appUser, personId, await personStatusOf(personId)).read) {
+    return { ok: false, error: NO_DOCUMENT_ACCESS };
+  }
 
   const admin = createAdminClient();
   const { data, error } = await admin

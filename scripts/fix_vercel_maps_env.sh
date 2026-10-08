@@ -11,12 +11,27 @@ set -euo pipefail
 PROJECT="green-dog-ops"
 SCOPE="marc-mercurys-projects"
 
-# --- Keys to set (values are project config, not secrets per the owner) --------
+# --- Keys to set ---------------------------------------------------------------
+# Values come from the environment or .env.local — never hard-code keys here
+# (this repository has been public). Rotate a key in Google Cloud first, put the
+# new value in .env.local, then run this script.
+ENV_FILE="${ENV_FILE:-.env.local}"
+read_key() {
+  local name="$1" val="${!1:-}"
+  if [[ -z "$val" && -f "$ENV_FILE" ]]; then
+    val="$(grep -m1 "^${name}=" "$ENV_FILE" | cut -d= -f2- | tr -d '"'"'"'\r')"
+  fi
+  [[ -n "$val" ]] || { echo "Missing $name (set it in the environment or $ENV_FILE)." >&2; exit 1; }
+  printf '%s' "$val"
+}
 declare -A KEYS=(
-  [GOOGLE_MAPS_PUBLIC_KEY]="AIzaSyAZoLa3u5OspmT0NmhMdZi8fmtL0Mg_2no"
-  [GOOGLE_MAPS_API_KEY]="AIzaSyB3iH7279vO4VzF649rpUDJvU2XZ4RtiTY"
-  [GOOGLE_CSE_API_KEY]="AIzaSyCn0PqBneZd28EP-YYRj5F3B_1hY7crNN0"
+  [GOOGLE_MAPS_PUBLIC_KEY]="$(read_key GOOGLE_MAPS_PUBLIC_KEY)"
+  [GOOGLE_MAPS_API_KEY]="$(read_key GOOGLE_MAPS_API_KEY)"
+  [GOOGLE_CSE_API_KEY]="$(read_key GOOGLE_CSE_API_KEY)"
 )
+for name in "${!KEYS[@]}"; do
+  [[ -n "${KEYS[$name]}" ]] || { echo "Aborting: $name is empty." >&2; exit 1; }
+done
 ENVIRONMENTS=(production preview development)
 
 # --- Read token securely -------------------------------------------------------

@@ -1,5 +1,6 @@
 "use server";
 
+import { allowPublicSubmission, TOO_MANY_MESSAGE } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { type CaptureReceipt, parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
@@ -37,6 +38,8 @@ export async function submitRetailLead(
   _prev: LeadResult | null,
   formData: FormData,
 ): Promise<LeadResult> {
+  // Event and storefront QR traffic often shares one venue IP, so this is generous.
+  if (!(await allowPublicSubmission("lead", 60))) return { ok: false, error: TOO_MANY_MESSAGE };
   const fullName = clean(formData.get("full_name"));
   const email = clean(formData.get("email"));
   const phone = formatPhoneNumber(clean(formData.get("phone")));

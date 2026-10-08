@@ -1,7 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser, touchLastSeen } from "@/lib/auth/session";
+import { getAuthState, touchLastSeen } from "@/lib/auth/session";
 import {
   accessibleModules,
   canAccessModule,
@@ -18,18 +17,17 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const current = await getCurrentUser();
+  const state = await getAuthState();
 
-  if (!current) {
-    // Distinguish "not signed in" from "signed in but not a GDO user"
-    // (auth.users is shared with EmployeeGMGDD).
-    const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) redirect("/login");
-    return <NoAccess email={user.email ?? null} />;
+  if (state.kind === "anon") redirect("/login");
+  if (state.kind === "mfa_challenge" || state.kind === "mfa_enroll") {
+    redirect("/login/mfa");
   }
+  if (state.kind === "not_gdo") {
+    // Signed in but not a GDO user (auth.users is shared with EmployeeGMGDD).
+    return <NoAccess email={state.email} />;
+  }
+  const current = state.current;
 
   // Best-effort presence tracking (does not block render).
   void touchLastSeen(current.authId);

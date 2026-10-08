@@ -101,6 +101,11 @@ export async function updateUser(formData: FormData): Promise<void> {
   }
 
   const admin = createAdminClient();
+  const { data: before } = await admin
+    .from("app_user")
+    .select("role, is_active, module_access")
+    .eq("id", id)
+    .maybeSingle();
   const { error } = await admin
     .from("app_user")
     .update({
@@ -123,7 +128,12 @@ export async function updateUser(formData: FormData): Promise<void> {
     entity: "app_user",
     entityId: id,
     summary: `Updated user ${fullName ?? id} (${role}${isActive ? "" : ", inactive"})`,
-    metadata: { role, is_active: isActive, module_access: moduleAccess },
+    metadata: {
+      role,
+      is_active: isActive,
+      module_access: moduleAccess,
+      previous: before ?? null,
+    },
   });
 
   revalidatePath("/admin/users");
@@ -298,6 +308,44 @@ export async function resetUserPassword(formData: FormData): Promise<void> {
 
   revalidatePath(`/admin/users/${id}`);
   redirect(`/admin/users/${id}?pw=ok`);
+}
+
+/**
+ * Remove a user's authenticator factors (lost phone). They enroll again on
+ * their next sign-in if their role requires it, or from the sidebar link.
+ */
+export async function resetUserMfa(formData: FormData): Promise<void> {
+  const current = await requireAdmin();
+  const id = String(formData.get("id") ?? "").trim();
+  if (!id) return;
+
+  const admin = createAdminClient();
+  const { data, error } = await admin.auth.admin.mfa.listFactors({ userId: id });
+  if (error) {
+    redirect(`/admin/users/${id}?mfa=error`);
+  }
+  let failed = false;
+  for (const f of data?.factors ?? []) {
+    const { error: delErr } = await admin.auth.admin.mfa.deleteFactor({
+      id: f.id,
+      userId: id,
+    });
+    if (delErr) failed = true;
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "user.mfa_reset",
+    entity: "app_user",
+    entityId: id,
+    summary: `Reset two-step verification for user ${id}`,
+    metadata: { factors_removed: (data?.factors ?? []).length, failed },
+  });
+
+  revalidatePath(`/admin/users/${id}`);
+  revalidatePath("/admin/users");
+  redirect(`/admin/users/${id}?mfa=${failed ? "error" : "reset"}`);
 }
 
 /**

@@ -1,5 +1,5 @@
-import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import {
   buildEmpReport,
@@ -60,7 +60,16 @@ export default async function EmpReportingPage() {
     );
   }
 
-  const supabase = await createClient();
+  // Compensation columns are service-role only (migration 0227); the module
+  // gate above is the authorization check.
+  const supabase = createAdminClient();
+  void recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "compensation.report_viewed",
+    entity: "emp_reporting",
+    summary: "Viewed Emp Reporting (roster payroll analytics)",
+  });
   const [peopleRes, positionsRes] = await Promise.all([
     supabase
       .from("person")
