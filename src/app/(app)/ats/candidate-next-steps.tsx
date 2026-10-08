@@ -473,35 +473,52 @@ export function ApprovedNextStepDialog({
   forms,
   interviewers,
   currentUserId,
+  defaultLocation = null,
   onClose,
 }: {
   personId: string;
   candidateName: string;
   jobTitle: string | null;
+  defaultLocation?: string | null;
   forms: ScreeningFormOption[];
   interviewers: InterviewerOption[];
   currentUserId: string | null;
   onClose: () => void;
 }) {
-  const [step, setStep] = useState<"choose" | "form" | "schedule">("choose");
+  const [step, setStep] = useState<"choose" | "form" | "phone" | "in_person">("choose");
   return (
     <Modal
-      title={step === "choose" ? "Candidate Approved — Next Step" : step === "form" ? "Send a form" : "Schedule Phone Interview"}
+      title={
+        step === "choose"
+          ? "Candidate Approved — Next Step"
+          : step === "form"
+            ? "Send Additional Form"
+            : step === "phone"
+              ? "Schedule Phone Interview"
+              : "Schedule In-Person Interview"
+      }
       subtitle={candidateName}
       onClose={onClose}
     >
       {step === "choose" && (
         <div className="space-y-3">
-          <p className="text-sm text-slate-600">Would you like to send an additional screening form?</p>
+          <p className="text-sm text-slate-600">What&apos;s next for this candidate?</p>
           <button type="button" onClick={() => setStep("form")} className={`${primaryBtn} w-full py-3`}>
-            📝 Send Form
+            📝 Send Additional Form
           </button>
           <button
             type="button"
-            onClick={() => setStep("schedule")}
+            onClick={() => setStep("phone")}
             className="w-full rounded-lg border border-emerald-600 px-4 py-3 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50"
           >
             📞 Schedule Phone Interview
+          </button>
+          <button
+            type="button"
+            onClick={() => setStep("in_person")}
+            className="w-full rounded-lg border border-violet-600 px-4 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
+          >
+            👋 Schedule In-Person Interview
           </button>
           <button type="button" onClick={onClose} className={`${secondaryBtn} w-full py-3`}>
             Skip &amp; Continue
@@ -511,11 +528,14 @@ export function ApprovedNextStepDialog({
       {step === "form" && (
         <SendFormPanel personId={personId} forms={forms} jobTitle={jobTitle} onDone={onClose} onBack={() => setStep("choose")} />
       )}
-      {step === "schedule" && (
+      {(step === "phone" || step === "in_person") && (
         <ScheduleInvitePanel
+          key={step}
           personId={personId}
           interviewers={interviewers}
           currentUserId={currentUserId}
+          defaultType={step === "phone" ? "phone_screen" : "in_person"}
+          defaultLocation={defaultLocation}
           onDone={onClose}
           onBack={() => setStep("choose")}
         />

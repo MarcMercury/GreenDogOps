@@ -391,7 +391,6 @@ export function CandidateForm({
           />
           <Field label="Application date" name="application_date" type="date" defaultValue={rec?.application_date} />
           <Field label="Interview date" name="interview_date" type="date" defaultValue={rec?.interview_date} />
-          <Field label="Score" name="score" type="number" defaultValue={rec?.score} />
           <Field label="Resume" name="resume_url" defaultValue={rec?.resume_url} />
           <Field label="Follow-up date" name="follow_up_date" type="date" defaultValue={rec?.follow_up_date} />
           <label className="flex items-center gap-2 text-sm text-slate-700">

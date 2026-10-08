@@ -273,9 +273,11 @@ export function buildIcs(e: {
 /** How each interview type reads to the candidate. */
 export const CANDIDATE_INTERVIEW_TITLES: Record<string, string> = {
   phone_screen: "Phone interview",
+  virtual: "Virtual interview",
   in_person: "In-person interview",
   working_interview: "Shadow day",
   final: "Final interview",
+  doc_call: "Call with our doctor",
   other: "Interview",
 };
 

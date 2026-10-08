@@ -24,9 +24,9 @@ import {
 } from "@/lib/ats/import-types";
 import {
   ACCEPTED_LEAD_STAGE,
-  DECLINED_STAGE,
   ACTIVITY_TYPE_LABELS,
   INTERVIEW_RECOMMENDATION_LABELS,
+  ANNOUNCE_INTERVIEW_TYPES,
   POSITION_PRIORITY_LABELS,
   POSITION_EMPLOYMENT_LABELS,
   POSITION_WORK_LOCATION_LABELS,
@@ -43,6 +43,7 @@ import {
   type PositionRow,
 } from "@/lib/ats/types";
 import { jobRecruitingFields, matchOpenJob } from "@/lib/ats/jobs";
+import { cleanScore } from "@/lib/ats/rejections";
 import { buildInterviewSummary } from "@/lib/ats/slack-summary";
 import {
   normalizeJobLocation,
@@ -51,15 +52,9 @@ import {
   normalizeSource,
   normalizeStage,
 } from "@/lib/ats/normalize";
-import {
-  buildAnnouncementMessage,
-  buildInterviewScheduledMessage,
-  buildStageChangeMessage,
-  candidateName,
-  candidateProfileUrl,
-  notifyCandidateThread,
-} from "@/lib/ats/slack-notify";
+import { buildStageChangeMessage, candidateName, notifyCandidateThread } from "@/lib/ats/slack-notify";
 import { buildInterviewCompletedMessage, buildJobChangeMessage, esc } from "@/lib/ats/slack-messages";
+import { postCandidateAnnouncement, slackInterviewScheduled } from "@/lib/ats/slack-announce";
 import { deleteGoogleEvent, moveGoogleEvent } from "@/lib/ats/google-calendar";
 import { loadInterviewer } from "@/lib/ats/booking";
 import { DEFAULT_TIMEZONE, zonedTimeToUtc } from "@/lib/ats/scheduling";
@@ -352,7 +347,6 @@ export async function updateCandidate(
     source_detail: str(formData.get("source_detail")),
     application_date: str(formData.get("application_date")),
     interview_date: str(formData.get("interview_date")),
-    score: num(formData.get("score")),
     resume_url: str(formData.get("resume_url")),
     keep_for_future: bool(formData.get("keep_for_future")),
     follow_up_date: str(formData.get("follow_up_date")),
@@ -548,22 +542,13 @@ export async function saveInterview(
 
   if (newlyScheduled && isSlackConfigured()) {
     const current = gate.current;
-    after(async () => {
-      const admin = createAdminClient();
-      const { data } = await admin
-        .from("person")
-        .select("full_name, first_name, last_name")
-        .eq("id", personId)
-        .maybeSingle();
-      if (!data) return;
-      await notifyCandidateThread({
-        personId,
-        text: buildInterviewScheduledMessage(candidateName(data), patch, actorName(current)),
-        username: actorName(current),
-        actorId: current.authId,
-        actorEmail: current.email,
-      });
-    });
+    after(() =>
+      slackInterviewScheduled(personId, patch, {
+        name: actorName(current),
+        authId: current.authId,
+        email: current.email,
+      }),
+    );
   }
 
   revalidatePath(`/ats/${personId}`);
@@ -684,80 +669,29 @@ export async function announceCandidate(personId: string): Promise<SaveResult> {
   return postAnnouncement(personId, gate.current);
 }
 
+/**
+ * Manual announce (the profile's 📣 button): uses the candidate's next
+ * scheduled in-person interview or shadow when there is one.
+ */
 async function postAnnouncement(personId: string, current: CurrentUser): Promise<SaveResult> {
-  if (!isSlackConfigured()) {
-    return { ok: false, error: "Slack isn't configured (SLACK_BOT_TOKEN is not set)." };
-  }
-
-  const row = await loadCandidateRow(personId);
-  if (!row) return { ok: false, error: "Candidate not found." };
-  if (row.person_recruiting?.slack_announce_ts) {
-    return {
-      ok: false,
-      error: "Already announced — updates reply in the original Slack thread.",
-    };
-  }
-
-  // Resume link: the explicit URL if one was entered, else the newest uploaded
-  // resume (signed for a week so the link still works when the team reads it).
-  let resumeLink = row.person_recruiting?.resume_url ?? null;
-  if (!resumeLink) {
-    const admin = createAdminClient();
-    const { data: doc } = await admin
-      .from("person_document")
-      .select("storage_path")
-      .eq("person_id", personId)
-      .ilike("category", "resume")
-      .order("uploaded_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const path = (doc as { storage_path?: string } | null)?.storage_path;
-    if (path) {
-      const { data: signed } = await admin.storage
-        .from(DOCUMENTS_BUCKET)
-        .createSignedUrl(path, 60 * 60 * 24 * 7);
-      resumeLink = signed?.signedUrl ?? null;
-    }
-  }
-
-  const { appUser, email, authId } = current;
-  const result = await postSlackMessage({
-    channelKey: "hiring",
-    text: buildAnnouncementMessage(row, resumeLink, candidateProfileUrl(personId)),
-    username: actorName(current),
-  });
-  if (!result.ok) return { ok: false, error: result.error ?? "Slack post failed." };
-
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("person_recruiting")
-    .upsert(
-      {
-        person_id: personId,
-        slack_announce_ts: result.ts ?? null,
-        slack_announce_channel: result.channel ?? null,
-        announced_at: new Date().toISOString(),
-        announced_by: authId,
-      },
-      { onConflict: "person_id" },
-    );
-
-  await recordAudit({
-    actorId: appUser.id,
-    actorEmail: email,
-    action: "slack.post",
-    entity: "person",
-    entityId: personId,
-    summary: "Announced candidate in Slack",
-    metadata: { channel: result.channel, ts: result.ts },
-  });
-
+  const { data: next } = await supabase
+    .from("person_interview")
+    .select("interview_type, interview_date, start_time, end_time, interviewer, location")
+    .eq("person_id", personId)
+    .eq("status", "scheduled")
+    .in("interview_type", [...ANNOUNCE_INTERVIEW_TYPES])
+    .order("interview_date", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  const res = await postCandidateAnnouncement(
+    personId,
+    (next as Parameters<typeof postCandidateAnnouncement>[1]) ?? null,
+    { name: actorName(current), authId: current.authId, email: current.email },
+  );
   revalidatePath(`/ats/${personId}`);
   revalidatePath("/ats");
-  if (error) {
-    return { ok: false, error: `Posted to Slack, but couldn't save the thread link: ${error.message}` };
-  }
-  return { ok: true };
+  return res.ok ? { ok: true } : res;
 }
 
 export async function postInterviewSummaryToSlack(
@@ -1119,17 +1053,15 @@ async function setReviewStatus(
 }
 
 /**
- * Accept a pending applicant: link the job picked in the queue (when given),
- * promote to an active lead in the pipeline and announce them in the Slack
- * hiring channel (summary + profile link). A Slack
- * failure doesn't undo the accept — the profile's Announce button stays
- * available to retry.
+ * Accept a pending applicant: link the job picked in the queue (when given)
+ * and promote them to an active lead. Nothing goes to Slack yet — candidates
+ * are announced when an in-person interview or shadow is scheduled.
  */
 export async function acceptCandidate(
   personId: string,
   jobId?: string | null,
 ): Promise<SaveResult> {
-  // Link the job first so the announcement names it.
+  // Link the job before accepting so the profile and lists show it.
   if (jobId !== undefined) {
     const gate = await ensureCanEdit("ats");
     if (!gate.ok) return gate;
@@ -1137,22 +1069,9 @@ export async function acceptCandidate(
     const linked = await changeCandidateJob(supabase, personId, jobId, gate.current);
     if (!linked.ok) return linked;
   }
-  const result = await setReviewStatus(personId, "accepted", ACCEPTED_LEAD_STAGE);
-  if (!result.ok || !isSlackConfigured()) return result;
-
-  const current = await getCurrentUser();
-  if (!current) return result;
-  const announced = await postAnnouncement(personId, current);
-  if (!announced.ok) {
-    console.error("[ats] auto-announce on accept failed:", announced.error);
-  }
-  return result;
+  return setReviewStatus(personId, "accepted", ACCEPTED_LEAD_STAGE);
 }
 
-/** Reject a pending applicant: mark Declined but keep for re-apply detection. */
-export async function declineCandidate(personId: string): Promise<SaveResult> {
-  return setReviewStatus(personId, "declined", DECLINED_STAGE);
-}
 
 // ---------------------------------------------------------------------------
 // Candidate import — list (CSV/Excel/PDF) and single-resume (any format)
@@ -1311,7 +1230,7 @@ export async function createCandidates(
         stage,
         source: normalizeSource(c.source),
         source_detail: c.source_detail,
-        score: c.score,
+        score: cleanScore(c.score),
         application_date: c.application_date ?? uploadedOn,
         candidate_location: await cityOrZipLookup(c.candidate_location, c.postal_code),
         relevant_experience: c.relevant_experience,
@@ -1403,7 +1322,7 @@ export async function createResumeCandidate(
       stage,
       source: normalizeSource(candidate.source),
       source_detail: candidate.source_detail,
-      score: candidate.score,
+      score: cleanScore(candidate.score),
       application_date: candidate.application_date ?? uploadedOn,
       candidate_location: await cityOrZipLookup(
         candidate.candidate_location,
@@ -1516,7 +1435,7 @@ export async function createCandidate(
     source: normalizeSource(str(formData.get("source"))),
     application_date: str(formData.get("application_date")),
     interview_date: str(formData.get("interview_date")),
-    score: num(formData.get("score")),
+    score: cleanScore(formData.get("score")),
     keep_for_future: bool(formData.get("keep_for_future")),
     follow_up_date: str(formData.get("follow_up_date")),
     status_notes: str(formData.get("status_notes")),

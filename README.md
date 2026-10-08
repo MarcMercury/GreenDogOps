@@ -134,7 +134,10 @@ from users who cannot access it.
   Jobs (open/close; candidates linked to a job, auto-matched on intake), Forms
   (public application at `/apply`, role-specific questionnaires at
   `/forms/<token>`) and interview self-scheduling (`/book/<token>`, per-recruiter
-  Google Calendar free/busy).
+  Google Calendar free/busy). Queues: Review, Form Responses, Interviews and
+  Rejected (48-hour cancellable rejection emails via the `/api/ats/rejections`
+  cron); 0–10 Candidate Score with history; Slack stays quiet until an
+  in-person interview or shadow is scheduled.
   Resumes and PDF candidate lists are parsed with an LLM; a Gmail poller and an
   Indeed export feed candidates in. Hiring promotes the record into HR with a
   single status change.

@@ -126,11 +126,29 @@ export interface PersonInterview {
 
 export const INTERVIEW_TYPE_LABELS: Record<string, string> = {
   phone_screen: "Phone Screen",
+  virtual: "Virtual Interview",
   in_person: "In-Person Interview",
-  working_interview: "Working Interview / Shadow Day",
-  final: "Final / Decision",
+  working_interview: "Shadow / Working Interview",
+  final: "Final Interview",
+  doc_call: "Doc Call",
   other: "Other",
 };
+
+/**
+ * Scheduling one of these creates the candidate's first Slack announcement;
+ * everything earlier stays inside Ops.
+ */
+export const ANNOUNCE_INTERVIEW_TYPES = ["in_person", "working_interview"] as const;
+
+export function isAnnounceInterviewType(t: string | null | undefined): boolean {
+  return !!t && (ANNOUNCE_INTERVIEW_TYPES as readonly string[]).includes(t);
+}
+
+/** "8.5" for the 0–10 Candidate Score; null when unscored. */
+export function formatScore(score: number | null | undefined): string | null {
+  if (score == null || !Number.isFinite(Number(score))) return null;
+  return Number(score).toFixed(1);
+}
 
 // Canonical dropdown options for the candidate form.
 export const RECRUITING_PIPELINE_OPTIONS = [

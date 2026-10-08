@@ -154,3 +154,18 @@ export async function sendInterviewerBookingEmail(input: {
     ],
   });
 }
+
+/** A rejection from a template (already filled in). Paragraphs split on blank lines. */
+export async function sendRejectionEmail(input: { to: string; subject: string; body: string }): Promise<SendEmailResult> {
+  const paragraphs = input.body
+    .split(/\n\s*\n/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return sendEmail({
+    to: input.to,
+    subject: input.subject,
+    html: layout(paragraphs),
+    text: text(paragraphs),
+    tags: [{ name: "category", value: "recruiting_rejection" }],
+  });
+}

@@ -18,6 +18,7 @@ import { hiresSinceOpened } from "@/lib/ats/jobs";
 import { loadJobHires } from "@/lib/ats/job-hires";
 import { loadInterviewers, canTakeBookings } from "@/lib/ats/booking";
 import { parseFields, type FormRequest, type FormResponse } from "@/lib/ats/forms";
+import type { Rejection } from "@/lib/ats/rejections";
 import { CandidateProfile, type ProfileInvite } from "./candidate-profile";
 
 export const dynamic = "force-dynamic";
@@ -133,7 +134,15 @@ export default async function CandidateDetailPage({
         .order("created_at", { ascending: false }),
       supabase.from("position").select("*").order("title", { ascending: true }),
     ]);
-  const [{ data: responseData }, { data: requestData }, { data: inviteData }, { data: formData }, interviewerData] =
+  const [
+    { data: responseData },
+    { data: requestData },
+    { data: inviteData },
+    { data: formData },
+    interviewerData,
+    { data: rejectionData },
+    { data: templateData },
+  ] =
     await Promise.all([
       supabase
         .from("recruiting_form_response")
@@ -157,6 +166,15 @@ export default async function CandidateDetailPage({
         .eq("active", true)
         .order("name"),
       loadInterviewers(),
+      supabase
+        .from("recruiting_rejection")
+        .select("*")
+        .eq("person_id", id)
+        .is("undone_at", null)
+        .order("rejected_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase.from("recruiting_email_template").select("id, name, active").eq("kind", "rejection").order("sort_order"),
     ]);
   const formResponses = ((responseData ?? []) as FormResponse[]).map((r) => ({
     ...r,
@@ -215,6 +233,14 @@ export default async function CandidateDetailPage({
         formResponses={formResponses}
         formRequests={formRequests}
         invites={invites}
+        rejection={
+          rejectionData &&
+          (rejectionData as Rejection).rejected_stage === (row.person_recruiting?.stage ?? null) &&
+          row.person_recruiting?.review_status !== "pending"
+            ? (rejectionData as Rejection)
+            : null
+        }
+        templates={(templateData ?? []) as { id: string; name: string; active: boolean }[]}
         screeningForms={screeningForms}
         interviewers={interviewers}
         currentUserId={current?.authId ?? null}

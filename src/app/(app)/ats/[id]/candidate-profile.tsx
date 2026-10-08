@@ -26,6 +26,16 @@ import type { ProfileTransition } from "@/lib/shared/transitions";
 import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
 import { CandidateForm, type CandidateFormTab } from "./candidate-form";
 import { JobQuickSelect } from "../job-quick-select";
+import { ScoreControl } from "../score-control";
+import { RejectDialog, type TemplateOption } from "../reject-dialog";
+import { cancelRejectionEmail, undoRejection } from "../crm-actions";
+import {
+  REJECTED_FROM_LABELS,
+  REJECTION_EMAIL_STATUS_LABELS,
+  canUndoRejection,
+  countdown,
+  type Rejection,
+} from "@/lib/ats/rejections";
 import {
   ScheduleInviteDialog,
   SendFormDialog,
@@ -113,6 +123,8 @@ export function CandidateProfile({
   screeningForms = [],
   interviewers = [],
   currentUserId = null,
+  rejection = null,
+  templates = [],
   initialTab,
   canEdit = false,
   slackEnabled = false,
@@ -132,6 +144,9 @@ export function CandidateProfile({
   screeningForms?: ScreeningFormOption[];
   interviewers?: InterviewerOption[];
   currentUserId?: string | null;
+  /** The candidate's active (not undone) rejection, if any. */
+  rejection?: Rejection | null;
+  templates?: TemplateOption[];
   /** From `?tab=` — the explorer's follow-up links open straight to Activity. */
   initialTab?: string;
   canEdit?: boolean;
@@ -152,12 +167,23 @@ export function CandidateProfile({
     row.full_name ||
     [row.first_name, row.last_name].filter(Boolean).join(" ") ||
     "Candidate";
+  const [rejecting, setRejecting] = useState(false);
+  const isApplicant = row.status === "applicant";
 
   return (
     <div className="mt-3 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold text-slate-900">{heading}</h1>
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-slate-900">{heading}</h1>
+            <ScoreControl
+              key={String(rec?.score ?? "")}
+              personId={row.id}
+              score={rec?.score ?? null}
+              canEdit={canEdit && isApplicant}
+              size="md"
+            />
+          </div>
           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
             <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Job</span>
             <JobQuickSelect
@@ -173,7 +199,29 @@ export function CandidateProfile({
             {rec?.candidate_location && <span>· 📍 {rec.candidate_location}</span>}
           </div>
         </div>
+        {canEdit && isApplicant && !rejection && (
+          <button
+            type="button"
+            onClick={() => setRejecting(true)}
+            className="rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm font-medium text-rose-700 shadow-sm transition hover:bg-rose-50"
+          >
+            ✕ Reject
+          </button>
+        )}
       </div>
+
+      {rejection && <RejectionBanner rejection={rejection} canEdit={canEdit} />}
+      {rejecting && (
+        <RejectDialog
+          personId={row.id}
+          candidateName={heading}
+          hasEmail={Boolean(row.email)}
+          from="profile"
+          templates={templates}
+          hadInterview={interviews.length > 0}
+          onClose={() => setRejecting(false)}
+        />
+      )}
 
       <div className="overflow-x-auto border-b border-slate-200">
         <nav className="-mb-px flex gap-1">
@@ -1418,5 +1466,59 @@ function SchedulingInvites({
         />
       )}
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rejection banner — the 48-hour window, with Undo / Cancel email
+// ---------------------------------------------------------------------------
+
+function RejectionBanner({ rejection: r, canEdit }: { rejection: Rejection; canEdit: boolean }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const run = (fn: () => Promise<SaveResult>, confirmText: string) => {
+    if (!window.confirm(confirmText)) return;
+    start(async () => {
+      setError(null);
+      const res = await fn();
+      if (!res.ok) setError(res.error);
+    });
+  };
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50/70 px-4 py-3 text-sm">
+      <p className="text-rose-900">
+        ✕ Rejected from {REJECTED_FROM_LABELS[r.rejected_from] ?? r.rejected_from}
+        {r.rejected_by_name ? ` by ${r.rejected_by_name}` : ""} · {fmtDate(r.rejected_at)}
+        <span className="ml-2 text-xs text-rose-700">
+          {REJECTION_EMAIL_STATUS_LABELS[r.email_status]}
+          {r.email_status === "scheduled" && r.template_name ? ` — “${r.template_name}” ${countdown(r.email_scheduled_for)}` : ""}
+        </span>
+      </p>
+      {canEdit && (
+        <span className="flex items-center gap-3 text-xs font-medium">
+          {r.email_status === "scheduled" && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => cancelRejectionEmail(r.id), "Cancel the rejection email? They stay rejected.")}
+              className="text-slate-600 hover:text-slate-900 disabled:opacity-50"
+            >
+              Cancel email
+            </button>
+          )}
+          {canUndoRejection(r) && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => run(() => undoRejection(r.id), "Undo the rejection and put them back where they were? No email will be sent.")}
+              className="text-emerald-700 hover:text-emerald-900 disabled:opacity-50"
+            >
+              Undo rejection
+            </button>
+          )}
+          {error && <span className="text-red-600">{error}</span>}
+        </span>
+      )}
+    </div>
   );
 }

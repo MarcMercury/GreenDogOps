@@ -27,7 +27,11 @@ import { StageQuickSelect } from "./stage-quick-select";
 import { JobsBoard } from "./jobs-board";
 import { JobQuickSelect } from "./job-quick-select";
 import { FormsList, type FormListRow } from "./forms-list";
-import { InterviewQueue, type QueueInterview, type QueueInvite } from "./interview-queue";
+import { InterviewQueue, type InterviewQueueRow } from "./interview-queue";
+import { FormResponsesQueue, type FormQueueRow } from "./form-responses-queue";
+import { RejectedQueue, type RejectedRow } from "./rejected-queue";
+import type { TemplateOption } from "./reject-dialog";
+import { ScoreControl } from "./score-control";
 import type { InterviewerOption, ScreeningFormOption } from "./candidate-next-steps";
 
 function candidateName(r: CandidateRow): string {
@@ -56,8 +60,11 @@ export function AtsExplorer({
   forms,
   screeningForms,
   interviewers,
-  queueInterviews,
-  queueInvites,
+  interviewRows,
+  formRows,
+  rejectedRows,
+  templates,
+  resumeLinks,
   currentUserId,
   currentUserName,
   origin,
@@ -73,8 +80,11 @@ export function AtsExplorer({
   forms: FormListRow[];
   screeningForms: ScreeningFormOption[];
   interviewers: InterviewerOption[];
-  queueInterviews: QueueInterview[];
-  queueInvites: QueueInvite[];
+  interviewRows: InterviewQueueRow[];
+  formRows: FormQueueRow[];
+  rejectedRows: RejectedRow[];
+  templates: TemplateOption[];
+  resumeLinks: Record<string, string>;
   currentUserId: string | null;
   currentUserName: string | null;
   origin: string;
@@ -105,16 +115,17 @@ export function AtsExplorer({
     (r) => r.person_recruiting?.review_status !== "pending",
   );
 
-  type Tab = "pipeline" | "review" | "interviews" | "jobs" | "forms";
+  type Tab = "pipeline" | "review" | "form_responses" | "interviews" | "rejected" | "jobs" | "forms";
+  const TABS: Tab[] = ["pipeline", "review", "form_responses", "interviews", "rejected", "jobs", "forms"];
   const [tab, setTab] = useState<Tab>(
-    initialTab === "review" || initialTab === "interviews" || initialTab === "jobs" || initialTab === "forms"
-      ? initialTab
-      : "pipeline",
+    TABS.includes(initialTab as Tab) ? (initialTab as Tab) : "pipeline",
   );
-  // Badge: interviews needing results plus today's.
-  const interviewsDue = queueInterviews.filter(
-    (i) => i.interview_date != null && i.interview_date <= localToday(),
+  // Badges: what needs someone's attention in each queue.
+  const interviewsDue = interviewRows.filter(
+    (i) => i.kind === "interview" && (i.status === "needs_results" || (i.status === "scheduled" && i.date === localToday())),
   ).length;
+  const formsNeedReview = formRows.filter((r) => r.status === "needs_review").length;
+  const rejectionsWaiting = rejectedRows.filter((r) => r.email_status === "scheduled").length;
 
   const jobsById = new Map(positions.map((p) => [p.id, p]));
   // "CSR — Van Nuys", "CSR — Van Nuys (closed)", or "No job" — for the Job
@@ -212,11 +223,15 @@ export function AtsExplorer({
     {
       key: "score",
       header: "Score",
-      value: (r) => {
-        const s = r.person_recruiting?.score;
-        return s != null && s > 0 ? s : null;
-      },
-      className: "tabular-nums",
+      value: (r) => (r.person_recruiting?.score == null ? null : Number(r.person_recruiting.score)),
+      render: (r) => (
+        <ScoreControl
+          key={`${r.id}:${r.person_recruiting?.score ?? ""}`}
+          personId={r.id}
+          score={r.person_recruiting?.score ?? null}
+          canEdit={canEdit}
+        />
+      ),
     },
     {
       key: "next_interview",
@@ -263,7 +278,9 @@ export function AtsExplorer({
       label: "Score",
       value: (r) => {
         const s = r.person_recruiting?.score;
-        return s != null && s > 0 ? String(s) : null;
+        if (s == null) return "Unscored";
+        const n = Number(s);
+        return n >= 8 ? "8–10" : n >= 6 ? "6–7.9" : n >= 4 ? "4–5.9" : "Under 4";
       },
     },
     {
@@ -305,85 +322,50 @@ export function AtsExplorer({
         positions={positions}
       />
 
-      {/* Tabs: active pipeline vs. the auto-intake review queue. */}
-      <div className="mb-4 flex gap-1 border-b border-slate-200">
-        <button
-          onClick={() => setTab("pipeline")}
-          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
-            tab === "pipeline"
-              ? "border-emerald-600 text-emerald-700"
-              : "border-transparent text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          All Candidates
-        </button>
-        <button
-          onClick={() => setTab("review")}
-          className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
-            tab === "review"
-              ? "border-emerald-600 text-emerald-700"
-              : "border-transparent text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          Review Queue
-          {reviewRows.length > 0 && (
-            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-amber-500 px-1.5 text-xs font-semibold text-white">
-              {reviewRows.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab("interviews")}
-          className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
-            tab === "interviews"
-              ? "border-emerald-600 text-emerald-700"
-              : "border-transparent text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          Interview Queue
-          {interviewsDue > 0 && (
-            <span
-              title="Today's interviews and ones needing results"
-              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-violet-600 px-1.5 text-xs font-semibold text-white"
-            >
-              {interviewsDue}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab("jobs")}
-          className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
-            tab === "jobs"
-              ? "border-emerald-600 text-emerald-700"
-              : "border-transparent text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          Jobs
-          {openJobs > 0 && (
-            <span
-              title={`${openJobs} open`}
-              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-slate-200 px-1.5 text-xs font-semibold text-slate-700"
-            >
-              {openJobs}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setTab("forms")}
-          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
-            tab === "forms"
-              ? "border-emerald-600 text-emerald-700"
-              : "border-transparent text-slate-500 hover:text-slate-700"
-          }`}
-        >
-          Forms
-        </button>
-        <Link
-          href="/ats/availability"
-          className="-mb-px ml-auto self-center rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-        >
-          📅 My Availability
-        </Link>
+      {/* Tabs: the candidate list, the recruiting queues, jobs and forms. */}
+      <div className="mb-4 flex flex-wrap items-end gap-1 border-b border-slate-200">
+        {(
+          [
+            { key: "pipeline", label: "All Candidates" },
+            { key: "review", label: "Review Queue", count: reviewRows.length, badge: "bg-amber-500 text-white" },
+            { key: "form_responses", label: "Form Responses", count: formsNeedReview, badge: "bg-violet-600 text-white" },
+            { key: "interviews", label: "Interviews", count: interviewsDue, badge: "bg-violet-600 text-white" },
+            { key: "rejected", label: "Rejected", count: rejectionsWaiting, badge: "bg-rose-500 text-white" },
+            { key: "jobs", label: "Jobs", count: openJobs, badge: "bg-slate-200 text-slate-700" },
+            { key: "forms", label: "Forms" },
+          ] as { key: Tab; label: string; count?: number; badge?: string }[]
+        ).map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`-mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-medium transition ${
+              tab === t.key
+                ? "border-emerald-600 text-emerald-700"
+                : "border-transparent text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {t.label}
+            {t.count ? (
+              <span className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-xs font-semibold ${t.badge}`}>
+                {t.count}
+              </span>
+            ) : null}
+          </button>
+        ))}
+        <span className="ml-auto flex items-center gap-1 self-center">
+          <Link
+            href="/ats/availability"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            📅 My Availability
+          </Link>
+          <Link
+            href="/ats/settings"
+            className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+          >
+            ⚙ Settings
+          </Link>
+        </span>
       </div>
 
       {tab === "review" ? (
@@ -394,14 +376,27 @@ export function AtsExplorer({
           screeningForms={screeningForms}
           interviewers={interviewers}
           currentUserId={currentUserId}
+          templates={templates}
+          resumeLinks={resumeLinks}
+        />
+      ) : tab === "form_responses" ? (
+        <FormResponsesQueue
+          rows={formRows}
+          forms={screeningForms}
+          interviewers={interviewers}
+          currentUserId={currentUserId}
+          templates={templates}
+          canEdit={canEdit}
         />
       ) : tab === "interviews" ? (
         <InterviewQueue
-          interviews={queueInterviews}
-          invites={queueInvites}
+          rows={interviewRows}
           currentUserId={currentUserId}
           currentUserName={currentUserName}
+          canEdit={canEdit}
         />
+      ) : tab === "rejected" ? (
+        <RejectedQueue rows={rejectedRows} canEdit={canEdit} />
       ) : tab === "forms" ? (
         <FormsList forms={forms} origin={origin} canEdit={canEdit} />
       ) : tab === "jobs" ? (

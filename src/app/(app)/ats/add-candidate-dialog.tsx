@@ -174,7 +174,7 @@ export function AddCandidateDialog({
                   options={RECRUITING_SOURCE_OPTIONS}
                 />
                 <Field label="Interview date" name="interview_date" type="date" />
-                <Field label="Score" name="score" type="number" />
+                <Field label="Score (0–10)" name="score" type="number" />
                 <Field label="Follow-up date" name="follow_up_date" type="date" />
                 <label className="flex items-center gap-2 text-sm text-slate-700">
                   <input

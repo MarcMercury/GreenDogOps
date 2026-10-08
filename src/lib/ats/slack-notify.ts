@@ -3,13 +3,11 @@ import "server-only";
 // ---------------------------------------------------------------------------
 // Automated Slack posts for the recruiting channel.
 //
-// The team announces each candidate with a numbered "NEW (<POSITION>)
-// CANDIDATE ANNOUNCEMENT" post and then discusses them in that post's thread.
-// Accepting an applicant from the Review Queue posts that announcement
-// automatically (the profile's Announce button covers anyone accepted another
-// way) and stores its ts; afterwards every stage change and newly scheduled
-// interview replies in the same thread (or posts top-level when the candidate
-// was never announced).
+// Early recruiting (applications, approvals, forms, phone screens) stays in
+// Ops. A candidate's first Slack post is made when an in-person interview or
+// shadow is scheduled (./slack-announce.ts); afterwards every update replies
+// in that one thread. Updates for candidates who were never announced are not
+// posted at all.
 //
 // Kept separate from ./slack-summary.ts, which the client-side copy button
 // imports.
@@ -19,8 +17,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { recordAudit } from "@/lib/auth/session";
 import type { CandidateRow } from "./types";
-import { esc } from "./slack-messages";
-import { candidateJobLabel } from "./jobs";
 
 export { buildInterviewScheduledMessage, buildStageChangeMessage } from "./slack-messages";
 
@@ -47,39 +43,9 @@ export function candidateName(row: Pick<CandidateRow, "full_name" | "first_name"
   );
 }
 
-/** The team's numbered announcement post, with an @channel ping. */
-export function buildAnnouncementMessage(
-  row: CandidateRow,
-  resumeLink: string | null,
-  profileUrl: string,
-): string {
-  const rec = row.person_recruiting;
-  const position = (candidateJobLabel(rec) ?? "").trim().toUpperCase() || "IN-HOUSE";
-  const fullNotes = (rec?.notes ?? rec?.status_notes ?? row.notes ?? "").trim();
-  // Website applicants' notes carry the whole cover letter; keep the post short.
-  const notes = fullNotes.length > 300 ? `${fullNotes.slice(0, 300).trimEnd()}…` : fullNotes;
-  const phone = row.phone_mobile ?? row.phone_home ?? row.phone_other;
-  const links = [
-    resumeLink ? `<${resumeLink}|Resume>` : null,
-    `<${profileUrl}|Open in GreenDogOps>`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-
-  return [
-    `<!channel> ✅ *NEW (${esc(position)}) CANDIDATE ANNOUNCEMENT*`,
-    `1. NOTES: ${notes ? esc(notes) : "—"}`,
-    `2. NAME: ${esc(candidateName(row))}`,
-    `3. PHONE: ${phone ? esc(phone) : "—"}`,
-    `4. EMAIL: ${row.email ? esc(row.email) : "—"}`,
-    `5. LOCATION: ${rec?.candidate_location ? esc(rec.candidate_location) : "—"}`,
-    `6. RESUME & INT LINK: ${links}`,
-  ].join("\n");
-}
-
 /**
- * Post an update about a candidate, threaded under their announcement when one
- * exists. Best-effort: never throws, and does nothing when Slack isn't set up.
+ * Reply in a candidate's Slack thread. Does nothing until they've been
+ * announced, so early recruiting stays quiet. Best-effort: never throws.
  */
 export async function notifyCandidateThread(input: {
   personId: string;
@@ -98,6 +64,7 @@ export async function notifyCandidateThread(input: {
       .maybeSingle();
     const threadTs =
       (data as { slack_announce_ts?: string | null } | null)?.slack_announce_ts ?? undefined;
+    if (!threadTs) return;
 
     const result = await postSlackMessage({
       channelKey: "hiring",
@@ -116,7 +83,7 @@ export async function notifyCandidateThread(input: {
         action: "slack.post",
         entity: "person",
         entityId: input.personId,
-        summary: threadTs ? "Posted candidate update to Slack thread" : "Posted candidate update to Slack",
+        summary: "Posted candidate update to Slack thread",
         metadata: { channel: result.channel, ts: result.ts, thread_ts: threadTs ?? null },
       });
     }

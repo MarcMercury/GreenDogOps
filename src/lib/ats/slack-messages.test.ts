@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildInterviewAnnouncement,
   buildFormCompletedMessage,
   buildFormSentMessage,
   buildInterviewCompletedMessage,
@@ -11,7 +12,7 @@ import {
 describe("buildStageChangeMessage", () => {
   it("stars forward moves", () => {
     expect(buildStageChangeMessage("Jane Doe", "New Lead", "Phone Screen", "Sarah")).toBe(
-      "⭐ *Jane Doe* advanced to *Phone Screen* (from New Lead) — Sarah",
+      "⬆️ *Jane Doe* advanced to *Phone Screen* (from New Lead) — Sarah",
     );
   });
 
@@ -20,7 +21,7 @@ describe("buildStageChangeMessage", () => {
       "💼 *APPROVED FOR OFFER — Jane Doe* (from Shadow Day)",
     );
     expect(buildStageChangeMessage("Jane Doe", "Offer", "Hired", null)).toBe(
-      "🎉 *Jane Doe* moved to *Hired* (from Offer)",
+      "🎉 *HIRED — Jane Doe* (from Offer)",
     );
   });
 
@@ -29,7 +30,7 @@ describe("buildStageChangeMessage", () => {
       "↩️ *Jane Doe* moved back to *Phone Screen* (from Offer)",
     );
     expect(buildStageChangeMessage("Jane Doe", "Phone Screen", "Passed", null)).toBe(
-      "🚫 *Jane Doe* moved to *Passed* (from Phone Screen)",
+      "❌ *Jane Doe* moved to *Passed* (from Phone Screen)",
     );
     expect(buildStageChangeMessage("Jane Doe", null, "New Lead", null)).toBe(
       "*Jane Doe* moved to *New Lead*",
@@ -38,7 +39,7 @@ describe("buildStageChangeMessage", () => {
 
   it("escapes Slack control characters", () => {
     expect(buildStageChangeMessage("<Jane>", null, "Contacted", "A&B")).toBe(
-      "⭐ *&lt;Jane&gt;* advanced to *Contacted* — A&amp;B",
+      "⬆️ *&lt;Jane&gt;* advanced to *Contacted* — A&amp;B",
     );
   });
 });
@@ -61,7 +62,7 @@ describe("buildInterviewScheduledMessage", () => {
     ).toBe("📞 *PHONE INTERVIEW SCHEDULED*\nJane Doe\nTuesday, October 13 · 11:30 AM\n*Interviewer: Sarah*");
   });
 
-  it("posts in-person / shadow with the location and who it's with", () => {
+  it("posts a shadow with the location and who it's with", () => {
     expect(
       buildInterviewScheduledMessage("Jane Doe", {
         ...base,
@@ -69,7 +70,7 @@ describe("buildInterviewScheduledMessage", () => {
         interviewer: "Sarah + Ren",
       }),
     ).toBe(
-      "👋 *IN-PERSON / SHADOW SCHEDULED*\nJane Doe\nTuesday, October 13 · 11:30 AM\nGreen Dog — The Valley\n*With: Sarah + Ren*",
+      "👥 *SHADOW SCHEDULED*\nJane Doe\nTuesday, October 13 · 11:30 AM\nGreen Dog — The Valley\n*With: Sarah + Ren*",
     );
   });
 
@@ -92,7 +93,14 @@ describe("interview completed and questionnaire messages", () => {
         { interview_type: "phone_screen", interviewer: "Sarah", overall_grade: "B", recommendation: "advance" },
         "Advance",
       ),
-    ).toBe("⭐ *Phone Screen completed — Jane Doe*\nGrade B · Recommendation: *Advance* · Sarah");
+    ).toBe("📝 *Phone Screen completed — Jane Doe*\n⭐ Grade B · Recommendation: *Advance* · Sarah");
+    expect(
+      buildInterviewCompletedMessage(
+        "Jane Doe",
+        { interview_type: "working_interview", interviewer: null, overall_grade: "A", recommendation: null },
+        null,
+      ),
+    ).toBe("✅ *Shadow completed — Jane Doe*\n⭐ Grade A");
   });
 
   it("covers sent and completed questionnaires", () => {
@@ -122,5 +130,65 @@ describe("buildJobChangeMessage", () => {
     expect(buildJobChangeMessage("Jane Doe", "CSR — Van Nuys", null, null)).toBe(
       "💼 *Jane Doe* removed from job *CSR — Van Nuys*",
     );
+  });
+});
+
+describe("buildInterviewAnnouncement", () => {
+  const base = {
+    name: "Jane Doe",
+    role: "CSR",
+    score: 8.5,
+    steps: { screening: true, phone: true },
+    links: { resume: "https://r", application: "https://a", profile: "https://p" },
+  };
+
+  it("matches the team's in-person announcement", () => {
+    expect(
+      buildInterviewAnnouncement({
+        ...base,
+        interview: {
+          type: "in_person",
+          date: "2026-10-13",
+          time: "14:00:00",
+          location: "The Valley",
+          interviewer: "Sarah",
+        },
+      }),
+    ).toBe(
+      [
+        "👋 *IN-PERSON CANDIDATE INTERVIEW*",
+        "*Jane Doe — CSR*",
+        "",
+        "📍 The Valley",
+        "📅 Tuesday, October 13",
+        "⏰ 2:00 PM",
+        "👤 Interviewing with Sarah",
+        "⭐ Candidate Score: 8.5/10",
+        "",
+        "*Current Process:*",
+        "Application ✅",
+        "Screening Form ✅",
+        "Phone Interview ✅",
+        "In-Person Interview Scheduled ✅",
+        "",
+        "*<https://r|Resume> | <https://a|Application> | <https://p|Open in GreenDogOps>*",
+      ].join("\n"),
+    );
+  });
+
+  it("only lists the steps that happened, and handles shadows and missing scores", () => {
+    const text = buildInterviewAnnouncement({
+      ...base,
+      score: null,
+      steps: { screening: false, phone: false },
+      links: { resume: null, application: null, profile: "https://p" },
+      interview: { type: "working_interview", date: "2026-10-15", time: "10:00", location: null, interviewer: "Ren" },
+    });
+    expect(text).toContain("👥 *SHADOW CANDIDATE*");
+    expect(text).toContain("👤 Shadowing with Ren");
+    expect(text).toContain("⭐ Candidate Score: not scored");
+    expect(text).not.toContain("Screening Form");
+    expect(text).toContain("Shadow Scheduled ✅");
+    expect(text).toContain("*<https://p|Open in GreenDogOps>*");
   });
 });

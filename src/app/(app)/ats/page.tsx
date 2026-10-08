@@ -14,8 +14,15 @@ import { parseFields, type FormKind } from "@/lib/ats/forms";
 import { appBaseUrl } from "@/lib/ats/slack-notify";
 import { AtsExplorer } from "./ats-explorer";
 import type { FormListRow } from "./forms-list";
-import type { QueueInterview, QueueInvite } from "./interview-queue";
+import type { InterviewQueueRow, InterviewQueueStatus } from "./interview-queue";
+import type { FormQueueRow } from "./form-responses-queue";
+import type { RejectedRow } from "./rejected-queue";
+import type { TemplateOption } from "./reject-dialog";
 import { candidateJobLabel } from "@/lib/ats/jobs";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { AnswerValue } from "@/lib/ats/forms";
+import type { Rejection } from "@/lib/ats/rejections";
+import { INTERVIEW_RECOMMENDATION_LABELS } from "@/lib/ats/types";
 import type { InterviewerOption, ScreeningFormOption } from "./candidate-next-steps";
 
 export const dynamic = "force-dynamic";
@@ -173,6 +180,9 @@ export default async function AtsPage({
   }
   for (const r of rows) r.task_meta = taskMeta.get(r.id) ?? null;
 
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  const resultsSince = since.toISOString().slice(0, 10);
   const [
     { data: positionData },
     { data: roleData, error: roleError },
@@ -183,6 +193,9 @@ export default async function AtsPage({
     interviewerData,
     { data: queueIvData },
     { data: queueInviteData },
+    { data: requestData },
+    { data: rejectionData },
+    { data: templateData },
   ] = await Promise.all([
       supabase.from("position").select("*").order("title", { ascending: true }),
       supabase
@@ -211,9 +224,11 @@ export default async function AtsPage({
         supabase
           .from("person_interview")
           .select(
-            "id, person_id, interview_type, interview_date, start_time, end_time, interviewer, location, host_user_id, invite_id",
+            "id, person_id, interview_type, interview_date, start_time, end_time, interviewer, location, host_user_id, invite_id, status, overall_grade, recommendation",
           )
-          .eq("status", "scheduled")
+          .or(
+            `status.eq.scheduled,and(status.in.(completed,no_show),interview_date.gte.${resultsSince})`,
+          )
           .order("interview_date", { ascending: true, nullsFirst: false })
           .range(from, to),
       ),
@@ -222,6 +237,27 @@ export default async function AtsPage({
         .select("id, token, person_id, interview_type, duration_minutes, host_user_id, host_name, date_from, date_to, created_at")
         .eq("status", "sent")
         .order("created_at", { ascending: false }),
+      fetchAllRows<Record<string, unknown>>((from, to) =>
+        supabase
+          .from("recruiting_form_request")
+          .select("id, token, person_id, status, sent_at, sent_by_name, completed_at, reviewed_at, reviewed_by_name, form:form_id (name)")
+          .in("status", ["sent", "completed"])
+          .order("sent_at", { ascending: false })
+          .range(from, to),
+      ),
+      fetchAllRows<Rejection>((from, to) =>
+        supabase
+          .from("recruiting_rejection")
+          .select("*")
+          .is("undone_at", null)
+          .order("rejected_at", { ascending: false })
+          .range(from, to),
+      ),
+      supabase
+        .from("recruiting_email_template")
+        .select("id, name, active")
+        .eq("kind", "rejection")
+        .order("sort_order"),
     ]);
 
   if (roleError || locationError) {
@@ -258,32 +294,209 @@ export default async function AtsPage({
     question_count: parseFields(fields).filter((q) => q.type !== "section").length,
     response_count: responseCounts.get(f.id) ?? 0,
   }));
-  // Interview Queue: scheduled interviews and unbooked scheduling links for
-  // people still in the ATS (hired candidates have left the list).
+  // Shared candidate facts for the queues (people still in the ATS — hired
+  // candidates have left the list).
   const byId = new Map(rows.map((r) => [r.id, r]));
   const jobsById = new Map(positions.map((p) => [p.id, p]));
   const who = (personId: string) => {
     const r = byId.get(personId);
     if (!r) return null;
+    const rec = r.person_recruiting;
+    const job = rec?.target_position_id ? jobsById.get(rec.target_position_id) : undefined;
     return {
       candidate: r.full_name || [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unnamed",
-      job: candidateJobLabel(r.person_recruiting, jobsById),
-      stage: r.person_recruiting?.stage ?? null,
+      has_email: Boolean(r.email),
+      role: job?.title ?? rec?.target_title ?? null,
+      job_label: candidateJobLabel(rec, jobsById),
+      location: job?.location ?? rec?.job_location ?? rec?.candidate_location ?? null,
+      score: rec?.score == null ? null : Number(rec.score),
+      stage: rec?.stage ?? null,
+      rejected: rec?.review_status === "declined" || rec?.stage === "Declined" || rec?.stage === "Passed",
     };
   };
-  const queueInterviews: QueueInterview[] = [];
-  for (const iv of (queueIvData ?? []) as (Omit<QueueInterview, "candidate" | "job" | "stage" | "self_booked"> & {
+  const todayIso = new Date().toISOString().slice(0, 10);
+
+  // Interview Queue: interviews (scheduled + last 30 days of results) and
+  // scheduling links the candidate hasn't booked.
+  const interviewRows: InterviewQueueRow[] = [];
+  for (const iv of (queueIvData ?? []) as {
+    id: string;
+    person_id: string;
+    interview_type: string | null;
+    interview_date: string | null;
+    start_time: string | null;
+    end_time: string | null;
+    interviewer: string | null;
+    location: string | null;
+    host_user_id: string | null;
     invite_id: string | null;
-  })[]) {
+    status: string;
+    overall_grade: string | null;
+    recommendation: string | null;
+  }[]) {
     const p = who(iv.person_id);
     if (!p) continue;
-    const { invite_id, ...rest } = iv;
-    queueInterviews.push({ ...rest, ...p, self_booked: Boolean(invite_id) });
+    const status: InterviewQueueStatus =
+      iv.status === "completed"
+        ? "completed"
+        : iv.status === "no_show"
+          ? "no_show"
+          : !iv.interview_date
+            ? "no_date"
+            : iv.interview_date < todayIso
+              ? "needs_results"
+              : "scheduled";
+    interviewRows.push({
+      id: iv.id,
+      kind: "interview",
+      person_id: iv.person_id,
+      candidate: p.candidate,
+      role: p.role,
+      location: p.location,
+      score: p.score,
+      interview_type: iv.interview_type,
+      date: iv.interview_date,
+      start_time: iv.start_time,
+      end_time: iv.end_time,
+      date_to: null,
+      interviewer: iv.interviewer,
+      host_user_id: iv.host_user_id,
+      status,
+      stage: p.stage,
+      self_booked: Boolean(iv.invite_id),
+      token: null,
+      grade: iv.overall_grade,
+      recommendation: iv.recommendation ? (INTERVIEW_RECOMMENDATION_LABELS[iv.recommendation] ?? iv.recommendation) : null,
+    });
   }
-  const queueInvites: QueueInvite[] = [];
-  for (const inv of (queueInviteData ?? []) as Omit<QueueInvite, "candidate" | "job">[]) {
+  for (const inv of (queueInviteData ?? []) as {
+    id: string;
+    token: string;
+    person_id: string;
+    interview_type: string;
+    host_user_id: string;
+    host_name: string | null;
+    date_from: string;
+    date_to: string;
+  }[]) {
     const p = who(inv.person_id);
-    if (p) queueInvites.push({ ...inv, candidate: p.candidate, job: p.job });
+    if (!p) continue;
+    interviewRows.push({
+      id: inv.id,
+      kind: "invite",
+      person_id: inv.person_id,
+      candidate: p.candidate,
+      role: p.role,
+      location: p.location,
+      score: p.score,
+      interview_type: inv.interview_type,
+      date: inv.date_from,
+      start_time: null,
+      end_time: null,
+      date_to: inv.date_to,
+      interviewer: inv.host_name,
+      host_user_id: inv.host_user_id,
+      status: "awaiting_booking",
+      stage: p.stage,
+      self_booked: false,
+      token: inv.token,
+      grade: null,
+      recommendation: null,
+    });
+  }
+
+  // Form Response Queue: questionnaires waiting on the candidate or on us.
+  const requests = (requestData ?? []) as {
+    id: string;
+    token: string;
+    person_id: string;
+    status: "sent" | "completed";
+    sent_at: string;
+    sent_by_name: string | null;
+    completed_at: string | null;
+    reviewed_at: string | null;
+    reviewed_by_name: string | null;
+    form: { name: string } | { name: string }[] | null;
+  }[];
+  const completedIds = requests.filter((r) => r.status === "completed").map((r) => r.id);
+  const responseByRequest = new Map<string, { fields: unknown; answers: Record<string, AnswerValue> }>();
+  for (let i = 0; i < completedIds.length; i += 200) {
+    const { data: page } = await supabase
+      .from("recruiting_form_response")
+      .select("request_id, fields, answers")
+      .in("request_id", completedIds.slice(i, i + 200));
+    for (const r of (page ?? []) as { request_id: string; fields: unknown; answers: Record<string, AnswerValue> }[]) {
+      responseByRequest.set(r.request_id, r);
+    }
+  }
+  const formRows: FormQueueRow[] = [];
+  for (const r of requests) {
+    const p = who(r.person_id);
+    if (!p || p.rejected) continue;
+    const resp = responseByRequest.get(r.id);
+    formRows.push({
+      id: r.id,
+      token: r.token,
+      person_id: r.person_id,
+      candidate: p.candidate,
+      has_email: p.has_email,
+      role: p.job_label,
+      job_title: p.role,
+      location: p.location,
+      score: p.score,
+      form_name: (Array.isArray(r.form) ? r.form[0]?.name : r.form?.name) ?? "Form",
+      sent_at: r.sent_at,
+      sent_by_name: r.sent_by_name,
+      status: r.status === "sent" ? "waiting" : r.reviewed_at ? "reviewed" : "needs_review",
+      completed_at: r.completed_at,
+      reviewed_by_name: r.reviewed_by_name,
+      response: resp ? { fields: parseFields(resp.fields, { allowCore: true }), answers: resp.answers } : null,
+    });
+  }
+
+  // Rejected queue.
+  const rejectedRows: RejectedRow[] = [];
+  for (const r of rejectionData ?? []) {
+    const r0 = byId.get(r.person_id);
+    rejectedRows.push({
+      ...r,
+      candidate: r0 ? r0.full_name || [r0.first_name, r0.last_name].filter(Boolean).join(" ") || "Unnamed" : "Former candidate",
+      role: r0 ? candidateJobLabel(r0.person_recruiting, jobsById) : null,
+      still_rejected:
+        !!r0 &&
+        (r0.person_recruiting?.stage ?? null) === r.rejected_stage &&
+        r0.person_recruiting?.review_status !== "pending",
+    });
+  }
+  const templates = (templateData ?? []) as TemplateOption[];
+
+  // Resume links for the Review Queue cards (newest resume, signed for a day).
+  const resumeLinks: Record<string, string> = {};
+  const pendingIds = rows.filter((r) => r.person_recruiting?.review_status === "pending").map((r) => r.id);
+  if (pendingIds.length) {
+    const admin = createAdminClient();
+    const newest = new Map<string, string>();
+    for (let i = 0; i < pendingIds.length; i += 200) {
+      const { data: docs } = await admin
+        .from("person_document")
+        .select("person_id, storage_path, uploaded_at")
+        .in("person_id", pendingIds.slice(i, i + 200))
+        .ilike("category", "resume")
+        .order("uploaded_at", { ascending: false });
+      for (const d of (docs ?? []) as { person_id: string; storage_path: string }[]) {
+        if (!newest.has(d.person_id)) newest.set(d.person_id, d.storage_path);
+      }
+    }
+    const entries = [...newest.entries()];
+    if (entries.length) {
+      const { data: signed } = await admin.storage
+        .from("employee-documents")
+        .createSignedUrls(entries.map(([, path]) => path), 60 * 60 * 24);
+      entries.forEach(([personId], i) => {
+        const url = signed?.[i]?.signedUrl;
+        if (url) resumeLinks[personId] = url;
+      });
+    }
   }
 
   const screeningForms: ScreeningFormOption[] = forms
@@ -305,8 +518,11 @@ export default async function AtsPage({
       forms={forms}
       screeningForms={screeningForms}
       interviewers={interviewers}
-      queueInterviews={queueInterviews}
-      queueInvites={queueInvites}
+      interviewRows={interviewRows}
+      formRows={formRows}
+      rejectedRows={rejectedRows}
+      templates={templates}
+      resumeLinks={resumeLinks}
       currentUserId={current?.authId ?? null}
       currentUserName={current?.appUser.full_name ?? null}
       origin={appBaseUrl()}

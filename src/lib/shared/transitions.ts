@@ -29,6 +29,10 @@ export const TRANSITION_EVENT_LABELS: Record<string, string> = {
   form_completed: "Form completed",
   schedule_invite: "Scheduling link sent",
   interview_booked: "Interview booked by candidate",
+  slack_announced: "Announced in Slack",
+  score_change: "Score changed",
+  rejected: "Rejected",
+  rejection_undone: "Rejection undone",
 };
 
 export const STAGE_LABELS: Record<string, string> = {

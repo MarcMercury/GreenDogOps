@@ -2,9 +2,8 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { canEditModule, type AppUser } from "@/lib/auth/permissions";
 import { logProfileTransition } from "@/lib/shared/transition-log";
-import { isSlackConfigured } from "@/lib/slack/client";
-import { buildInterviewScheduledMessage } from "./slack-messages";
-import { candidateName, candidateProfileUrl, notifyCandidateThread } from "./slack-notify";
+import { candidateName, candidateProfileUrl } from "./slack-notify";
+import { slackInterviewScheduled } from "./slack-announce";
 import { createGoogleInterviewEvent, googleBusy } from "./google-calendar";
 import { sendBookingConfirmationEmail, sendInterviewerBookingEmail } from "./candidate-emails";
 import {
@@ -371,12 +370,7 @@ export async function bookInvite(token: string, startIso: string): Promise<BookR
     detail: `${title} booked for ${when} with ${withName}`,
   });
 
-  if (isSlackConfigured()) {
-    await notifyCandidateThread({
-      personId: invite.person_id,
-      text: buildInterviewScheduledMessage(name, interview),
-    });
-  }
+  await slackInterviewScheduled(invite.person_id, interview, { name: withName, authId: null, email: null });
 
   return { ok: true, when, withName, title };
 }

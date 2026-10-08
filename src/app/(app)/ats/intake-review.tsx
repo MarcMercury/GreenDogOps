@@ -10,7 +10,9 @@ import {
   positionLabel,
 } from "@/lib/ats/types";
 import { DOCUMENT_CATEGORY_LABELS } from "@/lib/hr/types";
-import { acceptCandidate, declineCandidate, getCandidateDocuments } from "./actions";
+import { acceptCandidate, getCandidateDocuments } from "./actions";
+import { ScoreControl } from "./score-control";
+import { RejectDialog, type TemplateOption } from "./reject-dialog";
 import {
   ApprovedNextStepDialog,
   type InterviewerOption,
@@ -155,6 +157,8 @@ export function IntakeReview({
   screeningForms,
   interviewers,
   currentUserId,
+  templates,
+  resumeLinks,
 }: {
   rows: CandidateRow[];
   positions: PositionRow[];
@@ -162,8 +166,17 @@ export function IntakeReview({
   screeningForms: ScreeningFormOption[];
   interviewers: InterviewerOption[];
   currentUserId: string | null;
+  templates: TemplateOption[];
+  /** Newest resume per candidate (signed URL). */
+  resumeLinks: Record<string, string>;
 }) {
-  const [approved, setApproved] = useState<{ id: string; name: string; jobTitle: string | null } | null>(null);
+  const [rejecting, setRejecting] = useState<CandidateRow | null>(null);
+  const [approved, setApproved] = useState<{
+    id: string;
+    name: string;
+    jobTitle: string | null;
+    location: string | null;
+  } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -192,11 +205,27 @@ export function IntakeReview({
     });
   }
 
+  const rejectDialog = rejecting && (
+    <RejectDialog
+      personId={rejecting.id}
+      candidateName={candidateName(rejecting)}
+      hasEmail={Boolean(rejecting.email)}
+      from="review"
+      templates={templates}
+      onClose={() => setRejecting(null)}
+      onDone={() => {
+        setDone((prev) => new Set(prev).add(rejecting.id));
+        router.refresh();
+      }}
+    />
+  );
+
   const nextStep = approved && (
     <ApprovedNextStepDialog
       personId={approved.id}
       candidateName={approved.name}
       jobTitle={approved.jobTitle}
+      defaultLocation={approved.location}
       forms={screeningForms}
       interviewers={interviewers}
       currentUserId={currentUserId}
@@ -215,6 +244,7 @@ export function IntakeReview({
           </p>
         </div>
         {nextStep}
+        {rejectDialog}
       </>
     );
   }
@@ -222,6 +252,7 @@ export function IntakeReview({
   return (
     <div className="space-y-3">
       {nextStep}
+      {rejectDialog}
       <QueueHealth rows={visible} />
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
@@ -246,10 +277,13 @@ export function IntakeReview({
                   name: candidateName(r),
                   jobTitle:
                     positions.find((p) => p.id === jobId)?.title ?? r.person_recruiting?.target_title ?? null,
+                  location:
+                    positions.find((p) => p.id === jobId)?.location ?? r.person_recruiting?.job_location ?? null,
                 }),
             )
           }
-          onDecline={() => act(r.id, () => declineCandidate(r.id))}
+          onDecline={() => setRejecting(r)}
+          resumeUrl={resumeLinks[r.id] ?? null}
         />
       ))}
     </div>
@@ -270,6 +304,7 @@ function ReviewCard({
   busy,
   onAccept,
   onDecline,
+  resumeUrl,
 }: {
   row: CandidateRow;
   positions: PositionRow[];
@@ -277,6 +312,7 @@ function ReviewCard({
   busy: boolean;
   onAccept: (jobId: string | null) => void;
   onDecline: () => void;
+  resumeUrl: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [jobId, setJobId] = useState<string>(r.person_recruiting?.target_position_id ?? "");
@@ -351,10 +387,25 @@ function ReviewCard({
             >
               {source}
             </span>
-            {isReapply && (
-              <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                🔁 Re-applied
-              </span>
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+                isReapply ? "bg-amber-100 text-amber-800" : "bg-sky-100 text-sky-800"
+              }`}
+            >
+              {isReapply ? "🔁 Re-applied" : "New"}
+            </span>
+            <ScoreControl personId={r.id} score={rec?.score ?? null} canEdit={canEdit} />
+            {resumeUrl ? (
+              <a
+                href={resumeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-700"
+              >
+                📎 Resume
+              </a>
+            ) : (
+              <span className="text-xs text-slate-400">No resume</span>
             )}
           </div>
 
@@ -419,10 +470,10 @@ function ReviewCard({
           <button
             onClick={() => onAccept(jobId || null)}
             disabled={busy}
-            title="Link the job, accept into the pipeline and announce in the Slack hiring channel"
+            title="Link the job and accept into the pipeline, then pick the next step"
             className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
           >
-            {busy ? "…" : "✓ Accept"}
+            {busy ? "…" : "✓ Approve"}
           </button>
           <button
             onClick={onDecline}

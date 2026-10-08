@@ -8,22 +8,27 @@
 ## The workflow at a glance
 
 ```
- Job posting ──► Green Dog Application (Ops /apply) ──► Review Queue
-                                                            │
-                                               Approve / Decline (daily)
-                                                            │
-                          APPROVE ─► ✅ Slack announcement (automatic)
-                              │
-             Next step:  📝 Send Form  ·  📞 Schedule Phone Interview  ·  Skip
-                              │
-          Role-specific questionnaire ─► answers on the profile's Forms tab (✅ Slack)
-                              │
-          Invite to schedule ─► candidate picks a time ─► interview + calendar + 📞 Slack
-                              │
-          Phone interview ─► grade / recommendation (⭐ Slack)
-                              │
-          In-person / Shadow scheduling ─► 👋 Slack ─► 💼 Offer ─► 🎉 Hire
+ Job posting ──► Green Dog Application (/apply)
+                         │
+                 REVIEW QUEUE ── Reject ──► REJECTED (48-hour window ─► automatic email)
+                         │
+                      Approve
+                         │
+     Next step: 📝 Send Additional Form · 📞 Schedule Phone Interview · 👋 Schedule In-Person
+                         │
+                 FORM RESPONSES ── review answers + update score ── Reject ──► REJECTED
+                         │
+                   INTERVIEWS ── phone screen ─► completed ─► advance to in-person
+                         │
+         In-person interview or shadow scheduled ──► 🚨 FIRST SLACK ANNOUNCEMENT
+                         │
+         Every later update replies in that one Slack thread
+                         │
+              Shadow / more interviews ─► 💼 Offer ─► 🎉 Hire
 ```
+
+**Ops handles recruiting.** Applications, forms, scores, reviews, scheduling and early interviews all stay in the ATS.
+**Slack handles team awareness.** A candidate first appears in Slack when they're coming into one of our clinics (an in-person interview or shadow is scheduled), and from then on their whole hiring history lives in that one thread.
 
 **The rule:** If a candidate isn't in the Ops ATS, they aren't in our process. We don't track candidates in Indeed, email, or text threads.
 
@@ -144,64 +149,45 @@ The ATS reads the form's notification email, so **field labels matter** (matchin
 
 ---
 
-## Step 3 — Daily review: Approve or Deny
+## Step 3 — Review Queue: Approve or Reject
 
 **When:** Every business day by **[TIME, e.g. 11:00 AM]**. The goal is an **empty Review Queue** by end of day.
 **Who:** The Daily Reviewer (backup: **[NAME]**).
 
-1. Open **Ops → Recruiting (ATS) → Review Queue**. The banner at the top shows how many applicants are waiting and flags anyone who has waited more than one business day.
-2. For each applicant, check the name, contact info, role, location, and resume.
-3. Check the **Job**. Applications whose role and clinic match exactly one open job are linked to it automatically. If the job shows **— No job —** (for example the applicant chose "Open to any" clinic), pick the right open job from the dropdown.
-4. Choose one:
-   - **✓ Accept (Approve):** The candidate meets the basic requirements for the role. They're linked to the selected job, move into the pipeline as **New Lead**, and are **announced in Slack automatically** (Step 4).
-   - **✕ Reject (Deny):** The candidate isn't a fit, the application is incomplete, or it's spam. They're marked **Declined** and **kept on file**, so we'll recognize them if they apply again.
+1. Open **Ops → Recruiting (ATS) → Review Queue**. The banner shows how many applicants are waiting and flags anyone who has waited more than one business day.
+2. Each card shows the **candidate name, role, location, 📎 resume, application date, ⭐ Candidate Score, source and status** (New / Re-applied). Expand a card for the full application.
+3. Check the **Job**. Applications that match exactly one open job are linked automatically; otherwise pick the right open job.
+4. Adjust the **⭐ score** if you like (click it — see *Candidate Score* below).
+5. Choose:
+   - **✓ Approve** — the candidate becomes a **New Lead**. Nothing is posted to Slack. Ops then asks for the next step:
+     - **📝 Send Additional Form** — pick a role-specific questionnaire (forms tagged for the job are suggested first). The candidate gets an email with their own link; they then appear in **Form Responses**.
+     - **📞 Schedule Phone Interview** or **👋 Schedule In-Person Interview** — send a scheduling link (Step 5).
+     - **Skip & Continue**.
+   - **✕ Reject** — see *Rejections* below.
 
-**Approve if:**
-- They applied for an open role, and
-- Their contact info and resume are there, and
-- Their experience and location meet the minimum for the role.
-
-**Deny if:**
-- Contact info or resume is missing, and they haven't completed the careers form, or
-- They clearly don't meet the minimum requirements, or
-- It's a duplicate, spam, or an out-of-area application.
+**Approve if** they applied for an open role, their contact info and resume are there, and their experience and location meet the minimum. **Reject if** they don't meet the minimum, the application is incomplete, or it's a duplicate, spam or out of area.
 
 ---
 
-## Step 4 — Approved candidates are announced in Slack, then choose the next step
+## Step 4 — Form Responses: review the questionnaire
 
-Clicking **✓ Accept** automatically posts the candidate to the **Slack hiring channel**. This is how the rest of the team finds out a new candidate is ready. Nobody needs to write a Slack post.
+**Recruiting (ATS) → Form Responses** lists everyone sent an additional screening form: **candidate, role, location, ⭐ score, form sent, date sent, response status and date completed**.
 
-The Slack post looks like this:
+- **Waiting for Response** — sent, not answered yet.
+- **Completed — Needs Review** — answered; the tab badge counts these.
+- **Reviewed** — hidden unless you tick *Show reviewed*.
 
-```
-@channel ✅ NEW (CSR — VAN NUYS) CANDIDATE ANNOUNCEMENT
-1. NOTES: …
-2. NAME: Jane Doe
-3. PHONE: (555) 555-5555
-4. EMAIL: jane@example.com
-5. LOCATION: Sherman Oaks
-6. RESUME & INT LINK: Resume · Open in GreenDogOps
-```
+Click a row to read their answers, then:
+- **⭐ Adjust Score**
+- **📞 Move to Phone Interview** or **👋 Skip → In-Person** — sends a scheduling link (Step 5)
+- **📝 Send Another Form**
+- **✕ Reject** — the 48-hour rejection process
 
-- **"Open in GreenDogOps"** links straight to the candidate's Ops ATS profile.
-- If an announcement ever fails (or a candidate was added to the pipeline some other way), open their profile and click **📣 Announce in Slack**. Once a candidate is announced, the button shows **Announced ✓**.
-- Each candidate is announced **once**. All later updates (interviews, stage changes, summaries) are posted **as replies in that same Slack thread**, so the whole history stays together.
-
-**Candidate Approved — Next Step.** Right after **✓ Accept**, Ops asks what's next:
-
-- **📝 Send Form** — pick a role-specific questionnaire (forms tagged for the candidate's job are suggested first) and click **Send to Candidate**. The candidate gets this email with their own link:
-  > Thanks for your interest in Green Dog. We'd like to learn a little more about you before scheduling your first interview. Please complete the following short questionnaire: **[Complete Questionnaire]**
-
-  Their answers attach to the profile's **Forms** tab (for example *CSR Screening Questions ✅ Completed October 9*), and Slack posts 📝 when it's sent and ✅ when it's completed. If the candidate has no email on file, copy the link from the dialog or the Forms tab and send it yourself.
-- **📞 Schedule Phone Interview** — send a scheduling link right away (Step 5).
-- **Skip & Continue** — do it later from the profile (**Forms → 📝 Send form**, or **Interview Tracking → 📅 Invite to schedule**).
+Taking any of these marks the questionnaire **Reviewed**. (**✓ Mark reviewed** does it without taking an action.) Answers also stay on the candidate's **Forms** tab.
 
 ---
 
-## Step 5 — Schedule the interview (posts to Slack)
-
-**Anyone with ATS access** can pick up an announced candidate.
+## Step 5 — Interviews
 
 ### Let the candidate pick a time (recommended)
 
@@ -212,27 +198,19 @@ The Slack post looks like this:
    - adds the interview to **Interview Tracking** (Scheduled, with the interviewer) and to the **Ops calendar**;
    - puts it on the interviewer's **Google Calendar** and invites the candidate. If the interviewer hasn't connected Google, both get an email with a calendar file instead;
    - emails the candidate a confirmation;
-   - posts in the candidate's Slack thread:
-     ```
-     📞 PHONE INTERVIEW SCHEDULED
-     Jane Doe
-     Tuesday, October 13 · 11:30 AM
-     Interviewer: Sarah
-     ```
+   - **in-person interview or shadow:** creates the candidate's **first Slack announcement** (see *Slack* below). Phone screens, virtual interviews and doc calls stay inside Ops unless the candidate has already been announced, in which case they reply in the thread.
 
 Open times come from each interviewer's **📅 My Availability** page (Recruiting header): weekly hours, interview length, a buffer between interviews and minimum notice, minus anything busy on their connected Google Calendar and any interviews already in Ops. **Connect your Google Calendar there once.** Ops only reads free/busy times and never imports your events. Only one scheduling link per interview type is live at a time; sending a new one cancels the old one. Pending links show on Interview Tracking with **Copy link** and **Cancel**.
 
-### See every interview at a glance: Interview Queue
+### The Interviews queue
 
-**Recruiting (ATS) → Interview Queue** lists every scheduled interview and every scheduling link still waiting on a candidate. Each row shows the time, candidate, job, type (📞 Phone, 👋 In-person, 🐾 Shadow day, ⭐ Final), interviewer and location.
+**Recruiting (ATS) → Interviews** is the working list for everyone actively interviewing. Each row shows the **candidate, role, preferred / assigned location, ⭐ score (editable), interview type, date / time, interviewer, interview status and current stage**.
 
-It's grouped into:
-- **⚠️ Needs results** — the date has passed but the interview is still Scheduled. Open it and log the grade, recommendation and status.
-- **Today**
-- **Upcoming** (by day)
-- **⏳ Waiting on candidate to book**, with **Copy link**
+- **Interview types:** Phone Screen, Virtual Interview, In-Person Interview, Shadow / Working Interview, Final Interview, Doc Call.
+- **Statuses:** **Needs results** (the date has passed but it's still Scheduled — open it and log the grade, recommendation and status), **Scheduled**, **Awaiting booking** (scheduling link sent, with **Copy link**), and — when *Include completed* is ticked — **Completed** / **No show** from the last 30 days, with grade and recommendation.
+- **Sort** by any column; **filter** by type, date, interviewer, role, location, score, stage and status; or tick **Only my interviews**.
 
-Filter by type, by interviewer (including **Me**), or search by candidate or job. The tab badge counts today's interviews plus those needing results. Check it first thing each day.
+The tab badge counts today's interviews plus those needing results. Check it first thing each day.
 
 ### Or log it yourself
 
@@ -240,22 +218,15 @@ Filter by type, by interviewer (including **Me**), or search by candidate or job
 2. Review the candidate's profile, resume (Documents tab), and notes.
 3. Go to the **Interview Tracking** tab and fill in **Schedule / log an interview**:
    - **Interview date** and **Start / End** time
-   - **Type** (Phone Screen, In-Person Interview, Working Interview / Shadow Day, Final)
+   - **Type** (Phone Screen, Virtual, In-Person, Shadow / Working Interview, Final, Doc Call)
    - **Status:** *Scheduled*
    - **Interviewer:** your name
    - **Location** (phone, Zoom, clinic)
 4. Click **Add interview**.
 
-Saving the interview automatically:
-- posts a reply in the candidate's Slack thread saying who is interviewing them and when, for example:
-  ```
-  ☎️ Phone Screen scheduled — Jane Doe
-  Sarah is interviewing Jane Doe · Wed, Oct 7 · 10:00 AM–10:30 AM · Zoom
-  ```
-  In-person interviews and shadow days post with 👋 instead of ☎️.
-- puts the interview on the **Ops calendar**.
+Saving a Scheduled interview puts it on the **Ops calendar**. An in-person interview or shadow also creates the first Slack announcement; anything else posts to Slack only once the candidate has been announced.
 
-> **Before you launch:** Check the Slack thread first. If someone else has already posted an interview for this candidate, coordinate with them. Don't double-book the candidate.
+> **Before you schedule:** Check the candidate's Interview Tracking tab (and the Interviews queue) so we don't double-book them.
 
 ---
 
@@ -264,8 +235,8 @@ Saving the interview automatically:
 The interviewer owns the candidate until they hand them off or the process ends. Use the existing ATS tools:
 
 1. **Log the result.** Open the interview on the **Interview Tracking** tab and set **Status** (Completed / No Show / Cancelled), **Overall grade** (A–F), **Recommendation** (Advance / Hold / Pass), and **Summary**. The CSR phone-screen questions are available for phone screens.
-2. **Share it.** Click **Post summary** to post the interview results in the candidate's Slack thread.
-3. **Move the stage.** Update the candidate's **Stage**. Each stage change is also posted to the Slack thread automatically: ⭐ when they advance, 💼 when they move to **Offer**, and 🚫/⏸️ when they're passed or put on hold.
+2. **Share it.** Once the candidate has a Slack thread, marking the interview **Completed** posts 📝/✅ with ⭐ the grade and recommendation automatically. **Post summary** posts the full notes.
+3. **Move the stage.** Update the candidate's **Stage**. Once announced, each stage change posts in their thread: ⬆️ when they advance, 💼 **Approved for Offer**, 🎉 **Hired**, ❌ passed / declined, ⏸️ on hold.
    `New Lead → Contacted → Phone Screen → Interview → Shadow Day → Offer → Hired`
    Closing stages: **Hold for Future · No Response · Passed · Declined**
 4. **Set follow-ups.** Use **Tasks** and **Follow-up date** for next steps, and log calls/texts/emails in **Activity**.
@@ -279,11 +250,11 @@ The interviewer owns the candidate until they hand them off or the process ends.
 
 - ✅ Every candidate goes through the **careers page form**. Send anyone who contacts us another way (walk-in, referral, text) to the form too.
 - ✅ The **Review Queue is cleared every business day**.
-- ✅ Every approved candidate is **announced in Slack automatically**, with the profile link.
+- ✅ Early recruiting stays in Ops. Candidates are **announced in Slack automatically when an in-person interview or shadow is scheduled**.
 - ✅ **Log every interview in the ATS.** That is what tells the team who is interviewing whom.
 - ✅ Keep all discussion about a candidate **in their Slack thread**, not in new top-level posts.
 - ❌ Don't keep candidate details in Indeed messages, personal email, or texts without logging them in the ATS.
-- ❌ Don't delete candidates. Decline them, so we keep the history and recognize repeat applicants.
+- ❌ Don't delete candidates. Reject them, so we keep the history and recognize repeat applicants.
 
 ---
 
@@ -294,9 +265,13 @@ The interviewer owns the candidate until they hand them off or the process ends.
 | Open / close a job | Recruiting (ATS) → **Jobs** → **+ Job** / **Close job** / **Reopen** |
 | See a job's candidates | **Jobs** → click the job's candidate count |
 | See new applicants | Recruiting (ATS) → **Review Queue** |
-| Approve / deny | Review Queue → pick the **Job** → **✓ Accept** (also posts to Slack) / **✕ Reject** |
+| Approve / reject | Review Queue → pick the **Job** → **✓ Approve** / **✕ Reject** |
+| Review questionnaire answers | Recruiting (ATS) → **Form Responses** → click the row |
+| Adjust a candidate's score | Click the **⭐ score** anywhere it appears |
+| Undo a rejection / cancel the email | Recruiting (ATS) → **Rejected** (or the banner on the profile) |
+| Edit rejection emails | Recruiting (ATS) → **⚙ Settings** |
 | Assign or move a candidate to a job | All Candidates or candidate profile → **Job** dropdown |
-| Re-send a Slack announcement | Candidate profile → **📣 Announce in Slack** |
+| Announce a candidate in Slack early | Candidate profile → **📣 Announce in Slack** |
 | Launch an interview | Candidate profile → **Interview Tracking** → **Add interview** |
 | Post interview results | Interview card → **Post summary** |
 | Move a candidate forward | Candidate profile → **Stage** |
@@ -304,28 +279,77 @@ The interviewer owns the candidate until they hand them off or the process ends.
 | Send a questionnaire | Candidate profile → **Forms** → **📝 Send form** (or the Next Step after Accept) |
 | See a candidate's answers | Candidate profile → **Forms** → click the form |
 | Send a scheduling link | Candidate profile → **Interview Tracking** → **📅 Invite to schedule** |
-| See all scheduled / pending interviews | Recruiting (ATS) → **Interview Queue** |
+| See all scheduled / pending interviews | Recruiting (ATS) → **Interviews** |
 | Set my interview hours / connect Google | Recruiting → **📅 My Availability** |
 | Create or edit a form | Recruiting → **Forms** → **+ Form** / **Edit** |
 
 ---
 
-## What posts to Slack automatically
+## Slack: one candidate = one thread
 
-| When this happens in Ops | Slack shows |
+**Nothing is posted** while a candidate is applying, being approved, filling in forms or doing phone screens — all of that stays in Ops.
+
+**The first post** happens automatically when an **In-Person Interview** or **Shadow / Working Interview** is scheduled (by the candidate through a scheduling link, or logged by a recruiter):
+
+```
+👋 IN-PERSON CANDIDATE INTERVIEW
+Jane Doe — CSR
+
+📍 The Valley
+📅 Tuesday, October 13
+⏰ 2:00 PM
+👤 Interviewing with Sarah
+⭐ Candidate Score: 8.5/10
+
+Current Process:
+Application ✅
+Screening Form ✅
+Phone Interview ✅
+In-Person Interview Scheduled ✅
+
+Resume | Application | Open in GreenDogOps
+```
+
+(The checklist only lists steps they've completed. A shadow posts as 👥 SHADOW CANDIDATE.) **📣 Announce in Slack** on the profile posts it early if you need the team's eyes sooner.
+
+**After that, every update replies in the same thread:**
+
+| When this happens in Ops | Thread reply |
 |---|---|
-| Applicant accepted from the Review Queue | ✅ NEW CANDIDATE ANNOUNCEMENT (summary + resume + profile link) |
-| Stage moved forward | ⭐ *Candidate* advanced to *Stage* |
-| Questionnaire sent / completed | 📝 Questionnaire sent — *Form* / ✅ Questionnaire completed — *Form* (with a link to the answers) |
-| Candidate books (or you log) a phone interview | 📞 PHONE INTERVIEW SCHEDULED · date · time · Interviewer |
-| In-person interview / shadow day scheduled | 👋 IN-PERSON / SHADOW SCHEDULED · date · time · location · With |
-| Interview marked Completed with a grade or recommendation | ⭐ *Type* completed — *Candidate* · Grade · Recommendation |
+| In-person interview / shadow / other interview scheduled | 👋 IN-PERSON INTERVIEW SCHEDULED · 👥 SHADOW SCHEDULED · 📞/💻/🩺 … (date, time, location, with) |
+| Interview marked Completed with a grade or recommendation | 📝 *Type* completed (✅ Shadow completed) · ⭐ Grade · Recommendation |
+| Stage moved forward | ⬆️ *Candidate* advanced to *Stage* |
 | Stage moved to Offer | 💼 APPROVED FOR OFFER — *Candidate* |
-| Job changed (after the announcement) | 💼 *Candidate* moved to job *Job* (from *old job*) |
 | Hire → Employee | 🎉 *Candidate* was hired |
-| **Post summary** clicked on an interview | Interview grade, recommendation, and notes |
+| Rejected / passed / declined | ❌ *Candidate* moved to *Passed* / *Declined* |
+| Questionnaire sent or completed, job changed | 📝 / ✅ / 💼 notes |
+| **Post summary** clicked on an interview | Interview grade, recommendation and notes |
 
-Everything after the announcement is posted as a reply in that candidate's thread.
+---
+
+## Candidate Score
+
+Every candidate has a **⭐ Candidate Score out of 10** (e.g. 8.5), shown in the Review Queue, Form Responses, Interviews, All Candidates, the candidate profile and the Slack announcement. Click it to change it — pick or type a score, add an optional note (e.g. *Phone interview*), **Save score**. Every change keeps who, when and the note; the history is listed under the score. (Scores from the old spreadsheet's 0–5 scale were doubled onto the 10-point scale.)
+
+---
+
+## Rejections
+
+Click **✕ Reject** in the Review Queue, Form Responses or on the profile. Ops asks:
+
+> **Send rejection email automatically in 48 hours?** ✅ (default) — **Template:** *Initial Application Rejection* ▼ — **Confirm Rejection**
+
+The template is suggested from where they were rejected (Initial Application / Post-Screening / Post-Interview). Rejecting moves them to **Declined** (from the Review Queue) or **Passed**, cancels any open questionnaire or scheduling link and upcoming interviews, and puts them in **Recruiting (ATS) → Rejected**:
+
+| Column | |
+|---|---|
+| Candidate, Role, Stage Rejected From, Rejected By, Rejection Date | |
+| Email Scheduled For | with a countdown while waiting |
+| Email Template, Email Status | **Waiting — 48 Hours**, **Email Sent**, **Email Cancelled**, **No email**, **Email failed** |
+
+Until the email goes out, anyone who can edit Recruiting can **Cancel email** (they stay rejected) or **Undo rejection** (they go back exactly where they were — the Review Queue or their previous stage — and no email is sent; cancelled links and interviews stay cancelled). The same controls show in a banner on the candidate's profile. Emails are sent by Ops every 15 minutes once the 48 hours are up; if someone moved the candidate to another stage in the meantime, the email is skipped.
+
+**Templates:** **Recruiting (ATS) → ⚙ Settings → Rejection Templates** — add or edit templates (name, subject, message) and preview them. Use `{first_name}`, `{full_name}` and `{role}`; the "— The Green Dog Team" sign-off is added automatically.
 
 ---
 
