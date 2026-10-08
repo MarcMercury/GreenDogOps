@@ -480,6 +480,8 @@ supabase/baseline/          # rebuild path: schema + security + config snapshot
 scripts/                    # importers, enrichers, probes, SQL helper,
                             # backup/restore, baseline + drift tooling
 public/                     # sample CSV/XLSX exports
+docs/agent/                 # verified engineering memory: lessons, integrations,
+                            # architecture invariants, improvement backlog
 .github/workflows/          # scheduled agent runs, backups, baseline verification
 ```
 
