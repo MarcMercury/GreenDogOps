@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildFormCompletedMessage,
+  buildFormSentMessage,
+  buildInterviewCompletedMessage,
   buildInterviewScheduledMessage,
   buildJobChangeMessage,
   buildStageChangeMessage,
@@ -13,8 +16,8 @@ describe("buildStageChangeMessage", () => {
   });
 
   it("calls out offers and hires", () => {
-    expect(buildStageChangeMessage("Jane Doe", "Doc Call", "Offer", null)).toBe(
-      "💼 *Jane Doe* approved for an offer (from Doc Call)",
+    expect(buildStageChangeMessage("Jane Doe", "Shadow Day", "Offer", null)).toBe(
+      "💼 *APPROVED FOR OFFER — Jane Doe* (from Shadow Day)",
     );
     expect(buildStageChangeMessage("Jane Doe", "Offer", "Hired", null)).toBe(
       "🎉 *Jane Doe* moved to *Hired* (from Offer)",
@@ -42,33 +45,62 @@ describe("buildStageChangeMessage", () => {
 
 describe("buildInterviewScheduledMessage", () => {
   const base = {
-    interview_date: "2026-10-07",
-    start_time: "10:00:00",
-    end_time: "10:30:00",
-    location: "Zoom",
+    interview_date: "2026-10-13",
+    start_time: "11:30:00",
+    end_time: "12:00:00",
+    location: "Green Dog — The Valley",
   };
 
-  it("says who is interviewing whom, and when", () => {
+  it("posts a phone interview with the interviewer", () => {
     expect(
       buildInterviewScheduledMessage("Jane Doe", {
         ...base,
         interview_type: "phone_screen",
         interviewer: "Sarah",
       }),
+    ).toBe("📞 *PHONE INTERVIEW SCHEDULED*\nJane Doe\nTuesday, October 13 · 11:30 AM\n*Interviewer: Sarah*");
+  });
+
+  it("posts in-person / shadow with the location and who it's with", () => {
+    expect(
+      buildInterviewScheduledMessage("Jane Doe", {
+        ...base,
+        interview_type: "working_interview",
+        interviewer: "Sarah + Ren",
+      }),
     ).toBe(
-      "☎️ *Phone Screen scheduled — Jane Doe*\nSarah is interviewing Jane Doe · Wed, Oct 7 · 10:00 AM–10:30 AM · Zoom",
+      "👋 *IN-PERSON / SHADOW SCHEDULED*\nJane Doe\nTuesday, October 13 · 11:30 AM\nGreen Dog — The Valley\n*With: Sarah + Ren*",
     );
   });
 
-  it("uses the wave for in-person / shadow and falls back to the scheduler", () => {
+  it("falls back to whoever scheduled it", () => {
     expect(
       buildInterviewScheduledMessage(
         "Jane Doe",
-        { ...base, interview_type: "working_interview", interviewer: " " },
+        { ...base, interview_type: "phone_screen", interviewer: " " },
         "Marc",
       ),
-    ).toBe(
-      "👋 *Working Interview / Shadow Day scheduled — Jane Doe*\nScheduled by Marc · Wed, Oct 7 · 10:00 AM–10:30 AM · Zoom",
+    ).toBe("📞 *PHONE INTERVIEW SCHEDULED*\nJane Doe\nTuesday, October 13 · 11:30 AM\n_Scheduled by Marc_");
+  });
+});
+
+describe("interview completed and questionnaire messages", () => {
+  it("summarizes a completed interview", () => {
+    expect(
+      buildInterviewCompletedMessage(
+        "Jane Doe",
+        { interview_type: "phone_screen", interviewer: "Sarah", overall_grade: "B", recommendation: "advance" },
+        "Advance",
+      ),
+    ).toBe("⭐ *Phone Screen completed — Jane Doe*\nGrade B · Recommendation: *Advance* · Sarah");
+  });
+
+  it("covers sent and completed questionnaires", () => {
+    expect(buildFormSentMessage("Jane Doe", "CSR Screening Questions", "Marc")).toBe(
+      "📝 *Questionnaire sent — CSR Screening Questions*\nJane Doe · sent by Marc",
+    );
+    expect(buildFormCompletedMessage("Jane Doe", "CSR Screening Questions", "https://x/ats/1?tab=forms")).toBe(
+      "✅ *Questionnaire completed — CSR Screening Questions*\nJane Doe · <https://x/ats/1?tab=forms|View answers>",
     );
   });
 });

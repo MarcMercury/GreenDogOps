@@ -131,7 +131,10 @@ from users who cannot access it.
   reviews, discipline, PTO, credentials, licenses, assets, documents, and
   onboarding checklists.
 - **Recruiting (ATS)** (`/ats`) — applicant pipeline, interview tracking, and
-  Jobs (open/close; candidates linked to a job, auto-matched on intake).
+  Jobs (open/close; candidates linked to a job, auto-matched on intake), Forms
+  (public application at `/apply`, role-specific questionnaires at
+  `/forms/<token>`) and interview self-scheduling (`/book/<token>`, per-recruiter
+  Google Calendar free/busy).
   Resumes and PDF candidate lists are parsed with an LLM; a Gmail poller and an
   Indeed export feed candidates in. Hiring promotes the record into HR with a
   single status change.

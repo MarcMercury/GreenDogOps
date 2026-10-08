@@ -26,6 +26,7 @@ import {
   ACCEPTED_LEAD_STAGE,
   DECLINED_STAGE,
   ACTIVITY_TYPE_LABELS,
+  INTERVIEW_RECOMMENDATION_LABELS,
   POSITION_PRIORITY_LABELS,
   POSITION_EMPLOYMENT_LABELS,
   POSITION_WORK_LOCATION_LABELS,
@@ -58,7 +59,10 @@ import {
   candidateProfileUrl,
   notifyCandidateThread,
 } from "@/lib/ats/slack-notify";
-import { buildJobChangeMessage, esc } from "@/lib/ats/slack-messages";
+import { buildInterviewCompletedMessage, buildJobChangeMessage, esc } from "@/lib/ats/slack-messages";
+import { deleteGoogleEvent, moveGoogleEvent } from "@/lib/ats/google-calendar";
+import { loadInterviewer } from "@/lib/ats/booking";
+import { DEFAULT_TIMEZONE, zonedTimeToUtc } from "@/lib/ats/scheduling";
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { cityOrZipLookup } from "@/lib/shared/zip-lookup";
@@ -455,12 +459,16 @@ export async function saveInterview(
 
   // Note what was scheduled before so only a newly scheduled (or rescheduled)
   // interview is announced — not every edit to notes or grades.
-  type ScheduledSnapshot = Pick<PersonInterview, "status" | "interview_date" | "start_time">;
+  type ScheduledSnapshot = Pick<PersonInterview, "status" | "interview_date" | "start_time" | "end_time"> & {
+    host_user_id: string | null;
+    google_event_id: string | null;
+    invite_id: string | null;
+  };
   let before: ScheduledSnapshot | null = null;
   if (id) {
     const { data } = await supabase
       .from("person_interview")
-      .select("status, interview_date, start_time")
+      .select("status, interview_date, start_time, end_time, host_user_id, google_event_id, invite_id")
       .eq("id", id)
       .maybeSingle();
     before = data as ScheduledSnapshot | null;
@@ -479,6 +487,65 @@ export async function saveInterview(
       before.status !== "scheduled" ||
       before.interview_date !== patch.interview_date ||
       (before.start_time ?? "").slice(0, 5) !== (patch.start_time ?? "").slice(0, 5));
+  // A self-booked interview cancelled here comes off the interviewer's Google
+  // calendar (Google tells the candidate) and its scheduling link stops
+  // showing "confirmed". Moved to a new time, the Google event moves too.
+  if (patch.status === "cancelled" && before && before.status !== "cancelled" && id) {
+    if (before.google_event_id && before.host_user_id) {
+      await deleteGoogleEvent(before.host_user_id, before.google_event_id);
+      await supabase.from("person_interview").update({ google_event_id: null }).eq("id", id);
+    }
+    if (before.invite_id) {
+      await supabase.from("interview_invite").update({ status: "cancelled" }).eq("id", before.invite_id);
+    }
+  } else if (
+    patch.status === "scheduled" &&
+    before?.google_event_id &&
+    before.host_user_id &&
+    patch.interview_date &&
+    patch.start_time &&
+    (before.interview_date !== patch.interview_date ||
+      (before.start_time ?? "").slice(0, 5) !== patch.start_time.slice(0, 5) ||
+      (before.end_time ?? "").slice(0, 5) !== (patch.end_time ?? "").slice(0, 5))
+  ) {
+    const tz = (await loadInterviewer(before.host_user_id))?.timezone ?? DEFAULT_TIMEZONE;
+    const start = zonedTimeToUtc(patch.interview_date, patch.start_time.slice(0, 5), tz);
+    const end = patch.end_time
+      ? zonedTimeToUtc(patch.interview_date, patch.end_time.slice(0, 5), tz)
+      : new Date(start.getTime() + 30 * 60000);
+    if (end > start) await moveGoogleEvent(before.host_user_id, before.google_event_id, start, end, tz);
+  }
+
+  const newlyCompleted =
+    patch.status === "completed" &&
+    before?.status !== "completed" &&
+    Boolean(patch.overall_grade || patch.recommendation);
+  if (newlyCompleted && isSlackConfigured()) {
+    const current = gate.current;
+    after(async () => {
+      const admin = createAdminClient();
+      const { data } = await admin
+        .from("person")
+        .select("full_name, first_name, last_name")
+        .eq("id", personId)
+        .maybeSingle();
+      if (!data) return;
+      await notifyCandidateThread({
+        personId,
+        text: buildInterviewCompletedMessage(
+          candidateName(data),
+          patch,
+          patch.recommendation
+            ? (INTERVIEW_RECOMMENDATION_LABELS[patch.recommendation] ?? patch.recommendation)
+            : null,
+        ),
+        username: actorName(current),
+        actorId: current.authId,
+        actorEmail: current.email,
+      });
+    });
+  }
+
   if (newlyScheduled && isSlackConfigured()) {
     const current = gate.current;
     after(async () => {
@@ -511,11 +578,25 @@ export async function deleteInterview(
   const gate = await ensureCanEdit("ats");
   if (!gate.ok) return gate;
   const supabase = await createClient();
+  const { data: existing } = await supabase
+    .from("person_interview")
+    .select("host_user_id, google_event_id, invite_id")
+    .eq("id", interviewId)
+    .maybeSingle();
   const { error } = await supabase
     .from("person_interview")
     .delete()
     .eq("id", interviewId);
   if (error) return { ok: false, error: error.message };
+  const ev = existing as {
+    host_user_id: string | null;
+    google_event_id: string | null;
+    invite_id: string | null;
+  } | null;
+  if (ev?.google_event_id && ev.host_user_id) await deleteGoogleEvent(ev.host_user_id, ev.google_event_id);
+  if (ev?.invite_id) {
+    await supabase.from("interview_invite").update({ status: "cancelled" }).eq("id", ev.invite_id);
+  }
   revalidatePath(`/ats/${personId}`);
   return { ok: true };
 }

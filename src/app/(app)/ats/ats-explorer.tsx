@@ -26,6 +26,8 @@ import { IntakeReview } from "./intake-review";
 import { StageQuickSelect } from "./stage-quick-select";
 import { JobsBoard } from "./jobs-board";
 import { JobQuickSelect } from "./job-quick-select";
+import { FormsList, type FormListRow } from "./forms-list";
+import type { InterviewerOption, ScreeningFormOption } from "./candidate-next-steps";
 
 function candidateName(r: CandidateRow): string {
   if (r.full_name) return r.full_name;
@@ -50,6 +52,12 @@ export function AtsExplorer({
   rows,
   positions,
   hires,
+  forms,
+  screeningForms,
+  interviewers,
+  currentUserId,
+  origin,
+  initialTab,
   roles,
   locations,
   canEdit,
@@ -58,6 +66,12 @@ export function AtsExplorer({
   rows: CandidateRow[];
   positions: PositionRow[];
   hires: JobHire[];
+  forms: FormListRow[];
+  screeningForms: ScreeningFormOption[];
+  interviewers: InterviewerOption[];
+  currentUserId: string | null;
+  origin: string;
+  initialTab?: string;
   roles: { id: string; name: string }[];
   locations: { id: string; name: string }[];
   canEdit: boolean;
@@ -84,7 +98,10 @@ export function AtsExplorer({
     (r) => r.person_recruiting?.review_status !== "pending",
   );
 
-  const [tab, setTab] = useState<"pipeline" | "review" | "jobs">("pipeline");
+  type Tab = "pipeline" | "review" | "jobs" | "forms";
+  const [tab, setTab] = useState<Tab>(
+    initialTab === "review" || initialTab === "jobs" || initialTab === "forms" ? initialTab : "pipeline",
+  );
 
   const jobsById = new Map(positions.map((p) => [p.id, p]));
   // "CSR — Van Nuys", "CSR — Van Nuys (closed)", or "No job" — for the Job
@@ -320,12 +337,38 @@ export function AtsExplorer({
             </span>
           )}
         </button>
+        <button
+          onClick={() => setTab("forms")}
+          className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium transition ${
+            tab === "forms"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Forms
+        </button>
+        <Link
+          href="/ats/availability"
+          className="-mb-px ml-auto self-center rounded-lg px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
+        >
+          📅 My Availability
+        </Link>
       </div>
 
       {tab === "review" ? (
-        <IntakeReview rows={reviewRows} positions={positions} canEdit={canEdit} />
+        <IntakeReview
+          rows={reviewRows}
+          positions={positions}
+          canEdit={canEdit}
+          screeningForms={screeningForms}
+          interviewers={interviewers}
+          currentUserId={currentUserId}
+        />
+      ) : tab === "forms" ? (
+        <FormsList forms={forms} origin={origin} canEdit={canEdit} />
       ) : tab === "jobs" ? (
         <JobsBoard
+          origin={origin}
           positions={positions}
           rows={rows}
           hires={hires}

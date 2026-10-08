@@ -61,6 +61,12 @@ export async function updateSession(request: NextRequest) {
     // Event / promo / partner QR capture forms. Same rule: the opaque token in
     // the path is the only credential, and it resolves to one QR code.
     pathname.startsWith("/q/") ||
+    // Recruiting: the public Standard Application, and the questionnaire and
+    // interview-scheduling links sent to one candidate (opaque token only).
+    pathname === "/apply" ||
+    pathname.startsWith("/apply/") ||
+    pathname.startsWith("/forms/") ||
+    pathname.startsWith("/book/") ||
     // Public legal pages (linked from the Google OAuth consent screen).
     pathname === "/privacy" ||
     pathname === "/terms" ||

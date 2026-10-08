@@ -11,6 +11,11 @@ import {
 } from "@/lib/ats/types";
 import { DOCUMENT_CATEGORY_LABELS } from "@/lib/hr/types";
 import { acceptCandidate, declineCandidate, getCandidateDocuments } from "./actions";
+import {
+  ApprovedNextStepDialog,
+  type InterviewerOption,
+  type ScreeningFormOption,
+} from "./candidate-next-steps";
 
 function candidateName(r: CandidateRow): string {
   if (r.full_name) return r.full_name;
@@ -147,11 +152,18 @@ export function IntakeReview({
   rows,
   positions,
   canEdit,
+  screeningForms,
+  interviewers,
+  currentUserId,
 }: {
   rows: CandidateRow[];
   positions: PositionRow[];
   canEdit: boolean;
+  screeningForms: ScreeningFormOption[];
+  interviewers: InterviewerOption[];
+  currentUserId: string | null;
 }) {
+  const [approved, setApproved] = useState<{ id: string; name: string; jobTitle: string | null } | null>(null);
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -160,13 +172,18 @@ export function IntakeReview({
 
   const visible = rows.filter((r) => !done.has(r.id));
 
-  function act(id: string, fn: () => Promise<{ ok: true } | { ok: false; error: string }>) {
+  function act(
+    id: string,
+    fn: () => Promise<{ ok: true } | { ok: false; error: string }>,
+    onSuccess?: () => void,
+  ) {
     setBusyId(id);
     setError(null);
     startTransition(async () => {
       const res = await fn();
       if (res.ok) {
         setDone((prev) => new Set(prev).add(id));
+        onSuccess?.();
         router.refresh();
       } else {
         setError(res.error);
@@ -175,20 +192,36 @@ export function IntakeReview({
     });
   }
 
+  const nextStep = approved && (
+    <ApprovedNextStepDialog
+      personId={approved.id}
+      candidateName={approved.name}
+      jobTitle={approved.jobTitle}
+      forms={screeningForms}
+      interviewers={interviewers}
+      currentUserId={currentUserId}
+      onClose={() => setApproved(null)}
+    />
+  );
+
   if (visible.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-300 bg-white py-16 text-center">
-        <div className="text-3xl">✅</div>
-        <p className="mt-2 text-sm font-medium text-slate-700">Review queue is clear</p>
-        <p className="mt-1 text-xs text-slate-500">
-          New applications from Gmail and Indeed will appear here for a quick accept or reject.
-        </p>
-      </div>
+      <>
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white py-16 text-center">
+          <div className="text-3xl">✅</div>
+          <p className="mt-2 text-sm font-medium text-slate-700">Review queue is clear</p>
+          <p className="mt-1 text-xs text-slate-500">
+            New applications from the Ops application, the website form and Indeed appear here for a quick accept or reject.
+          </p>
+        </div>
+        {nextStep}
+      </>
     );
   }
 
   return (
     <div className="space-y-3">
+      {nextStep}
       <QueueHealth rows={visible} />
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
@@ -201,10 +234,19 @@ export function IntakeReview({
           canEdit={canEdit}
           busy={busyId === r.id && isPending}
           onAccept={(jobId) =>
-            act(r.id, () =>
-              jobId === (r.person_recruiting?.target_position_id ?? null)
-                ? acceptCandidate(r.id)
-                : acceptCandidate(r.id, jobId),
+            act(
+              r.id,
+              () =>
+                jobId === (r.person_recruiting?.target_position_id ?? null)
+                  ? acceptCandidate(r.id)
+                  : acceptCandidate(r.id, jobId),
+              () =>
+                setApproved({
+                  id: r.id,
+                  name: candidateName(r),
+                  jobTitle:
+                    positions.find((p) => p.id === jobId)?.title ?? r.person_recruiting?.target_title ?? null,
+                }),
             )
           }
           onDecline={() => act(r.id, () => declineCandidate(r.id))}

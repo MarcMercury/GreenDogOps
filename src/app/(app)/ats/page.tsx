@@ -9,11 +9,21 @@ import type {
   PositionRow,
 } from "@/lib/ats/types";
 import { loadJobHires } from "@/lib/ats/job-hires";
+import { loadInterviewers, canTakeBookings } from "@/lib/ats/booking";
+import { parseFields, type FormKind } from "@/lib/ats/forms";
+import { appBaseUrl } from "@/lib/ats/slack-notify";
 import { AtsExplorer } from "./ats-explorer";
+import type { FormListRow } from "./forms-list";
+import type { InterviewerOption, ScreeningFormOption } from "./candidate-next-steps";
 
 export const dynamic = "force-dynamic";
 
-export default async function AtsPage() {
+export default async function AtsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string | string[] }>;
+}) {
+  const { tab } = await searchParams;
   const supabase = await createClient();
   const current = await getCurrentUser();
   const canEdit = current ? canEditModule(current.appUser, "ats") : false;
@@ -166,6 +176,9 @@ export default async function AtsPage() {
     { data: roleData, error: roleError },
     { data: locationData, error: locationError },
     hires,
+    { data: formData },
+    { data: responseData },
+    interviewerData,
   ] = await Promise.all([
       supabase.from("position").select("*").order("title", { ascending: true }),
       supabase
@@ -181,6 +194,15 @@ export default async function AtsPage() {
         .order("sort_order", { ascending: true })
         .order("name", { ascending: true }),
       loadJobHires(supabase),
+      supabase
+        .from("recruiting_form")
+        .select("id, kind, name, description, job_titles, slug, is_default, active, updated_at, fields")
+        .order("kind")
+        .order("name"),
+      fetchAllRows<{ form_id: string | null }>((from, to) =>
+        supabase.from("recruiting_form_response").select("form_id").range(from, to),
+      ),
+      loadInterviewers(),
     ]);
 
   if (roleError || locationError) {
@@ -205,11 +227,40 @@ export default async function AtsPage() {
   );
   const locations = (locationData ?? []) as { id: string; name: string }[];
 
+  const responseCounts = new Map<string, number>();
+  for (const r of responseData ?? []) {
+    if (r.form_id) responseCounts.set(r.form_id, (responseCounts.get(r.form_id) ?? 0) + 1);
+  }
+  const forms: FormListRow[] = (
+    (formData ?? []) as (Omit<FormListRow, "question_count" | "response_count"> & { fields: unknown })[]
+  ).map(({ fields, ...f }) => ({
+    ...f,
+    kind: f.kind as FormKind,
+    question_count: parseFields(fields).filter((q) => q.type !== "section").length,
+    response_count: responseCounts.get(f.id) ?? 0,
+  }));
+  const screeningForms: ScreeningFormOption[] = forms
+    .filter((f) => f.kind === "screening" && f.active)
+    .map((f) => ({ id: f.id, name: f.name, job_titles: f.job_titles }));
+  const interviewers: InterviewerOption[] = interviewerData.map((i) => ({
+    user_id: i.user_id,
+    name: i.name,
+    bookable: canTakeBookings(i),
+    google_connected: i.google_connected,
+    default_duration: i.default_duration,
+  }));
+
   return (
     <AtsExplorer
       rows={rows}
       positions={positions}
       hires={hires}
+      forms={forms}
+      screeningForms={screeningForms}
+      interviewers={interviewers}
+      currentUserId={current?.authId ?? null}
+      origin={appBaseUrl()}
+      initialTab={typeof tab === "string" ? tab : undefined}
       roles={roles}
       locations={locations}
       canEdit={canEdit}

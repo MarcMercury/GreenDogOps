@@ -54,7 +54,7 @@ export function buildStageChangeMessage(
   const who = `*${esc(name)}*`;
   const stage = `*${esc(toStage ?? "no stage")}*`;
 
-  if (toStage === "Offer") return `💼 ${who} approved for an offer${from}${by}`;
+  if (toStage === "Offer") return `💼 *APPROVED FOR OFFER — ${esc(name)}*${from}${by}`;
   if (toStage === "Hired") return `🎉 ${who} moved to ${stage}${from}${by}`;
 
   const closing = toStage ? CLOSING_STAGE_EMOJI[toStage] : undefined;
@@ -83,16 +83,34 @@ export function buildJobChangeMessage(
   return `💼 ${who} ${fromJob ? "moved to" : "assigned to"} job *${esc(toJob)}*${from}${by}`;
 }
 
-const INTERVIEW_EMOJI: Record<string, string> = {
-  phone_screen: "☎️",
-  in_person: "👋",
-  working_interview: "👋",
+const INTERVIEW_HEADINGS: Record<string, { emoji: string; title: string; withLabel: string }> = {
+  phone_screen: { emoji: "📞", title: "PHONE INTERVIEW SCHEDULED", withLabel: "Interviewer" },
+  in_person: { emoji: "👋", title: "IN-PERSON / SHADOW SCHEDULED", withLabel: "With" },
+  working_interview: { emoji: "👋", title: "IN-PERSON / SHADOW SCHEDULED", withLabel: "With" },
+  final: { emoji: "🗓️", title: "FINAL INTERVIEW SCHEDULED", withLabel: "With" },
 };
 
+/** "Tuesday, October 13" from a date-only "2026-10-13". */
+function longDate(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const dt = new Date(`${d.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(dt.getTime())) return d;
+  return dt.toLocaleDateString("en-US", {
+    timeZone: "UTC",
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+}
+
 /**
- * "☎️ Phone Screen scheduled — Jane Doe / Sarah is interviewing Jane Doe ·
- * Tue, Oct 7 · 10:00 AM–10:30 AM · Zoom". Falls back to whoever scheduled it
- * when no interviewer was entered.
+ * 📞 *PHONE INTERVIEW SCHEDULED*
+ * Jane Doe
+ * Tuesday, October 13 · 11:30 AM
+ * *Interviewer: Sarah*
+ *
+ * In-person / shadow days post with 👋 and the location. Falls back to
+ * whoever scheduled it when no interviewer was entered.
  */
 export function buildInterviewScheduledMessage(
   name: string,
@@ -102,21 +120,46 @@ export function buildInterviewScheduledMessage(
   >,
   scheduledBy?: string | null,
 ): string {
+  const heading = (iv.interview_type && INTERVIEW_HEADINGS[iv.interview_type]) || {
+    emoji: "🗓️",
+    title: `${(iv.interview_type ? (INTERVIEW_TYPE_LABELS[iv.interview_type] ?? iv.interview_type) : "Interview").toUpperCase()} SCHEDULED`,
+    withLabel: "With",
+  };
+  const when = [longDate(iv.interview_date), formatTime(iv.start_time)].filter(Boolean).join(" · ");
+  const interviewer = iv.interviewer?.trim() || null;
+  const lines = [`${heading.emoji} *${esc(heading.title)}*`, esc(name)];
+  if (when) lines.push(esc(when));
+  if (iv.location?.trim() && iv.interview_type !== "phone_screen") lines.push(esc(iv.location.trim()));
+  if (interviewer) lines.push(`*${heading.withLabel}: ${esc(interviewer)}*`);
+  else if (scheduledBy) lines.push(`_Scheduled by ${esc(scheduledBy)}_`);
+  return lines.join("\n");
+}
+
+/** ⭐ after an interview is marked completed: grade + recommendation. */
+export function buildInterviewCompletedMessage(
+  name: string,
+  iv: Pick<PersonInterview, "interview_type" | "interviewer" | "overall_grade" | "recommendation">,
+  recommendationLabel: string | null,
+): string {
   const type = iv.interview_type
     ? (INTERVIEW_TYPE_LABELS[iv.interview_type] ?? iv.interview_type)
     : "Interview";
-  const emoji = (iv.interview_type && INTERVIEW_EMOJI[iv.interview_type]) || "🗓️";
-  const start = formatTime(iv.start_time);
-  const end = formatTime(iv.end_time);
-  const time = start ? (end ? `${start}–${end}` : start) : null;
-  const interviewer = iv.interviewer?.trim() || null;
-  const who = interviewer
-    ? `${esc(interviewer)} is interviewing ${esc(name)}`
-    : scheduledBy
-      ? `Scheduled by ${esc(scheduledBy)}`
-      : null;
-  const details = [who, ...[fmtDate(iv.interview_date), time, iv.location].filter(Boolean).map((s) => esc(String(s)))]
+  const details = [
+    iv.overall_grade ? `Grade ${esc(iv.overall_grade)}` : null,
+    recommendationLabel ? `Recommendation: *${esc(recommendationLabel)}*` : null,
+    iv.interviewer?.trim() ? esc(iv.interviewer.trim()) : null,
+  ]
     .filter(Boolean)
     .join(" · ");
-  return `${emoji} *${esc(type)} scheduled — ${esc(name)}*${details ? `\n${details}` : ""}`;
+  return `⭐ *${esc(type)} completed — ${esc(name)}*${details ? `\n${details}` : ""}`;
+}
+
+/** 📝 when a screening questionnaire is sent. */
+export function buildFormSentMessage(name: string, formName: string, actorName: string | null): string {
+  return `📝 *Questionnaire sent — ${esc(formName)}*\n${esc(name)}${actorName ? ` · sent by ${esc(actorName)}` : ""}`;
+}
+
+/** ✅ when the candidate completes it, with a link to their answers. */
+export function buildFormCompletedMessage(name: string, formName: string, url: string): string {
+  return `✅ *Questionnaire completed — ${esc(formName)}*\n${esc(name)} · <${url}|View answers>`;
 }

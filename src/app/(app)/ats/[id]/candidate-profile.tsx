@@ -26,6 +26,22 @@ import type { ProfileTransition } from "@/lib/shared/transitions";
 import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
 import { CandidateForm, type CandidateFormTab } from "./candidate-form";
 import { JobQuickSelect } from "../job-quick-select";
+import {
+  ScheduleInviteDialog,
+  SendFormDialog,
+  type InterviewerOption,
+  type ScreeningFormOption,
+} from "../candidate-next-steps";
+import { cancelFormRequest } from "../forms-actions";
+import { cancelSchedulingInvite } from "../scheduling-actions";
+import {
+  answerText,
+  fieldIsAnswerable,
+  isFileAnswer,
+  type FormRequest,
+  type FormResponse,
+} from "@/lib/ats/forms";
+import { candidateInterviewTitle } from "@/lib/ats/scheduling";
 import { applicationHasData } from "@/lib/ats/application";
 import { CopyForSlackButton } from "./copy-for-slack";
 import { PostToSlackButton } from "./post-to-slack";
@@ -47,6 +63,7 @@ import {
 type TabKey =
   | "profile"
   | "application"
+  | "forms"
   | "experience"
   | "interviews"
   | "activity"
@@ -57,12 +74,29 @@ type TabKey =
 const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "profile", label: "Overview" },
   { key: "application", label: "Application" },
+  { key: "forms", label: "Forms" },
   { key: "experience", label: "Experience & Skills" },
   { key: "interviews", label: "Interview Tracking" },
   { key: "activity", label: "Activity & Tasks" },
   { key: "documents", label: "Documents" },
   { key: "history", label: "History" },
 ];
+
+export interface ProfileInvite {
+  id: string;
+  token: string;
+  interview_type: string;
+  duration_minutes: number;
+  host_name: string | null;
+  date_from: string;
+  date_to: string;
+  status: "sent" | "booked" | "cancelled";
+  booked_start: string | null;
+  created_at: string;
+  created_by_name: string | null;
+}
+
+export type ProfileFormRequest = FormRequest & { form_name: string };
 
 export function CandidateProfile({
   row,
@@ -73,6 +107,12 @@ export function CandidateProfile({
   tasks,
   positions,
   jobHireCount = 0,
+  formResponses = [],
+  formRequests = [],
+  invites = [],
+  screeningForms = [],
+  interviewers = [],
+  currentUserId = null,
   initialTab,
   canEdit = false,
   slackEnabled = false,
@@ -86,6 +126,12 @@ export function CandidateProfile({
   positions: PositionRow[];
   /** Hires into the candidate's job since it was last opened. */
   jobHireCount?: number;
+  formResponses?: FormResponse[];
+  formRequests?: ProfileFormRequest[];
+  invites?: ProfileInvite[];
+  screeningForms?: ScreeningFormOption[];
+  interviewers?: InterviewerOption[];
+  currentUserId?: string | null;
   /** From `?tab=` — the explorer's follow-up links open straight to Activity. */
   initialTab?: string;
   canEdit?: boolean;
@@ -136,6 +182,8 @@ export function CandidateProfile({
             const count =
               t.key === "interviews"
                 ? interviews.length
+                : t.key === "forms"
+                  ? formResponses.length + formRequests.filter((r) => r.status === "sent").length
                 : t.key === "activity"
                   ? openTasks
                   : t.key === "documents"
@@ -182,13 +230,34 @@ export function CandidateProfile({
         onNavigate={setActiveTab}
       />
 
-      {activeTab === "interviews" && (
-        <InterviewsPanel
+      {activeTab === "forms" && (
+        <FormsPanel
           row={row}
-          interviews={interviews}
-          canEdit={canEdit}
-          slackEnabled={slackEnabled}
+          responses={formResponses}
+          requests={formRequests}
+          documents={documents}
+          screeningForms={screeningForms}
+          canEdit={canEdit && row.status === "applicant"}
+          onOpenApplication={() => setActiveTab("application")}
         />
+      )}
+
+      {activeTab === "interviews" && (
+        <>
+          <SchedulingInvites
+            row={row}
+            invites={invites}
+            interviewers={interviewers}
+            currentUserId={currentUserId}
+            canEdit={canEdit && row.status === "applicant"}
+          />
+          <InterviewsPanel
+            row={row}
+            interviews={interviews}
+            canEdit={canEdit}
+            slackEnabled={slackEnabled}
+          />
+        </>
       )}
 
       {activeTab === "activity" && (
@@ -1100,5 +1169,254 @@ function TransitionLogPanel({
         );
       })}
     </ol>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Forms — the application and role-specific questionnaires
+// ---------------------------------------------------------------------------
+
+function CopyLinkButton({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        await navigator.clipboard.writeText(`${window.location.origin}${path}`);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className="text-xs font-medium text-emerald-700 hover:text-emerald-900"
+    >
+      {copied ? "Copied ✓" : "Copy link"}
+    </button>
+  );
+}
+
+function CancelLinkButton({ onCancel }: { onCancel: () => Promise<SaveResult> }) {
+  const [pending, start] = useTransition();
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => {
+        if (!window.confirm("Cancel this link? The candidate won't be able to use it.")) return;
+        start(async () => {
+          const res = await onCancel();
+          if (!res.ok) alert(res.error);
+        });
+      }}
+      className="text-xs font-medium text-slate-500 hover:text-red-600 disabled:opacity-50"
+    >
+      {pending ? "Cancelling…" : "Cancel"}
+    </button>
+  );
+}
+
+function ResponseCard({
+  response,
+  documents,
+}: {
+  response: FormResponse;
+  documents: PersonDocumentWithUrl[];
+}) {
+  const [open, setOpen] = useState(false);
+  const docUrl = new Map(documents.map((d) => [d.id, d.signed_url]));
+  const questions = response.fields.filter((f) => fieldIsAnswerable(f.type));
+  return (
+    <li className="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left"
+      >
+        <span className="text-sm font-semibold text-slate-900">
+          {response.form_kind === "application" ? "📄 " : "📝 "}
+          {response.form_name}
+        </span>
+        <span className="text-xs font-medium text-emerald-700">
+          ✅ Completed {fmtDate(response.submitted_at)} <span className="text-slate-400">{open ? "▲" : "▼"}</span>
+        </span>
+      </button>
+      {open && (
+        <dl className="space-y-3 border-t border-slate-100 px-4 py-4">
+          {questions.map((f) => {
+            const v = response.answers[f.id];
+            const url = isFileAnswer(v) ? docUrl.get(v.document_id) : null;
+            return (
+              <div key={f.id}>
+                <dt className="text-xs font-semibold text-slate-500">{f.label}</dt>
+                <dd className="mt-0.5 whitespace-pre-wrap text-sm text-slate-800">
+                  {isFileAnswer(v) && url ? (
+                    <a href={url} target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline">
+                      📎 {v.file_name}
+                    </a>
+                  ) : (
+                    (answerText(v) ?? <span className="text-slate-400">—</span>)
+                  )}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      )}
+    </li>
+  );
+}
+
+function FormsPanel({
+  row,
+  responses,
+  requests,
+  documents,
+  screeningForms,
+  canEdit,
+  onOpenApplication,
+}: {
+  row: CandidateRow;
+  responses: FormResponse[];
+  requests: ProfileFormRequest[];
+  documents: PersonDocumentWithUrl[];
+  screeningForms: ScreeningFormOption[];
+  canEdit: boolean;
+  onOpenApplication: () => void;
+}) {
+  const [sending, setSending] = useState(false);
+  const rec = row.person_recruiting;
+  const websiteApp = applicationHasData(rec?.application);
+  const pending = requests.filter((r) => r.status === "sent");
+  const name = row.full_name || [row.first_name, row.last_name].filter(Boolean).join(" ") || "Candidate";
+  const empty = !websiteApp && responses.length === 0 && pending.length === 0;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-slate-500">Applications and questionnaires this candidate has completed.</p>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setSending(true)}
+            className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+          >
+            📝 Send form
+          </button>
+        )}
+      </div>
+
+      {empty && <EmptyState>No forms yet.</EmptyState>}
+
+      <ul className="space-y-3">
+        {websiteApp && (
+          <li className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <span className="text-sm font-semibold text-slate-900">📄 Application (website careers form)</span>
+            <span className="flex items-center gap-3 text-xs font-medium text-emerald-700">
+              ✅ Completed {fmtDate(rec?.application_date ?? null)}
+              <button type="button" onClick={onOpenApplication} className="text-emerald-700 hover:text-emerald-900 hover:underline">
+                Open
+              </button>
+            </span>
+          </li>
+        )}
+        {responses.map((r) => (
+          <ResponseCard key={r.id} response={r} documents={documents} />
+        ))}
+        {pending.map((r) => (
+          <li
+            key={r.id}
+            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-amber-300 bg-amber-50/50 px-4 py-3"
+          >
+            <span className="text-sm font-semibold text-slate-800">📝 {r.form_name}</span>
+            <span className="flex items-center gap-3 text-xs text-amber-800">
+              ⏳ Sent {fmtDate(r.sent_at)}
+              {r.sent_by_name ? ` by ${r.sent_by_name}` : ""} · awaiting answers
+              <CopyLinkButton path={`/forms/${r.token}`} />
+              {canEdit && <CancelLinkButton onCancel={() => cancelFormRequest(row.id, r.id)} />}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {sending && (
+        <SendFormDialog
+          personId={row.id}
+          candidateName={name}
+          forms={screeningForms}
+          jobTitle={rec?.target_title ?? null}
+          onClose={() => setSending(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Scheduling links (Interview Tracking tab)
+// ---------------------------------------------------------------------------
+
+function SchedulingInvites({
+  row,
+  invites,
+  interviewers,
+  currentUserId,
+  canEdit,
+}: {
+  row: CandidateRow;
+  invites: ProfileInvite[];
+  interviewers: InterviewerOption[];
+  currentUserId: string | null;
+  canEdit: boolean;
+}) {
+  const [inviting, setInviting] = useState(false);
+  const open = invites.filter((i) => i.status === "sent");
+  const name = row.full_name || [row.first_name, row.last_name].filter(Boolean).join(" ") || "Candidate";
+  if (!canEdit && open.length === 0) return null;
+  return (
+    <section className="mb-5 rounded-xl border border-violet-200 bg-violet-50/40 p-5 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-violet-800">Let the candidate pick a time</h2>
+          <p className="text-xs text-slate-500">
+            Send a link with the interviewer&apos;s open times. Booking adds the interview here, to the calendar and to Slack.
+          </p>
+        </div>
+        {canEdit && (
+          <button
+            type="button"
+            onClick={() => setInviting(true)}
+            className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-800"
+          >
+            📅 Invite to schedule
+          </button>
+        )}
+      </div>
+      {open.length > 0 && (
+        <ul className="mt-3 space-y-2">
+          {open.map((i) => (
+            <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-violet-100">
+              <span className="text-slate-700">
+                ⏳ {candidateInterviewTitle(i.interview_type)} · {i.duration_minutes} min
+                {i.host_name ? ` with ${i.host_name}` : ""} · {fmtDate(i.date_from)} – {fmtDate(i.date_to)}
+                <span className="text-xs text-slate-400"> · sent {fmtDate(i.created_at)}, not booked yet</span>
+              </span>
+              <span className="flex items-center gap-3">
+                <CopyLinkButton path={`/book/${i.token}`} />
+                {canEdit && <CancelLinkButton onCancel={() => cancelSchedulingInvite(row.id, i.id)} />}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {inviting && (
+        <ScheduleInviteDialog
+          personId={row.id}
+          candidateName={name}
+          interviewers={interviewers}
+          currentUserId={currentUserId}
+          defaultLocation={row.person_recruiting?.job_location ?? null}
+          onClose={() => setInviting(false)}
+        />
+      )}
+    </section>
   );
 }

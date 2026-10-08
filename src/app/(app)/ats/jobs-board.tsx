@@ -112,6 +112,7 @@ function groupJobCandidates(rows: CandidateRow[]): CandidateGroup[] {
  * candidates stay in All Candidates and can be moved to another open job.
  */
 export function JobsBoard({
+  origin,
   positions,
   rows,
   hires,
@@ -120,6 +121,7 @@ export function JobsBoard({
   canEdit,
   isAdmin,
 }: {
+  origin: string;
   positions: PositionRow[];
   /** Every ATS candidate, including the review queue. */
   rows: CandidateRow[];
@@ -248,6 +250,7 @@ export function JobsBoard({
                     >
                       {p.title}
                     </button>
+                    {!closed && <CopyApplyLink url={`${origin}/apply?job=${p.id}`} />}
                     {meta.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {meta.map((m) => (
@@ -354,6 +357,25 @@ export function JobsBoard({
         />
       )}
     </div>
+  );
+}
+
+/** The Standard Application with this job preselected — paste into the job ad. */
+function CopyApplyLink({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      title={url}
+      onClick={async () => {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className="ml-2 text-xs font-medium text-emerald-700 hover:text-emerald-900"
+    >
+      {copied ? "Copied ✓" : "🔗 Application link"}
+    </button>
   );
 }
 

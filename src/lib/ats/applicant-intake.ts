@@ -46,6 +46,8 @@ export interface ApplicantInput {
   relevantExperience?: string | null;
   /** Full website application (person_recruiting.application). */
   application?: ApplicationDetails | null;
+  /** The job picked on the Ops application; wins over title matching when open. */
+  positionId?: string | null;
 }
 
 /** Any file that came with an application (resume, cover letter, …). */
@@ -60,7 +62,7 @@ export interface ApplicantResume {
 export type IntakeOutcome =
   | { status: "created"; personId: string }
   | { status: "reapplied"; personId: string }
-  | { status: "duplicate" }
+  | { status: "duplicate"; personId: string }
   | { status: "error"; error: string };
 
 /** Split a full name into first / last when only a single name field exists. */
@@ -104,7 +106,7 @@ type JobRef = Pick<PositionRow, "id" | "title" | "location" | "status">;
  * blocks the intake.
  */
 async function matchApplicationJob(admin: Admin, input: ApplicantInput): Promise<JobRef | null> {
-  if (!input.targetTitle) return null;
+  if (!input.targetTitle && !input.positionId) return null;
   const { data, error } = await admin
     .from("position")
     .select("id, title, location, status")
@@ -113,6 +115,10 @@ async function matchApplicationJob(admin: Admin, input: ApplicantInput): Promise
     console.error("[ats] open jobs lookup failed:", error.message);
     return null;
   }
+  const picked = input.positionId
+    ? ((data ?? []) as JobRef[]).find((j) => j.id === input.positionId)
+    : undefined;
+  if (picked) return picked;
   return matchOpenJob(
     (data ?? []) as JobRef[],
     input.targetTitle,
@@ -175,8 +181,13 @@ async function findExistingApplicant(
  * (best-effort, non-fatal). Skips a file already on the shelf under the same
  * name and size, so a re-sent application doesn't stack duplicate copies.
  */
-async function storeResume(admin: Admin, personId: string, resume: ApplicantResume): Promise<void> {
-  if (resume.buffer.length === 0) return;
+export async function storeResume(
+  admin: Admin,
+  personId: string,
+  resume: ApplicantResume,
+  source = "Inbound application",
+): Promise<string | null> {
+  if (resume.buffer.length === 0) return null;
   const fileName = resume.fileName?.trim() || "resume";
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "_");
   const contentType = resume.contentType || "application/octet-stream";
@@ -188,7 +199,7 @@ async function storeResume(admin: Admin, personId: string, resume: ApplicantResu
     .eq("file_name", fileName)
     .eq("size_bytes", resume.buffer.length)
     .limit(1);
-  if (existing && existing.length > 0) return;
+  if (existing && existing.length > 0) return (existing[0] as { id: string }).id;
 
   const storagePath = `${personId}/${Date.now()}_${safeName}`;
   const { error: upErr } = await admin.storage
@@ -196,10 +207,10 @@ async function storeResume(admin: Admin, personId: string, resume: ApplicantResu
     .upload(storagePath, resume.buffer, { contentType, upsert: false });
   if (upErr) {
     console.error(`[ats] document upload failed for ${personId}:`, upErr.message);
-    return;
+    return null;
   }
 
-  const { error: dbErr } = await admin.from("person_document").insert({
+  const { data: doc, error: dbErr } = await admin.from("person_document").insert({
     person_id: personId,
     title: fileName,
     category: resume.category ?? guessDocumentCategory(fileName, "resume"),
@@ -207,12 +218,14 @@ async function storeResume(admin: Admin, personId: string, resume: ApplicantResu
     file_name: fileName,
     mime_type: contentType,
     size_bytes: resume.buffer.length,
-    source: "Inbound application",
-  });
-  if (dbErr) {
-    console.error(`[ats] document record failed for ${personId}:`, dbErr.message);
+    source,
+  }).select("id").single();
+  if (dbErr || !doc) {
+    console.error(`[ats] document record failed for ${personId}:`, dbErr?.message);
     await admin.storage.from(DOCUMENTS_BUCKET).remove([storagePath]);
+    return null;
   }
+  return (doc as { id: string }).id;
 }
 
 /**
@@ -296,7 +309,7 @@ export async function createApplicantProfile(
     for (const resume of resumes) {
       await storeResume(admin, existing.personId, resume);
     }
-    return { status: "duplicate" };
+    return { status: "duplicate", personId: existing.personId };
   }
 
   const { data: person, error: pErr } = await admin

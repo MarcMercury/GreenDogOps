@@ -25,6 +25,10 @@ export const TRANSITION_EVENT_LABELS: Record<string, string> = {
   stage_change: "Recruiting stage changed",
   review_triage: "Review queue decision",
   job_change: "Job changed",
+  form_sent: "Form sent",
+  form_completed: "Form completed",
+  schedule_invite: "Scheduling link sent",
+  interview_booked: "Interview booked by candidate",
 };
 
 export const STAGE_LABELS: Record<string, string> = {

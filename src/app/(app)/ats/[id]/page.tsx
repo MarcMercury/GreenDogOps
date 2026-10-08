@@ -16,7 +16,9 @@ import type { PersonDocument, PersonDocumentWithUrl } from "@/lib/hr/types";
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { hiresSinceOpened } from "@/lib/ats/jobs";
 import { loadJobHires } from "@/lib/ats/job-hires";
-import { CandidateProfile } from "./candidate-profile";
+import { loadInterviewers, canTakeBookings } from "@/lib/ats/booking";
+import { parseFields, type FormRequest, type FormResponse } from "@/lib/ats/forms";
+import { CandidateProfile, type ProfileInvite } from "./candidate-profile";
 
 export const dynamic = "force-dynamic";
 
@@ -131,6 +133,47 @@ export default async function CandidateDetailPage({
         .order("created_at", { ascending: false }),
       supabase.from("position").select("*").order("title", { ascending: true }),
     ]);
+  const [{ data: responseData }, { data: requestData }, { data: inviteData }, { data: formData }, interviewerData] =
+    await Promise.all([
+      supabase
+        .from("recruiting_form_response")
+        .select("*")
+        .eq("person_id", id)
+        .order("submitted_at", { ascending: false }),
+      supabase
+        .from("recruiting_form_request")
+        .select("id, token, form_id, person_id, status, sent_to, sent_at, sent_by_name, completed_at, form:form_id (name)")
+        .eq("person_id", id)
+        .order("sent_at", { ascending: false }),
+      supabase
+        .from("interview_invite")
+        .select("id, token, interview_type, duration_minutes, host_name, date_from, date_to, status, booked_start, created_at, created_by_name")
+        .eq("person_id", id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("recruiting_form")
+        .select("id, name, job_titles")
+        .eq("kind", "screening")
+        .eq("active", true)
+        .order("name"),
+      loadInterviewers(),
+    ]);
+  const formResponses = ((responseData ?? []) as FormResponse[]).map((r) => ({
+    ...r,
+    fields: parseFields(r.fields, { allowCore: true }),
+  }));
+  const formRequests = ((requestData ?? []) as (FormRequest & { form: { name: string } | { name: string }[] | null })[]).map(
+    ({ form, ...r }) => ({ ...r, form_name: (Array.isArray(form) ? form[0]?.name : form?.name) ?? "Form" }),
+  );
+  const invites = (inviteData ?? []) as ProfileInvite[];
+  const screeningForms = (formData ?? []) as { id: string; name: string; job_titles: string[] }[];
+  const interviewers = interviewerData.map((i) => ({
+    user_id: i.user_id,
+    name: i.name,
+    bookable: canTakeBookings(i),
+    google_connected: i.google_connected,
+    default_duration: i.default_duration,
+  }));
   const activities = (activityData ?? []) as RecruitingActivity[];
   const tasks = (taskData ?? []) as RecruitingTask[];
   const positions = (positionData ?? []) as PositionRow[];
@@ -169,6 +212,12 @@ export default async function CandidateDetailPage({
         tasks={tasks}
         positions={positions}
         jobHireCount={jobHireCount}
+        formResponses={formResponses}
+        formRequests={formRequests}
+        invites={invites}
+        screeningForms={screeningForms}
+        interviewers={interviewers}
+        currentUserId={current?.authId ?? null}
         initialTab={typeof tab === "string" ? tab : undefined}
         canEdit={canEdit}
         slackEnabled={canEdit && isSlackConfigured()}

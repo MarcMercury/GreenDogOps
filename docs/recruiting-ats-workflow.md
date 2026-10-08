@@ -8,22 +8,21 @@
 ## The workflow at a glance
 
 ```
- Indeed ad ──► Auto-reply ──► Careers page form ──► Ops ATS "Review Queue"
-                                                          │
-                                         Daily review: Approve or Deny
-                                                          │
-                              ┌───────────────────────────┴──────────────┐
-                           APPROVE                                     DENY
-                              │                                          │
-             Slack (automatic): ✅ candidate summary +          Marked "Declined"
-             link to their Ops ATS profile                      (kept on file)
+ Job posting ──► Green Dog Application (Ops /apply) ──► Review Queue
+                                                            │
+                                               Approve / Decline (daily)
+                                                            │
+                          APPROVE ─► ✅ Slack announcement (automatic)
                               │
-          Team member opens the profile → launches the interview
+             Next step:  📝 Send Form  ·  📞 Schedule Phone Interview  ·  Skip
                               │
-          Slack (same thread, automatic): "☎️/👋 <Interviewer> is interviewing <Candidate>"
+          Role-specific questionnaire ─► answers on the profile's Forms tab (✅ Slack)
                               │
-          Interviewer moves the candidate through the normal pipeline
-          (⭐ stage changes → 💼 offer → 🎉 Hire — each posted automatically)
+          Invite to schedule ─► candidate picks a time ─► interview + calendar + 📞 Slack
+                              │
+          Phone interview ─► grade / recommendation (⭐ Slack)
+                              │
+          In-person / Shadow scheduling ─► 👋 Slack ─► 💼 Offer ─► 🎉 Hire
 ```
 
 **The rule:** If a candidate isn't in the Ops ATS, they aren't in our process. We don't track candidates in Indeed, email, or text threads.
@@ -61,7 +60,9 @@ Closing a job never removes anyone. Its candidates stay in **All Candidates** an
 
 ## Step 1 — Post the ad on Indeed (with auto-reply)
 
-Indeed is our main source of candidates. Indeed applications usually arrive **without** a phone number, email, or resume. That's why every candidate must also apply through our careers page.
+Indeed is our main source of candidates. Indeed applications usually arrive **without** a phone number, email, or resume. That's why every candidate must also complete the **Green Dog Application**.
+
+**Which link to use:** On the **Jobs** tab, each open job has a **🔗 Application link** button. It opens the Green Dog Application (`<ops>/apply?job=…`) with that job already selected, so the candidate is linked to the right job. Add `&source=Indeed` to the link in Indeed ads so the source is recorded. The general link is `<ops>/apply`. The website careers form still works in parallel until every ad has switched over.
 
 **For every Indeed ad:**
 
@@ -76,19 +77,31 @@ Indeed is our main source of candidates. Indeed applications usually arrive **wi
 >
 > Thanks for applying to **{position}** at Green Dog! To be considered, please complete our short application on our careers page:
 >
-> 👉 **[CAREERS PAGE LINK]**
+> 👉 **[APPLICATION LINK]**
 >
 > Please attach your resume. The form takes about 3 minutes. We review new applications every business day and will reach out if you're a fit.
 >
 > — The Green Dog Team
 
-> ⚠️ Replace `[CAREERS PAGE LINK]` with the live careers form URL before turning the auto-reply on.
+> ⚠️ Replace `[APPLICATION LINK]` with the job's **🔗 Application link** from the Jobs tab before turning the auto-reply on.
 
 ---
 
-## Step 2 — Candidate completes the careers page form → lands in the ATS automatically
+## Step 2 — Candidate completes the application → lands in the Review Queue automatically
 
-The careers page form is connected to the Ops ATS. You don't need to do anything here.
+### The Green Dog Application (in Ops)
+
+The Standard Application lives on the **Forms** tab (see *Forms* below) and is served publicly at `<ops>/apply`. It always asks for **first and last name, email, phone, position applying for (the open jobs), city or ZIP, resume (upload) and cover letter / notes**, followed by the standard application questions you set up in the form builder.
+
+Submitting it immediately:
+- creates (or updates) the candidate profile, linked to the job they picked;
+- saves the resume and any uploaded files on the **Documents** tab;
+- saves every answer on the profile's **Forms** tab ("Green Dog Application ✅ Completed …");
+- puts them in the **Review Queue**.
+
+### The website careers form (until the ads switch over)
+
+The website careers form is also connected to the Ops ATS. You don't need to do anything here.
 
 - When a candidate submits the form, the submission goes to the careers inbox. **About every 5 minutes**, the ATS pulls it in and creates a candidate profile.
 - The profile includes: **Name, Email, Phone, Role Applying For, Practice/Location, Cover letter/notes, Source,** and the **uploaded resume** (PDF/Word/image), downloaded from the form and saved on the candidate's Documents tab. A resume pasted as text is saved there too.
@@ -155,7 +168,7 @@ The ATS reads the form's notification email, so **field labels matter** (matchin
 
 ---
 
-## Step 4 — Approved candidates are announced in Slack (automatic)
+## Step 4 — Approved candidates are announced in Slack, then choose the next step
 
 Clicking **✓ Accept** automatically posts the candidate to the **Slack hiring channel**. This is how the rest of the team finds out a new candidate is ready. Nobody needs to write a Slack post.
 
@@ -175,11 +188,41 @@ The Slack post looks like this:
 - If an announcement ever fails (or a candidate was added to the pipeline some other way), open their profile and click **📣 Announce in Slack**. Once a candidate is announced, the button shows **Announced ✓**.
 - Each candidate is announced **once**. All later updates (interviews, stage changes, summaries) are posted **as replies in that same Slack thread**, so the whole history stays together.
 
+**Candidate Approved — Next Step.** Right after **✓ Accept**, Ops asks what's next:
+
+- **📝 Send Form** — pick a role-specific questionnaire (forms tagged for the candidate's job are suggested first) and click **Send to Candidate**. The candidate gets this email with their own link:
+  > Thanks for your interest in Green Dog. We'd like to learn a little more about you before scheduling your first interview. Please complete the following short questionnaire: **[Complete Questionnaire]**
+
+  Their answers attach to the profile's **Forms** tab (for example *CSR Screening Questions ✅ Completed October 9*), and Slack posts 📝 when it's sent and ✅ when it's completed. If the candidate has no email on file, copy the link from the dialog or the Forms tab and send it yourself.
+- **📞 Schedule Phone Interview** — send a scheduling link right away (Step 5).
+- **Skip & Continue** — do it later from the profile (**Forms → 📝 Send form**, or **Interview Tracking → 📅 Invite to schedule**).
+
 ---
 
-## Step 5 — Launch the interview (posts to Slack)
+## Step 5 — Schedule the interview (posts to Slack)
 
 **Anyone with ATS access** can pick up an announced candidate.
+
+### Let the candidate pick a time (recommended)
+
+1. Open the candidate → **Interview Tracking** → **📅 Invite to schedule**.
+2. Choose the **interview type**, who it's **with** (**Me** or a **specific person**), the **duration**, the **date range** to offer, and where it is (phone, Zoom link or clinic). The dialog shows how many open times the candidate will see.
+3. Click **Send Scheduling Link**. The candidate gets an email: *"Green Dog would like to schedule a 30-minute phone interview with you."* The link shows the interviewer's open times. No account is needed.
+4. When the candidate picks a time and clicks **Confirm Interview**, Ops automatically:
+   - adds the interview to **Interview Tracking** (Scheduled, with the interviewer) and to the **Ops calendar**;
+   - puts it on the interviewer's **Google Calendar** and invites the candidate. If the interviewer hasn't connected Google, both get an email with a calendar file instead;
+   - emails the candidate a confirmation;
+   - posts in the candidate's Slack thread:
+     ```
+     📞 PHONE INTERVIEW SCHEDULED
+     Jane Doe
+     Tuesday, October 13 · 11:30 AM
+     Interviewer: Sarah
+     ```
+
+Open times come from each interviewer's **📅 My Availability** page (Recruiting header): weekly hours, interview length, a buffer between interviews and minimum notice, minus anything busy on their connected Google Calendar and any interviews already in Ops. **Connect your Google Calendar there once.** Ops only reads free/busy times and never imports your events. Only one scheduling link per interview type is live at a time; sending a new one cancels the old one. Pending links show on Interview Tracking with **Copy link** and **Cancel**.
+
+### Or log it yourself
 
 1. In Slack, click **Open in GreenDogOps** on the announcement.
 2. Review the candidate's profile, resume (Documents tab), and notes.
@@ -246,6 +289,11 @@ The interviewer owns the candidate until they hand them off or the process ends.
 | Post interview results | Interview card → **Post summary** |
 | Move a candidate forward | Candidate profile → **Stage** |
 | Hire | Candidate profile → **Hire → Employee** |
+| Send a questionnaire | Candidate profile → **Forms** → **📝 Send form** (or the Next Step after Accept) |
+| See a candidate's answers | Candidate profile → **Forms** → click the form |
+| Send a scheduling link | Candidate profile → **Interview Tracking** → **📅 Invite to schedule** |
+| Set my interview hours / connect Google | Recruiting → **📅 My Availability** |
+| Create or edit a form | Recruiting → **Forms** → **+ Form** / **Edit** |
 
 ---
 
@@ -254,12 +302,39 @@ The interviewer owns the candidate until they hand them off or the process ends.
 | When this happens in Ops | Slack shows |
 |---|---|
 | Applicant accepted from the Review Queue | ✅ NEW CANDIDATE ANNOUNCEMENT (summary + resume + profile link) |
-| Phone screen logged as Scheduled | ☎️ Phone Screen scheduled — *Interviewer* is interviewing *Candidate* · date · time |
-| In-person interview / shadow day logged as Scheduled | 👋 … scheduled — *Interviewer* is interviewing *Candidate* · date · time |
 | Stage moved forward | ⭐ *Candidate* advanced to *Stage* |
-| Stage moved to Offer | 💼 *Candidate* approved for an offer |
+| Questionnaire sent / completed | 📝 Questionnaire sent — *Form* / ✅ Questionnaire completed — *Form* (with a link to the answers) |
+| Candidate books (or you log) a phone interview | 📞 PHONE INTERVIEW SCHEDULED · date · time · Interviewer |
+| In-person interview / shadow day scheduled | 👋 IN-PERSON / SHADOW SCHEDULED · date · time · location · With |
+| Interview marked Completed with a grade or recommendation | ⭐ *Type* completed — *Candidate* · Grade · Recommendation |
+| Stage moved to Offer | 💼 APPROVED FOR OFFER — *Candidate* |
 | Job changed (after the announcement) | 💼 *Candidate* moved to job *Job* (from *old job*) |
 | Hire → Employee | 🎉 *Candidate* was hired |
 | **Post summary** clicked on an interview | Interview grade, recommendation, and notes |
 
 Everything after the announcement is posted as a reply in that candidate's thread.
+
+---
+
+## Forms (Recruiting → Forms)
+
+Our recruiting version of Google Forms. There are two kinds:
+
+- **Standard Application** — the public application linked from job postings (`/apply`, or `/apply/<link name>` for extra versions). Contact details, position, city/ZIP, resume and cover letter are built in; you add the standard questions. One application is the **Default** served at `/apply`.
+- **Role-specific forms** — questionnaires such as *CSR Screening Questions*, *RVT Questions* or *DVM Questions*, sent to one candidate at a time. Tag each with the job types it's for (e.g. CSR) so it's suggested first for those candidates.
+
+In the builder, questions can be **Short answer, Paragraph, Multiple choice, Checkboxes, Dropdown, Yes / No, Number, Date, File upload** or a **Section heading**, each **Required** or optional. You can reorder, duplicate and delete them. On the Forms tab you can **Edit, Preview, Duplicate, Activate / Deactivate**, make an application the **Default**, and copy an application's link. Editing a form never changes answers already submitted; each response keeps the questions as they were.
+
+---
+
+## Setup for admins: Google Calendar sign-in
+
+Interviewers connect their own Google Calendar from **📅 My Availability**. This needs a one-time setup in Google Cloud:
+
+1. In the Google Cloud project used for Ops, enable the **Google Calendar API**.
+2. Create (or reuse) an **OAuth client ID** of type **Web application**. Add the authorized redirect URI `https://<ops domain>/api/ats/google/callback` (the exact URI is shown on the My Availability page).
+3. On the OAuth consent screen, add the scopes `calendar.events` and `calendar.freebusy`, and publish the app ("In production"), so connections don't expire after 7 days.
+4. Set `GOOGLE_CALENDAR_OAUTH_CLIENT_ID` and `GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET` in Vercel. Without them, Ops falls back to `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`.
+
+Candidate emails go out through Resend (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`). Texting and Outlook calendars are planned for a later phase.
+

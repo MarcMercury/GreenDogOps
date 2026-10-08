@@ -34,6 +34,8 @@ export interface SendEmailInput {
   bcc?: string | string[];
   /** Resend tags for analytics/filtering. */
   tags?: { name: string; value: string }[];
+  /** Files to attach; `content` is base64. */
+  attachments?: { filename: string; content: string; contentType?: string }[];
 }
 
 export interface SendEmailResult {
@@ -91,6 +93,13 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   if (input.cc) payload.cc = input.cc;
   if (input.bcc) payload.bcc = input.bcc;
   if (input.tags?.length) payload.tags = input.tags;
+  if (input.attachments?.length) {
+    payload.attachments = input.attachments.map((a) => ({
+      filename: a.filename,
+      content: a.content,
+      ...(a.contentType ? { content_type: a.contentType } : {}),
+    }));
+  }
 
   try {
     const res = await fetch(RESEND_ENDPOINT, {
