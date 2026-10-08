@@ -27,6 +27,7 @@ import { StageQuickSelect } from "./stage-quick-select";
 import { JobsBoard } from "./jobs-board";
 import { JobQuickSelect } from "./job-quick-select";
 import { FormsList, type FormListRow } from "./forms-list";
+import { InterviewQueue, type QueueInterview, type QueueInvite } from "./interview-queue";
 import type { InterviewerOption, ScreeningFormOption } from "./candidate-next-steps";
 
 function candidateName(r: CandidateRow): string {
@@ -55,7 +56,10 @@ export function AtsExplorer({
   forms,
   screeningForms,
   interviewers,
+  queueInterviews,
+  queueInvites,
   currentUserId,
+  currentUserName,
   origin,
   initialTab,
   roles,
@@ -69,7 +73,10 @@ export function AtsExplorer({
   forms: FormListRow[];
   screeningForms: ScreeningFormOption[];
   interviewers: InterviewerOption[];
+  queueInterviews: QueueInterview[];
+  queueInvites: QueueInvite[];
   currentUserId: string | null;
+  currentUserName: string | null;
   origin: string;
   initialTab?: string;
   roles: { id: string; name: string }[];
@@ -98,10 +105,16 @@ export function AtsExplorer({
     (r) => r.person_recruiting?.review_status !== "pending",
   );
 
-  type Tab = "pipeline" | "review" | "jobs" | "forms";
+  type Tab = "pipeline" | "review" | "interviews" | "jobs" | "forms";
   const [tab, setTab] = useState<Tab>(
-    initialTab === "review" || initialTab === "jobs" || initialTab === "forms" ? initialTab : "pipeline",
+    initialTab === "review" || initialTab === "interviews" || initialTab === "jobs" || initialTab === "forms"
+      ? initialTab
+      : "pipeline",
   );
+  // Badge: interviews needing results plus today's.
+  const interviewsDue = queueInterviews.filter(
+    (i) => i.interview_date != null && i.interview_date <= localToday(),
+  ).length;
 
   const jobsById = new Map(positions.map((p) => [p.id, p]));
   // "CSR — Van Nuys", "CSR — Van Nuys (closed)", or "No job" — for the Job
@@ -320,6 +333,24 @@ export function AtsExplorer({
           )}
         </button>
         <button
+          onClick={() => setTab("interviews")}
+          className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
+            tab === "interviews"
+              ? "border-emerald-600 text-emerald-700"
+              : "border-transparent text-slate-500 hover:text-slate-700"
+          }`}
+        >
+          Interview Queue
+          {interviewsDue > 0 && (
+            <span
+              title="Today's interviews and ones needing results"
+              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-violet-600 px-1.5 text-xs font-semibold text-white"
+            >
+              {interviewsDue}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => setTab("jobs")}
           className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
             tab === "jobs"
@@ -363,6 +394,13 @@ export function AtsExplorer({
           screeningForms={screeningForms}
           interviewers={interviewers}
           currentUserId={currentUserId}
+        />
+      ) : tab === "interviews" ? (
+        <InterviewQueue
+          interviews={queueInterviews}
+          invites={queueInvites}
+          currentUserId={currentUserId}
+          currentUserName={currentUserName}
         />
       ) : tab === "forms" ? (
         <FormsList forms={forms} origin={origin} canEdit={canEdit} />

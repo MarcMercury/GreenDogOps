@@ -222,6 +222,18 @@ The Slack post looks like this:
 
 Open times come from each interviewer's **📅 My Availability** page (Recruiting header): weekly hours, interview length, a buffer between interviews and minimum notice, minus anything busy on their connected Google Calendar and any interviews already in Ops. **Connect your Google Calendar there once.** Ops only reads free/busy times and never imports your events. Only one scheduling link per interview type is live at a time; sending a new one cancels the old one. Pending links show on Interview Tracking with **Copy link** and **Cancel**.
 
+### See every interview at a glance: Interview Queue
+
+**Recruiting (ATS) → Interview Queue** lists every scheduled interview and every scheduling link still waiting on a candidate. Each row shows the time, candidate, job, type (📞 Phone, 👋 In-person, 🐾 Shadow day, ⭐ Final), interviewer and location.
+
+It's grouped into:
+- **⚠️ Needs results** — the date has passed but the interview is still Scheduled. Open it and log the grade, recommendation and status.
+- **Today**
+- **Upcoming** (by day)
+- **⏳ Waiting on candidate to book**, with **Copy link**
+
+Filter by type, by interviewer (including **Me**), or search by candidate or job. The tab badge counts today's interviews plus those needing results. Check it first thing each day.
+
 ### Or log it yourself
 
 1. In Slack, click **Open in GreenDogOps** on the announcement.
@@ -292,6 +304,7 @@ The interviewer owns the candidate until they hand them off or the process ends.
 | Send a questionnaire | Candidate profile → **Forms** → **📝 Send form** (or the Next Step after Accept) |
 | See a candidate's answers | Candidate profile → **Forms** → click the form |
 | Send a scheduling link | Candidate profile → **Interview Tracking** → **📅 Invite to schedule** |
+| See all scheduled / pending interviews | Recruiting (ATS) → **Interview Queue** |
 | Set my interview hours / connect Google | Recruiting → **📅 My Availability** |
 | Create or edit a form | Recruiting → **Forms** → **+ Form** / **Edit** |
 

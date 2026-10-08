@@ -14,6 +14,8 @@ import { parseFields, type FormKind } from "@/lib/ats/forms";
 import { appBaseUrl } from "@/lib/ats/slack-notify";
 import { AtsExplorer } from "./ats-explorer";
 import type { FormListRow } from "./forms-list";
+import type { QueueInterview, QueueInvite } from "./interview-queue";
+import { candidateJobLabel } from "@/lib/ats/jobs";
 import type { InterviewerOption, ScreeningFormOption } from "./candidate-next-steps";
 
 export const dynamic = "force-dynamic";
@@ -179,6 +181,8 @@ export default async function AtsPage({
     { data: formData },
     { data: responseData },
     interviewerData,
+    { data: queueIvData },
+    { data: queueInviteData },
   ] = await Promise.all([
       supabase.from("position").select("*").order("title", { ascending: true }),
       supabase
@@ -203,6 +207,21 @@ export default async function AtsPage({
         supabase.from("recruiting_form_response").select("form_id").range(from, to),
       ),
       loadInterviewers(),
+      fetchAllRows<Record<string, unknown>>((from, to) =>
+        supabase
+          .from("person_interview")
+          .select(
+            "id, person_id, interview_type, interview_date, start_time, end_time, interviewer, location, host_user_id, invite_id",
+          )
+          .eq("status", "scheduled")
+          .order("interview_date", { ascending: true, nullsFirst: false })
+          .range(from, to),
+      ),
+      supabase
+        .from("interview_invite")
+        .select("id, token, person_id, interview_type, duration_minutes, host_user_id, host_name, date_from, date_to, created_at")
+        .eq("status", "sent")
+        .order("created_at", { ascending: false }),
     ]);
 
   if (roleError || locationError) {
@@ -239,6 +258,34 @@ export default async function AtsPage({
     question_count: parseFields(fields).filter((q) => q.type !== "section").length,
     response_count: responseCounts.get(f.id) ?? 0,
   }));
+  // Interview Queue: scheduled interviews and unbooked scheduling links for
+  // people still in the ATS (hired candidates have left the list).
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const jobsById = new Map(positions.map((p) => [p.id, p]));
+  const who = (personId: string) => {
+    const r = byId.get(personId);
+    if (!r) return null;
+    return {
+      candidate: r.full_name || [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unnamed",
+      job: candidateJobLabel(r.person_recruiting, jobsById),
+      stage: r.person_recruiting?.stage ?? null,
+    };
+  };
+  const queueInterviews: QueueInterview[] = [];
+  for (const iv of (queueIvData ?? []) as (Omit<QueueInterview, "candidate" | "job" | "stage" | "self_booked"> & {
+    invite_id: string | null;
+  })[]) {
+    const p = who(iv.person_id);
+    if (!p) continue;
+    const { invite_id, ...rest } = iv;
+    queueInterviews.push({ ...rest, ...p, self_booked: Boolean(invite_id) });
+  }
+  const queueInvites: QueueInvite[] = [];
+  for (const inv of (queueInviteData ?? []) as Omit<QueueInvite, "candidate" | "job">[]) {
+    const p = who(inv.person_id);
+    if (p) queueInvites.push({ ...inv, candidate: p.candidate, job: p.job });
+  }
+
   const screeningForms: ScreeningFormOption[] = forms
     .filter((f) => f.kind === "screening" && f.active)
     .map((f) => ({ id: f.id, name: f.name, job_titles: f.job_titles }));
@@ -258,7 +305,10 @@ export default async function AtsPage({
       forms={forms}
       screeningForms={screeningForms}
       interviewers={interviewers}
+      queueInterviews={queueInterviews}
+      queueInvites={queueInvites}
       currentUserId={current?.authId ?? null}
+      currentUserName={current?.appUser.full_name ?? null}
       origin={appBaseUrl()}
       initialTab={typeof tab === "string" ? tab : undefined}
       roles={roles}
