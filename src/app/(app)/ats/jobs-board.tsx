@@ -1,7 +1,9 @@
 "use client";
 
 import { Fragment, useActionState, useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import {
+  JOB_CLOSE_REASON_LABELS,
   POSITION_DAY_SHORT,
   POSITION_EMPLOYMENT_LABELS,
   POSITION_PAY_TYPE_LABELS,
@@ -10,14 +12,20 @@ import {
   POSITION_STATUS_BADGE,
   POSITION_STATUS_LABELS,
   POSITION_WORK_LOCATION_LABELS,
+  RECRUITING_STAGE_OPTIONS,
+  STAGE_BADGE,
+  STAGE_BUCKET_LABELS,
   bucketForStage,
   formatDaysNeeded,
   formatPayRange,
   formatShift,
+  positionLabel,
   type CandidateRow,
+  type JobCloseReason,
   type PositionRow,
 } from "@/lib/ats/types";
-import { deletePosition, savePosition, setPositionStatus } from "./actions";
+import { hiresSinceOpened, type JobHire } from "@/lib/ats/jobs";
+import { deletePosition, savePosition, setJobStatus, type CloseJobCandidates } from "./actions";
 
 const inputCls =
   "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -32,29 +40,97 @@ const DAY_PRESETS = [
 ];
 
 const PRIORITY_ORDER: Record<string, number> = { high: 0, normal: 1, low: 2 };
-const STATUS_ORDER: Record<string, number> = { open: 0, on_hold: 1, filled: 2, closed: 3 };
+
+function candidateName(r: CandidateRow): string {
+  return r.full_name || [r.first_name, r.last_name].filter(Boolean).join(" ") || "Unnamed";
+}
+
+function fmtShortDate(d: string | null | undefined): string | null {
+  if (!d) return null;
+  const dt = new Date(d.length <= 10 ? `${d}T00:00:00` : d);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/** Still being worked for this job: in the review queue or in an active stage. */
+function isInPlay(r: CandidateRow): boolean {
+  const rec = r.person_recruiting;
+  if (rec?.review_status === "pending") return true;
+  if (rec?.review_status === "declined") return false;
+  return bucketForStage(rec?.stage ?? null) === "active";
+}
+
+type CandidateGroup = { key: string; label: string; badge: string; rows: CandidateRow[] };
 
 /**
- * Open positions / hiring needs — what the team tracked in the Slack canvas
- * ("we need another Van Nuys CSR", "MyPet truck tech top priority"). Each row
- * counts the active candidates linked to it.
+ * A job's candidates, Indeed-style: review queue first, then each pipeline
+ * stage in order, then the closed-out buckets (hold, no response, passed…).
  */
-export function PositionsBoard({
+function groupJobCandidates(rows: CandidateRow[]): CandidateGroup[] {
+  const groups = new Map<string, CandidateGroup>();
+  const add = (key: string, label: string, badge: string, r: CandidateRow) => {
+    const g = groups.get(key) ?? { key, label, badge, rows: [] };
+    g.rows.push(r);
+    groups.set(key, g);
+  };
+  for (const r of rows) {
+    const rec = r.person_recruiting;
+    if (rec?.review_status === "pending") {
+      add("review", "Review queue", "bg-amber-100 text-amber-800", r);
+      continue;
+    }
+    const stage = rec?.stage ?? null;
+    if (rec?.review_status === "declined" || stage === "Declined") {
+      add("declined", "Declined", STAGE_BADGE.passed, r);
+      continue;
+    }
+    const bucket = bucketForStage(stage);
+    if (bucket === "active" && stage) add(`stage:${stage}`, stage, STAGE_BADGE.active, r);
+    else add(`bucket:${bucket}`, STAGE_BUCKET_LABELS[bucket], STAGE_BADGE[bucket], r);
+  }
+  const order = [
+    "review",
+    ...RECRUITING_STAGE_OPTIONS.map((s) => `stage:${s}`),
+    "bucket:active",
+    "bucket:future",
+    "bucket:no_response",
+    "bucket:passed",
+    "declined",
+    "bucket:other",
+  ];
+  const rank = (k: string) => {
+    const i = order.indexOf(k);
+    return i === -1 ? order.indexOf("bucket:active") + 0.5 : i;
+  };
+  return [...groups.values()].sort((a, b) => rank(a.key) - rank(b.key));
+}
+
+/**
+ * Jobs — what the team is hiring for, managed like Indeed for employers: open
+ * a job, candidates get linked to it (automatically from the application or by
+ * hand), close it when it's filled or on hold. Closing never removes anyone:
+ * candidates stay in All Candidates and can be moved to another open job.
+ */
+export function JobsBoard({
   positions,
   rows,
+  hires,
   roles,
   locations,
   canEdit,
   isAdmin,
 }: {
   positions: PositionRow[];
+  /** Every ATS candidate, including the review queue. */
   rows: CandidateRow[];
+  hires: JobHire[];
   roles: { id: string; name: string }[];
   locations: { id: string; name: string }[];
   canEdit: boolean;
   isAdmin: boolean;
 }) {
   const [editing, setEditing] = useState<PositionRow | "new" | null>(null);
+  const [closing, setClosing] = useState<PositionRow | null>(null);
   const [showClosed, setShowClosed] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpanded = (id: string) =>
@@ -65,35 +141,47 @@ export function PositionsBoard({
       return next;
     });
 
-  const activeByPosition = new Map<string, number>();
+  const byJob = new Map<string, CandidateRow[]>();
   for (const r of rows) {
     const pid = r.person_recruiting?.target_position_id;
     if (!pid) continue;
-    if (bucketForStage(r.person_recruiting?.stage ?? null) !== "active") continue;
-    activeByPosition.set(pid, (activeByPosition.get(pid) ?? 0) + 1);
+    const list = byJob.get(pid) ?? [];
+    list.push(r);
+    byJob.set(pid, list);
   }
 
+  const openJobs = positions.filter((p) => p.status === "open");
+  const closedCount = positions.length - openJobs.length;
   const visible = positions
-    .filter((p) => showClosed || p.status === "open" || p.status === "on_hold")
+    .filter((p) => showClosed || p.status === "open")
     .sort(
       (a, b) =>
-        (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9) ||
+        (a.status === "open" ? 0 : 1) - (b.status === "open" ? 0 : 1) ||
         (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9) ||
-        a.title.localeCompare(b.title),
+        a.title.localeCompare(b.title) ||
+        (a.location ?? "").localeCompare(b.location ?? ""),
     );
-  const openCount = positions.filter((p) => p.status === "open").length;
-  const openings = positions
-    .filter((p) => p.status === "open")
-    .reduce((n, p) => n + p.openings, 0);
+  const openings = openJobs.reduce(
+    (n, p) => n + Math.max(0, p.openings - hiresSinceOpened(hires, p).length),
+    0,
+  );
+  const unassigned = rows.filter((r) => !r.person_recruiting?.target_position_id && isInPlay(r)).length;
 
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-slate-600">
-          <span className="font-semibold text-slate-900">{openCount}</span> open position
-          {openCount === 1 ? "" : "s"} ·{" "}
+          <span className="font-semibold text-slate-900">{openJobs.length}</span> open job
+          {openJobs.length === 1 ? "" : "s"} ·{" "}
           <span className="font-semibold text-slate-900">{openings}</span> opening
-          {openings === 1 ? "" : "s"} to fill
+          {openings === 1 ? "" : "s"} left to fill
+          {unassigned > 0 && (
+            <>
+              {" · "}
+              <span className="font-semibold text-amber-700">{unassigned}</span> active candidate
+              {unassigned === 1 ? "" : "s"} with no job
+            </>
+          )}
         </p>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-slate-600">
@@ -103,14 +191,14 @@ export function PositionsBoard({
               onChange={(e) => setShowClosed(e.target.checked)}
               className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
             />
-            Show filled / closed
+            Show closed jobs{closedCount > 0 ? ` (${closedCount})` : ""}
           </label>
           {canEdit && (
             <button
               onClick={() => setEditing("new")}
               className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
             >
-              + Position
+              + Job
             </button>
           )}
         </div>
@@ -118,19 +206,19 @@ export function PositionsBoard({
 
       {visible.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-10 text-center text-sm text-slate-500">
-          No open positions. {canEdit && "Add one to track what you're hiring for."}
+          No open jobs. {canEdit && "Add one to track what you're hiring for."}
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-4 py-2.5">Position</th>
-                <th className="px-4 py-2.5">Location</th>
+                <th className="px-4 py-2.5">Job</th>
+                <th className="px-4 py-2.5">Clinic</th>
                 <th className="px-4 py-2.5">Priority</th>
                 <th className="px-4 py-2.5">Status</th>
-                <th className="px-4 py-2.5 text-center">Openings</th>
-                <th className="px-4 py-2.5 text-center">Active candidates</th>
+                <th className="px-4 py-2.5 text-center">Hired / openings</th>
+                <th className="px-4 py-2.5">Candidates</th>
                 <th className="px-4 py-2.5">Notes</th>
                 {canEdit && <th className="px-4 py-2.5" />}
               </tr>
@@ -138,13 +226,28 @@ export function PositionsBoard({
             <tbody className="divide-y divide-slate-100">
               {visible.map((p) => {
                 const meta = positionMeta(p);
-                const hasDetails = Boolean(p.description || p.requirements);
+                const candidates = byJob.get(p.id) ?? [];
+                const jobHires = hiresSinceOpened(hires, p);
+                const inReview = candidates.filter(
+                  (r) => r.person_recruiting?.review_status === "pending",
+                ).length;
+                const active = candidates.filter(
+                  (r) => isInPlay(r) && r.person_recruiting?.review_status !== "pending",
+                ).length;
                 const isOpen = expanded.has(p.id);
+                const closed = p.status === "closed";
                 return (
                 <Fragment key={p.id}>
-                <tr className="align-top">
+                <tr className={`align-top ${closed ? "bg-slate-50/60" : ""}`}>
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900">{p.title}</div>
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(p.id)}
+                      aria-expanded={isOpen}
+                      className={`text-left font-medium hover:text-emerald-700 ${closed ? "text-slate-500" : "text-slate-900"}`}
+                    >
+                      {p.title}
+                    </button>
                     {meta.length > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {meta.map((m) => (
@@ -157,16 +260,6 @@ export function PositionsBoard({
                         ))}
                       </div>
                     )}
-                    {hasDetails && (
-                      <button
-                        type="button"
-                        onClick={() => toggleExpanded(p.id)}
-                        aria-expanded={isOpen}
-                        className="mt-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-900"
-                      >
-                        {isOpen ? "Hide role details" : "Role details"}
-                      </button>
-                    )}
                   </td>
                   <td className="px-4 py-3 text-slate-700">{p.location ?? "—"}</td>
                   <td className="px-4 py-3">
@@ -177,11 +270,40 @@ export function PositionsBoard({
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <StatusSelect position={p} canEdit={canEdit} />
+                    <JobStatusControl
+                      job={p}
+                      canEdit={canEdit}
+                      onClose={() => setClosing(p)}
+                    />
                   </td>
-                  <td className="px-4 py-3 text-center tabular-nums">{p.openings}</td>
                   <td className="px-4 py-3 text-center tabular-nums">
-                    {activeByPosition.get(p.id) ?? 0}
+                    <span className={jobHires.length >= p.openings ? "font-semibold text-emerald-700" : ""}>
+                      {jobHires.length} / {p.openings}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleExpanded(p.id)}
+                      aria-expanded={isOpen}
+                      className="text-left text-xs font-medium text-emerald-700 hover:text-emerald-900"
+                    >
+                      {candidates.length === 0 ? (
+                        <span className="text-slate-400">None yet</span>
+                      ) : (
+                        <>
+                          <span className="tabular-nums">{active}</span> active
+                          {inReview > 0 && (
+                            <>
+                              {" · "}
+                              <span className="tabular-nums text-amber-700">{inReview}</span> in review
+                            </>
+                          )}
+                          <span className="text-slate-400"> · {candidates.length} total</span>
+                        </>
+                      )}
+                      <span className="ml-1 text-slate-400">{isOpen ? "▲" : "▼"}</span>
+                    </button>
                   </td>
                   <td className="max-w-xs whitespace-pre-wrap px-4 py-3 text-slate-600">
                     {p.notes ?? ""}
@@ -197,27 +319,10 @@ export function PositionsBoard({
                     </td>
                   )}
                 </tr>
-                {isOpen && hasDetails && (
+                {isOpen && (
                   <tr className="bg-slate-50/60">
                     <td colSpan={canEdit ? 8 : 7} className="px-4 py-4">
-                      <div className="grid gap-4 text-sm sm:grid-cols-2">
-                        {p.description && (
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                              Duties &amp; summary
-                            </div>
-                            <p className="mt-1 whitespace-pre-wrap text-slate-700">{p.description}</p>
-                          </div>
-                        )}
-                        {p.requirements && (
-                          <div>
-                            <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                              Requirements
-                            </div>
-                            <p className="mt-1 whitespace-pre-wrap text-slate-700">{p.requirements}</p>
-                          </div>
-                        )}
-                      </div>
+                      <JobDetail job={p} candidates={candidates} hires={jobHires} />
                     </td>
                   </tr>
                 )}
@@ -238,6 +343,115 @@ export function PositionsBoard({
           onClose={() => setEditing(null)}
         />
       )}
+
+      {closing && (
+        <CloseJobDialog
+          job={closing}
+          candidates={(byJob.get(closing.id) ?? []).filter(isInPlay)}
+          openJobs={openJobs.filter((j) => j.id !== closing.id)}
+          filled={hiresSinceOpened(hires, closing).length >= closing.openings}
+          onDone={() => setClosing(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Role details plus the job's candidates grouped by stage. */
+function JobDetail({
+  job,
+  candidates,
+  hires,
+}: {
+  job: PositionRow;
+  candidates: CandidateRow[];
+  hires: JobHire[];
+}) {
+  const groups = groupJobCandidates(candidates);
+  return (
+    <div className="space-y-4">
+      {(job.description || job.requirements) && (
+        <div className="grid gap-4 text-sm sm:grid-cols-2">
+          {job.description && (
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Duties &amp; summary
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-slate-700">{job.description}</p>
+            </div>
+          )}
+          {job.requirements && (
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Requirements
+              </div>
+              <p className="mt-1 whitespace-pre-wrap text-slate-700">{job.requirements}</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div>
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
+          Candidates
+        </div>
+        {groups.length === 0 && hires.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No candidates linked yet. New applications for {positionLabel(job)} are linked
+            automatically; assign others from All Candidates or the Review Queue.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {groups.map((g) => (
+              <div key={g.key} className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${g.badge}`}>
+                    {g.label}
+                  </span>
+                  <span className="text-xs tabular-nums text-slate-400">{g.rows.length}</span>
+                </div>
+                <ul className="space-y-1">
+                  {g.rows.map((r) => (
+                    <li key={r.id}>
+                      <Link
+                        href={`/ats/${r.id}`}
+                        className="block truncate text-sm text-slate-700 hover:text-emerald-700 hover:underline"
+                      >
+                        {candidateName(r)}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            {hires.length > 0 && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${STAGE_BADGE.hired}`}>
+                    Hired
+                  </span>
+                  <span className="text-xs tabular-nums text-slate-400">{hires.length}</span>
+                </div>
+                <ul className="space-y-1">
+                  {hires.map((h) => (
+                    <li key={h.person_id}>
+                      <Link
+                        href={`/hr/${h.person_id}`}
+                        className="block truncate text-sm text-slate-700 hover:text-emerald-700 hover:underline"
+                      >
+                        {h.name}
+                        {h.hire_date && (
+                          <span className="text-xs text-slate-400"> · {fmtShortDate(h.hire_date)}</span>
+                        )}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -262,41 +476,226 @@ function positionMeta(p: PositionRow): string[] {
   return out;
 }
 
-function StatusSelect({ position, canEdit }: { position: PositionRow; canEdit: boolean }) {
+/** Open / Closed badge with when + why, and the Close / Reopen action. */
+function JobStatusControl({
+  job,
+  canEdit,
+  onClose,
+}: {
+  job: PositionRow;
+  canEdit: boolean;
+  onClose: () => void;
+}) {
   const [pending, startTransition] = useTransition();
-  const [value, setValue] = useState(position.status);
-  const badge = POSITION_STATUS_BADGE[value] ?? "";
-  if (!canEdit) {
-    return (
-      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${badge}`}>
-        {POSITION_STATUS_LABELS[value] ?? value}
-      </span>
-    );
-  }
+  const closed = job.status === "closed";
+  const since = fmtShortDate(closed ? job.closed_at : job.opened_at);
+  const reason = job.close_reason ? JOB_CLOSE_REASON_LABELS[job.close_reason] : null;
   return (
-    <select
-      value={value}
-      disabled={pending}
-      onChange={(e) => {
-        const next = e.target.value;
-        const prev = value;
-        setValue(next);
-        startTransition(async () => {
-          const res = await setPositionStatus(position.id, next);
-          if (!res.ok) {
-            setValue(prev);
-            alert(res.error);
-          }
-        });
-      }}
-      className={`cursor-pointer rounded-full border-0 px-2 py-0.5 text-xs font-medium outline-none focus:ring-2 focus:ring-emerald-500 disabled:opacity-60 ${badge}`}
+    <div className="flex flex-col items-start gap-1">
+      <span
+        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${POSITION_STATUS_BADGE[job.status]}`}
+      >
+        {POSITION_STATUS_LABELS[job.status]}
+        {closed && reason ? ` · ${reason}` : ""}
+      </span>
+      {since && (
+        <span className="text-xs text-slate-400">
+          {closed ? "Closed" : "Opened"} {since}
+        </span>
+      )}
+      {canEdit && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => {
+            if (!closed) {
+              onClose();
+              return;
+            }
+            startTransition(async () => {
+              const res = await setJobStatus(job.id, "open");
+              if (!res.ok) alert(res.error);
+            });
+          }}
+          className="text-xs font-medium text-emerald-700 hover:text-emerald-900 disabled:opacity-50"
+        >
+          {pending ? "Reopening…" : closed ? "Reopen" : "Close job"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Close a job: why, and what to do with the candidates still being worked for
+ * it. They're never removed — "Leave them" keeps them linked to the closed job
+ * (still in All Candidates, reassignable any time).
+ */
+function CloseJobDialog({
+  job,
+  candidates,
+  openJobs,
+  filled,
+  onDone,
+}: {
+  job: PositionRow;
+  candidates: CandidateRow[];
+  openJobs: PositionRow[];
+  filled: boolean;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState<JobCloseReason>(filled ? "filled" : "cancelled");
+  const [handling, setHandling] = useState<CloseJobCandidates>("keep");
+  const [moveToId, setMoveToId] = useState<string>(
+    openJobs.find((j) => j.title === job.title)?.id ?? openJobs[0]?.id ?? "",
+  );
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const inReview = candidates.filter((r) => r.person_recruiting?.review_status === "pending").length;
+  const active = candidates.length - inReview;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onDone();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onDone]);
+
+  const submit = () => {
+    setError(null);
+    startTransition(async () => {
+      const res = await setJobStatus(job.id, "closed", {
+        closeReason: reason,
+        candidates: candidates.length > 0 ? handling : "keep",
+        moveToId: handling === "move" ? moveToId : null,
+      });
+      if (res.ok) onDone();
+      else setError(res.error);
+    });
+  };
+
+  const choice = (value: CloseJobCandidates, label: string, hint: string, disabled = false) => (
+    <label
+      className={`flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+        handling === value ? "border-emerald-500 bg-emerald-50/60" : "border-slate-200"
+      } ${disabled ? "cursor-not-allowed opacity-50" : ""}`}
     >
-      {Object.entries(POSITION_STATUS_LABELS).map(([v, l]) => (
-        <option key={v} value={v}>
-          {l}
-        </option>
-      ))}
-    </select>
+      <input
+        type="radio"
+        name="handling"
+        value={value}
+        checked={handling === value}
+        disabled={disabled}
+        onChange={() => setHandling(value)}
+        className="mt-0.5 h-4 w-4 border-slate-300 text-emerald-600 focus:ring-emerald-500"
+      />
+      <span>
+        <span className="font-medium text-slate-800">{label}</span>
+        <span className="block text-xs text-slate-500">{hint}</span>
+      </span>
+    </label>
+  );
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-end justify-center bg-slate-900/40 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      onClick={onDone}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="close-job-title"
+        className="w-full space-y-5 rounded-t-2xl bg-white p-6 shadow-2xl ring-1 ring-slate-900/5 sm:max-w-lg sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div>
+          <h2 id="close-job-title" className="text-lg font-semibold text-slate-900">
+            Close {positionLabel(job)}
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500">
+            New applications stop linking to it. Candidates stay in All Candidates.
+          </p>
+        </div>
+
+        {error && (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        )}
+
+        <div>
+          <div className={`${labelCls} mb-2`}>Why are you closing it?</div>
+          <div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1">
+            {(Object.entries(JOB_CLOSE_REASON_LABELS) as [JobCloseReason, string][]).map(([v, l]) => (
+              <button
+                key={v}
+                type="button"
+                aria-pressed={reason === v}
+                onClick={() => setReason(v)}
+                className={`rounded-md px-2 py-1.5 text-sm font-medium transition ${
+                  reason === v ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {candidates.length > 0 && (
+          <div className="space-y-2">
+            <div className={labelCls}>
+              {active > 0 && `${active} active candidate${active === 1 ? "" : "s"}`}
+              {active > 0 && inReview > 0 && " and "}
+              {inReview > 0 && `${inReview} in the review queue`} still on this job
+            </div>
+            {choice("keep", "Leave them on this job", "They keep their stage; reassign any of them later.")}
+            {choice(
+              "move",
+              "Move them to another open job",
+              "Each move is logged and posted in their Slack thread.",
+              openJobs.length === 0,
+            )}
+            {handling === "move" && (
+              <select
+                value={moveToId}
+                onChange={(e) => setMoveToId(e.target.value)}
+                className={`${inputCls} ml-6 w-[calc(100%-1.5rem)]`}
+              >
+                {openJobs.map((j) => (
+                  <option key={j.id} value={j.id}>
+                    {positionLabel(j)}
+                  </option>
+                ))}
+              </select>
+            )}
+            {choice(
+              "hold",
+              "Put active candidates on Hold for Future",
+              "Review-queue applicants stay in the queue.",
+              active === 0,
+            )}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pending || (handling === "move" && !moveToId)}
+            onClick={submit}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-50"
+          >
+            {pending ? "Closing…" : "Close job"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -372,7 +771,7 @@ function PositionDialog({
           <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
             <div>
               <h2 id="position-dialog-title" className="text-lg font-semibold text-slate-900">
-                {position ? "Edit position" : "New position"}
+                {position ? "Edit job" : "New job"}
               </h2>
               <p className="mt-0.5 text-sm text-slate-500">
                 {position
@@ -402,7 +801,7 @@ function PositionDialog({
             <Section title="Role & clinic">
             {position ? (
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Position">
+                <Field label="Role">
                   <select
                     name="role_id"
                     defaultValue={selectedRole?.id ?? "__current_role__"}
@@ -470,7 +869,7 @@ function PositionDialog({
                 >
                   {combos > 0 ? (
                     <span>
-                      Creates <strong className="font-semibold">{combos}</strong> position
+                      Creates <strong className="font-semibold">{combos}</strong> job
                       {combos === 1 ? "" : "s"}
                       {combos > 1 && (
                         <span className="text-emerald-700">
@@ -653,7 +1052,7 @@ function PositionDialog({
             </Section>
 
             <Section title="Tracking">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Priority">
                 <div className="grid grid-cols-3 rounded-lg bg-slate-100 p-1">
                   {Object.entries(POSITION_PRIORITY_LABELS).map(([v, l]) => (
@@ -671,19 +1070,6 @@ function PositionDialog({
                     </label>
                   ))}
                 </div>
-              </Field>
-              <Field label="Status">
-                <select
-                  name="status"
-                  defaultValue={position?.status ?? "open"}
-                  className={`${inputCls} w-full`}
-                >
-                  {Object.entries(POSITION_STATUS_LABELS).map(([v, l]) => (
-                    <option key={v} value={v}>
-                      {l}
-                    </option>
-                  ))}
-                </select>
               </Field>
               <Field label={isNew ? "Openings (each)" : "Openings"}>
                 <div className="flex h-[38px] items-stretch overflow-hidden rounded-lg border border-slate-300 shadow-sm focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500">
@@ -735,7 +1121,7 @@ function PositionDialog({
                   type="button"
                   disabled={deleting}
                   onClick={() => {
-                    if (!confirm(`Delete ${position.title}? Linked candidates keep their record.`)) return;
+                    if (!confirm(`Delete ${positionLabel(position)}? Only possible while no candidate or employee is linked — otherwise close it.`)) return;
                     setDeleteError(null);
                     startDelete(async () => {
                       const res = await deletePosition(position.id);
@@ -765,9 +1151,9 @@ function PositionDialog({
                 {pending
                   ? "Saving…"
                   : isNew && combos > 1
-                    ? `Create ${combos} positions`
+                    ? `Create ${combos} jobs`
                     : isNew
-                      ? "Create position"
+                      ? "Create job"
                       : "Save changes"}
               </button>
             </div>

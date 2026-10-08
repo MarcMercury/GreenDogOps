@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildInterviewScheduledMessage, buildStageChangeMessage } from "./slack-messages";
+import {
+  buildInterviewScheduledMessage,
+  buildJobChangeMessage,
+  buildStageChangeMessage,
+} from "./slack-messages";
 
 describe("buildStageChangeMessage", () => {
   it("stars forward moves", () => {
@@ -65,6 +69,26 @@ describe("buildInterviewScheduledMessage", () => {
       ),
     ).toBe(
       "👋 *Working Interview / Shadow Day scheduled — Jane Doe*\nScheduled by Marc · Wed, Oct 7 · 10:00 AM–10:30 AM · Zoom",
+    );
+  });
+});
+
+describe("buildJobChangeMessage", () => {
+  it("announces a first assignment", () => {
+    expect(buildJobChangeMessage("Jane Doe", null, "CSR — Van Nuys", "Marc")).toBe(
+      "💼 *Jane Doe* assigned to job *CSR — Van Nuys* — Marc",
+    );
+  });
+
+  it("shows where a reassigned candidate came from", () => {
+    expect(buildJobChangeMessage("Jane Doe", "CSR — Van Nuys", "Vet Tech — Venice", null)).toBe(
+      "💼 *Jane Doe* moved to job *Vet Tech — Venice* (from CSR — Van Nuys)",
+    );
+  });
+
+  it("covers removing the job", () => {
+    expect(buildJobChangeMessage("Jane Doe", "CSR — Van Nuys", null, null)).toBe(
+      "💼 *Jane Doe* removed from job *CSR — Van Nuys*",
     );
   });
 });

@@ -20,6 +20,7 @@ import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { recordAudit } from "@/lib/auth/session";
 import type { CandidateRow } from "./types";
 import { esc } from "./slack-messages";
+import { candidateJobLabel } from "./jobs";
 
 export { buildInterviewScheduledMessage, buildStageChangeMessage } from "./slack-messages";
 
@@ -53,7 +54,7 @@ export function buildAnnouncementMessage(
   profileUrl: string,
 ): string {
   const rec = row.person_recruiting;
-  const position = (rec?.target_title ?? "").trim().toUpperCase() || "IN-HOUSE";
+  const position = (candidateJobLabel(rec) ?? "").trim().toUpperCase() || "IN-HOUSE";
   const fullNotes = (rec?.notes ?? rec?.status_notes ?? row.notes ?? "").trim();
   // Website applicants' notes carry the whole cover letter; keep the post short.
   const notes = fullNotes.length > 300 ? `${fullNotes.slice(0, 300).trimEnd()}…` : fullNotes;

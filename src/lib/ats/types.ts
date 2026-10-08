@@ -85,9 +85,8 @@ export const RECRUITING_STAGE_OPTIONS = [
   "New Lead",
   "Contacted",
   "Phone Screen",
-  "Zoom/Virtual Interview",
-  "In-Person / Shadow Day",
-  "Doc Call",
+  "Interview",
+  "Shadow Day",
   "Offer",
   "Hired",
   "Hold for Future",
@@ -284,14 +283,20 @@ export interface RecruitingTask {
   updated_at: string;
 }
 
-/** An open (or recently filled) position on the hiring board. */
+/**
+ * A job on the Jobs board (the shared `position` table — HR links employees to
+ * the same rows). Jobs are opened and closed, never deleted once used.
+ */
 export interface PositionRow {
   id: string;
   title: string;
   location: string | null;
   priority: string;
-  status: string;
+  status: JobStatus;
   openings: number;
+  opened_at: string;
+  closed_at: string | null;
+  close_reason: JobCloseReason | null;
   notes: string | null;
   employment_type: WorkSchedule | null;
   /** Weekdays that must be covered, 0=Sun..6=Sat; empty = flexible. */
@@ -367,19 +372,32 @@ export function formatShift(
   return s ? `Starts ${s}` : e ? `Ends ${e}` : null;
 }
 
-export const POSITION_STATUS_LABELS: Record<string, string> = {
+export type JobStatus = "open" | "closed";
+export type JobCloseReason = "filled" | "cancelled" | "on_hold";
+
+export const POSITION_STATUS_LABELS: Record<JobStatus, string> = {
   open: "Open",
-  on_hold: "On Hold",
-  filled: "Filled",
   closed: "Closed",
 };
 
-export const POSITION_STATUS_BADGE: Record<string, string> = {
+export const POSITION_STATUS_BADGE: Record<JobStatus, string> = {
   open: "bg-emerald-100 text-emerald-800",
-  on_hold: "bg-amber-100 text-amber-800",
-  filled: "bg-blue-100 text-blue-800",
   closed: "bg-slate-200 text-slate-600",
 };
+
+export const JOB_CLOSE_REASON_LABELS: Record<JobCloseReason, string> = {
+  filled: "Filled",
+  cancelled: "Cancelled",
+  on_hold: "On hold",
+};
+
+export function isJobStatus(v: string): v is JobStatus {
+  return v in POSITION_STATUS_LABELS;
+}
+
+export function isJobCloseReason(v: string): v is JobCloseReason {
+  return v in JOB_CLOSE_REASON_LABELS;
+}
 
 export const POSITION_PRIORITY_LABELS: Record<string, string> = {
   high: "High",

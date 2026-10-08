@@ -7,8 +7,10 @@ import {
   type CandidateRow,
   type PositionRow,
   bucketForStage,
+  positionLabel,
   STAGE_BUCKET_LABELS,
 } from "@/lib/ats/types";
+import { candidateJobLabel, type JobHire } from "@/lib/ats/jobs";
 import {
   type Stat,
   type Column,
@@ -22,7 +24,8 @@ import { ImportDialog } from "./import-dialog";
 import { AddCandidateDialog } from "./add-candidate-dialog";
 import { IntakeReview } from "./intake-review";
 import { StageQuickSelect } from "./stage-quick-select";
-import { PositionsBoard } from "./positions-board";
+import { JobsBoard } from "./jobs-board";
+import { JobQuickSelect } from "./job-quick-select";
 
 function candidateName(r: CandidateRow): string {
   if (r.full_name) return r.full_name;
@@ -46,6 +49,7 @@ function localToday(): string {
 export function AtsExplorer({
   rows,
   positions,
+  hires,
   roles,
   locations,
   canEdit,
@@ -53,6 +57,7 @@ export function AtsExplorer({
 }: {
   rows: CandidateRow[];
   positions: PositionRow[];
+  hires: JobHire[];
   roles: { id: string; name: string }[];
   locations: { id: string; name: string }[];
   canEdit: boolean;
@@ -79,7 +84,17 @@ export function AtsExplorer({
     (r) => r.person_recruiting?.review_status !== "pending",
   );
 
-  const [tab, setTab] = useState<"pipeline" | "review" | "positions">("pipeline");
+  const [tab, setTab] = useState<"pipeline" | "review" | "jobs">("pipeline");
+
+  const jobsById = new Map(positions.map((p) => [p.id, p]));
+  // "CSR — Van Nuys", "CSR — Van Nuys (closed)", or "No job" — for the Job
+  // filter, sorting and the CSV export.
+  const jobValue = (r: CandidateRow): string => {
+    const id = r.person_recruiting?.target_position_id;
+    const job = id ? jobsById.get(id) : undefined;
+    if (!job) return "No job";
+    return `${positionLabel(job)}${job.status === "closed" ? " (closed)" : ""}`;
+  };
 
   const counts: Record<string, number> = {};
   for (const r of pipelineRows) {
@@ -97,7 +112,7 @@ export function AtsExplorer({
     .filter((r) => r.task_meta?.next_due && r.task_meta.next_due <= today)
     .sort((a, b) => (a.task_meta!.next_due!).localeCompare(b.task_meta!.next_due!));
 
-  const openPositions = positions.filter((p) => p.status === "open").length;
+  const openJobs = positions.filter((p) => p.status === "open").length;
 
   const stats: Stat[] = [
     { label: "Total", value: String(pipelineRows.length), tone: "text-emerald-700" },
@@ -119,14 +134,22 @@ export function AtsExplorer({
       ),
     },
     {
-      key: "position",
-      header: "Position",
-      value: (r) => r.person_recruiting?.target_title,
-    },
-    {
-      key: "pipeline",
-      header: "Pipeline",
-      value: (r) => r.person_recruiting?.pipeline,
+      key: "job",
+      header: "Job",
+      value: (r) =>
+        r.person_recruiting?.target_position_id
+          ? jobValue(r)
+          : (r.person_recruiting?.target_title ?? null),
+      render: (r) => (
+        <JobQuickSelect
+          key={`${r.id}:${r.person_recruiting?.target_position_id ?? ""}`}
+          personId={r.id}
+          jobId={r.person_recruiting?.target_position_id ?? null}
+          jobs={positions}
+          fallbackLabel={r.person_recruiting?.target_title}
+          canEdit={canEdit}
+        />
+      ),
     },
     {
       key: "stage",
@@ -199,23 +222,11 @@ export function AtsExplorer({
   ];
 
   const filters: FilterDef<CandidateRow>[] = [
+    { key: "job", label: "Job", value: jobValue },
     {
       key: "stage_group",
       label: "Stage",
       value: (r) => STAGE_BUCKET_LABELS[bucketForStage(r.person_recruiting?.stage ?? null)],
-    },
-    { key: "pipeline", label: "Pipeline", value: (r) => r.person_recruiting?.pipeline },
-    { key: "position", label: "Position", value: (r) => r.person_recruiting?.target_title },
-    { key: "source", label: "Source", value: (r) => r.person_recruiting?.source },
-    {
-      key: "job_location",
-      label: "Applied to",
-      value: (r) => r.person_recruiting?.job_location,
-    },
-    {
-      key: "interest_level",
-      label: "Interest",
-      value: (r) => r.person_recruiting?.interest_level,
     },
     {
       key: "score",
@@ -226,9 +237,9 @@ export function AtsExplorer({
       },
     },
     {
-      key: "keep",
-      label: "Keep",
-      value: (r) => (r.person_recruiting?.keep_for_future ? "Yes" : null),
+      key: "interest_level",
+      label: "Interest",
+      value: (r) => r.person_recruiting?.interest_level,
     },
   ];
 
@@ -238,9 +249,6 @@ export function AtsExplorer({
         icon="🎯"
         eyebrow="Recruiting"
         title="Recruiting (ATS)"
-        description="Candidate pipeline, stages & outreach"
-        count={pipelineRows.length}
-        countLabel="candidates"
         onExport={() => exportColumnsCsv("recruiting-ats", columns, pipelineRows)}
         actions={
           <>
@@ -277,7 +285,7 @@ export function AtsExplorer({
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
-          Pipeline
+          All Candidates
         </button>
         <button
           onClick={() => setTab("review")}
@@ -295,28 +303,32 @@ export function AtsExplorer({
           )}
         </button>
         <button
-          onClick={() => setTab("positions")}
+          onClick={() => setTab("jobs")}
           className={`-mb-px flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition ${
-            tab === "positions"
+            tab === "jobs"
               ? "border-emerald-600 text-emerald-700"
               : "border-transparent text-slate-500 hover:text-slate-700"
           }`}
         >
-          Open Positions
-          {openPositions > 0 && (
-            <span className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-slate-200 px-1.5 text-xs font-semibold text-slate-700">
-              {openPositions}
+          Jobs
+          {openJobs > 0 && (
+            <span
+              title={`${openJobs} open`}
+              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-slate-200 px-1.5 text-xs font-semibold text-slate-700"
+            >
+              {openJobs}
             </span>
           )}
         </button>
       </div>
 
       {tab === "review" ? (
-        <IntakeReview rows={reviewRows} />
-      ) : tab === "positions" ? (
-        <PositionsBoard
+        <IntakeReview rows={reviewRows} positions={positions} canEdit={canEdit} />
+      ) : tab === "jobs" ? (
+        <JobsBoard
           positions={positions}
-          rows={pipelineRows}
+          rows={rows}
+          hires={hires}
           roles={roles}
           locations={locations}
           canEdit={canEdit}
@@ -363,12 +375,14 @@ export function AtsExplorer({
             rows={pipelineRows}
             columns={columns}
             filters={filters}
-            searchPlaceholder="Search name, position, source…"
+            searchPlaceholder="Search name, job, source…"
             searchExtra={(r) => [
               r.email,
+              candidateJobLabel(r.person_recruiting, jobsById),
               r.person_recruiting?.target_title,
               r.person_recruiting?.pipeline,
               r.person_recruiting?.source,
+              r.person_recruiting?.job_location,
               r.person_recruiting?.status_notes,
             ]}
             onRowClick={(r) => router.push(`/ats/${r.id}`)}

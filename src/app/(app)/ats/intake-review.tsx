@@ -3,7 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { type CandidateRow, type CandidateDocument } from "@/lib/ats/types";
+import {
+  type CandidateRow,
+  type CandidateDocument,
+  type PositionRow,
+  positionLabel,
+} from "@/lib/ats/types";
 import { DOCUMENT_CATEGORY_LABELS } from "@/lib/hr/types";
 import { acceptCandidate, declineCandidate, getCandidateDocuments } from "./actions";
 
@@ -70,13 +75,83 @@ function renderNotesWithLinks(text: string): React.ReactNode[] {
   return nodes;
 }
 
+function localISODate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Weekdays after `from` up to and including `to` (both yyyy-mm-dd). */
+function businessDaysBetween(from: string, to: string): number {
+  const d = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  let n = 0;
+  while (d < end) {
+    d.setDate(d.getDate() + 1);
+    const wd = d.getDay();
+    if (wd !== 0 && wd !== 6) n++;
+  }
+  return n;
+}
+
+/** The day an applicant arrived in the queue. */
+function receivedOn(r: CandidateRow): string {
+  return r.person_recruiting?.application_date ?? localISODate(new Date(r.created_at));
+}
+
+/**
+ * The team rule is to clear the queue every business day: anything still
+ * waiting after the next business day is overdue.
+ */
+function QueueHealth({ rows }: { rows: CandidateRow[] }) {
+  const today = localISODate(new Date());
+  const ages = rows.map((r) => businessDaysBetween(receivedOn(r), today));
+  const overdue = ages.filter((a) => a >= 2).length;
+  const oldest = Math.max(0, ...ages);
+  const noJob = rows.filter((r) => !r.person_recruiting?.target_position_id).length;
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border px-4 py-3 text-sm ${
+        overdue > 0
+          ? "border-rose-200 bg-rose-50/70 text-rose-800"
+          : "border-emerald-200 bg-emerald-50/60 text-emerald-800"
+      }`}
+    >
+      <span className="font-semibold">
+        {rows.length} to review
+      </span>
+      {overdue > 0 ? (
+        <span>
+          ⏰ {overdue} waiting more than a business day · oldest {oldest} business day
+          {oldest === 1 ? "" : "s"}
+        </span>
+      ) : (
+        <span>On track — clear the queue every business day.</span>
+      )}
+      {noJob > 0 && (
+        <span className="text-amber-800">
+          💼 {noJob} with no job — pick one before accepting
+        </span>
+      )}
+    </div>
+  );
+}
+
 /**
  * Intake review queue: auto-ingested applicants (Gmail / Indeed) awaiting a
- * recruiter's accept or reject decision. Accepting promotes them to an active
- * lead and announces them in Slack; rejecting marks them Declined (kept for
- * re-apply detection).
+ * recruiter's accept or reject decision. Applications that clearly match one
+ * open job arrive already assigned; the rest get a job picked here. Accepting
+ * links the job, promotes them to an active lead and announces them in Slack;
+ * rejecting marks them Declined (kept for re-apply detection).
  */
-export function IntakeReview({ rows }: { rows: CandidateRow[] }) {
+export function IntakeReview({
+  rows,
+  positions,
+  canEdit,
+}: {
+  rows: CandidateRow[];
+  positions: PositionRow[];
+  canEdit: boolean;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -85,11 +160,11 @@ export function IntakeReview({ rows }: { rows: CandidateRow[] }) {
 
   const visible = rows.filter((r) => !done.has(r.id));
 
-  function act(id: string, fn: (personId: string) => Promise<{ ok: true } | { ok: false; error: string }>) {
+  function act(id: string, fn: () => Promise<{ ok: true } | { ok: false; error: string }>) {
     setBusyId(id);
     setError(null);
     startTransition(async () => {
-      const res = await fn(id);
+      const res = await fn();
       if (res.ok) {
         setDone((prev) => new Set(prev).add(id));
         router.refresh();
@@ -114,6 +189,7 @@ export function IntakeReview({ rows }: { rows: CandidateRow[] }) {
 
   return (
     <div className="space-y-3">
+      <QueueHealth rows={visible} />
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}
@@ -121,9 +197,17 @@ export function IntakeReview({ rows }: { rows: CandidateRow[] }) {
         <ReviewCard
           key={r.id}
           row={r}
+          positions={positions}
+          canEdit={canEdit}
           busy={busyId === r.id && isPending}
-          onAccept={() => act(r.id, acceptCandidate)}
-          onDecline={() => act(r.id, declineCandidate)}
+          onAccept={(jobId) =>
+            act(r.id, () =>
+              jobId === (r.person_recruiting?.target_position_id ?? null)
+                ? acceptCandidate(r.id)
+                : acceptCandidate(r.id, jobId),
+            )
+          }
+          onDecline={() => act(r.id, () => declineCandidate(r.id))}
         />
       ))}
     </div>
@@ -139,16 +223,23 @@ export function IntakeReview({ rows }: { rows: CandidateRow[] }) {
  */
 function ReviewCard({
   row: r,
+  positions,
+  canEdit,
   busy,
   onAccept,
   onDecline,
 }: {
   row: CandidateRow;
+  positions: PositionRow[];
+  canEdit: boolean;
   busy: boolean;
-  onAccept: () => void;
+  onAccept: (jobId: string | null) => void;
   onDecline: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [jobId, setJobId] = useState<string>(r.person_recruiting?.target_position_id ?? "");
+  const linked = positions.find((p) => p.id === r.person_recruiting?.target_position_id);
+  const openJobs = positions.filter((p) => p.status === "open");
   const [docs, setDocs] = useState<CandidateDocument[] | null>(null);
   const [docsLoading, setDocsLoading] = useState(false);
   const [docsError, setDocsError] = useState<string | null>(null);
@@ -225,11 +316,44 @@ function ReviewCard({
             )}
           </div>
 
-          <div className="mt-1 text-sm text-slate-700">
-            <span className="font-medium">
-              {rec?.target_title ?? "Position not specified"}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-700">
+            <span className="text-slate-500">
+              Applied for{" "}
+              <span className="font-medium text-slate-700">
+                {[rec?.target_title, rec?.job_location].filter(Boolean).join(" @ ") ||
+                  "role not specified"}
+              </span>
             </span>
-            {applied && <span className="text-slate-400"> · applied {applied}</span>}
+            {applied && <span className="text-slate-400">· {applied}</span>}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Job</span>
+            {canEdit ? (
+              <select
+                value={jobId}
+                onChange={(e) => setJobId(e.target.value)}
+                disabled={busy}
+                className={`max-w-xs rounded-lg border px-2 py-1 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500 ${
+                  jobId ? "border-slate-300 text-slate-800" : "border-amber-300 bg-amber-50 text-amber-800"
+                }`}
+              >
+                <option value="">— No job —</option>
+                {linked && linked.status === "closed" && (
+                  <option value={linked.id} disabled>
+                    {positionLabel(linked)} (closed)
+                  </option>
+                )}
+                {openJobs.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {positionLabel(p)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <span className="font-medium text-slate-700">
+                {linked ? positionLabel(linked) : "No job"}
+              </span>
+            )}
           </div>
 
           <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
@@ -251,9 +375,9 @@ function ReviewCard({
 
         <div className="flex shrink-0 items-center gap-2">
           <button
-            onClick={onAccept}
+            onClick={() => onAccept(jobId || null)}
             disabled={busy}
-            title="Accept into the pipeline and announce in the Slack hiring channel"
+            title="Link the job, accept into the pipeline and announce in the Slack hiring channel"
             className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-50"
           >
             {busy ? "…" : "✓ Accept"}

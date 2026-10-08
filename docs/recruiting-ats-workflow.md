@@ -34,10 +34,28 @@
 
 | Role | Responsibility |
 |---|---|
-| **Job Poster** (Recruiting lead) | Posts and maintains Indeed ads and makes sure every ad has the auto-reply turned on. |
+| **Job Poster** (Recruiting lead) | Opens and closes **Jobs** in the ATS, posts and maintains the matching Indeed ads, and makes sure every ad has the auto-reply turned on. |
 | **Daily Reviewer** | Clears the ATS Review Queue every business day by approving or denying each applicant. |
 | **Interviewer** (anyone with ATS edit access) | Picks up approved candidates from Slack, launches the interview, and moves them forward. |
 | **Hiring Manager / Admin** | Makes final decisions, sends offers, and clicks **Hire → Employee**. |
+
+---
+
+## Step 0 — Open the job in the ATS
+
+Every candidate is linked to a **Job** in the ATS, the same way Indeed for employers groups applicants under the job they applied to.
+
+1. Open **Ops → Recruiting (ATS) → Jobs** and click **+ Job**.
+2. Pick the role(s) and clinic(s). One job is created per role + clinic, for example *CSR — Van Nuys*. Add the openings, schedule, pay and requirements.
+3. When the job is filled or paused, click **Close job** and choose why: **Filled**, **Cancelled** or **On hold**. If candidates are still being worked for that job, you can:
+   - leave them on the closed job,
+   - move them all to another open job, or
+   - put the active ones on **Hold for Future**.
+4. **Reopen** a closed job any time from the same row. Tick **Show closed jobs** to see closed ones.
+
+Closing a job never removes anyone. Its candidates stay in **All Candidates** and can be moved to an open job at any time. Click a job's candidate count to see its candidates grouped by stage, including anyone already hired into it.
+
+> Jobs can't be deleted once a candidate or employee is linked to them. Close them instead.
 
 ---
 
@@ -49,7 +67,7 @@ Indeed is our main source of candidates. Indeed applications usually arrive **wi
 
 1. Post the ad as normal (title, location, pay, schedule).
 2. Turn on an **automatic reply/message** to every applicant that sends them to our careers page form. Use the template below.
-3. Use the **same position title** in the ad as on the careers form's "Role Applying For" list, so candidates line up with the right position in the ATS.
+3. Use the **same role title and clinic** in the ad and on the careers form's "Role Applying For" list as the open Job in the ATS. The ATS uses the title and clinic to link each application to its job automatically.
 4. Each time you create or repost an ad, check that the auto-reply is still on.
 
 **Auto-reply template (copy/paste):**
@@ -118,10 +136,11 @@ The ATS reads the form's notification email, so **field labels matter** (matchin
 **When:** Every business day by **[TIME, e.g. 11:00 AM]**. The goal is an **empty Review Queue** by end of day.
 **Who:** The Daily Reviewer (backup: **[NAME]**).
 
-1. Open **Ops → Recruiting (ATS) → Review Queue**.
+1. Open **Ops → Recruiting (ATS) → Review Queue**. The banner at the top shows how many applicants are waiting and flags anyone who has waited more than one business day.
 2. For each applicant, check the name, contact info, role, location, and resume.
-3. Choose one:
-   - **✓ Accept (Approve):** The candidate meets the basic requirements for the role. They move into the pipeline as **New Lead** and are **announced in Slack automatically** (Step 4).
+3. Check the **Job**. Applications whose role and clinic match exactly one open job are linked to it automatically. If the job shows **— No job —** (for example the applicant chose "Open to any" clinic), pick the right open job from the dropdown.
+4. Choose one:
+   - **✓ Accept (Approve):** The candidate meets the basic requirements for the role. They're linked to the selected job, move into the pipeline as **New Lead**, and are **announced in Slack automatically** (Step 4).
    - **✕ Reject (Deny):** The candidate isn't a fit, the application is incomplete, or it's spam. They're marked **Declined** and **kept on file**, so we'll recognize them if they apply again.
 
 **Approve if:**
@@ -143,7 +162,7 @@ Clicking **✓ Accept** automatically posts the candidate to the **Slack hiring 
 The Slack post looks like this:
 
 ```
-@channel ✅ NEW (CSR) CANDIDATE ANNOUNCEMENT
+@channel ✅ NEW (CSR — VAN NUYS) CANDIDATE ANNOUNCEMENT
 1. NOTES: …
 2. NAME: Jane Doe
 3. PHONE: (555) 555-5555
@@ -192,10 +211,12 @@ The interviewer owns the candidate until they hand them off or the process ends.
 1. **Log the result.** Open the interview on the **Interview Tracking** tab and set **Status** (Completed / No Show / Cancelled), **Overall grade** (A–F), **Recommendation** (Advance / Hold / Pass), and **Summary**. The CSR phone-screen questions are available for phone screens.
 2. **Share it.** Click **Post summary** to post the interview results in the candidate's Slack thread.
 3. **Move the stage.** Update the candidate's **Stage**. Each stage change is also posted to the Slack thread automatically: ⭐ when they advance, 💼 when they move to **Offer**, and 🚫/⏸️ when they're passed or put on hold.
-   `New Lead → Contacted → Phone Screen → Zoom/Virtual Interview → In-Person / Shadow Day → Doc Call → Offer → Hired`
+   `New Lead → Contacted → Phone Screen → Interview → Shadow Day → Offer → Hired`
    Closing stages: **Hold for Future · No Response · Passed · Declined**
 4. **Set follow-ups.** Use **Tasks** and **Follow-up date** for next steps, and log calls/texts/emails in **Activity**.
-5. **Hire.** When the offer is accepted, a manager clicks **Hire → Employee**. This moves the candidate to the HR roster and posts 🎉 in their Slack thread.
+5. **Hire.** When the offer is accepted, a manager clicks **Hire → Employee**. This sets the stage to **Hired**, moves the candidate to the HR roster with their job, and posts 🎉 in their Slack thread. If this hire fills the job's last opening, you're asked whether to close the job as **Filled**.
+
+**Changing a candidate's job:** Use the **Job** dropdown in the All Candidates list or at the top of the candidate profile. Only open jobs are offered. Every change is recorded on the **History** tab and posted in the candidate's Slack thread.
 
 ---
 
@@ -215,8 +236,11 @@ The interviewer owns the candidate until they hand them off or the process ends.
 
 | I need to… | Where |
 |---|---|
+| Open / close a job | Recruiting (ATS) → **Jobs** → **+ Job** / **Close job** / **Reopen** |
+| See a job's candidates | **Jobs** → click the job's candidate count |
 | See new applicants | Recruiting (ATS) → **Review Queue** |
-| Approve / deny | Review Queue → **✓ Accept** (also posts to Slack) / **✕ Reject** |
+| Approve / deny | Review Queue → pick the **Job** → **✓ Accept** (also posts to Slack) / **✕ Reject** |
+| Assign or move a candidate to a job | All Candidates or candidate profile → **Job** dropdown |
 | Re-send a Slack announcement | Candidate profile → **📣 Announce in Slack** |
 | Launch an interview | Candidate profile → **Interview Tracking** → **Add interview** |
 | Post interview results | Interview card → **Post summary** |
@@ -234,6 +258,7 @@ The interviewer owns the candidate until they hand them off or the process ends.
 | In-person interview / shadow day logged as Scheduled | 👋 … scheduled — *Interviewer* is interviewing *Candidate* · date · time |
 | Stage moved forward | ⭐ *Candidate* advanced to *Stage* |
 | Stage moved to Offer | 💼 *Candidate* approved for an offer |
+| Job changed (after the announcement) | 💼 *Candidate* moved to job *Job* (from *old job*) |
 | Hire → Employee | 🎉 *Candidate* was hired |
 | **Post summary** clicked on an interview | Interview grade, recommendation, and notes |
 

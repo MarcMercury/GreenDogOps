@@ -1,7 +1,10 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
-import { normalizePositionTitle } from "./normalize";
+import { normalizeJobLocation, normalizePositionTitle } from "./normalize";
+import { jobRecruitingFields, matchOpenJob } from "./jobs";
+import { positionLabel, type PositionRow } from "./types";
+import { logProfileTransition } from "@/lib/shared/transition-log";
 import { guessDocumentCategory } from "./document-category";
 import { applicationHasData, type ApplicationDetails } from "./application";
 
@@ -90,6 +93,40 @@ export function textDocument(
     buffer: Buffer.from(body + "\n", "utf-8"),
     category,
   };
+}
+
+type JobRef = Pick<PositionRow, "id" | "title" | "location" | "status">;
+
+/**
+ * The open job this application is clearly for (role + clinic), so it lands in
+ * the Review Queue already assigned. Ambiguous or unknown roles stay
+ * unassigned for the recruiter to pick. Best-effort: a lookup failure never
+ * blocks the intake.
+ */
+async function matchApplicationJob(admin: Admin, input: ApplicantInput): Promise<JobRef | null> {
+  if (!input.targetTitle) return null;
+  const { data, error } = await admin
+    .from("position")
+    .select("id, title, location, status")
+    .eq("status", "open");
+  if (error) {
+    console.error("[ats] open jobs lookup failed:", error.message);
+    return null;
+  }
+  return matchOpenJob(
+    (data ?? []) as JobRef[],
+    input.targetTitle,
+    normalizeJobLocation(input.jobLocation ?? null),
+  );
+}
+
+async function logAutoAssigned(personId: string, job: JobRef): Promise<void> {
+  await logProfileTransition({
+    personId,
+    eventType: "job_change",
+    toStage: positionLabel(job),
+    detail: "Auto-assigned from the application",
+  });
 }
 
 /**
@@ -226,6 +263,8 @@ export async function createApplicantProfile(
         .maybeSingle();
       const prevNotes = (prev as { notes?: string | null } | null)?.notes ?? null;
       const application = applicationHasData(input.application) ? input.application : undefined;
+      // Re-applying for an open job links them to it (the old job is kept in History).
+      const job = await matchApplicationJob(admin, input);
       await admin
         .from("person_recruiting")
         .update({
@@ -235,8 +274,10 @@ export async function createApplicantProfile(
           application_date: input.applicationDate,
           notes: [prevNotes, reapplyNote].filter(Boolean).join("\n\n"),
           ...(application ? { application } : {}),
+          ...(job ? jobRecruitingFields(job) : {}),
         })
         .eq("person_id", existing.personId);
+      if (job) await logAutoAssigned(existing.personId, job);
       for (const resume of resumes) {
         await storeResume(admin, existing.personId, resume);
       }
@@ -280,6 +321,7 @@ export async function createApplicantProfile(
 
   // Auto-ingested applicants start in the review queue (pending); a recruiter
   // accepts or rejects them from the ATS Review tab.
+  const job = await matchApplicationJob(admin, input);
   const { error: rErr } = await admin.from("person_recruiting").upsert(
     {
       person_id: personId,
@@ -294,6 +336,7 @@ export async function createApplicantProfile(
       education: input.education ?? null,
       relevant_experience: input.relevantExperience ?? null,
       ...(applicationHasData(input.application) ? { application: input.application } : {}),
+      ...(job ? jobRecruitingFields(job) : {}),
     },
     { onConflict: "person_id" },
   );
@@ -303,6 +346,8 @@ export async function createApplicantProfile(
     await admin.from("person").delete().eq("id", personId);
     return { status: "error", error: `Recruiting details failed to save: ${rErr.message}` };
   }
+
+  if (job) await logAutoAssigned(personId, job);
 
   for (const resume of resumes) {
     await storeResume(admin, personId, resume);

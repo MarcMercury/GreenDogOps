@@ -8,6 +8,7 @@ import type {
   CandidateTaskMeta,
   PositionRow,
 } from "@/lib/ats/types";
+import { loadJobHires } from "@/lib/ats/job-hires";
 import { AtsExplorer } from "./ats-explorer";
 
 export const dynamic = "force-dynamic";
@@ -160,8 +161,12 @@ export default async function AtsPage() {
   }
   for (const r of rows) r.task_meta = taskMeta.get(r.id) ?? null;
 
-  const [{ data: positionData }, { data: roleData, error: roleError }, { data: locationData, error: locationError }] =
-    await Promise.all([
+  const [
+    { data: positionData },
+    { data: roleData, error: roleError },
+    { data: locationData, error: locationError },
+    hires,
+  ] = await Promise.all([
       supabase.from("position").select("*").order("title", { ascending: true }),
       supabase
         .from("sched_role")
@@ -175,6 +180,7 @@ export default async function AtsPage() {
         .eq("kind", "clinic")
         .order("sort_order", { ascending: true })
         .order("name", { ascending: true }),
+      loadJobHires(supabase),
     ]);
 
   if (roleError || locationError) {
@@ -182,7 +188,7 @@ export default async function AtsPage() {
       <div className="mx-auto max-w-5xl">
         <h1 className="text-2xl font-semibold text-slate-900">Recruiting (ATS)</h1>
         <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-          Could not load position options: {roleError?.message ?? locationError?.message}
+          Could not load job options: {roleError?.message ?? locationError?.message}
         </p>
       </div>
     );
@@ -203,6 +209,7 @@ export default async function AtsPage() {
     <AtsExplorer
       rows={rows}
       positions={positions}
+      hires={hires}
       roles={roles}
       locations={locations}
       canEdit={canEdit}

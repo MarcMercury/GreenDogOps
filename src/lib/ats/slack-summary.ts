@@ -10,6 +10,7 @@ import {
   INTERVIEW_RECOMMENDATION_LABELS,
 } from "./types";
 import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
+import { candidateJobLabel } from "./jobs";
 
 function candidateName(row: CandidateRow): string {
   return (
@@ -46,7 +47,7 @@ export function buildCandidateSummary(row: CandidateRow): string {
 
   out.push(
     ...lines([
-      ["Position", rec?.target_title],
+      ["Job", candidateJobLabel(rec)],
       ["Opportunity", opportunityShortLabel(row.opportunity_type) || null],
       ["Pipeline", rec?.pipeline],
       ["Stage", rec?.stage],
@@ -81,7 +82,7 @@ export function buildInterviewSummary(
 
   out.push(
     ...lines([
-      ["Position", rec?.target_title],
+      ["Job", candidateJobLabel(rec)],
       ["Type", typeLabel],
       ["Date", fmtDate(interview.interview_date)],
       ["Interviewer", interview.interviewer],

@@ -61,9 +61,13 @@ const STAGE_ALIASES: Record<string, string> = {
   contacted: "Contacted",
   "phone interview": "Phone Screen",
   "phone screen": "Phone Screen",
-  "in person / shadow": "In-Person / Shadow Day",
-  "shadow interview": "In-Person / Shadow Day",
-  "in-person / shadow day": "In-Person / Shadow Day",
+  "in person / shadow": "Shadow Day",
+  "shadow interview": "Shadow Day",
+  "in-person / shadow day": "Shadow Day",
+  "shadow day": "Shadow Day",
+  "shadow": "Shadow Day",
+  interview: "Interview",
+  "zoom/virtual interview": "Interview",
   hire: "Hired",
   hired: "Hired",
   hold: "Hold for Future",
@@ -85,7 +89,7 @@ const STAGE_ALIASES: Record<string, string> = {
   "decision needed": "Decision Needed",
   declined: "Declined",
   offer: "Offer",
-  interviewed: "Interviewed",
+  interviewed: "Interview",
 };
 
 /** "Pass" / "No hire" / "Not moving forward" -> "Passed", etc. */

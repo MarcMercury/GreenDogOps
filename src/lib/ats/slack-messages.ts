@@ -30,9 +30,8 @@ const FORWARD_STAGES = [
   "New Lead",
   "Contacted",
   "Phone Screen",
-  "Zoom/Virtual Interview",
-  "In-Person / Shadow Day",
-  "Doc Call",
+  "Interview",
+  "Shadow Day",
   "Offer",
   "Hired",
 ];
@@ -66,6 +65,22 @@ export function buildStageChangeMessage(
   if (toIdx >= 0 && toIdx < fromIdx) return `↩️ ${who} moved back to ${stage}${from}${by}`;
   if (toIdx > 0) return `⭐ ${who} advanced to ${stage}${from}${by}`;
   return `${who} moved to ${stage}${from}${by}`;
+}
+
+/** "💼 *Jane Doe* moved to job *Vet Tech — Venice* (from CSR — Van Nuys) — Marc". */
+export function buildJobChangeMessage(
+  name: string,
+  fromJob: string | null,
+  toJob: string | null,
+  actorName: string | null,
+): string {
+  const by = actorName ? ` — ${esc(actorName)}` : "";
+  const who = `*${esc(name)}*`;
+  if (!toJob) {
+    return `💼 ${who} removed from job${fromJob ? ` *${esc(fromJob)}*` : ""}${by}`;
+  }
+  const from = fromJob ? ` (from ${esc(fromJob)})` : "";
+  return `💼 ${who} ${fromJob ? "moved to" : "assigned to"} job *${esc(toJob)}*${from}${by}`;
 }
 
 const INTERVIEW_EMOJI: Record<string, string> = {

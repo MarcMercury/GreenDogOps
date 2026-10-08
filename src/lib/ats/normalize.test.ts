@@ -73,7 +73,10 @@ describe("normalizeStage", () => {
     ["Declined Offer", "Offer Declined"],
     ["QUIT", "Separated"],
     ["Seperated ( No Rehire )", "Separated (No Rehire)"],
-    ["Shadow Interview", "In-Person / Shadow Day"],
+    ["Shadow Interview", "Shadow Day"],
+    ["In-Person / Shadow Day", "Shadow Day"],
+    ["Interviewed", "Interview"],
+    ["Zoom/Virtual Interview", "Interview"],
   ])("%s -> %s", (raw, expected) => {
     expect(normalizeStage(raw)).toBe(expected);
   });

@@ -130,7 +130,8 @@ from users who cannot access it.
 - **HR / Roster** (`/hr`) — master employee records: employment, payroll,
   reviews, discipline, PTO, credentials, licenses, assets, documents, and
   onboarding checklists.
-- **Recruiting (ATS)** (`/ats`) — applicant pipeline and interview tracking.
+- **Recruiting (ATS)** (`/ats`) — applicant pipeline, interview tracking, and
+  Jobs (open/close; candidates linked to a job, auto-matched on intake).
   Resumes and PDF candidate lists are parsed with an LLM; a Gmail poller and an
   Indeed export feed candidates in. Hiring promotes the record into HR with a
   single status change.

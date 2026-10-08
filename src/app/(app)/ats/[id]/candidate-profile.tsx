@@ -25,6 +25,7 @@ import { DOCUMENT_CATEGORY_LABELS } from "@/lib/hr/types";
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
 import { CandidateForm, type CandidateFormTab } from "./candidate-form";
+import { JobQuickSelect } from "../job-quick-select";
 import { applicationHasData } from "@/lib/ats/application";
 import { CopyForSlackButton } from "./copy-for-slack";
 import { PostToSlackButton } from "./post-to-slack";
@@ -71,8 +72,8 @@ export function CandidateProfile({
   activities,
   tasks,
   positions,
+  jobHireCount = 0,
   initialTab,
-  isAdmin = false,
   canEdit = false,
   slackEnabled = false,
 }: {
@@ -83,9 +84,10 @@ export function CandidateProfile({
   activities: RecruitingActivity[];
   tasks: RecruitingTask[];
   positions: PositionRow[];
+  /** Hires into the candidate's job since it was last opened. */
+  jobHireCount?: number;
   /** From `?tab=` — the explorer's follow-up links open straight to Activity. */
   initialTab?: string;
-  isAdmin?: boolean;
   canEdit?: boolean;
   slackEnabled?: boolean;
 }) {
@@ -110,11 +112,20 @@ export function CandidateProfile({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-slate-900">{heading}</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            {rec?.target_title ?? "Candidate"}
-            {rec?.pipeline ? ` · ${rec.pipeline}` : ""}
-            {rec?.candidate_location ? ` · 📍 ${rec.candidate_location}` : ""}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">Job</span>
+            <JobQuickSelect
+              key={rec?.target_position_id ?? ""}
+              personId={row.id}
+              jobId={rec?.target_position_id ?? null}
+              jobs={positions}
+              fallbackLabel={rec?.target_title}
+              canEdit={canEdit && row.status === "applicant"}
+              size="md"
+            />
+            {rec?.pipeline && <span>· {rec.pipeline}</span>}
+            {rec?.candidate_location && <span>· 📍 {rec.candidate_location}</span>}
+          </div>
         </div>
       </div>
 
@@ -163,10 +174,10 @@ export function CandidateProfile({
           so unsaved edits survive a tab switch and one Save covers all three. */}
       <CandidateForm
         row={row}
-        isAdmin={isAdmin}
         canEdit={canEdit}
         slackEnabled={slackEnabled}
         positions={positions}
+        jobHireCount={jobHireCount}
         tab={formTab}
         onNavigate={setActiveTab}
       />

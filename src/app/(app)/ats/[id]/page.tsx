@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
-import { isAdminRole, canEditModule } from "@/lib/auth/permissions";
+import { canEditModule } from "@/lib/auth/permissions";
 import { isSlackConfigured } from "@/lib/slack/client";
 import type {
   CandidateRow,
@@ -14,6 +14,8 @@ import type {
 } from "@/lib/ats/types";
 import type { PersonDocument, PersonDocumentWithUrl } from "@/lib/hr/types";
 import type { ProfileTransition } from "@/lib/shared/transitions";
+import { hiresSinceOpened } from "@/lib/ats/jobs";
+import { loadJobHires } from "@/lib/ats/job-hires";
 import { CandidateProfile } from "./candidate-profile";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +31,6 @@ export default async function CandidateDetailPage({
   const { tab } = await searchParams;
   const supabase = await createClient();
   const current = await getCurrentUser();
-  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
   const canEdit = current ? canEditModule(current.appUser, "ats") : false;
 
   const { data, error } = await supabase
@@ -134,6 +135,13 @@ export default async function CandidateDetailPage({
   const tasks = (taskData ?? []) as RecruitingTask[];
   const positions = (positionData ?? []) as PositionRow[];
 
+  // How many hires the candidate's job already has, so Hire can offer to close
+  // the job when this one fills the last opening.
+  const job = positions.find((p) => p.id === row.person_recruiting?.target_position_id);
+  const jobHireCount = job
+    ? hiresSinceOpened(await loadJobHires(supabase, job.id), job).length
+    : 0;
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link href="/ats" className="text-sm text-emerald-700 hover:text-emerald-900">
@@ -160,8 +168,8 @@ export default async function CandidateDetailPage({
         activities={activities}
         tasks={tasks}
         positions={positions}
+        jobHireCount={jobHireCount}
         initialTab={typeof tab === "string" ? tab : undefined}
-        isAdmin={isAdmin}
         canEdit={canEdit}
         slackEnabled={canEdit && isSlackConfigured()}
       />

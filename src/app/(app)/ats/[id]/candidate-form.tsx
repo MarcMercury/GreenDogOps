@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   type CandidateRow,
@@ -11,6 +11,7 @@ import {
   RECRUITING_SOURCE_OPTIONS,
   RECRUITING_STAGE_OPTIONS,
   RECRUITING_INTEREST_OPTIONS,
+  positionLabel,
 } from "@/lib/ats/types";
 import { OpportunityTypeField } from "@/app/(app)/_components/opportunity-type-field";
 import { PhoneInput } from "@/lib/shared/phone-input";
@@ -24,7 +25,6 @@ import { ApplicationSnapshot, ApplicationTabPanel } from "./application-panel";
 import {
   updateCandidate,
   hireCandidate,
-  deleteCandidate,
   announceCandidate,
   type SaveResult,
 } from "../actions";
@@ -218,8 +218,23 @@ function ApplicationHistory({ entries }: { entries: ApplicationHistoryEntry[] })
   );
 }
 
-function HireButton({ personId }: { personId: string }) {
+/**
+ * Hire → Employee. When this hire fills the last opening on the candidate's
+ * open job, offer to close the job as Filled in the same step.
+ */
+function HireButton({
+  personId,
+  job,
+  jobHireCount,
+}: {
+  personId: string;
+  job: PositionRow | null;
+  jobHireCount: number;
+}) {
   const { pending } = useFormStatus();
+  // Read by formAction in the same click, so a ref rather than state.
+  const closeJob = useRef(false);
+  const fillsJob = job?.status === "open" && jobHireCount + 1 >= job.openings;
   return (
     <button
       type="submit"
@@ -231,35 +246,19 @@ function HireButton({ personId }: { personId: string }) {
           )
         ) {
           e.preventDefault();
+          return;
         }
+        closeJob.current =
+          fillsJob && job
+            ? confirm(
+                `This fills the last opening for ${positionLabel(job)}. Close the job as Filled?\n\nOK = close it · Cancel = keep it open`,
+              )
+            : false;
       }}
-      formAction={() => hireCandidate(personId)}
+      formAction={() => hireCandidate(personId, closeJob.current)}
       className="rounded-lg border border-emerald-600 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
     >
       {pending ? "Hiring…" : "Hire → Employee"}
-    </button>
-  );
-}
-
-function DeleteButton({ personId }: { personId: string }) {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      onClick={(e) => {
-        if (
-          !confirm(
-            "Permanently delete this candidate record? This cannot be undone.",
-          )
-        ) {
-          e.preventDefault();
-        }
-      }}
-      formAction={() => deleteCandidate(personId)}
-      className="rounded-lg border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
-    >
-      {pending ? "Deleting…" : "Delete record"}
     </button>
   );
 }
@@ -269,18 +268,18 @@ export type CandidateFormTab = "profile" | AppTab;
 
 export function CandidateForm({
   row,
-  isAdmin = false,
   canEdit = false,
   slackEnabled = false,
   positions = [],
+  jobHireCount = 0,
   tab,
   onNavigate,
 }: {
   row: CandidateRow;
-  isAdmin?: boolean;
   canEdit?: boolean;
   slackEnabled?: boolean;
   positions?: PositionRow[];
+  jobHireCount?: number;
   /** Which part of the form to show; null hides the form (another tab is open). */
   tab: CandidateFormTab | null;
   onNavigate?: (tab: CandidateFormTab) => void;
@@ -290,6 +289,8 @@ export function CandidateForm({
   const history = rec?.application_history ?? [];
   const application = rec?.application ?? null;
   const groups = useMemo(() => roleGroupsFor(rec?.target_title), [rec?.target_title]);
+  const job = positions.find((p) => p.id === rec?.target_position_id) ?? null;
+  const hire = <HireButton personId={row.id} job={job} jobHireCount={jobHireCount} />;
   const [editingApp, setEditingApp] = useState(false);
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     async (prev, fd) => {
@@ -332,7 +333,7 @@ export function CandidateForm({
         )}
         {canEdit && (
           <>
-            <HireButton personId={row.id} />
+            {hire}
             <SaveButton />
           </>
         )}
@@ -359,6 +360,7 @@ export function CandidateForm({
 
         <Section title="Pipeline">
           <PositionPicker
+            key={rec?.target_position_id ?? ""}
             positions={positions}
             defaultPositionId={rec?.target_position_id}
             defaultTitle={rec?.target_title}
@@ -375,7 +377,12 @@ export function CandidateForm({
           />
           <Select label="Source (found on)" name="source" defaultValue={rec?.source} options={RECRUITING_SOURCE_OPTIONS} />
           <Field label="Source detail" name="source_detail" defaultValue={rec?.source_detail} />
-          <Field label="Applied to location" name="job_location" defaultValue={rec?.job_location} />
+          <Field
+            key={`job_location:${rec?.target_position_id ?? ""}`}
+            label="Applied to location"
+            name="job_location"
+            defaultValue={rec?.job_location}
+          />
           <Select
             label="Interest level"
             name="interest_level"
@@ -424,10 +431,9 @@ export function CandidateForm({
       </div>
 
       <div className="flex justify-end gap-3 pb-8">
-        {isAdmin && <DeleteButton personId={row.id} />}
         {canEdit && (
           <>
-            <HireButton personId={row.id} />
+            {hire}
             <SaveButton />
           </>
         )}

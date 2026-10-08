@@ -27,15 +27,21 @@ import {
   DECLINED_STAGE,
   ACTIVITY_TYPE_LABELS,
   POSITION_PRIORITY_LABELS,
-  POSITION_STATUS_LABELS,
   POSITION_EMPLOYMENT_LABELS,
   POSITION_WORK_LOCATION_LABELS,
   POSITION_PAY_TYPE_LABELS,
   isRecruitingStage,
+  isJobCloseReason,
+  isJobStatus,
+  JOB_CLOSE_REASON_LABELS,
+  bucketForStage,
+  positionLabel,
   type CandidateDocument,
   type CandidateRow,
   type PersonInterview,
+  type PositionRow,
 } from "@/lib/ats/types";
+import { jobRecruitingFields, matchOpenJob } from "@/lib/ats/jobs";
 import { buildInterviewSummary } from "@/lib/ats/slack-summary";
 import {
   normalizeJobLocation,
@@ -52,7 +58,7 @@ import {
   candidateProfileUrl,
   notifyCandidateThread,
 } from "@/lib/ats/slack-notify";
-import { esc } from "@/lib/ats/slack-messages";
+import { buildJobChangeMessage, esc } from "@/lib/ats/slack-messages";
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { cityOrZipLookup } from "@/lib/shared/zip-lookup";
@@ -141,6 +147,138 @@ async function currentStage(personId: string): Promise<string | null> {
   return (data as { stage?: string | null } | null)?.stage ?? null;
 }
 
+// ---------------------------------------------------------------------------
+// Jobs ↔ candidates. A candidate is linked to one job; reassigning logs the
+// move on the History tab and replies in the candidate's Slack thread (only
+// once they've been announced — the announcement itself names the job).
+// ---------------------------------------------------------------------------
+
+type JobRef = Pick<PositionRow, "id" | "title" | "location" | "status">;
+
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+async function loadJob(supabase: Supabase, id: string): Promise<JobRef | null> {
+  const { data } = await supabase
+    .from("position")
+    .select("id, title, location, status")
+    .eq("id", id)
+    .maybeSingle();
+  return (data as JobRef | null) ?? null;
+}
+
+async function loadOpenJobs(supabase: Supabase): Promise<JobRef[]> {
+  const { data } = await supabase
+    .from("position")
+    .select("id, title, location, status")
+    .eq("status", "open");
+  return (data ?? []) as JobRef[];
+}
+
+async function currentJobId(supabase: Supabase, personId: string): Promise<string | null> {
+  const { data } = await supabase
+    .from("person_recruiting")
+    .select("target_position_id")
+    .eq("person_id", personId)
+    .maybeSingle();
+  return (data as { target_position_id?: string | null } | null)?.target_position_id ?? null;
+}
+
+function closedJobError(job: JobRef): SaveResult {
+  return {
+    ok: false,
+    error: `${positionLabel(job)} is closed. Reopen it on the Jobs tab or pick an open job.`,
+  };
+}
+
+async function recordJobChange(
+  personId: string,
+  fromJob: JobRef | null,
+  toJob: JobRef | null,
+  current: CurrentUser,
+  detail?: string,
+): Promise<void> {
+  const from = fromJob ? positionLabel(fromJob) : null;
+  const to = toJob ? positionLabel(toJob) : null;
+  const name = actorName(current);
+  await logProfileTransition({
+    personId,
+    eventType: "job_change",
+    fromStage: from,
+    toStage: to,
+    detail: detail ?? null,
+    actorId: current.authId,
+    actorName: name,
+  });
+  if (!isSlackConfigured()) return;
+  // Checked now, not in after(): accepting from the queue links the job and
+  // then announces, and the announcement already names the job.
+  const admin = createAdminClient();
+  const { data } = await admin
+    .from("person")
+    .select("full_name, first_name, last_name, person_recruiting(slack_announce_ts)")
+    .eq("id", personId)
+    .maybeSingle();
+  if (!data) return;
+  const rec = (data as { person_recruiting?: unknown }).person_recruiting;
+  const ts = ((Array.isArray(rec) ? rec[0] : rec) as { slack_announce_ts?: string | null } | null)
+    ?.slack_announce_ts;
+  if (!ts) return;
+  after(async () => {
+    await notifyCandidateThread({
+      personId,
+      text: buildJobChangeMessage(candidateName(data), from, to, name),
+      username: name,
+      actorId: current.authId,
+      actorEmail: current.email,
+    });
+  });
+}
+
+/**
+ * Link a candidate to a job (or unlink with null). Only open jobs can take new
+ * candidates. The free-text title / clinic follow the job so older screens,
+ * Slack posts and imports stay consistent.
+ */
+async function changeCandidateJob(
+  supabase: Supabase,
+  personId: string,
+  toJobId: string | null,
+  current: CurrentUser,
+  detail?: string,
+): Promise<SaveResult> {
+  const fromJobId = await currentJobId(supabase, personId);
+  if (fromJobId === toJobId) return { ok: true };
+  const [fromJob, toJob] = await Promise.all([
+    fromJobId ? loadJob(supabase, fromJobId) : null,
+    toJobId ? loadJob(supabase, toJobId) : null,
+  ]);
+  if (toJobId && !toJob) return { ok: false, error: "That job no longer exists." };
+  if (toJob && toJob.status !== "open") return closedJobError(toJob);
+
+  const { error } = await supabase
+    .from("person_recruiting")
+    .upsert({ person_id: personId, ...jobRecruitingFields(toJob) }, { onConflict: "person_id" });
+  if (error) return { ok: false, error: error.message };
+
+  await recordJobChange(personId, fromJob, toJob, current, detail);
+  return { ok: true };
+}
+
+/** Assign / reassign a candidate's job from the list, profile header or review queue. */
+export async function assignCandidateJob(
+  personId: string,
+  jobId: string | null,
+): Promise<SaveResult> {
+  const gate = await ensureCanEdit("ats");
+  if (!gate.ok) return gate;
+  const supabase = await createClient();
+  const res = await changeCandidateJob(supabase, personId, jobId, gate.current);
+  if (!res.ok) return res;
+  revalidatePath("/ats");
+  revalidatePath(`/ats/${personId}`);
+  return { ok: true };
+}
+
 /** The application as edited on the profile, keeping what the editor doesn't show. */
 async function editedApplication(
   personId: string,
@@ -183,11 +321,26 @@ export async function updateCandidate(
   if (pErr) return { ok: false, error: pErr.message };
 
   const fromStage = await currentStage(personId);
+
+  // The Job picker on the form: a change follows the same rules (open jobs
+  // only, logged + posted) as reassigning from the header.
+  let jobChange: { from: JobRef | null; to: JobRef | null } | null = null;
+  if (formData.has("target_position_id")) {
+    const fromJobId = await currentJobId(supabase, personId);
+    const toJobId = str(formData.get("target_position_id"));
+    if (fromJobId !== toJobId) {
+      const [fromJob, toJob] = await Promise.all([
+        fromJobId ? loadJob(supabase, fromJobId) : null,
+        toJobId ? loadJob(supabase, toJobId) : null,
+      ]);
+      if (toJobId && !toJob) return { ok: false, error: "That job no longer exists." };
+      if (toJob && toJob.status !== "open") return closedJobError(toJob);
+      jobChange = { from: fromJob, to: toJob };
+    }
+  }
+
   const recPatch = {
     person_id: personId,
-    ...(formData.has("target_position_id")
-      ? { target_position_id: str(formData.get("target_position_id")) }
-      : {}),
     pipeline: normalizePipeline(str(formData.get("pipeline"))),
     stage: normalizeStage(str(formData.get("stage"))),
     target_title: normalizePositionTitle(str(formData.get("target_title"))),
@@ -212,12 +365,14 @@ export async function updateCandidate(
     ...(formData.get(APP_EDIT_MARKER) === "1"
       ? { application: await editedApplication(personId, formData) }
       : {}),
+    ...(jobChange ? jobRecruitingFields(jobChange.to) : {}),
   };
   const { error: rErr } = await supabase
     .from("person_recruiting")
     .upsert(recPatch, { onConflict: "person_id" });
   if (rErr) return { ok: false, error: rErr.message };
 
+  if (jobChange) await recordJobChange(personId, jobChange.from, jobChange.to, gate.current);
   await recordStageChange(personId, fromStage, recPatch.stage, gate.current);
 
   revalidatePath(`/ats/${personId}`);
@@ -702,8 +857,10 @@ export async function getCandidateDocuments(
 // schedule settings row, and any linked login account). Documents already live
 // on the same person row, so they follow into the HR/Roster view automatically.
 // The move is recorded in the profile transition log so the history travels
-// with the profile.
-export async function hireCandidate(personId: string): Promise<void> {
+// with the profile. The recruiting stage becomes Hired, and when this hire
+// fills the job's last opening the recruiter can close the job in one go
+// (`closeJob`).
+export async function hireCandidate(personId: string, closeJob = false): Promise<void> {
   const gate = await ensureCanEdit("ats");
   if (!gate.ok) redirect(`/ats/${personId}`);
   const supabase = await createClient();
@@ -731,19 +888,17 @@ export async function hireCandidate(personId: string): Promise<void> {
       .maybeSingle(),
     supabase
       .from("person_recruiting")
-      .select("target_position_id")
+      .select("target_position_id, stage")
       .eq("person_id", personId)
       .maybeSingle(),
   ]);
   const existing = emp as { hire_date?: string | null; position_id?: string | null } | null;
+  const recruiting = recRow as { target_position_id?: string | null; stage?: string | null } | null;
   await supabase.from("person_employment").upsert(
     {
       person_id: personId,
       hire_date: existing?.hire_date ?? today,
-      position_id:
-        existing?.position_id ??
-        (recRow as { target_position_id?: string | null } | null)?.target_position_id ??
-        null,
+      position_id: existing?.position_id ?? recruiting?.target_position_id ?? null,
     },
     { onConflict: "person_id" },
   );
@@ -752,6 +907,43 @@ export async function hireCandidate(personId: string): Promise<void> {
   await ensureAuthUserForPerson(personId);
 
   const current = await getCurrentUser();
+
+  // The hire message below covers Slack, so the stage move is logged only.
+  if (recruiting && recruiting.stage !== "Hired") {
+    await supabase
+      .from("person_recruiting")
+      .update({ stage: "Hired" })
+      .eq("person_id", personId);
+    await logProfileTransition({
+      personId,
+      eventType: "stage_change",
+      fromStage: recruiting.stage ?? null,
+      toStage: "Hired",
+      actorId: current?.authId ?? null,
+      actorName: current ? actorName(current) : null,
+    });
+  }
+
+  const jobId = recruiting?.target_position_id ?? null;
+  if (closeJob && jobId) {
+    const { data: closed } = await supabase
+      .from("position")
+      .update({ status: "closed", closed_at: new Date().toISOString(), close_reason: "filled" })
+      .eq("id", jobId)
+      .eq("status", "open")
+      .select("title, location");
+    const job = (closed as { title: string; location: string | null }[] | null)?.[0];
+    if (job && current) {
+      await recordAudit({
+        actorId: current.authId,
+        actorEmail: current.email,
+        action: "update",
+        entity: "position",
+        entityId: jobId,
+        summary: `Closed job ${positionLabel(job)} (filled)`,
+      });
+    }
+  }
   await logProfileTransition({
     personId,
     eventType: "hired_to_roster",
@@ -789,32 +981,6 @@ export async function hireCandidate(personId: string): Promise<void> {
   revalidatePath("/schedule");
   revalidatePath("/schedule/setup");
   redirect(`/hr/${personId}`);
-}
-
-// Permanently delete a candidate record. Admin/owner only.
-export async function deleteCandidate(personId: string): Promise<void> {
-  const current = await getCurrentUser();
-  if (!current || !isAdminRole(current.appUser.role)) {
-    redirect("/ats");
-  }
-
-  const supabase = await createClient();
-  const { error } = await supabase.from("person").delete().eq("id", personId);
-  if (error) {
-    throw new Error(`Could not delete candidate: ${error.message}`);
-  }
-
-  await recordAudit({
-    actorId: current.authId,
-    actorEmail: current.email,
-    action: "delete",
-    entity: "person",
-    entityId: personId,
-    summary: "Deleted recruiting candidate record",
-  });
-
-  revalidatePath("/ats");
-  redirect("/ats");
 }
 
 // ---------------------------------------------------------------------------
@@ -872,12 +1038,24 @@ async function setReviewStatus(
 }
 
 /**
- * Accept a pending applicant: promote to an active lead in the pipeline and
- * announce them in the Slack hiring channel (summary + profile link). A Slack
+ * Accept a pending applicant: link the job picked in the queue (when given),
+ * promote to an active lead in the pipeline and announce them in the Slack
+ * hiring channel (summary + profile link). A Slack
  * failure doesn't undo the accept — the profile's Announce button stays
  * available to retry.
  */
-export async function acceptCandidate(personId: string): Promise<SaveResult> {
+export async function acceptCandidate(
+  personId: string,
+  jobId?: string | null,
+): Promise<SaveResult> {
+  // Link the job first so the announcement names it.
+  if (jobId !== undefined) {
+    const gate = await ensureCanEdit("ats");
+    if (!gate.ok) return gate;
+    const supabase = await createClient();
+    const linked = await changeCandidateJob(supabase, personId, jobId, gate.current);
+    if (!linked.ok) return linked;
+  }
   const result = await setReviewStatus(personId, "accepted", ACCEPTED_LEAD_STAGE);
   if (!result.ok || !isSlackConfigured()) return result;
 
@@ -973,6 +1151,20 @@ export async function parseResumeFile(formData: FormData): Promise<ParseResumeRe
 }
 
 /**
+ * Link an imported candidate who is still in play to the one open job their
+ * title + clinic match. Historical rows (passed, hired, …) stay unlinked.
+ */
+function importedJobFields(
+  openJobs: JobRef[],
+  c: Pick<ParsedCandidate, "target_title" | "job_location">,
+  stage: string | null,
+) {
+  if (stage && bucketForStage(stage) !== "active") return {};
+  const job = matchOpenJob(openJobs, c.target_title, normalizeJobLocation(c.job_location));
+  return job ? jobRecruitingFields(job) : {};
+}
+
+/**
  * Create recruiting candidates from reviewed rows. Each becomes a `person`
  * (status = applicant) plus a `person_recruiting` row. Blank fields are left
  * for manual entry. Partial success is reported per-row.
@@ -994,6 +1186,7 @@ export async function createCandidates(
   const errors: string[] = [];
   // Default intake date for anything the upload didn't carry: the upload day.
   const uploadedOn = new Date().toISOString().slice(0, 10);
+  const openJobs = await loadOpenJobs(supabase);
 
   for (const c of valid) {
     const label =
@@ -1028,12 +1221,13 @@ export async function createCandidates(
 
     // Every applicant gets a recruiting row so the intake (application) date is
     // always recorded, even when no other recruiting field was provided.
+    const stage = normalizeStage(c.stage);
     const { error: rErr } = await supabase.from("person_recruiting").upsert(
       {
         person_id: person.id,
         target_title: normalizePositionTitle(c.target_title),
         pipeline: normalizePipeline(c.pipeline),
-        stage: normalizeStage(c.stage),
+        stage,
         source: normalizeSource(c.source),
         source_detail: c.source_detail,
         score: c.score,
@@ -1044,6 +1238,7 @@ export async function createCandidates(
         job_location: normalizeJobLocation(c.job_location),
         interest_level: c.interest_level,
         status_notes: c.status_notes,
+        ...importedJobFields(openJobs, c, stage),
       },
       { onConflict: "person_id" },
     );
@@ -1117,12 +1312,14 @@ export async function createResumeCandidate(
     return { ok: false, error: pErr?.message ?? "Could not create candidate." };
   }
 
+  const stage = normalizeStage(candidate.stage);
+  const openJobs = await loadOpenJobs(supabase);
   const { error: rErr } = await supabase.from("person_recruiting").upsert(
     {
       person_id: person.id,
       target_title: normalizePositionTitle(candidate.target_title),
       pipeline: normalizePipeline(candidate.pipeline),
-      stage: normalizeStage(candidate.stage),
+      stage,
       source: normalizeSource(candidate.source),
       source_detail: candidate.source_detail,
       score: candidate.score,
@@ -1136,6 +1333,7 @@ export async function createResumeCandidate(
       job_location: normalizeJobLocation(candidate.job_location),
       interest_level: candidate.interest_level,
       status_notes: candidate.status_notes,
+      ...importedJobFields(openJobs, candidate, stage),
     },
     { onConflict: "person_id" },
   );
@@ -1405,8 +1603,10 @@ export async function deleteRecruitingTask(
 }
 
 // ---------------------------------------------------------------------------
-// Open positions board — the hiring needs the team used to track in a Slack
-// canvas ("need another Van Nuys CSR", "MyPet truck tech top priority").
+// Jobs board — the hiring needs the team used to track in a Slack canvas
+// ("need another Van Nuys CSR", "MyPet truck tech top priority"), managed like
+// Indeed for employers: jobs are opened and closed, candidates are linked to
+// one job and stay in All Candidates after it closes.
 // Rows live on the shared `position` table, which HR also references by id.
 // ---------------------------------------------------------------------------
 
@@ -1419,9 +1619,7 @@ export async function savePosition(
 
   const id = str(formData.get("position_id"));
   const priority = str(formData.get("priority")) ?? "normal";
-  const status = str(formData.get("status")) ?? "open";
   if (!(priority in POSITION_PRIORITY_LABELS)) return { ok: false, error: "Unknown priority." };
-  if (!(status in POSITION_STATUS_LABELS)) return { ok: false, error: "Unknown status." };
   const openings = Math.max(1, Math.round(num(formData.get("openings")) ?? 1));
 
   const employmentType = str(formData.get("employment_type"));
@@ -1495,7 +1693,7 @@ export async function savePosition(
     return { ok: false, error: currentPosition.error.message };
   }
   if (id && !currentPosition?.data) {
-    return { ok: false, error: "The position being edited could not be found." };
+    return { ok: false, error: "The job being edited could not be found." };
   }
 
   const roleValues = id
@@ -1561,7 +1759,7 @@ export async function savePosition(
     return { ok: false, error: "Select clinic locations from the active location list." };
   }
   if (id && (titles.length !== 1 || locations.length !== 1)) {
-    return { ok: false, error: "Edit one position at a time." };
+    return { ok: false, error: "Edit one job at a time." };
   }
   if (!id && locations.some((location) => location === null)) {
     return { ok: false, error: "Select clinic locations from the active location list." };
@@ -1576,7 +1774,6 @@ export async function savePosition(
       title,
       location,
       priority,
-      status,
       openings,
       notes,
       ...details,
@@ -1585,7 +1782,9 @@ export async function savePosition(
 
   const result = id
     ? await supabase.from("position").update(records[0]).eq("id", id)
-    : await supabase.from("position").insert(records);
+    : await supabase
+        .from("position")
+        .insert(records.map((r) => ({ ...r, status: "open", opened_at: new Date().toISOString() })));
   if (result.error) {
     if (result.error.code === "23505") {
       return {
@@ -1598,8 +1797,8 @@ export async function savePosition(
 
   const summary =
     id
-      ? `Updated position ${records[0].title}${records[0].location ? ` (${records[0].location})` : ""}`
-      : `Opened ${records.length} position${records.length === 1 ? "" : "s"} for ${selectedTitles.join(", ")} at ${locations.join(", ")}`;
+      ? `Updated job ${records[0].title}${records[0].location ? ` (${records[0].location})` : ""}`
+      : `Opened ${records.length} job${records.length === 1 ? "" : "s"} for ${selectedTitles.join(", ")} at ${locations.join(", ")}`;
   await recordAudit({
     actorId: gate.current.authId,
     actorEmail: gate.current.email,
@@ -1613,32 +1812,138 @@ export async function savePosition(
   return { ok: true };
 }
 
-export async function setPositionStatus(
+/** What happens to a closing job's in-play candidates. */
+export type CloseJobCandidates = "keep" | "move" | "hold";
+
+/**
+ * Open or close a job. Closing records why (filled / cancelled / on hold) and
+ * never removes candidates: they stay linked to the closed job and in All
+ * Candidates. The recruiter can move the job's in-play candidates (review
+ * queue + active stages) to another open job, or put the active ones on Hold
+ * for Future. Reopening starts a fresh opened_at.
+ */
+export async function setJobStatus(
   positionId: string,
   status: string,
+  opts: {
+    closeReason?: string | null;
+    candidates?: CloseJobCandidates;
+    moveToId?: string | null;
+  } = {},
 ): Promise<SaveResult> {
   const gate = await ensureCanEdit("ats");
   if (!gate.ok) return gate;
-  if (!(status in POSITION_STATUS_LABELS)) return { ok: false, error: "Unknown status." };
+  if (!isJobStatus(status)) return { ok: false, error: "Unknown status." };
   const supabase = await createClient();
+
+  const job = await loadJob(supabase, positionId);
+  if (!job) return { ok: false, error: "That job no longer exists." };
+
+  if (status === "open") {
+    const { error } = await supabase
+      .from("position")
+      .update({
+        status: "open",
+        opened_at: new Date().toISOString(),
+        closed_at: null,
+        close_reason: null,
+      })
+      .eq("id", positionId);
+    if (error) return { ok: false, error: error.message };
+    await recordAudit({
+      actorId: gate.current.authId,
+      actorEmail: gate.current.email,
+      action: "update",
+      entity: "position",
+      entityId: positionId,
+      summary: `Reopened job ${positionLabel(job)}`,
+    });
+    revalidatePath("/ats");
+    return { ok: true };
+  }
+
+  const reason = opts.closeReason ?? null;
+  if (reason !== null && !isJobCloseReason(reason)) {
+    return { ok: false, error: "Unknown close reason." };
+  }
+  const handling = opts.candidates ?? "keep";
+  let moveTo: JobRef | null = null;
+  if (handling === "move") {
+    if (!opts.moveToId || opts.moveToId === positionId) {
+      return { ok: false, error: "Pick the open job to move candidates to." };
+    }
+    moveTo = await loadJob(supabase, opts.moveToId);
+    if (!moveTo) return { ok: false, error: "That job no longer exists." };
+    if (moveTo.status !== "open") return closedJobError(moveTo);
+  }
+
   const { error } = await supabase
     .from("position")
-    .update({ status })
+    .update({ status: "closed", closed_at: new Date().toISOString(), close_reason: reason })
     .eq("id", positionId);
   if (error) return { ok: false, error: error.message };
+
+  let affected = 0;
+  if (handling !== "keep") {
+    const { data: linked, error: lErr } = await supabase
+      .from("person_recruiting")
+      .select("person_id, stage, review_status, person!inner(status)")
+      .eq("target_position_id", positionId)
+      .eq("person.status", "applicant");
+    if (lErr) return { ok: false, error: `Job closed, but its candidates could not be loaded: ${lErr.message}` };
+    const rows = (linked ?? []) as { person_id: string; stage: string | null; review_status: string | null }[];
+    const pending = rows.filter((r) => r.review_status === "pending");
+    const active = rows.filter(
+      (r) => r.review_status !== "pending" && r.review_status !== "declined" && bucketForStage(r.stage) === "active",
+    );
+    const detail = `Job ${positionLabel(job)} closed`;
+    if (moveTo) {
+      for (const r of [...pending, ...active]) {
+        const res = await changeCandidateJob(supabase, r.person_id, moveTo.id, gate.current, detail);
+        if (res.ok) affected++;
+      }
+    } else {
+      for (const r of active) {
+        const { error: sErr } = await supabase
+          .from("person_recruiting")
+          .update({ stage: "Hold for Future" })
+          .eq("person_id", r.person_id);
+        if (sErr) continue;
+        await recordStageChange(r.person_id, r.stage, "Hold for Future", gate.current);
+        affected++;
+      }
+    }
+  }
+
+  const reasonLabel = reason ? ` (${JOB_CLOSE_REASON_LABELS[reason].toLowerCase()})` : "";
+  const followUp =
+    handling === "move" && moveTo
+      ? `; moved ${affected} candidate${affected === 1 ? "" : "s"} to ${positionLabel(moveTo)}`
+      : handling === "hold"
+        ? `; put ${affected} candidate${affected === 1 ? "" : "s"} on Hold for Future`
+        : "";
+  await recordAudit({
+    actorId: gate.current.authId,
+    actorEmail: gate.current.email,
+    action: "update",
+    entity: "position",
+    entityId: positionId,
+    summary: `Closed job ${positionLabel(job)}${reasonLabel}${followUp}`,
+  });
+
   revalidatePath("/ats");
   return { ok: true };
 }
 
 /**
- * Admin only, and only for positions nobody is linked to — `position` is shared
+ * Admin only, and only for jobs nobody is linked to — `position` is shared
  * with HR (person_employment.position_id), so deleting a used one would blank
  * employees' positions. Close it instead.
  */
 export async function deletePosition(positionId: string): Promise<SaveResult> {
   const current = await getCurrentUser();
   if (!current || !isAdminRole(current.appUser.role)) {
-    return { ok: false, error: "Only an admin can delete a position. Close it instead." };
+    return { ok: false, error: "Only an admin can delete a job. Close it instead." };
   }
   const supabase = await createClient();
   const [{ count: employees }, { count: candidates }] = await Promise.all([
@@ -1654,7 +1959,7 @@ export async function deletePosition(positionId: string): Promise<SaveResult> {
   if ((employees ?? 0) > 0 || (candidates ?? 0) > 0) {
     return {
       ok: false,
-      error: `This position is linked to ${employees ?? 0} employee(s) and ${candidates ?? 0} candidate(s). Mark it Closed instead.`,
+      error: `This job is linked to ${employees ?? 0} employee(s) and ${candidates ?? 0} candidate(s). Close it instead.`,
     };
   }
   const { error } = await supabase.from("position").delete().eq("id", positionId);
@@ -1665,7 +1970,7 @@ export async function deletePosition(positionId: string): Promise<SaveResult> {
     action: "delete",
     entity: "position",
     entityId: positionId,
-    summary: "Deleted position",
+    summary: "Deleted job",
   });
   revalidatePath("/ats");
   return { ok: true };

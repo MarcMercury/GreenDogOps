@@ -6,9 +6,10 @@ import { type PositionRow, positionLabel } from "@/lib/ats/types";
 const OTHER = "__other__";
 
 /**
- * Pick the open position a candidate is for. Submits `target_position_id` plus
- * a synced `target_title` (the free-text title older screens and imports read).
- * "Other…" keeps a free-text title with no linked position.
+ * Pick the job a candidate is for. Submits `target_position_id` plus a synced
+ * `target_title` (the free-text title older screens and imports read).
+ * "No job — other title…" keeps a free-text title with no linked job.
+ * Only open jobs are offered, plus whichever one is already linked.
  */
 export function PositionPicker({
   positions,
@@ -23,10 +24,7 @@ export function PositionPicker({
   className: string;
   labelClassName: string;
 }) {
-  // Offer open/on-hold positions, plus whichever one is already linked.
-  const options = positions.filter(
-    (p) => p.status === "open" || p.status === "on_hold" || p.id === defaultPositionId,
-  );
+  const options = positions.filter((p) => p.status === "open" || p.id === defaultPositionId);
   const initial =
     defaultPositionId && options.some((p) => p.id === defaultPositionId)
       ? defaultPositionId
@@ -42,27 +40,27 @@ export function PositionPicker({
   return (
     <div className="flex flex-col gap-1">
       <label className="flex flex-col gap-1">
-        <span className={labelClassName}>Position</span>
+        <span className={labelClassName}>Job</span>
         <select
           value={choice}
           onChange={(e) => setChoice(e.target.value)}
           className={className}
         >
-          <option value="">—</option>
+          <option value="">— No job —</option>
           {options.map((p) => (
             <option key={p.id} value={p.id}>
               {positionLabel(p)}
-              {p.status === "on_hold" ? " (on hold)" : ""}
+              {p.status === "closed" ? " (closed)" : ""}
             </option>
           ))}
-          <option value={OTHER}>Other…</option>
+          <option value={OTHER}>No job — other title…</option>
         </select>
       </label>
       {choice === OTHER && (
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Position title"
+          placeholder="Role title"
           className={className}
         />
       )}
