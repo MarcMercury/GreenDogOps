@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  answeredWithSections,
   answerText,
+  checkedOptions,
+  fieldTypeAllowed,
   formFieldProblems,
   formMatchesTitle,
   newField,
   parseFields,
+  pickInterviewGuide,
+  readInterviewResponses,
+  responsesAsFields,
   slugify,
   validateAnswers,
   type RecruitingFormField,
@@ -89,5 +95,88 @@ describe("helpers", () => {
   it("newField gives choice questions a starter option", () => {
     expect(newField("dropdown").options).toEqual(["Option 1"]);
     expect(newField("short_text").options).toEqual([]);
+  });
+});
+
+describe("interview guides", () => {
+  const guide = (name: string, interview_types: string[], job_titles: string[] = []) => ({
+    name,
+    interview_types,
+    job_titles,
+  });
+  const phone = guide("Phone Screen", ["phone_screen", "virtual"]);
+  const shadow = guide("Shadow Day", ["in_person", "working_interview"]);
+  const csrPhone = guide("CSR Phone Screen", ["phone_screen"], ["CSR"]);
+  const anything = guide("General notes", []);
+
+  it("pickInterviewGuide matches the interview type", () => {
+    expect(pickInterviewGuide([phone, shadow], "working_interview", "CSR")).toBe(shadow);
+    expect(pickInterviewGuide([phone, shadow], "virtual", null)).toBe(phone);
+    expect(pickInterviewGuide([phone, shadow], "final", "CSR")).toBeNull();
+  });
+
+  it("pickInterviewGuide prefers a job-specific guide, then a typed one", () => {
+    expect(pickInterviewGuide([phone, csrPhone], "phone_screen", "csr")).toBe(csrPhone);
+    expect(pickInterviewGuide([phone, csrPhone], "phone_screen", "DVM")).toBe(phone);
+    expect(pickInterviewGuide([anything, phone], "phone_screen", "DVM")).toBe(phone);
+    expect(pickInterviewGuide([anything, phone], "final", "DVM")).toBe(anything);
+    expect(pickInterviewGuide([anything, phone], null, null)).toBe(anything);
+  });
+
+  it("guides can't ask for file uploads", () => {
+    expect(fieldTypeAllowed("interview", "file")).toBe(false);
+    expect(fieldTypeAllowed("interview", "checkboxes")).toBe(true);
+    expect(fieldTypeAllowed("screening", "file")).toBe(true);
+  });
+
+  it("readInterviewResponses snapshots each question with its answer", () => {
+    const fields = [
+      f({ id: "sec", type: "section", label: "Core" }),
+      f({ id: "exp", type: "long_text", label: "Experience", description: "tip" }),
+      f({ id: "tools", type: "checkboxes", label: "Tools", options: ["ezyVet", "Slack"] }),
+      f({ id: "ft", type: "multiple_choice", label: "FT?", options: ["Full-time", "Part-time"] }),
+      f({ id: "cv", type: "file", label: "CV" }),
+    ];
+    const fd = new FormData();
+    fd.append("a_exp", "  3 years GP  ");
+    fd.append("a_tools", "ezyVet");
+    fd.append("a_tools", "Slack");
+    fd.append("a_sec", "ignored");
+    const out = readInterviewResponses(fields, fd);
+    expect(out.map((r) => r.id)).toEqual(["sec", "exp", "tools", "ft"]);
+    expect(out[0]).toMatchObject({ type: "section", question: "Core", answer: null });
+    expect(out[1]).toMatchObject({ type: "long_text", answer: "3 years GP", description: "tip" });
+    expect(out[1]).not.toHaveProperty("options");
+    expect(out[2]).toMatchObject({ answer: "ezyVet, Slack", options: ["ezyVet", "Slack"] });
+    expect(out[3].answer).toBeNull();
+  });
+
+  it("responsesAsFields round-trips a snapshot and upgrades legacy responses", () => {
+    const fields = responsesAsFields([
+      { id: "tools", question: "Tools", answer: "Slack", type: "checkboxes", options: ["ezyVet", "Slack"] },
+      { question: "Old CSR question", answer: "notes" },
+      { question: "Another", answer: null },
+    ]);
+    expect(fields[0]).toMatchObject({ id: "tools", type: "checkboxes", options: ["ezyVet", "Slack"] });
+    expect(fields[1]).toMatchObject({ id: "legacy_1", type: "long_text", label: "Old CSR question", options: [] });
+    expect(fields[2].id).toBe("legacy_2");
+  });
+
+  it("checkedOptions reads a stored checkboxes answer", () => {
+    expect(checkedOptions("ezyVet, Slack", ["ezyVet", "Slack", "Docs"])).toEqual(["ezyVet", "Slack"]);
+    expect(checkedOptions(null, ["a"])).toEqual([]);
+  });
+
+  it("answeredWithSections keeps headings only above answered questions", () => {
+    const rows = [
+      { question: "A", answer: null, type: "section" },
+      { question: "a1", answer: "yes" },
+      { question: "B", answer: null, type: "section" },
+      { question: "b1", answer: "  " },
+      { question: "C", answer: null, type: "section" },
+      { question: "c1", answer: null },
+      { question: "c2", answer: "ok" },
+    ];
+    expect(answeredWithSections(rows).map((r) => r.question)).toEqual(["A", "a1", "C", "c2"]);
   });
 });

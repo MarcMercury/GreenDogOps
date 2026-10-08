@@ -17,7 +17,12 @@ import type { ProfileTransition } from "@/lib/shared/transitions";
 import { hiresSinceOpened } from "@/lib/ats/jobs";
 import { loadJobHires } from "@/lib/ats/job-hires";
 import { loadInterviewers, canTakeBookings } from "@/lib/ats/booking";
-import { parseFields, type FormRequest, type FormResponse } from "@/lib/ats/forms";
+import {
+  parseFields,
+  type FormRequest,
+  type FormResponse,
+  type InterviewGuideOption,
+} from "@/lib/ats/forms";
 import type { Rejection } from "@/lib/ats/rejections";
 import { CandidateProfile, type ProfileInvite } from "./candidate-profile";
 
@@ -142,6 +147,7 @@ export default async function CandidateDetailPage({
     interviewerData,
     { data: rejectionData },
     { data: templateData },
+    { data: guideData },
   ] =
     await Promise.all([
       supabase
@@ -175,7 +181,21 @@ export default async function CandidateDetailPage({
         .limit(1)
         .maybeSingle(),
       supabase.from("recruiting_email_template").select("id, name, active").eq("kind", "rejection").order("sort_order"),
+      supabase
+        .from("recruiting_form")
+        .select("id, name, intro, fields, job_titles, interview_types")
+        .eq("kind", "interview")
+        .eq("active", true)
+        .order("name"),
     ]);
+  const interviewGuides: InterviewGuideOption[] = (
+    (guideData ?? []) as (Omit<InterviewGuideOption, "fields"> & { fields: unknown })[]
+  ).map((g) => ({
+    ...g,
+    fields: parseFields(g.fields),
+    job_titles: Array.isArray(g.job_titles) ? g.job_titles : [],
+    interview_types: Array.isArray(g.interview_types) ? g.interview_types : [],
+  }));
   const formResponses = ((responseData ?? []) as FormResponse[]).map((r) => ({
     ...r,
     fields: parseFields(r.fields, { allowCore: true }),
@@ -242,6 +262,7 @@ export default async function CandidateDetailPage({
         }
         templates={(templateData ?? []) as { id: string; name: string; active: boolean }[]}
         screeningForms={screeningForms}
+        interviewGuides={interviewGuides}
         interviewers={interviewers}
         currentUserId={current?.authId ?? null}
         initialTab={typeof tab === "string" ? tab : undefined}

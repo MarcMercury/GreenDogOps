@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FORM_KIND_LABELS, type FormKind } from "@/lib/ats/forms";
+import { INTERVIEW_TYPE_LABELS } from "@/lib/ats/types";
 import { duplicateForm, setDefaultApplication, setFormActive } from "./forms-actions";
 
 export interface FormListRow {
@@ -12,11 +13,13 @@ export interface FormListRow {
   name: string;
   description: string | null;
   job_titles: string[];
+  interview_types: string[];
   slug: string | null;
   is_default: boolean;
   active: boolean;
   updated_at: string;
   question_count: number;
+  /** Submissions; for interview guides, interviews logged with the guide. */
   response_count: number;
 }
 
@@ -26,7 +29,8 @@ function fmtDate(d: string): string {
 
 /**
  * The Forms tab — the team's recruiting Google Forms: the public Standard
- * Application(s) and the role-specific questionnaires sent after approval.
+ * Application(s), the role-specific questionnaires sent after approval, and
+ * the interview guides interviewers fill in on Interview Tracking.
  */
 export function FormsList({
   forms,
@@ -73,7 +77,22 @@ export function FormsList({
       title: "Role-specific forms",
       hint: "Questionnaires you send a candidate after approving them. Answers attach to their profile.",
     },
+    {
+      kind: "interview",
+      title: "Interview guides",
+      hint: "Question sets the interviewer fills in on Interview Tracking. Loaded automatically by interview type and job. Candidates never see them.",
+    },
   ];
+  const addLabel: Record<FormKind, string> = {
+    application: "Application",
+    screening: "Form",
+    interview: "Interview guide",
+  };
+  const emptyLabel: Record<FormKind, string> = {
+    application: "application forms",
+    screening: "role-specific forms",
+    interview: "interview guides",
+  };
 
   return (
     <div className="space-y-6">
@@ -92,13 +111,13 @@ export function FormsList({
                   href={`/ats/forms/new?kind=${g.kind}`}
                   className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800"
                 >
-                  + {g.kind === "application" ? "Application" : "Form"}
+                  + {addLabel[g.kind]}
                 </Link>
               )}
             </div>
             {rows.length === 0 ? (
               <p className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                No {g.kind === "application" ? "application forms" : "role-specific forms"} yet.
+                No {emptyLabel[g.kind]} yet.
               </p>
             ) : (
               <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -108,7 +127,9 @@ export function FormsList({
                       <th className="px-4 py-2.5">Form</th>
                       <th className="px-4 py-2.5">Used for</th>
                       <th className="px-4 py-2.5">Status</th>
-                      <th className="px-4 py-2.5 text-center">Responses</th>
+                      <th className="px-4 py-2.5 text-center">
+                        {g.kind === "interview" ? "Interviews" : "Responses"}
+                      </th>
                       <th className="px-4 py-2.5">Updated</th>
                       <th className="px-4 py-2.5" />
                     </tr>
@@ -146,6 +167,19 @@ export function FormsList({
                             </div>
                           ) : (
                             <span className="text-xs text-slate-400">Any job</span>
+                          )}
+                          {f.kind === "interview" && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              {f.interview_types.length ? (
+                                f.interview_types.map((t) => (
+                                  <span key={t} className="rounded-md bg-sky-50 px-1.5 py-0.5 text-xs text-sky-700">
+                                    {INTERVIEW_TYPE_LABELS[t] ?? t}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-xs text-slate-400">Any interview type</span>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3">

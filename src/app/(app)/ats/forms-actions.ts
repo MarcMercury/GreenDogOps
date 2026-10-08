@@ -7,12 +7,15 @@ import { logProfileTransition } from "@/lib/shared/transition-log";
 import { isSlackConfigured } from "@/lib/slack/client";
 import { isEmailConfigured } from "@/lib/shared/email";
 import {
+  fieldTypeAllowed,
   formFieldProblems,
+  isFormKind,
   parseFields,
   slugify,
   type FormKind,
   type RecruitingFormField,
 } from "@/lib/ats/forms";
+import { INTERVIEW_TYPE_LABELS } from "@/lib/ats/types";
 import { linkToken } from "@/lib/ats/scheduling";
 import { appBaseUrl, candidateName, notifyCandidateThread } from "@/lib/ats/slack-notify";
 import { buildFormSentMessage } from "@/lib/ats/slack-messages";
@@ -40,6 +43,7 @@ export interface FormInput {
   success_message?: string | null;
   fields: RecruitingFormField[];
   job_titles: string[];
+  interview_types?: string[];
   slug?: string | null;
   require_resume?: boolean;
   active: boolean;
@@ -53,7 +57,7 @@ export async function saveForm(input: FormInput): Promise<FormSaveResult> {
 
   const name = clean(input.name, 120);
   if (!name) return { ok: false, error: "Give the form a name." };
-  if (input.kind !== "application" && input.kind !== "screening") {
+  if (!isFormKind(input.kind)) {
     return { ok: false, error: "Unknown form type." };
   }
   const fields = parseFields(input.fields);
@@ -62,10 +66,17 @@ export async function saveForm(input: FormInput): Promise<FormSaveResult> {
   }
   const problems = formFieldProblems(fields);
   if (problems.length) return { ok: false, error: problems[0] };
+  if (fields.some((f) => !fieldTypeAllowed(input.kind, f.type))) {
+    return { ok: false, error: "Interview guides can't have file-upload questions." };
+  }
 
   const jobTitles = [
     ...new Set((input.job_titles ?? []).map((t) => clean(t, 80)).filter((t): t is string => !!t)),
   ];
+  const interviewTypes =
+    input.kind === "interview"
+      ? [...new Set((input.interview_types ?? []).filter((t) => t in INTERVIEW_TYPE_LABELS))]
+      : [];
   const slug = input.kind === "application" ? slugify(input.slug || name) || null : null;
   if (input.kind === "application" && !slug) return { ok: false, error: "Give the application a link name." };
 
@@ -91,6 +102,7 @@ export async function saveForm(input: FormInput): Promise<FormSaveResult> {
     success_message: clean(input.success_message, 2000),
     fields,
     job_titles: jobTitles,
+    interview_types: interviewTypes,
     slug,
     require_resume: input.kind === "application" ? input.require_resume !== false : false,
     active: input.active,
@@ -148,6 +160,7 @@ export async function duplicateForm(id: string): Promise<FormSaveResult> {
       success_message: src.success_message,
       fields: src.fields,
       job_titles: src.job_titles,
+      interview_types: src.interview_types ?? [],
       slug,
       require_resume: src.require_resume,
       is_default: false,

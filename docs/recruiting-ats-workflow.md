@@ -234,7 +234,7 @@ Saving a Scheduled interview puts it on the **Ops calendar**. An in-person inter
 
 The interviewer owns the candidate until they hand them off or the process ends. Use the existing ATS tools:
 
-1. **Log the result.** Open the interview on the **Interview Tracking** tab and set **Status** (Completed / No Show / Cancelled), **Overall grade** (A–F), **Recommendation** (Advance / Hold / Pass), and **Summary**. The CSR phone-screen questions are available for phone screens.
+1. **Log the result.** Open the interview on the **Interview Tracking** tab and set **Status** (Completed / No Show / Cancelled), **Overall grade** (A–F), **Recommendation** (Advance / Hold / Pass), and **Summary**. The **📋 interview guide** for the interview type loads automatically: the *Phone Screen* guide for phone and virtual interviews, the *In-Person / Shadow Day* guide for in-person interviews and shadow days, and the *Final Interview* guide for finals. Expand it to take notes question by question; every question is optional. You can pick a different guide or **No guide** from its dropdown. Answers are saved with the questions as they were, so later edits to a guide never change logged interviews.
 2. **Share it.** Once the candidate has a Slack thread, marking the interview **Completed** posts 📝/✅ with ⭐ the grade and recommendation automatically. **Post summary** posts the full notes.
 3. **Move the stage.** Update the candidate's **Stage**. Once announced, each stage change posts in their thread: ⬆️ when they advance, 💼 **Approved for Offer**, 🎉 **Hired**, ❌ passed / declined, ⏸️ on hold.
    `New Lead → Contacted → Phone Screen → Interview → Shadow Day → Offer → Hired`
@@ -282,6 +282,7 @@ The interviewer owns the candidate until they hand them off or the process ends.
 | See all scheduled / pending interviews | Recruiting (ATS) → **Interviews** |
 | Set my interview hours / connect Google | Recruiting → **📅 My Availability** |
 | Create or edit a form | Recruiting → **Forms** → **+ Form** / **Edit** |
+| Change interview questions | Recruiting → **Forms** → **Interview guides** → **Edit** |
 
 ---
 
@@ -355,12 +356,22 @@ Until the email goes out, anyone who can edit Recruiting can **Cancel email** (t
 
 ## Forms (Recruiting → Forms)
 
-Our recruiting version of Google Forms. There are two kinds:
+Our recruiting version of Google Forms. There are three kinds:
 
 - **Standard Application** — the public application linked from job postings (`/apply`, or `/apply/<link name>` for extra versions). Contact details, position, city/ZIP, resume and cover letter are built in; you add the standard questions. One application is the **Default** served at `/apply`.
-- **Role-specific forms** — questionnaires such as *CSR Screening Questions*, *RVT Questions* or *DVM Questions*, sent to one candidate at a time. Tag each with the job types it's for (e.g. CSR) so it's suggested first for those candidates.
+- **Role-specific forms** — questionnaires sent to one candidate at a time. Tag each with the job types it's for (e.g. CSR) so it's suggested first for those candidates. These replace the questions we used to send in Indeed auto-responses:
 
-In the builder, questions can be **Short answer, Paragraph, Multiple choice, Checkboxes, Dropdown, Yes / No, Number, Date, File upload** or a **Section heading**, each **Required** or optional. You can reorder, duplicate and delete them. On the Forms tab you can **Edit, Preview, Duplicate, Activate / Deactivate**, make an application the **Default**, and copy an application's link. Editing a form never changes answers already submitted; each response keeps the questions as they were.
+  | Form | Suggested for |
+  |---|---|
+  | Vet Tech Screening Questions (Lead / Senior Vet Tech) | Senior Vet Tech, Vet Tech, RVT, Clinic Tech |
+  | In-House CSR Screening Questions | CSR |
+  | Remote CSR Screening Questions | Remote CSR |
+  | Remote CSR Written Exercise (replies to 3 mock client emails and 3 mock texts) | Remote CSR |
+  | Non-Anesthetic Dental Tech Screening Questions | Dental Tech, Dentals (trainee) |
+
+- **Interview guides** — the question sets interviewers fill in on **Interview Tracking** (see Step 6). Tag each with the interview types it loads for and, optionally, job types. A guide tagged with the candidate's job wins over a general one. Candidates never see guides. The starting guides are *Phone Screen* (from our In-House CSR interview template), *In-Person / Shadow Day* (with 1–5 ratings for our core values) and *Final Interview*.
+
+In the builder, questions can be **Short answer, Paragraph, Multiple choice, Checkboxes, Dropdown, Yes / No, Number, Date, File upload** (not in interview guides) or a **Section heading**, each **Required** or optional. In an interview guide, a question's description shows as a 💡 tip for the interviewer. You can reorder, duplicate and delete them. On the Forms tab you can **Edit, Preview, Duplicate, Activate / Deactivate**, make an application the **Default**, and copy an application's link. Editing a form never changes answers already submitted; each response keeps the questions as they were.
 
 ---
 

@@ -9,6 +9,7 @@ import {
   FORM_KIND_LABELS,
   fieldHasOptions,
   fieldIsAnswerable,
+  fieldTypeAllowed,
   formFieldProblems,
   newField,
   newFieldId,
@@ -17,7 +18,10 @@ import {
   type RecruitingForm,
   type RecruitingFormField,
 } from "@/lib/ats/forms";
+import { INTERVIEW_TYPE_LABELS } from "@/lib/ats/types";
 import { saveForm } from "@/app/(app)/ats/forms-actions";
+
+const INTERVIEW_TYPE_CHIPS = Object.entries(INTERVIEW_TYPE_LABELS).filter(([v]) => v !== "other");
 
 export type BuilderForm = Omit<RecruitingForm, "id" | "created_at" | "updated_at"> & {
   id: string | null;
@@ -48,6 +52,7 @@ function cleanForm(form: BuilderForm): BuilderForm {
     intro: blankToNull(form.intro),
     success_message: blankToNull(form.success_message),
     job_titles: [...new Set(form.job_titles.map(oneLine).filter(Boolean))],
+    interview_types: form.kind === "interview" ? [...new Set(form.interview_types)] : [],
     fields: form.fields.map((f) => ({
       ...f,
       label: oneLine(f.label),
@@ -144,6 +149,8 @@ export function FormBuilder({
   const [pending, startTransition] = useTransition();
 
   const isApplication = form.kind === "application";
+  const isInterview = form.kind === "interview";
+  const fieldTypes = FORM_FIELD_TYPES.filter((t) => fieldTypeAllowed(form.kind, t.value));
   const dirty = useMemo(() => JSON.stringify(form) !== baseline, [form, baseline]);
   const linkSlug = slugify(form.slug || form.name);
 
@@ -316,6 +323,7 @@ export function FormBuilder({
         success_message: cleaned.success_message,
         fields: cleaned.fields,
         job_titles: cleaned.job_titles,
+        interview_types: cleaned.interview_types,
         slug,
         require_resume: cleaned.require_resume,
         active: cleaned.active,
@@ -368,7 +376,13 @@ export function FormBuilder({
               value={form.name}
               onChange={(e) => set("name", e.target.value)}
               maxLength={120}
-              placeholder={isApplication ? "e.g. Standard Application" : "e.g. CSR Screening"}
+              placeholder={
+                isApplication
+                  ? "e.g. Standard Application"
+                  : isInterview
+                    ? "e.g. Phone Screen Interview Guide"
+                    : "e.g. CSR Screening"
+              }
               className={`${inputCls} w-full text-base font-medium ${
                 showProblems && !form.name.trim() ? "border-red-400" : ""
               }`}
@@ -386,40 +400,64 @@ export function FormBuilder({
         </div>
       </section>
 
-      {/* Candidate-facing text */}
-      <section className={cardCls}>
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-          What the candidate sees
-        </h2>
-        <div className="mt-3 space-y-4">
-          <Field label="Intro" hint="Shown under the title">
-            <textarea
-              value={form.intro ?? ""}
-              onChange={(e) => set("intro", e.target.value === "" ? null : e.target.value)}
-              maxLength={4000}
-              rows={3}
-              placeholder="A short welcome or instructions"
-              className={`${inputCls} w-full resize-y`}
-            />
-          </Field>
-          <Field label="Success message" hint="Shown after they submit">
-            <textarea
-              value={form.success_message ?? ""}
-              onChange={(e) =>
-                set("success_message", e.target.value === "" ? null : e.target.value)
-              }
-              maxLength={2000}
-              rows={2}
-              placeholder={
-                isApplication
-                  ? "Thanks for applying! We'll be in touch."
-                  : "Your answers are in. We'll be in touch about next steps."
-              }
-              className={`${inputCls} w-full resize-y`}
-            />
-          </Field>
-        </div>
-      </section>
+      {/* Interviewer instructions (guides are never shown to candidates) */}
+      {isInterview ? (
+        <section className={cardCls}>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+            What the interviewer sees
+          </h2>
+          <div className="mt-3">
+            <Field label="Instructions" hint="Shown above the questions on Interview Tracking">
+              <textarea
+                value={form.intro ?? ""}
+                onChange={(e) => set("intro", e.target.value === "" ? null : e.target.value)}
+                maxLength={4000}
+                rows={3}
+                placeholder="How to run this interview and what to record"
+                className={`${inputCls} w-full resize-y`}
+              />
+            </Field>
+            <p className="mt-2 text-xs text-slate-500">
+              Candidates never see interview guides. Use each question&apos;s description for an
+              interviewer tip.
+            </p>
+          </div>
+        </section>
+      ) : (
+        <section className={cardCls}>
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
+            What the candidate sees
+          </h2>
+          <div className="mt-3 space-y-4">
+            <Field label="Intro" hint="Shown under the title">
+              <textarea
+                value={form.intro ?? ""}
+                onChange={(e) => set("intro", e.target.value === "" ? null : e.target.value)}
+                maxLength={4000}
+                rows={3}
+                placeholder="A short welcome or instructions"
+                className={`${inputCls} w-full resize-y`}
+              />
+            </Field>
+            <Field label="Success message" hint="Shown after they submit">
+              <textarea
+                value={form.success_message ?? ""}
+                onChange={(e) =>
+                  set("success_message", e.target.value === "" ? null : e.target.value)
+                }
+                maxLength={2000}
+                rows={2}
+                placeholder={
+                  isApplication
+                    ? "Thanks for applying! We'll be in touch."
+                    : "Your answers are in. We'll be in touch about next steps."
+                }
+                className={`${inputCls} w-full resize-y`}
+              />
+            </Field>
+          </div>
+        </section>
+      )}
 
       {/* Settings */}
       <section className={cardCls}>
@@ -433,7 +471,9 @@ export function FormBuilder({
                   ? "This is the application at /apply, so it stays active. Make another application the default to turn it off."
                   : isApplication
                     ? "Inactive applications can't be opened by candidates."
-                    : "Inactive forms can't be sent to candidates."}
+                    : isInterview
+                      ? "Inactive guides aren't offered on Interview Tracking."
+                      : "Inactive forms can't be sent to candidates."}
               </p>
             </div>
             <Switch
@@ -448,7 +488,9 @@ export function FormBuilder({
             <p className={labelCls}>
               Used for job types
               <span className="ml-2 text-xs font-normal text-slate-400">
-                Suggested first for candidates in these roles
+                {isInterview
+                  ? "Loads for candidates in these roles. Leave all off for every role."
+                  : "Suggested first for candidates in these roles"}
               </span>
             </p>
             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -496,6 +538,45 @@ export function FormBuilder({
               </button>
             </div>
           </div>
+
+          {isInterview && (
+            <div>
+              <p className={labelCls}>
+                Used for interview types
+                <span className="ml-2 text-xs font-normal text-slate-400">
+                  Loads automatically for these interviews. Leave all off for every type.
+                </span>
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {INTERVIEW_TYPE_CHIPS.map(([value, label]) => {
+                  const on = form.interview_types.includes(value);
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() =>
+                        set(
+                          "interview_types",
+                          on
+                            ? form.interview_types.filter((t) => t !== value)
+                            : [...form.interview_types, value],
+                        )
+                      }
+                      className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                        on
+                          ? "border-emerald-600 bg-emerald-600 text-white shadow-sm"
+                          : "border-slate-300 bg-white text-slate-600 hover:border-emerald-400 hover:text-emerald-700"
+                      }`}
+                    >
+                      {on ? "✓ " : ""}
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {isApplication && (
             <>
@@ -607,7 +688,7 @@ export function FormBuilder({
                   aria-label="Question type"
                   className={`${inputCls} bg-white sm:w-52`}
                 >
-                  {FORM_FIELD_TYPES.map((t) => (
+                  {fieldTypes.map((t) => (
                     <option key={t.value} value={t.value}>
                       {t.icon}  {t.label}
                     </option>
@@ -620,7 +701,7 @@ export function FormBuilder({
                   updateField(f.id, { description: e.target.value === "" ? null : e.target.value })
                 }
                 maxLength={1000}
-                placeholder="Description (optional)"
+                placeholder={isInterview ? "Interviewer tip (optional)" : "Description (optional)"}
                 aria-label="Description"
                 className="w-full rounded-md border border-transparent px-3 py-1 text-xs text-slate-600 placeholder:text-slate-400 hover:border-slate-200 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
               />
@@ -782,7 +863,7 @@ export function FormBuilder({
         </button>
         {addMenuOpen && (
           <div className="mt-2 grid grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-white p-2 shadow-sm sm:grid-cols-5">
-            {FORM_FIELD_TYPES.map((t) => (
+            {fieldTypes.map((t) => (
               <button
                 key={t.value}
                 type="button"

@@ -1,16 +1,20 @@
 // ---------------------------------------------------------------------------
-// Recruiting forms — the ATS "Forms" tab. Two kinds:
+// Recruiting forms — the ATS "Forms" tab. Three kinds:
 //   application  the public Standard Application (/apply). Core contact
 //                fields are built in (see APPLICATION_CORE_FIELDS); the
 //                questions here are the "standard application questions".
 //   screening    a role-specific questionnaire sent to one candidate through a
 //                unique link (/forms/<token>).
+//   interview    an interview guide the interviewer fills in on the
+//                candidate's Interview Tracking tab. Never shown to candidates.
 //
 // Pure, dependency-free: shared by the builder, the public renderer and the
 // server actions that validate submissions.
 // ---------------------------------------------------------------------------
 
-export type FormKind = "application" | "screening";
+import type { InterviewResponse } from "./types";
+
+export type FormKind = "application" | "screening" | "interview";
 
 export type FormFieldType =
   | "short_text"
@@ -44,6 +48,8 @@ export interface RecruitingForm {
   success_message: string | null;
   fields: RecruitingFormField[];
   job_titles: string[];
+  /** Interview guides only: the interview types it loads for (empty = any). */
+  interview_types: string[];
   slug: string | null;
   is_default: boolean;
   require_resume: boolean;
@@ -87,7 +93,17 @@ export interface FormResponse {
 export const FORM_KIND_LABELS: Record<FormKind, string> = {
   application: "Standard Application",
   screening: "Role-specific form",
+  interview: "Interview guide",
 };
+
+export function isFormKind(v: unknown): v is FormKind {
+  return v === "application" || v === "screening" || v === "interview";
+}
+
+/** Question types an interviewer can fill in (no candidate file uploads). */
+export function fieldTypeAllowed(kind: FormKind, t: FormFieldType): boolean {
+  return kind !== "interview" || t !== "file";
+}
 
 export const FORM_FIELD_TYPES: { value: FormFieldType; label: string; icon: string }[] = [
   { value: "short_text", label: "Short answer", icon: "—" },
@@ -327,6 +343,58 @@ export function formMatchesTitle(
   return form.job_titles.some((j) => j.trim().toLowerCase() === t);
 }
 
+export type InterviewGuideOption = Pick<
+  RecruitingForm,
+  "id" | "name" | "intro" | "fields" | "job_titles" | "interview_types"
+>;
+
+/**
+ * The guide to load for an interview: it must cover the interview type (or
+ * any type) and the candidate's job title (or any job). The most specific
+ * match wins — a title match outranks a type match — then the name.
+ */
+export function pickInterviewGuide<G extends Pick<RecruitingForm, "name" | "job_titles" | "interview_types">>(
+  guides: G[],
+  interviewType: string | null | undefined,
+  jobTitle: string | null | undefined,
+): G | null {
+  let best: { guide: G; score: number } | null = null;
+  for (const g of guides) {
+    const typeOk = g.interview_types.length === 0 || (!!interviewType && g.interview_types.includes(interviewType));
+    const titleOk = g.job_titles.length === 0 || formMatchesTitle(g, jobTitle);
+    if (!typeOk || !titleOk) continue;
+    const score = (g.job_titles.length ? 2 : 0) + (g.interview_types.length ? 1 : 0);
+    if (!best || score > best.score || (score === best.score && g.name.localeCompare(best.guide.name) < 0)) {
+      best = { guide: g, score };
+    }
+  }
+  return best?.guide ?? null;
+}
+
+/**
+ * Answered questions with the section headings that introduce them; headings
+ * with nothing answered beneath are dropped.
+ */
+export function answeredWithSections<R extends { answer: string | null; type?: string }>(
+  responses: R[],
+): R[] {
+  const out: R[] = [];
+  let heading: R | null = null;
+  for (const r of responses) {
+    if (r.type === "section") {
+      heading = r;
+      continue;
+    }
+    if (!r.answer || !r.answer.trim()) continue;
+    if (heading) {
+      out.push(heading);
+      heading = null;
+    }
+    out.push(r);
+  }
+  return out;
+}
+
 /** Answers and uploaded files for these questions, read from a submitted form. */
 export function readSubmission(
   fields: RecruitingFormField[],
@@ -353,6 +421,71 @@ export function readSubmission(
 export function fileProblem(file: File): string | null {
   if (file.size > MAX_FORM_FILE_BYTES) return `${file.name} is larger than 15 MB.`;
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Interview guides on the Interview Tracking tab
+// ---------------------------------------------------------------------------
+
+const CHECKBOX_JOIN = ", ";
+
+/** Which options a stored checkboxes answer ("A, B") had ticked. */
+export function checkedOptions(answer: string | null | undefined, options: string[]): string[] {
+  if (!answer) return [];
+  const parts = new Set(answer.split(CHECKBOX_JOIN).map((p) => p.trim()));
+  return options.filter((o) => parts.has(o) || answer === o);
+}
+
+/**
+ * The questions to render for an interview being edited: the snapshot it was
+ * logged with. Older interviews stored plain question/answer pairs, which come
+ * back as paragraph questions.
+ */
+export function responsesAsFields(responses: InterviewResponse[]): RecruitingFormField[] {
+  const taken = new Set<string>();
+  return responses.map((r, i) => {
+    const type =
+      r.type && FORM_FIELD_TYPES.some((t) => t.value === r.type) && r.type !== "file" ? r.type : "long_text";
+    let id = r.id && /^[a-z0-9_]{1,40}$/i.test(r.id) ? r.id : `legacy_${i}`;
+    if (taken.has(id)) id = `${id.slice(0, 32)}_${i}`;
+    taken.add(id);
+    return {
+      id,
+      type,
+      label: r.question,
+      description: r.description ?? null,
+      required: false,
+      options: fieldHasOptions(type) ? (r.options ?? []) : [],
+    };
+  });
+}
+
+/**
+ * The interviewer's answers for a guide's questions (form inputs named
+ * `a_<id>`), stored with a snapshot of each question. Section headings are
+ * kept, with no answer, so the notes read in the guide's order.
+ */
+export function readInterviewResponses(fields: RecruitingFormField[], fd: FormData): InterviewResponse[] {
+  return fields
+    .filter((f) => f.type !== "file")
+    .map((f) => {
+      const vals = fd
+        .getAll(`a_${f.id}`)
+        .map((v) => String(v).trim())
+        .filter(Boolean);
+      const answer =
+        f.type === "section"
+          ? null
+          : (f.type === "checkboxes" ? vals.join(CHECKBOX_JOIN) : (vals[0] ?? "")).slice(0, 10000) || null;
+      return {
+        id: f.id,
+        question: f.label,
+        answer,
+        type: f.type,
+        ...(fieldHasOptions(f.type) ? { options: f.options } : {}),
+        description: f.description,
+      };
+    });
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

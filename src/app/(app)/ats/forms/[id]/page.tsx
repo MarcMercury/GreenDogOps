@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
-import { parseFields, type FormKind, type RecruitingForm } from "@/lib/ats/forms";
+import { isFormKind, parseFields, type FormKind, type RecruitingForm } from "@/lib/ats/forms";
 import { RECRUITING_POSITION_OPTIONS } from "@/lib/ats/types";
 import { FormBuilder, type BuilderForm } from "./form-builder";
 
@@ -19,6 +19,7 @@ function blankForm(kind: FormKind): BuilderForm {
     success_message: null,
     fields: [],
     job_titles: [],
+    interview_types: [],
     slug: null,
     is_default: false,
     require_resume: kind === "application",
@@ -41,7 +42,7 @@ export default async function FormBuilderPage({
 
   let form: BuilderForm;
   if (id === "new") {
-    form = blankForm(kind === "application" ? "application" : "screening");
+    form = blankForm(isFormKind(kind) ? kind : "screening");
   } else {
     const { data, error } = await supabase
       .from("recruiting_form")
@@ -68,6 +69,7 @@ export default async function FormBuilderPage({
       success_message: row.success_message,
       fields: parseFields(row.fields),
       job_titles: Array.isArray(row.job_titles) ? row.job_titles : [],
+      interview_types: Array.isArray(row.interview_types) ? row.interview_types : [],
       slug: row.slug,
       is_default: row.is_default,
       require_resume: row.require_resume,

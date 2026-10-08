@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/paginate";
+import { fetchAllRows, fetchAllRowsConcurrent } from "@/lib/supabase/paginate";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
 import type {
@@ -34,156 +34,32 @@ export default async function AtsPage({
 }) {
   const { tab } = await searchParams;
   const supabase = await createClient();
-  const current = await getCurrentUser();
-  const canEdit = current ? canEditModule(current.appUser, "ats") : false;
-  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
-
-  const { data, error } = await fetchAllRows<Record<string, unknown>>((from, to) =>
-    supabase
-      .from("person")
-      .select(
-        `id, status, first_name, last_name, full_name, email, phone_mobile,
-     phone_home, phone_other, opportunity_type, notes,
-       source_contact_id, created_at, updated_at,
-       person_recruiting (
-         person_id, target_position_id, pipeline, stage, status_notes, source,
-         application_date, interview_date, score, resume_url, keep_for_future,
-         follow_up_date, notes, target_title, review_status, reviewed_at,
-         reviewed_by, candidate_location, relevant_experience, education,
-         job_location, interest_level, external_status, source_detail,
-         screening_answers, application_history, slack_announce_ts,
-         slack_announce_channel, announced_at, announced_by, created_at,
-         updated_at
-       )`,
-      )
-      .eq("status", "applicant")
-      .order("last_name", { ascending: true })
-      .range(from, to),
-  );
-
-  if (error) {
-    return (
-      <div className="mx-auto max-w-5xl">
-        <h1 className="text-2xl font-semibold text-slate-900">Recruiting (ATS)</h1>
-        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-          Could not load candidates: {error.message}
-        </p>
-      </div>
-    );
-  }
-
-  const rows: CandidateRow[] = (data ?? []).map((r) => {
-    const rec = (r as { person_recruiting?: unknown }).person_recruiting;
-    return {
-      ...r,
-      person_recruiting: Array.isArray(rec) ? (rec[0] ?? null) : (rec ?? null),
-    } as CandidateRow;
-  });
-
-  // Roll up interviews per candidate for the pipeline list (next scheduled
-  // date + most recent grade).
-  const ids = rows.map((r) => r.id);
-  if (ids.length > 0) {
-    // Chunk the id list so neither the IN(...) URL nor the response exceeds
-    // PostgREST limits (max_rows is 1000 per page).
-    const ivData: {
-      person_id: string;
-      interview_date: string | null;
-      status: string | null;
-      overall_grade: string | null;
-      created_at: string;
-    }[] = [];
-    for (let i = 0; i < ids.length; i += 500) {
-      const chunk = ids.slice(i, i + 500);
-      const { data: page } = await fetchAllRows<(typeof ivData)[number]>(
-        (from, to) =>
-          supabase
-            .from("person_interview")
-            .select(
-              "person_id, interview_date, status, overall_grade, created_at",
-            )
-            .in("person_id", chunk)
-            .range(from, to),
-      );
-      ivData.push(...page);
-    }
-
-    if (ivData.length > 0) {
-      const today = new Date().toISOString().slice(0, 10);
-      type IvRow = {
-        person_id: string;
-        interview_date: string | null;
-        status: string | null;
-        overall_grade: string | null;
-        created_at: string;
-      };
-      const byPerson = new Map<string, IvRow[]>();
-      for (const iv of ivData as IvRow[]) {
-        const list = byPerson.get(iv.person_id) ?? [];
-        list.push(iv);
-        byPerson.set(iv.person_id, list);
-      }
-
-      const metaByPerson = new Map<string, CandidateInterviewMeta>();
-      for (const [personId, list] of byPerson) {
-        let nextDate: string | null = null;
-        for (const iv of list) {
-          if (
-            iv.status === "scheduled" &&
-            iv.interview_date &&
-            iv.interview_date >= today &&
-            (nextDate === null || iv.interview_date < nextDate)
-          ) {
-            nextDate = iv.interview_date;
-          }
-        }
-
-        const graded = list
-          .filter((iv) => iv.overall_grade)
-          .sort((a, b) => {
-            const ad = a.interview_date ?? a.created_at;
-            const bd = b.interview_date ?? b.created_at;
-            return bd.localeCompare(ad);
-          });
-
-        metaByPerson.set(personId, {
-          count: list.length,
-          next_date: nextDate,
-          last_grade: graded[0]?.overall_grade ?? null,
-        });
-      }
-
-      for (const r of rows) {
-        r.interview_meta = metaByPerson.get(r.id) ?? null;
-      }
-    }
-  }
-
-  // Open follow-up tasks per candidate (count + earliest due date) for the
-  // "Follow-ups due" panel. Only open tasks, so this stays small.
-  const { data: taskData } = await fetchAllRows<{ person_id: string; due_date: string | null }>(
-    (from, to) =>
-      supabase
-        .from("recruiting_task")
-        .select("person_id, due_date")
-        .eq("is_done", false)
-        .range(from, to),
-  );
-  const taskMeta = new Map<string, CandidateTaskMeta>();
-  for (const t of taskData ?? []) {
-    const m = taskMeta.get(t.person_id) ?? { open: 0, next_due: null };
-    m.open += 1;
-    if (t.due_date && (m.next_due === null || t.due_date < m.next_due)) {
-      m.next_due = t.due_date;
-    }
-    taskMeta.set(t.person_id, m);
-  }
-  for (const r of rows) r.task_meta = taskMeta.get(r.id) ?? null;
+  // Columns the list views need. The heavy free-text/JSON fields (notes,
+  // screening answers, application history, …) are only read by the Review
+  // Queue, so they are loaded separately for pending candidates only.
+  const LIST_RECRUITING_COLS = `target_position_id, pipeline, stage, status_notes,
+    source, application_date, score, target_title, review_status,
+    candidate_location, relevant_experience, job_location, interest_level`;
+  const FULL_RECRUITING_COLS = `person_id, target_position_id, pipeline, stage, status_notes, source,
+    application_date, interview_date, score, resume_url, keep_for_future,
+    follow_up_date, notes, target_title, review_status, reviewed_at,
+    reviewed_by, candidate_location, relevant_experience, education,
+    job_location, interest_level, external_status, source_detail,
+    screening_answers, application_history, slack_announce_ts,
+    slack_announce_channel, announced_at, announced_by, created_at,
+    updated_at`;
 
   const since = new Date();
   since.setDate(since.getDate() - 30);
   const resultsSince = since.toISOString().slice(0, 10);
+
+  // Everything is independent, so load it all at once.
   const [
+    current,
+    { data, error },
+    { data: pendingData },
+    { data: ivData },
+    { data: taskData },
     { data: positionData },
     { data: roleData, error: roleError },
     { data: locationData, error: locationError },
@@ -197,68 +73,203 @@ export default async function AtsPage({
     { data: rejectionData },
     { data: templateData },
   ] = await Promise.all([
-      supabase.from("position").select("*").order("title", { ascending: true }),
-      supabase
-        .from("sched_role")
-        .select("id, name")
-        .eq("is_active", true)
-        .order("name", { ascending: true }),
-      supabase
-        .from("location")
-        .select("id, name")
-        .eq("is_active", true)
-        .eq("kind", "clinic")
-        .order("sort_order", { ascending: true })
-        .order("name", { ascending: true }),
-      loadJobHires(supabase),
-      supabase
-        .from("recruiting_form")
-        .select("id, kind, name, description, job_titles, slug, is_default, active, updated_at, fields")
-        .order("kind")
-        .order("name"),
-      fetchAllRows<{ form_id: string | null }>((from, to) =>
-        supabase.from("recruiting_form_response").select("form_id").range(from, to),
-      ),
-      loadInterviewers(),
-      fetchAllRows<Record<string, unknown>>((from, to) =>
+    getCurrentUser(),
+    fetchAllRowsConcurrent<Record<string, unknown>>(
+      () =>
         supabase
-          .from("person_interview")
+          .from("person")
+          .select("id", { count: "exact", head: true })
+          .eq("status", "applicant"),
+      (from, to) =>
+        supabase
+          .from("person")
           .select(
-            "id, person_id, interview_type, interview_date, start_time, end_time, interviewer, location, host_user_id, invite_id, status, overall_grade, recommendation",
+            `id, status, first_name, last_name, full_name, email, phone_mobile,
+             phone_home, phone_other, opportunity_type, source_contact_id,
+             created_at,
+             person_recruiting (${LIST_RECRUITING_COLS})`,
           )
-          .or(
-            `status.eq.scheduled,and(status.in.(completed,no_show),interview_date.gte.${resultsSince})`,
-          )
-          .order("interview_date", { ascending: true, nullsFirst: false })
+          .eq("status", "applicant")
+          .order("last_name", { ascending: true })
+          .order("id", { ascending: true })
           .range(from, to),
-      ),
+    ),
+    fetchAllRows<Record<string, unknown>>((from, to) =>
       supabase
-        .from("interview_invite")
-        .select("id, token, person_id, interview_type, duration_minutes, host_user_id, host_name, date_from, date_to, created_at")
-        .eq("status", "sent")
-        .order("created_at", { ascending: false }),
-      fetchAllRows<Record<string, unknown>>((from, to) =>
-        supabase
-          .from("recruiting_form_request")
-          .select("id, token, person_id, status, sent_at, sent_by_name, completed_at, reviewed_at, reviewed_by_name, form:form_id (name)")
-          .in("status", ["sent", "completed"])
-          .order("sent_at", { ascending: false })
-          .range(from, to),
-      ),
-      fetchAllRows<Rejection>((from, to) =>
-        supabase
-          .from("recruiting_rejection")
-          .select("*")
-          .is("undone_at", null)
-          .order("rejected_at", { ascending: false })
-          .range(from, to),
-      ),
+        .from("person_recruiting")
+        .select(FULL_RECRUITING_COLS)
+        .eq("review_status", "pending")
+        .order("person_id", { ascending: true })
+        .range(from, to),
+    ),
+    // Every interview, for the per-candidate roll-up and interview-guide use
+    // counts. The Interview Queue loads its own rows below.
+    fetchAllRows<{
+      id: string;
+      person_id: string;
+      interview_date: string | null;
+      status: string | null;
+      overall_grade: string | null;
+      guide_id: string | null;
+      created_at: string;
+    }>((from, to) =>
       supabase
-        .from("recruiting_email_template")
-        .select("id, name, active")
-        .eq("kind", "rejection")
-        .order("sort_order"),
-    ]);
+        .from("person_interview")
+        .select("id, person_id, interview_date, status, overall_grade, guide_id, created_at")
+        .order("id", { ascending: true })
+        .range(from, to),
+    ),
+    // Open follow-up tasks per candidate (count + earliest due date) for the
+    // "Follow-ups due" panel. Only open tasks, so this stays small.
+    fetchAllRows<{ person_id: string; due_date: string | null }>((from, to) =>
+      supabase
+        .from("recruiting_task")
+        .select("person_id, due_date")
+        .eq("is_done", false)
+        .range(from, to),
+    ),
+    supabase.from("position").select("*").order("title", { ascending: true }),
+    supabase
+      .from("sched_role")
+      .select("id, name")
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("location")
+      .select("id, name")
+      .eq("is_active", true)
+      .eq("kind", "clinic")
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    loadJobHires(supabase),
+    supabase
+      .from("recruiting_form")
+      .select("id, kind, name, description, job_titles, interview_types, slug, is_default, active, updated_at, fields")
+      .order("kind")
+      .order("name"),
+    fetchAllRows<{ form_id: string | null }>((from, to) =>
+      supabase.from("recruiting_form_response").select("form_id").range(from, to),
+    ),
+    loadInterviewers(),
+    fetchAllRows<Record<string, unknown>>((from, to) =>
+      supabase
+        .from("person_interview")
+        .select(
+          "id, person_id, interview_type, interview_date, start_time, end_time, interviewer, location, host_user_id, invite_id, status, overall_grade, recommendation",
+        )
+        .or(
+          `status.eq.scheduled,and(status.in.(completed,no_show),interview_date.gte.${resultsSince})`,
+        )
+        .order("interview_date", { ascending: true, nullsFirst: false })
+        .range(from, to),
+    ),
+    supabase
+      .from("interview_invite")
+      .select("id, token, person_id, interview_type, duration_minutes, host_user_id, host_name, date_from, date_to, created_at")
+      .eq("status", "sent")
+      .order("created_at", { ascending: false }),
+    fetchAllRows<Record<string, unknown>>((from, to) =>
+      supabase
+        .from("recruiting_form_request")
+        .select("id, token, person_id, status, sent_at, sent_by_name, completed_at, reviewed_at, reviewed_by_name, form:form_id (name)")
+        .in("status", ["sent", "completed"])
+        .order("sent_at", { ascending: false })
+        .range(from, to),
+    ),
+    fetchAllRows<Rejection>((from, to) =>
+      supabase
+        .from("recruiting_rejection")
+        .select("*")
+        .is("undone_at", null)
+        .order("rejected_at", { ascending: false })
+        .range(from, to),
+    ),
+    supabase
+      .from("recruiting_email_template")
+      .select("id, name, active")
+      .eq("kind", "rejection")
+      .order("sort_order"),
+  ]);
+
+  const canEdit = current ? canEditModule(current.appUser, "ats") : false;
+  const isAdmin = current ? isAdminRole(current.appUser.role) : false;
+
+  if (error) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <h1 className="text-2xl font-semibold text-slate-900">Recruiting (ATS)</h1>
+        <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          Could not load candidates: {error.message}
+        </p>
+      </div>
+    );
+  }
+
+  const pendingDetail = new Map(
+    (pendingData ?? []).map((pr) => [pr.person_id as string, pr]),
+  );
+  const rows: CandidateRow[] = (data ?? []).map((r) => {
+    const rec = (r as { person_recruiting?: unknown }).person_recruiting;
+    const slim = (Array.isArray(rec) ? rec[0] : rec) as { review_status?: string } | null | undefined;
+    const full = slim?.review_status === "pending" ? pendingDetail.get(r.id as string) : undefined;
+    return {
+      ...r,
+      notes: null,
+      person_recruiting: full ?? slim ?? null,
+    } as CandidateRow;
+  });
+
+  // Roll up interviews per candidate for the pipeline list (next scheduled
+  // date + most recent grade).
+  const today = new Date().toISOString().slice(0, 10);
+  type IvRow = (typeof ivData)[number];
+  const byPerson = new Map<string, IvRow[]>();
+  for (const iv of ivData ?? []) {
+    const list = byPerson.get(iv.person_id) ?? [];
+    list.push(iv);
+    byPerson.set(iv.person_id, list);
+  }
+  for (const r of rows) {
+    const list = byPerson.get(r.id);
+    if (!list) {
+      r.interview_meta = null;
+      continue;
+    }
+    let nextDate: string | null = null;
+    for (const iv of list) {
+      if (
+        iv.status === "scheduled" &&
+        iv.interview_date &&
+        iv.interview_date >= today &&
+        (nextDate === null || iv.interview_date < nextDate)
+      ) {
+        nextDate = iv.interview_date;
+      }
+    }
+    const graded = list
+      .filter((iv) => iv.overall_grade)
+      .sort((a, b) => {
+        const ad = a.interview_date ?? a.created_at;
+        const bd = b.interview_date ?? b.created_at;
+        return bd.localeCompare(ad);
+      });
+    r.interview_meta = {
+      count: list.length,
+      next_date: nextDate,
+      last_grade: graded[0]?.overall_grade ?? null,
+    } satisfies CandidateInterviewMeta;
+  }
+
+  const taskMeta = new Map<string, CandidateTaskMeta>();
+  for (const t of taskData ?? []) {
+    const m = taskMeta.get(t.person_id) ?? { open: 0, next_due: null };
+    m.open += 1;
+    if (t.due_date && (m.next_due === null || t.due_date < m.next_due)) {
+      m.next_due = t.due_date;
+    }
+    taskMeta.set(t.person_id, m);
+  }
+  for (const r of rows) r.task_meta = taskMeta.get(r.id) ?? null;
 
   if (roleError || locationError) {
     return (
@@ -286,11 +297,15 @@ export default async function AtsPage({
   for (const r of responseData ?? []) {
     if (r.form_id) responseCounts.set(r.form_id, (responseCounts.get(r.form_id) ?? 0) + 1);
   }
+  for (const iv of ivData ?? []) {
+    if (iv.guide_id) responseCounts.set(iv.guide_id, (responseCounts.get(iv.guide_id) ?? 0) + 1);
+  }
   const forms: FormListRow[] = (
     (formData ?? []) as (Omit<FormListRow, "question_count" | "response_count"> & { fields: unknown })[]
   ).map(({ fields, ...f }) => ({
     ...f,
     kind: f.kind as FormKind,
+    interview_types: Array.isArray(f.interview_types) ? f.interview_types : [],
     question_count: parseFields(fields).filter((q) => q.type !== "section").length,
     response_count: responseCounts.get(f.id) ?? 0,
   }));

@@ -463,6 +463,7 @@ export function AtsExplorer({
             ]}
             onRowClick={(r) => router.push(`/ats/${r.id}`)}
             emptyLabel="No candidates match your filters."
+            pageSize={100}
           />
         </>
       )}

@@ -528,6 +528,7 @@ export function DataTable<T extends { id: string }>({
   initialActive,
   stickyScroll = false,
   dense = false,
+  pageSize,
 }: {
   rows: T[];
   columns: Column<T>[];
@@ -553,6 +554,12 @@ export function DataTable<T extends { id: string }>({
    * of one labelled dropdown per filter. Use for grids with many filters.
    */
   compactFilters?: boolean;
+  /**
+   * Render only this many rows at first and add more as the user scrolls
+   * (search, filters, sorting and counts still cover every row). Use for
+   * lists with thousands of rows, where rendering them all is slow.
+   */
+  pageSize?: number;
 }) {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -639,6 +646,33 @@ export function DataTable<T extends { id: string }>({
     );
   }, [filtered, columns, sortKey, sortDir]);
 
+  // Incremental rendering: start over at the first page whenever the search,
+  // filters or sort change.
+  const [limit, setLimit] = useState(pageSize ?? Infinity);
+  const viewKey = `${query}\u0000${JSON.stringify(active)}\u0000${sortKey}\u0000${sortDir}`;
+  const [prevViewKey, setPrevViewKey] = useState(viewKey);
+  if (prevViewKey !== viewKey) {
+    setPrevViewKey(viewKey);
+    setLimit(pageSize ?? Infinity);
+  }
+  const visible = pageSize ? sorted.slice(0, limit) : sorted;
+  const hasMore = visible.length < sorted.length;
+  const sentinelRef = useRef<HTMLTableRowElement>(null);
+
+  useEffect(() => {
+    if (!pageSize || !hasMore) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) setLimit((l) => l + pageSize);
+      },
+      { root: el.closest("[data-scroll-root]"), rootMargin: "600px 0px" },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [pageSize, hasMore, limit]);
+
   function toggleSort(col: Column<T>) {
     if (col.sortable === false) return;
     if (sortKey !== col.key) {
@@ -716,7 +750,7 @@ export function DataTable<T extends { id: string }>({
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
-        {sorted.map((row) => (
+        {visible.map((row) => (
           <tr
             key={row.id}
             onClick={() => onRowClick?.(row)}
@@ -745,6 +779,20 @@ export function DataTable<T extends { id: string }>({
               className="px-4 py-10 text-center text-sm text-slate-400"
             >
               {emptyLabel}
+            </td>
+          </tr>
+        )}
+        {hasMore && (
+          <tr ref={sentinelRef}>
+            <td colSpan={columns.length} className="px-4 py-3 text-center text-sm text-slate-500">
+              Showing {visible.length} of {sorted.length} ·{" "}
+              <button
+                type="button"
+                onClick={() => setLimit((l) => l + (pageSize ?? 0))}
+                className="font-medium text-emerald-700 hover:underline"
+              >
+                Show more
+              </button>
             </td>
           </tr>
         )}
@@ -820,13 +868,17 @@ export function DataTable<T extends { id: string }>({
           <div
             ref={bodyScrollRef}
             onScroll={() => syncScroll("body")}
+            data-scroll-root
             className="max-h-[70vh] overflow-auto rounded-b-xl"
           >
             {tableMarkup}
           </div>
         </div>
       ) : (
-        <div className="mt-4 max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div
+          data-scroll-root
+          className="mt-4 max-h-[70vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm"
+        >
           {tableMarkup}
         </div>
       )}

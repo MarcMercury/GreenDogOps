@@ -58,6 +58,9 @@ import { postCandidateAnnouncement, slackInterviewScheduled } from "@/lib/ats/sl
 import { deleteGoogleEvent, moveGoogleEvent } from "@/lib/ats/google-calendar";
 import { loadInterviewer } from "@/lib/ats/booking";
 import { DEFAULT_TIMEZONE, zonedTimeToUtc } from "@/lib/ats/scheduling";
+import { parseFields, readInterviewResponses } from "@/lib/ats/forms";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { formatPhoneNumber } from "@/lib/shared/phone";
 import { cityOrZipLookup } from "@/lib/shared/zip-lookup";
@@ -417,24 +420,18 @@ export async function saveInterview(
   const supabase = await createClient();
   const id = str(formData.get("interview_id"));
 
-  // Collect structured question/answer pairs (question_<n> + answer_<n>).
-  const responses: { index: number; question: string; answer: string | null }[] =
-    [];
-  for (const [key, value] of formData.entries()) {
-    const m = /^question_(\d+)$/.exec(key);
-    if (!m) continue;
-    const idx = Number(m[1]);
-    responses.push({
-      index: idx,
-      question: String(value),
-      answer: str(formData.get(`answer_${m[1]}`)),
-    });
+  // The guide's questions travel with the form as a snapshot (guide_fields),
+  // and each answer as a_<question id>. Only kept when something was answered.
+  let guideFields: ReturnType<typeof parseFields> = [];
+  try {
+    guideFields = parseFields(JSON.parse(String(formData.get("guide_fields") ?? "[]")), { allowCore: true });
+  } catch {
+    return { ok: false, error: "The interview questions couldn't be read. Reload and try again." };
   }
-  responses.sort((a, b) => a.index - b.index);
-  const cleanResponses = responses.map((r) => ({
-    question: r.question,
-    answer: r.answer,
-  }));
+  const guideResponses = readInterviewResponses(guideFields, formData);
+  const answered = guideResponses.some((r) => r.answer);
+  const guideId = str(formData.get("guide_id"));
+  const cleanResponses = answered ? guideResponses : [];
 
   const patch = {
     person_id: personId,
@@ -447,6 +444,8 @@ export async function saveInterview(
     recommendation: str(formData.get("recommendation")),
     summary: str(formData.get("summary")),
     responses: cleanResponses,
+    guide_id: answered && guideId && UUID_RE.test(guideId) ? guideId : null,
+    guide_name: answered ? (str(formData.get("guide_name"))?.slice(0, 200) ?? null) : null,
     start_time: str(formData.get("start_time")),
     end_time: str(formData.get("end_time")),
   };

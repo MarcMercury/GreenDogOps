@@ -11,6 +11,7 @@ import {
 } from "./types";
 import { opportunityShortLabel } from "@/lib/shared/opportunity-types";
 import { candidateJobLabel } from "./jobs";
+import { answeredWithSections } from "./forms";
 
 function candidateName(row: CandidateRow): string {
   return (
@@ -106,13 +107,12 @@ export function buildInterviewSummary(
     out.push("", `*Summary:*`, interview.summary.trim());
   }
 
-  const answered = (interview.responses ?? []).filter(
-    (r) => r.answer && r.answer.trim() !== "",
-  );
-  if (answered.length > 0) {
+  const shown = answeredWithSections(interview.responses ?? []);
+  if (shown.length > 0) {
     out.push("", `*Responses:*`);
-    for (const r of answered) {
-      out.push(`• ${r.question}`, `   ${r.answer!.trim()}`);
+    for (const r of shown) {
+      if (r.type === "section") out.push(`_${r.question}_`);
+      else out.push(`• ${r.question}`, `   ${r.answer!.trim()}`);
     }
   }
 

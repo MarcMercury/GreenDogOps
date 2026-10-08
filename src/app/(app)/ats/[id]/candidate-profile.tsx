@@ -18,7 +18,6 @@ import {
   INTERVIEW_STATUS_BADGE,
   INTERVIEW_RECOMMENDATION_LABELS,
   INTERVIEW_GRADE_OPTIONS,
-  CSR_PHONE_SCREEN_QUESTIONS,
 } from "@/lib/ats/types";
 import type { PersonDocumentWithUrl } from "@/lib/hr/types";
 import { DOCUMENT_CATEGORY_LABELS } from "@/lib/hr/types";
@@ -45,12 +44,18 @@ import {
 import { cancelFormRequest } from "../forms-actions";
 import { cancelSchedulingInvite } from "../scheduling-actions";
 import {
+  answeredWithSections,
   answerText,
   fieldIsAnswerable,
   isFileAnswer,
+  pickInterviewGuide,
+  responsesAsFields,
   type FormRequest,
   type FormResponse,
+  type InterviewGuideOption,
+  type RecruitingFormField,
 } from "@/lib/ats/forms";
+import { GuideQuestions } from "../interview-guide-fields";
 import { candidateInterviewTitle } from "@/lib/ats/scheduling";
 import { applicationHasData } from "@/lib/ats/application";
 import { CopyForSlackButton } from "./copy-for-slack";
@@ -121,6 +126,7 @@ export function CandidateProfile({
   formRequests = [],
   invites = [],
   screeningForms = [],
+  interviewGuides = [],
   interviewers = [],
   currentUserId = null,
   rejection = null,
@@ -142,6 +148,8 @@ export function CandidateProfile({
   formRequests?: ProfileFormRequest[];
   invites?: ProfileInvite[];
   screeningForms?: ScreeningFormOption[];
+  /** Active interview guides, loaded on Interview Tracking by type and job. */
+  interviewGuides?: InterviewGuideOption[];
   interviewers?: InterviewerOption[];
   currentUserId?: string | null;
   /** The candidate's active (not undone) rejection, if any. */
@@ -158,6 +166,8 @@ export function CandidateProfile({
   const openTasks = tasks.filter((t) => !t.is_done).length;
   const rec = row.person_recruiting;
   const hasApplication = applicationHasData(rec?.application);
+  const jobTitle =
+    positions.find((p) => p.id === rec?.target_position_id)?.title ?? rec?.target_title ?? null;
   const formTab: CandidateFormTab | null =
     activeTab === "profile" || activeTab === "application" || activeTab === "experience"
       ? activeTab
@@ -302,6 +312,8 @@ export function CandidateProfile({
           <InterviewsPanel
             row={row}
             interviews={interviews}
+            guides={interviewGuides}
+            jobTitle={jobTitle}
             canEdit={canEdit}
             slackEnabled={slackEnabled}
           />
@@ -451,11 +463,15 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 function InterviewsPanel({
   row,
   interviews,
+  guides,
+  jobTitle,
   canEdit = false,
   slackEnabled = false,
 }: {
   row: CandidateRow;
   interviews: PersonInterview[];
+  guides: InterviewGuideOption[];
+  jobTitle: string | null;
   canEdit?: boolean;
   slackEnabled?: boolean;
 }) {
@@ -470,7 +486,7 @@ function InterviewsPanel({
             Scheduled interviews show on the calendar
             {slackEnabled ? " and post to the candidate's Slack thread" : ""}.
           </p>
-          <InterviewForm personId={row.id} />
+          <InterviewForm personId={row.id} guides={guides} jobTitle={jobTitle} />
         </section>
       )}
 
@@ -483,6 +499,8 @@ function InterviewsPanel({
               key={iv.id}
               row={row}
               interview={iv}
+              guides={guides}
+              jobTitle={jobTitle}
               canEdit={canEdit}
               slackEnabled={slackEnabled}
             />
@@ -510,18 +528,47 @@ const gradeOptions = INTERVIEW_GRADE_OPTIONS.map((g) => ({ value: g, label: g })
 function InterviewForm({
   personId,
   interview,
+  guides,
+  jobTitle,
   onDone,
 }: {
   personId: string;
   interview?: PersonInterview;
+  guides: InterviewGuideOption[];
+  jobTitle: string | null;
   onDone?: () => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [showQuestions, setShowQuestions] = useState(false);
+  const [type, setType] = useState(interview?.interview_type ?? "");
+  const [pickedId, setPickedId] = useState<string | null>(null);
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
-    (prev, fd) => saveInterview(personId, prev, fd),
+    async (prev, fd) => {
+      const res = await saveInterview(personId, prev, fd);
+      // A new interview's form clears for the next one.
+      if (res.ok && !interview) {
+        setType("");
+        setPickedId(null);
+      }
+      return res;
+    },
     null,
   );
+
+  // An interview with answers keeps the questions it was logged with. Any
+  // other interview loads the guide for its type and the candidate's job,
+  // until the interviewer picks one by hand.
+  const logged = (interview?.responses ?? []).some((r) => r.answer);
+  const autoGuide = pickInterviewGuide(guides, type || null, jobTitle);
+  const guideId = logged ? (interview?.guide_id ?? "") : (pickedId ?? autoGuide?.id ?? "");
+  const guide = guides.find((g) => g.id === guideId) ?? null;
+  const loggedFields = logged ? responsesAsFields(interview!.responses) : null;
+  const fields: RecruitingFormField[] = loggedFields ?? guide?.fields ?? [];
+  const values = loggedFields
+    ? Object.fromEntries(loggedFields.map((f, i) => [f.id, interview!.responses[i]?.answer]))
+    : {};
+  const guideName = logged ? (interview?.guide_name ?? null) : (guide?.name ?? null);
+  const questionCount = fields.filter((f) => f.type !== "section").length;
 
   useEffect(() => {
     if (!result?.ok) return;
@@ -529,17 +576,12 @@ function InterviewForm({
     else formRef.current?.reset();
   }, [result, onDone]);
 
-  // Editing keeps the questions the interview was logged with; new interviews
-  // start from the CSR phone-screen set.
-  const questions =
-    interview && interview.responses.length > 0
-      ? interview.responses.map((r) => r.question)
-      : CSR_PHONE_SCREEN_QUESTIONS;
-  const answerFor = (i: number) => interview?.responses[i]?.answer ?? "";
-
   return (
     <form ref={formRef} action={formAction} className="space-y-4">
       {interview && <input type="hidden" name="interview_id" value={interview.id} />}
+      <input type="hidden" name="guide_id" value={logged ? (interview?.guide_id ?? "") : (guide?.id ?? "")} />
+      <input type="hidden" name="guide_name" value={guideName ?? ""} />
+      <input type="hidden" name="guide_fields" value={JSON.stringify(fields)} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Field
           label="Interview date"
@@ -561,12 +603,22 @@ function InterviewForm({
             defaultValue={interview?.end_time?.slice(0, 5)}
           />
         </div>
-        <Select
-          label="Type"
-          name="interview_type"
-          options={typeOptions}
-          defaultValue={interview?.interview_type ?? undefined}
-        />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-500">Type</span>
+          <select
+            name="interview_type"
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="">—</option>
+            {typeOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <Select
           label="Status"
           name="status"
@@ -607,33 +659,61 @@ function InterviewForm({
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-slate-50/60">
-        <button
-          type="button"
-          onClick={() => setShowQuestions((s) => !s)}
-          className="flex w-full items-center justify-between px-4 py-2.5 text-left text-sm font-medium text-slate-700"
-        >
-          <span>
-            {interview && interview.responses.length > 0
-              ? "Interview questions"
-              : "CSR phone-screen questions (optional)"}
-          </span>
-          <span className="text-slate-400">{showQuestions ? "▲" : "▼"}</span>
-        </button>
-        <div className={showQuestions ? "space-y-3 px-4 pb-4" : "hidden"}>
-          {questions.map((q, i) => (
-            <label key={i} className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-slate-600">
-                {i + 1}. {q}
-              </span>
-              <input type="hidden" name={`question_${i}`} value={q} />
-              <textarea
-                name={`answer_${i}`}
-                rows={2}
-                defaultValue={answerFor(i)}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-              />
-            </label>
-          ))}
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+          <button
+            type="button"
+            onClick={() => setShowQuestions((s) => !s)}
+            disabled={fields.length === 0}
+            className="flex min-w-0 flex-1 items-center justify-between gap-2 text-left text-sm font-medium text-slate-700 disabled:cursor-default"
+          >
+            <span>
+              📋 {guideName ?? (logged ? "Interview questions" : "Interview guide")}
+              {questionCount > 0 && (
+                <span className="ml-1.5 text-xs font-normal text-slate-400">
+                  {questionCount} question{questionCount === 1 ? "" : "s"}
+                  {!logged && " · optional"}
+                </span>
+              )}
+            </span>
+            {fields.length > 0 && <span className="text-slate-400">{showQuestions ? "▲" : "▼"}</span>}
+          </button>
+          {!logged && guides.length > 0 && (
+            <select
+              aria-label="Interview guide"
+              value={guideId}
+              onChange={(e) => {
+                setPickedId(e.target.value);
+                if (e.target.value) setShowQuestions(true);
+              }}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-700 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="">No guide</option>
+              {guides.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                  {g.id === autoGuide?.id ? " (suggested)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {fields.length === 0 && !logged && (
+          <p className="px-4 pb-3 text-xs text-slate-400">
+            {guides.length === 0
+              ? "No interview guides yet. Create one in Recruiting → Forms."
+              : type
+                ? "No guide matches this interview type and job. Pick one, or log notes in the summary."
+                : "Pick the interview type to load its guide."}
+          </p>
+        )}
+        {/* Kept mounted while collapsed so answers are always submitted. */}
+        <div className={showQuestions && fields.length > 0 ? "space-y-3 px-4 pb-4" : "hidden"}>
+          {!logged && guide?.intro && (
+            <p className="whitespace-pre-wrap rounded-md bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">
+              {guide.intro}
+            </p>
+          )}
+          <GuideQuestions key={logged ? "logged" : guideId} fields={fields} values={values} />
         </div>
       </div>
 
@@ -657,18 +737,23 @@ function InterviewForm({
 function InterviewCard({
   row,
   interview,
+  guides,
+  jobTitle,
   canEdit = false,
   slackEnabled = false,
 }: {
   row: CandidateRow;
   interview: PersonInterview;
+  guides: InterviewGuideOption[];
+  jobTitle: string | null;
   canEdit?: boolean;
   slackEnabled?: boolean;
 }) {
   const personId = row.id;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
-  const answered = (interview.responses ?? []).filter((r) => r.answer);
+  const shown = answeredWithSections(interview.responses ?? []);
+  const answered = shown.filter((r) => r.type !== "section");
   const statusBadge =
     INTERVIEW_STATUS_BADGE[interview.status] ?? "bg-slate-100 text-slate-500";
   const start = formatTime(interview.start_time);
@@ -681,6 +766,8 @@ function InterviewCard({
         <InterviewForm
           personId={personId}
           interview={interview}
+          guides={guides}
+          jobTitle={jobTitle}
           onDone={() => setEditing(false)}
         />
       </li>
@@ -768,16 +855,25 @@ function InterviewCard({
           </button>
           {open && (
             <dl className="mt-2 space-y-2">
-              {answered.map((r, i) => (
-                <div key={i}>
-                  <dt className="text-xs font-semibold text-slate-600">
+              {shown.map((r, i) =>
+                r.type === "section" ? (
+                  <p
+                    key={i}
+                    className="border-b border-slate-100 pb-0.5 pt-1 text-xs font-bold uppercase tracking-wide text-slate-500"
+                  >
                     {r.question}
-                  </dt>
-                  <dd className="whitespace-pre-wrap text-sm text-slate-700">
-                    {r.answer}
-                  </dd>
-                </div>
-              ))}
+                  </p>
+                ) : (
+                  <div key={i}>
+                    <dt className="text-xs font-semibold text-slate-600">
+                      {r.question}
+                    </dt>
+                    <dd className="whitespace-pre-wrap text-sm text-slate-700">
+                      {r.answer}
+                    </dd>
+                  </div>
+                ),
+              )}
             </dl>
           )}
         </div>

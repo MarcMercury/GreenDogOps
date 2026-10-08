@@ -5,6 +5,7 @@ import {
   type WorkSchedule,
 } from "../hr/types";
 import type { ApplicationDetails } from "./application";
+import type { FormFieldType } from "./forms";
 
 export interface PersonRecruiting {
   person_id: string;
@@ -101,9 +102,19 @@ export function isRecruitingStage(v: string): v is RecruitingStage {
   return (RECRUITING_STAGE_OPTIONS as readonly string[]).includes(v);
 }
 
+/**
+ * One question on a logged interview. Interviews logged from a guide keep a
+ * snapshot of each question (type, options, interviewer tip) so editing them
+ * later doesn't depend on the guide; older interviews have only question and
+ * answer and render as free text.
+ */
 export interface InterviewResponse {
   question: string;
   answer: string | null;
+  id?: string;
+  type?: FormFieldType;
+  options?: string[];
+  description?: string | null;
 }
 
 export interface PersonInterview {
@@ -118,6 +129,9 @@ export interface PersonInterview {
   recommendation: string | null;
   summary: string | null;
   responses: InterviewResponse[];
+  /** The interview guide the questions came from, if any. */
+  guide_id?: string | null;
+  guide_name?: string | null;
   start_time: string | null;
   end_time: string | null;
   created_at: string;
@@ -226,18 +240,6 @@ export const INTERVIEW_RECOMMENDATION_LABELS: Record<string, string> = {
 };
 
 export const INTERVIEW_GRADE_OPTIONS = ["A", "B", "C", "D", "F"] as const;
-
-// Structured phone-screen prompts ported from the "IN HOUSE CSR INTERVIEW
-// TEMPLATE". Rendered as the default question set on the Interview Tracking tab.
-export const CSR_PHONE_SCREEN_QUESTIONS: string[] = [
-  "Veterinary Experience — Can you briefly walk me through your experience in veterinary medicine (clinical, customer service, or both)? What position is ideal for you?",
-  "Technology & Software Skills — Have you used EzyVet before? If not, what veterinary software have you worked with? Are you comfortable with Google Drive/Docs/spreadsheets, and have you used Slack or a similar tool?",
-  "Client or Coworker Situation — Can you share a quick example of a time you handled a challenging client or coworker situation? How did you handle it?",
-  "Reliability — Would you say you're reliable? Do you call out often, show up late, or have trouble following through? How would past coworkers or managers describe your reliability?",
-  "Self-Awareness & Team Fit — What would your coworkers say is the best thing about working with you? What's one thing they might say you could improve on?",
-  "Location & Schedule — Are you open to working in Sherman Oaks, Van Nuys, Venice, or all of the above? Any day or time restrictions?",
-  "Future — Are you looking for a long-term position? What kind of role are you hoping to grow into?",
-];
 
 export interface CandidateRow {
   id: string;
