@@ -29,10 +29,11 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 
 ## Slack user linking (`src/lib/slack/users.ts`, `link-sync.ts`)
 
-- Workspace `GREEN DOG` (green-dog-group.slack.com). On 2026-10-09 `auth.test` showed the bot token's scopes as only `chat:write, chat:write.customize, channels:join`. Linking also needs `users:read` + `users:read.email`: add both in the Slack app (OAuth & Permissions → Bot Token Scopes) and reinstall. If the token changes, update `SLACK_BOT_TOKEN` in Vercel. Admin → Slack shows any missing scope (read from the `x-oauth-scopes` response header).
+- Workspace `GREEN DOG` (green-dog-group.slack.com). The token's app is **GreenDog Ops** (App ID `A0C0W1RH58B`, bot user `greendog_ops`, bot id `B0C127HJT3L`). Ignore TEST APP and EmployeeGM Greendog: EmployeeGM is the other app on the shared Supabase project.
+- Scopes are managed under OAuth & Permissions → Bot Token Scopes, then Reinstall. Adding scopes on 2026-10-09 kept the same `xoxb-` token, so Vercel needed no change. Verify scopes with `auth.test` and its `x-oauth-scopes` header; the granted list is in `.env.example`. Admin → Slack flags a missing `users:read` / `users:read.email`.
 - Without `users:read.email`, `users.list` succeeds but omits every email. The sync refuses to run in that state, so it never marks everyone `not_found`.
 - One `users.list` sweep (200/page) per sync; 429s are retried up to 3 times, honouring `Retry-After`. The sync is read-only toward Slack; it never posts.
-- Matching is by exact email against `person.email` and the person's login email. On 2026-10-09, 85 of 94 active employees had a personal gmail.com HR email, so expect many `not_found` rows that need a manual link in Admin → Slack.
+- Matching is by exact email against `person.email` and the person's login email. Staff use the same personal Gmail addresses in Slack as in HR. A read-only preview on 2026-10-09 matched 87 of the 111 active employees and contractors, with 24 `not_found` and none ambiguous. Slack had 113 active human members, all with visible emails, plus 346 deactivated accounts.
 - A connected link is kept by Slack user id. A deactivated Slack account becomes `inactive` (the id is kept) and is never re-linked to another account automatically. `disconnected` (unlinked by an admin) is left alone until an admin retries.
 - Recovery: a failed nightly run shows in Admin → Agents (`slack_user_sync`) with the Slack error. `missing_scope` / `invalid_auth` need the Slack app or token fixed, not code.
 

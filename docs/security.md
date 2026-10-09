@@ -130,7 +130,7 @@ who, why, the cutoff date and row count.
 | Google Workspace (Calendar, Gmail, Drive, Sheets) | Interview events, recruiting mail, sheet sync | Service account + OAuth refresh tokens | Vercel env (`GOOGLE_*`, `GMAIL_*`) | Revoke/reissue in Google Cloud; recruiter tokens are per-user (`recruiter_google_token`, service-role only) |
 | Google Maps / Custom Search | Addresses, search queries | API keys (restrict by HTTP referrer / API) | Vercel env | Google Cloud → Credentials |
 | Resend | Candidate/partner email | API key; webhook `whsec_` secret | Vercel env | Resend dashboard |
-| Slack | Hiring/ops posts (no salary, address, HR records); reads workspace member names/emails to link staff (`users:read`, `users:read.email`) | Bot token | Vercel env | Slack app settings |
+| Slack | Hiring/ops posts (no salary, address, HR records); reads workspace member names/emails to link staff (`users:read`, `users:read.email`). Further write/read-metadata scopes are granted for planned DMs/user groups (list in `.env.example`); no `*:history` scope, so the app cannot read messages | Bot token | Vercel env | Slack app settings |
 | Indeed Apply | Candidate applications (inbound) | HMAC signature | `.secrets/indeed.env`, Vercel env | Indeed partner portal |
 | When I Work (via Gmail) | Time-off notifications (inbound) | Gmail OAuth refresh token | Vercel env | Google OAuth |
 | ezyVet (browser agent) | Clinic reports (inbound) | Username/password | GitHub Actions secrets | ezyVet admin |
