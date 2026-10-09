@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureCanEdit, ensureCanEditSensitiveHr, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
+import { refreshSlackLinkForPerson } from "@/lib/slack/link-sync";
 import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { currentRate, upsertCompensation } from "@/lib/hr/compensation";
 import { safeUploadContentType } from "@/lib/security/upload";
@@ -202,6 +204,7 @@ export async function createEmployee(
   }
 
   await ensureAuthUserForPerson(personId);
+  after(() => refreshSlackLinkForPerson(personId));
 
   revalidatePath("/hr");
   revalidatePath("/schedule");
@@ -324,6 +327,7 @@ export async function updateEmployee(
   }
 
   await ensureAuthUserForPerson(personId);
+  after(() => refreshSlackLinkForPerson(personId));
 
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/hr");
@@ -524,6 +528,7 @@ export async function updateEmployeeField(
 
   if (field === "status" || field === "email") {
     await ensureAuthUserForPerson(personId);
+    after(() => refreshSlackLinkForPerson(personId));
   }
 
   revalidatePath(`/hr/${personId}`);

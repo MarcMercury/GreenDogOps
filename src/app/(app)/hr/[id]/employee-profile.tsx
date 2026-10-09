@@ -43,12 +43,19 @@ import type {
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
 import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
+import { SLACK_LINK_STATUS_LABELS, type SlackLinkStatus } from "@/lib/slack/matching";
 
 /** A linked Green Dog Ops login account, surfaced read-only on the profile. */
 export interface LinkedAccount {
   id: string;
   role: AppRole;
   is_active: boolean;
+}
+
+/** The person's Slack link, surfaced read-only on the profile. */
+export interface SlackChipInfo {
+  status: SlackLinkStatus;
+  handle: string | null;
 }
 import {
   saveReview,
@@ -141,6 +148,7 @@ export function EmployeeProfile({
   compliance,
   licenses,
   account,
+  slack = null,
   canViewComp,
   canEdit,
   canEditSchedule,
@@ -165,6 +173,8 @@ export function EmployeeProfile({
   compliance: PersonComplianceEntry[];
   licenses: PersonLicense[];
   account: LinkedAccount | null;
+  /** Slack link (null = never synced). */
+  slack?: SlackChipInfo | null;
   canViewComp: boolean;
   canEdit: boolean;
   canEditSchedule: boolean;
@@ -208,6 +218,7 @@ export function EmployeeProfile({
         </h1>
         <div className="flex flex-wrap items-center gap-2">
           <AccountChip account={account} isAdmin={canViewComp} />
+          <SlackChip slack={slack} isAdmin={isAdmin} personStatus={row.status} />
           <DownloadSummaryButton
             data={{
               row,
@@ -464,6 +475,47 @@ function AccountChip({
       className={`rounded-full px-3 py-1 text-xs font-semibold transition hover:opacity-80 ${tone}`}
     >
       User · {label}
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slack link chip — admins fix it in Admin ▸ Slack
+// ---------------------------------------------------------------------------
+
+function SlackChip({
+  slack,
+  isAdmin,
+  personStatus,
+}: {
+  slack: SlackChipInfo | null;
+  isAdmin: boolean;
+  personStatus: string | null;
+}) {
+  // Only staff Ops can message are linked; candidates and former staff aren't.
+  if (!slack && personStatus !== "employee" && personStatus !== "contractor") return null;
+
+  const connected = slack?.status === "connected";
+  const label = connected
+    ? `Slack${slack?.handle ? ` · @${slack.handle}` : ""}`
+    : `Slack · ${slack ? SLACK_LINK_STATUS_LABELS[slack.status] : "Not connected"}`;
+  const tone = connected
+    ? "bg-emerald-100 text-emerald-800"
+    : slack?.status === "disconnected"
+      ? "bg-slate-100 text-slate-500"
+      : "bg-amber-100 text-amber-800";
+  const body = `${connected ? "🟢" : "🟡"} ${label}`;
+
+  if (!isAdmin) {
+    return <span className={`rounded-full px-3 py-1 text-xs font-semibold ${tone}`}>{body}</span>;
+  }
+  return (
+    <Link
+      href="/admin/slack"
+      title="Manage in Admin ▸ Slack"
+      className={`rounded-full px-3 py-1 text-xs font-semibold transition hover:opacity-80 ${tone}`}
+    >
+      {body}
     </Link>
   );
 }

@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Green Dog Ops — baseline schema for the greendogops schema
--- Generated 2026-09-29 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
+-- Generated 2026-10-09 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
 -- ----------------------------------------------------------------------------
 -- A single, internally consistent snapshot: every table, view, materialised
 -- view, function, trigger, enum, index, grant, revoke and RLS policy.
@@ -705,6 +705,21 @@ COMMENT ON FUNCTION greendogops.appt_type_observed_counts() IS 'How often each e
 
 
 --
+-- Name: audit_log_append_only(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.audit_log_append_only() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+begin
+  raise exception 'greendogops.audit_log is append-only (% blocked)', tg_op
+    using errcode = 'insufficient_privilege';
+end;
+$$;
+
+
+--
 -- Name: bizdev_appt_type_daily_avg(); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -1077,6 +1092,58 @@ COMMENT ON FUNCTION greendogops.bizdev_weekday_factor() IS 'How busy each weekda
 
 
 --
+-- Name: book_interview_slot(uuid, date, time without time zone, time without time zone, text, timestamp with time zone); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.book_interview_slot(p_invite_id uuid, p_date date, p_start time without time zone, p_end time without time zone, p_interviewer text, p_booked_start timestamp with time zone) RETURNS uuid
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'public'
+    AS $$
+declare
+  v_invite interview_invite%rowtype;
+  v_interview_id uuid;
+begin
+  select * into v_invite from interview_invite where id = p_invite_id;
+  if not found or v_invite.status <> 'sent' then
+    raise exception 'invite_unavailable';
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('interview_host:' || v_invite.host_user_id::text));
+
+  if exists (
+    select 1 from person_interview
+    where host_user_id = v_invite.host_user_id
+      and status = 'scheduled'
+      and interview_date = p_date
+      and start_time is not null
+      and start_time < p_end
+      and coalesce(end_time, start_time + interval '60 minutes') > p_start
+  ) then
+    raise exception 'slot_taken';
+  end if;
+
+  update interview_invite
+  set status = 'booked', booked_start = p_booked_start, booked_at = now()
+  where id = p_invite_id and status = 'sent';
+  if not found then
+    raise exception 'invite_unavailable';
+  end if;
+
+  insert into person_interview (
+    person_id, interview_date, start_time, end_time, interview_type, interviewer,
+    location, status, responses, host_user_id, invite_id
+  ) values (
+    v_invite.person_id, p_date, p_start, p_end, v_invite.interview_type, p_interviewer,
+    v_invite.location, 'scheduled', '[]'::jsonb, v_invite.host_user_id, v_invite.id
+  ) returning id into v_interview_id;
+
+  update interview_invite set interview_id = v_interview_id where id = p_invite_id;
+  return v_interview_id;
+end;
+$$;
+
+
+--
 -- Name: cancelled_appointments_by_type(date, date); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -1129,106 +1196,6 @@ CREATE FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_sta
     and c.location_id is not distinct from p_location
     and coalesce(nullif(btrim(c.appt_type), ''), 'Unspecified') = p_type
   order by c.appt_date desc, c.start_time;
-$$;
-
-
---
--- Name: format_phone(text); Type: FUNCTION; Schema: greendogops; Owner: -
---
-
-CREATE FUNCTION greendogops.format_phone(raw text) RETURNS text
-    LANGUAGE plpgsql IMMUTABLE
-    SET search_path TO 'greendogops', 'public', 'pg_temp'
-    AS $$
-declare
-  -- ITU-T E.164 country calling codes, excluding 1 (US / Canada / NANP).
-  calling_codes constant text[] := array[
-    '7','20','27','30','31','32','33','34','36','39','40','41','43','44','45',
-    '46','47','48','49','51','52','53','54','55','56','57','58','60','61','62',
-    '63','64','65','66','81','82','84','86','90','91','92','93','94','95','98',
-    '211','212','213','216','218','220','221','222','223','224','225','226',
-    '227','228','229','230','231','232','233','234','235','236','237','238',
-    '239','240','241','242','243','244','245','246','247','248','249','250',
-    '251','252','253','254','255','256','257','258','260','261','262','263',
-    '264','265','266','267','268','269','290','291','297','298','299',
-    '350','351','352','353','354','355','356','357','358','359','370','371',
-    '372','373','374','375','376','377','378','379','380','381','382','383',
-    '385','386','387','389','420','421','423',
-    '500','501','502','503','504','505','506','507','508','509','590','591',
-    '592','593','594','595','596','597','598','599',
-    '670','672','673','674','675','676','677','678','679','680','681','682',
-    '683','685','686','687','688','689','690','691','692',
-    '850','852','853','855','856','880','886',
-    '960','961','962','963','964','965','966','967','968','970','971','972',
-    '973','974','975','976','977','992','993','994','995','996','998'
-  ];
-  trimmed  text;
-  cleaned  text;
-  digits   text;
-  intl     boolean := false;
-  cc       text := null;
-  national text;
-  grouped  text;
-  pos      int;
-  head     int;
-begin
-  if raw is null then return null; end if;
-  trimmed := btrim(raw);
-  if trimmed = '' then return null; end if;
-
-  cleaned := regexp_replace(trimmed, '[^0-9+]', '', 'g');
-  if cleaned = '' then return trimmed; end if;
-
-  digits := regexp_replace(cleaned, '[^0-9]', '', 'g');
-  intl := left(cleaned, 1) = '+';
-
-  -- "011" / "00" are international dialing prefixes; same meaning as a "+".
-  if not intl and digits ~ '^(011|00)[0-9]' then
-    digits := regexp_replace(digits, '^(011|00)', '');
-    intl := true;
-  end if;
-
-  if length(digits) = 11 and left(digits, 1) = '1' then
-    digits := right(digits, 10);
-  end if;
-
-  if length(digits) = 10 then
-    return '(' || substr(digits, 1, 3) || ') '
-               || substr(digits, 4, 3) || '-'
-               || substr(digits, 7, 4);
-  end if;
-
-  if intl or length(digits) > 11 then
-    for pos in reverse 3 .. 1 loop
-      if left(digits, pos) = any (calling_codes) then
-        cc := left(digits, pos);
-        exit;
-      end if;
-    end loop;
-
-    if cc is not null then
-      national := substr(digits, length(cc) + 1);
-      if length(national) >= 4 then
-        -- Right-aligned 3-digit blocks; a lone leading digit joins the next.
-        head := length(national) % 3;
-        if head = 0 then
-          head := 3;
-        elsif head = 1 then
-          head := 4;
-        end if;
-        grouped := substr(national, 1, head);
-        pos := head + 1;
-        while pos <= length(national) loop
-          grouped := grouped || ' ' || substr(national, pos, 3);
-          pos := pos + 3;
-        end loop;
-        return '+' || cc || ' ' || grouped;
-      end if;
-    end if;
-  end if;
-
-  return trimmed;
-end;
 $$;
 
 
@@ -1290,6 +1257,15 @@ CREATE FUNCTION greendogops.is_gdo_user() RETURNS boolean
     from greendogops.app_user
     where id = auth.uid()
       and is_active
+  )
+  and (
+    coalesce(auth.jwt() ->> 'aal', 'aal1') = 'aal2'
+    or not exists (
+      select 1
+      from auth.mfa_factors f
+      where f.user_id = auth.uid()
+        and f.status = 'verified'
+    )
   );
 $$;
 
@@ -2251,6 +2227,30 @@ $$;
 
 
 --
+-- Name: new_confirmation_code(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.new_confirmation_code() RETURNS text
+    LANGUAGE sql
+    SET search_path TO 'pg_catalog'
+    AS $$
+  select string_agg(
+           substr('23456789ABCDEFGHJKMNPQRSTVWXYZ',
+                  (floor(random() * 30) + 1)::int, 1),
+           ''
+         )
+  from generate_series(1, 6);
+$$;
+
+
+--
+-- Name: FUNCTION new_confirmation_code(); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.new_confirmation_code() IS 'Six-character human-readable confirmation code shown on the post-submission ticket. Ambiguous glyphs (I/L/O/U/0/1) are excluded.';
+
+
+--
 -- Name: new_qr_token(); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -2630,6 +2630,41 @@ $$;
 --
 
 COMMENT ON FUNCTION greendogops.protect_new_objects() IS 'Event-trigger body: applies the migration 0164 RLS baseline to newly created greendogops tables/views.';
+
+
+--
+-- Name: rate_limit_hit(text, integer, integer); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.rate_limit_hit(p_key text, p_limit integer, p_window_seconds integer) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  v_hits integer;
+begin
+  insert into greendogops.rate_limit_bucket as b (bucket_key, window_start, hits)
+  values (p_key, now(), 1)
+  on conflict (bucket_key) do update set
+    hits = case
+      when b.window_start < now() - make_interval(secs => p_window_seconds) then 1
+      else b.hits + 1
+    end,
+    window_start = case
+      when b.window_start < now() - make_interval(secs => p_window_seconds) then now()
+      else b.window_start
+    end
+  returning hits into v_hits;
+
+  -- Opportunistic cleanup keeps the table small without a cron.
+  if random() < 0.01 then
+    delete from greendogops.rate_limit_bucket
+    where window_start < now() - interval '1 day';
+  end if;
+
+  return v_hits <= p_limit;
+end;
+$$;
 
 
 SET default_tablespace = '';
@@ -3080,6 +3115,35 @@ begin
   return new;
 end;
 $$;
+
+
+--
+-- Name: report_location_daily(date, date); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.report_location_daily(p_start date, p_end date) RETURNS TABLE(location_key text, location_label text, service_date date, appointments integer, revenue numeric, unique_clients integer)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'greendogops', 'public'
+    AS $$
+  select
+    a.location_key,
+    max(a.location_label)                        as location_label,
+    a.service_date,
+    count(*)::int                                as appointments,
+    coalesce(sum(a.revenue), 0)                  as revenue,
+    count(distinct a.client_contact_code)::int   as unique_clients
+  from greendogops.ezyvet_appointment a
+  where a.service_date between p_start and p_end
+  group by a.location_key, a.service_date
+  order by a.service_date, a.location_key;
+$$;
+
+
+--
+-- Name: FUNCTION report_location_daily(p_start date, p_end date); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.report_location_daily(p_start date, p_end date) IS 'Appointments, revenue and unique clients per clinic PER DAY for an arbitrary date range (inclusive), from the ezyvet_appointment day-grain matview. Rows exist only for days a clinic actually billed, so the caller can count real trading days, detect missing ingest days, and normalize totals per open day. Use report_location_period() when a single collapsed total per clinic is enough.';
 
 
 --
@@ -3807,6 +3871,13 @@ CREATE TABLE greendogops.audit_log (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: TABLE audit_log; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.audit_log IS 'Append-only security/audit trail. UPDATE/DELETE/TRUNCATE are blocked by trigger for every role. A retention purge must be a deliberate, documented owner action (disable trigger, purge, re-enable) — see docs/security.md.';
 
 
 --
@@ -4611,7 +4682,8 @@ CREATE TABLE greendogops.crm_retail_lead (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     zip text,
-    answers jsonb DEFAULT '{}'::jsonb NOT NULL
+    answers jsonb DEFAULT '{}'::jsonb NOT NULL,
+    confirmation_code text DEFAULT greendogops.new_confirmation_code() NOT NULL
 );
 
 
@@ -6145,6 +6217,36 @@ COMMENT ON TABLE greendogops.ezyvet_wellness_plan_use IS 'One row per pet per pl
 
 
 --
+-- Name: interview_invite; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.interview_invite (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    token text NOT NULL,
+    person_id uuid NOT NULL,
+    interview_type text DEFAULT 'phone_screen'::text NOT NULL,
+    duration_minutes integer DEFAULT 30 NOT NULL,
+    host_user_id uuid NOT NULL,
+    host_name text,
+    date_from date NOT NULL,
+    date_to date NOT NULL,
+    location text,
+    message text,
+    status text DEFAULT 'sent'::text NOT NULL,
+    interview_id uuid,
+    booked_start timestamp with time zone,
+    booked_at timestamp with time zone,
+    sent_to text,
+    created_by uuid,
+    created_by_name text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT interview_invite_duration_minutes_check CHECK (((duration_minutes >= 10) AND (duration_minutes <= 240))),
+    CONSTRAINT interview_invite_range_check CHECK ((date_to >= date_from)),
+    CONSTRAINT interview_invite_status_check CHECK ((status = ANY (ARRAY['sent'::text, 'booked'::text, 'cancelled'::text])))
+);
+
+
+--
 -- Name: location; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -6707,7 +6809,6 @@ CREATE TABLE greendogops.medical_board_row (
     patient text,
     client_name text,
     appt_type text,
-    appt_description text,
     is_out boolean DEFAULT false NOT NULL,
     pmc boolean DEFAULT false NOT NULL,
     emr boolean DEFAULT false NOT NULL,
@@ -6738,6 +6839,7 @@ CREATE TABLE greendogops.medical_board_row (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     board_key text,
+    appt_description text,
     card jsonb DEFAULT '{}'::jsonb NOT NULL,
     patient_code text,
     species text,
@@ -6829,6 +6931,7 @@ CREATE TABLE greendogops.person (
     status_changed_at timestamp with time zone DEFAULT now() NOT NULL,
     first_name text,
     last_name text,
+    preferred_name text,
     grid_name text,
     full_name text,
     email text,
@@ -6847,9 +6950,15 @@ CREATE TABLE greendogops.person (
     phone_home text,
     phone_other text,
     opportunity_type text,
-    grid_aliases text[],
-    preferred_name text
+    grid_aliases text[]
 );
+
+
+--
+-- Name: COLUMN person.preferred_name; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person.preferred_name IS 'Unused and empty as of 0213. Retained only so production and the migration history agree. Safe to drop once confirmed no external consumer reads it.';
 
 
 --
@@ -6864,13 +6973,6 @@ COMMENT ON COLUMN greendogops.person.opportunity_type IS 'Nature of engagement (
 --
 
 COMMENT ON COLUMN greendogops.person.grid_aliases IS 'Additional spellings the staff schedule sheet uses for this person, beyond grid_name. Read only by the sheet schedule importer.';
-
-
---
--- Name: COLUMN person.preferred_name; Type: COMMENT; Schema: greendogops; Owner: -
---
-
-COMMENT ON COLUMN greendogops.person.preferred_name IS 'Unused and empty as of 0213. Retained only so production and the migration history agree. Safe to drop once confirmed no external consumer reads it.';
 
 
 --
@@ -6987,8 +7089,8 @@ CREATE TABLE greendogops.person_employment (
     separation_notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    preferred_location_id uuid,
     schedule_type text,
+    preferred_location_id uuid,
     CONSTRAINT person_employment_pay_type_check CHECK ((pay_type = ANY (ARRAY['hourly'::text, 'salary'::text, 'day_rate'::text, 'contract'::text])))
 );
 
@@ -7017,8 +7119,36 @@ CREATE TABLE greendogops.person_interview (
     summary text,
     responses jsonb DEFAULT '[]'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    start_time time without time zone,
+    end_time time without time zone,
+    host_user_id uuid,
+    invite_id uuid,
+    google_event_id text,
+    guide_id uuid,
+    guide_name text
 );
+
+
+--
+-- Name: COLUMN person_interview.responses; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_interview.responses IS '[{ id?, question, answer, type?, options?, description? }] — guide question snapshot; older rows have question/answer only';
+
+
+--
+-- Name: COLUMN person_interview.guide_id; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_interview.guide_id IS 'Interview guide (recruiting_form kind = interview) the responses came from';
+
+
+--
+-- Name: COLUMN person_interview.guide_name; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_interview.guide_name IS 'Guide name when the interview was logged';
 
 
 --
@@ -7091,7 +7221,7 @@ CREATE TABLE greendogops.person_recruiting (
     status_notes text,
     source text,
     interview_date date,
-    score numeric(4,1),
+    score numeric(3,1),
     resume_url text,
     keep_for_future boolean,
     follow_up_date date,
@@ -7099,10 +7229,10 @@ CREATE TABLE greendogops.person_recruiting (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     target_title text,
-    application_date date,
     review_status text DEFAULT 'accepted'::text NOT NULL,
     reviewed_at timestamp with time zone,
     reviewed_by uuid,
+    application_date date,
     candidate_location text,
     relevant_experience text,
     education text,
@@ -7112,16 +7242,22 @@ CREATE TABLE greendogops.person_recruiting (
     source_detail text,
     screening_answers jsonb DEFAULT '[]'::jsonb NOT NULL,
     application_history jsonb DEFAULT '[]'::jsonb NOT NULL,
+    slack_announce_ts text,
+    slack_announce_channel text,
+    announced_at timestamp with time zone,
+    announced_by uuid,
+    application jsonb DEFAULT '{}'::jsonb NOT NULL,
     CONSTRAINT person_recruiting_interest_level_check CHECK (((interest_level IS NULL) OR (interest_level = ANY (ARRAY['Yes'::text, 'Maybe'::text, 'Reject'::text])))),
-    CONSTRAINT person_recruiting_review_status_check CHECK ((review_status = ANY (ARRAY['pending'::text, 'accepted'::text, 'declined'::text])))
+    CONSTRAINT person_recruiting_review_status_check CHECK ((review_status = ANY (ARRAY['pending'::text, 'accepted'::text, 'declined'::text]))),
+    CONSTRAINT person_recruiting_score_check CHECK (((score IS NULL) OR ((score >= (0)::numeric) AND (score <= (10)::numeric))))
 );
 
 
 --
--- Name: COLUMN person_recruiting.application_date; Type: COMMENT; Schema: greendogops; Owner: -
+-- Name: COLUMN person_recruiting.score; Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON COLUMN greendogops.person_recruiting.application_date IS 'Date the candidate applied / their resume was received. Defaults to the upload date at intake; editable on the candidate profile.';
+COMMENT ON COLUMN greendogops.person_recruiting.score IS 'Candidate Score, 0–10 (one decimal). Changes are logged in recruiting_score_change.';
 
 
 --
@@ -7143,6 +7279,13 @@ COMMENT ON COLUMN greendogops.person_recruiting.reviewed_at IS 'When the pending
 --
 
 COMMENT ON COLUMN greendogops.person_recruiting.reviewed_by IS 'auth.uid() of the recruiter who accepted or rejected the applicant.';
+
+
+--
+-- Name: COLUMN person_recruiting.application_date; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_recruiting.application_date IS 'Date the candidate applied / their resume was received. Defaults to the upload date at intake; editable on the candidate profile.';
 
 
 --
@@ -7209,6 +7352,54 @@ COMMENT ON COLUMN greendogops.person_recruiting.application_history IS 'Every ap
 
 
 --
+-- Name: COLUMN person_recruiting.slack_announce_ts; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_recruiting.slack_announce_ts IS 'Slack ts of the candidate announcement post; later updates reply in its thread.';
+
+
+--
+-- Name: COLUMN person_recruiting.slack_announce_channel; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_recruiting.slack_announce_channel IS 'Slack channel id the announcement was posted to.';
+
+
+--
+-- Name: COLUMN person_recruiting.application; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_recruiting.application IS 'Full website application, keyed by src/lib/ats/application.ts: {"answers":{key:text|text[]},"employment":[{...}],"references":[{...}],"languages":[{"language":text,"fluency":text}],"skills":{key:level},"extra":[{"label":text,"value":text}],"received_at":timestamptz}. Empty object when the candidate did not apply through the website form.';
+
+
+--
+-- Name: person_recruiting_cleanup_0220; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.person_recruiting_cleanup_0220 (
+    person_id uuid,
+    target_title text,
+    stage text,
+    source text,
+    source_detail text,
+    job_location text,
+    pipeline text,
+    status_notes text,
+    backed_up_at timestamp with time zone
+);
+
+
+--
+-- Name: person_recruiting_score_backup_0225; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.person_recruiting_score_backup_0225 (
+    person_id uuid,
+    score numeric(4,1)
+);
+
+
+--
 -- Name: person_review; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -7224,6 +7415,53 @@ CREATE TABLE greendogops.person_review (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: person_slack_link; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.person_slack_link (
+    person_id uuid NOT NULL,
+    status text DEFAULT 'not_found'::text NOT NULL,
+    slack_team_id text,
+    slack_user_id text,
+    slack_email text,
+    slack_display_name text,
+    slack_real_name text,
+    match_method text,
+    matched_by uuid,
+    connected_at timestamp with time zone,
+    last_checked_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT person_slack_link_connected_has_user CHECK (((status <> 'connected'::text) OR (slack_user_id IS NOT NULL))),
+    CONSTRAINT person_slack_link_match_method_check CHECK ((match_method = ANY (ARRAY['email'::text, 'manual'::text]))),
+    CONSTRAINT person_slack_link_slack_user_id_check CHECK (((slack_user_id IS NULL) OR (slack_user_id ~ '^[UW][A-Z0-9]+$'::text))),
+    CONSTRAINT person_slack_link_status_check CHECK ((status = ANY (ARRAY['connected'::text, 'not_found'::text, 'ambiguous'::text, 'inactive'::text, 'disconnected'::text])))
+);
+
+
+--
+-- Name: TABLE person_slack_link; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.person_slack_link IS 'Ops person -> Slack user. slack_user_id is the permanent id; email only finds it. Service role only.';
+
+
+--
+-- Name: COLUMN person_slack_link.status; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_slack_link.status IS 'connected | not_found (no Slack account with their email) | ambiguous (several) | inactive (Slack account deactivated/removed) | disconnected (admin unlinked; never auto-rematched)';
+
+
+--
+-- Name: COLUMN person_slack_link.match_method; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_slack_link.match_method IS 'email = matched automatically; manual = an admin picked the Slack user (emails need not agree)';
 
 
 --
@@ -7458,8 +7696,113 @@ CREATE TABLE greendogops."position" (
     title text NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    location text,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    openings integer DEFAULT 1 NOT NULL,
+    notes text,
+    employment_type text,
+    days_needed smallint[] DEFAULT '{}'::smallint[] NOT NULL,
+    shift_start time without time zone,
+    shift_end time without time zone,
+    hours_per_week numeric(5,2),
+    work_location_type text,
+    pay_min numeric(10,2),
+    pay_max numeric(10,2),
+    pay_type text,
+    target_start_date date,
+    description text,
+    requirements text,
+    opened_at timestamp with time zone DEFAULT now() NOT NULL,
+    closed_at timestamp with time zone,
+    close_reason text,
+    CONSTRAINT position_close_reason_check CHECK (((close_reason IS NULL) OR (close_reason = ANY (ARRAY['filled'::text, 'cancelled'::text, 'on_hold'::text])))),
+    CONSTRAINT position_days_needed_check CHECK ((days_needed <@ ARRAY[(0)::smallint, (1)::smallint, (2)::smallint, (3)::smallint, (4)::smallint, (5)::smallint, (6)::smallint])),
+    CONSTRAINT position_employment_type_check CHECK (((employment_type IS NULL) OR (employment_type = ANY (ARRAY['full_time'::text, 'part_time'::text, 'per_diem'::text, 'contractor'::text])))),
+    CONSTRAINT position_hours_per_week_check CHECK (((hours_per_week IS NULL) OR ((hours_per_week > (0)::numeric) AND (hours_per_week <= (80)::numeric)))),
+    CONSTRAINT position_pay_range_check CHECK ((((pay_min IS NULL) OR (pay_min >= (0)::numeric)) AND ((pay_max IS NULL) OR (pay_max >= (0)::numeric)) AND ((pay_min IS NULL) OR (pay_max IS NULL) OR (pay_min <= pay_max)))),
+    CONSTRAINT position_pay_type_check CHECK (((pay_type IS NULL) OR (pay_type = ANY (ARRAY['hourly'::text, 'salary'::text])))),
+    CONSTRAINT position_status_check CHECK ((status = ANY (ARRAY['open'::text, 'closed'::text]))),
+    CONSTRAINT position_work_location_type_check CHECK (((work_location_type IS NULL) OR (work_location_type = ANY (ARRAY['in_house'::text, 'remote'::text, 'hybrid'::text]))))
 );
+
+
+--
+-- Name: COLUMN "position".priority; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".priority IS 'high | normal | low';
+
+
+--
+-- Name: COLUMN "position".status; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".status IS 'open | closed (recruiting job status)';
+
+
+--
+-- Name: COLUMN "position".employment_type; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".employment_type IS 'full_time | part_time | per_diem | contractor';
+
+
+--
+-- Name: COLUMN "position".days_needed; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".days_needed IS 'Weekdays that must be covered, 0=Sun..6=Sat; empty = flexible';
+
+
+--
+-- Name: COLUMN "position".work_location_type; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".work_location_type IS 'in_house | remote | hybrid';
+
+
+--
+-- Name: COLUMN "position".pay_type; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".pay_type IS 'hourly | salary — unit for pay_min / pay_max';
+
+
+--
+-- Name: COLUMN "position".description; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".description IS 'Role summary and duties';
+
+
+--
+-- Name: COLUMN "position".requirements; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".requirements IS 'Licenses, certifications, experience and skills to screen for';
+
+
+--
+-- Name: COLUMN "position".opened_at; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".opened_at IS 'When the job was last opened (reopening resets it)';
+
+
+--
+-- Name: COLUMN "position".closed_at; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".closed_at IS 'When the job was closed; null while open';
+
+
+--
+-- Name: COLUMN "position".close_reason; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops."position".close_reason IS 'filled | cancelled | on_hold — why a closed job was closed';
 
 
 --
@@ -7551,7 +7894,10 @@ CREATE TABLE greendogops.qr_form (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     theme text DEFAULT 'emerald'::text NOT NULL,
-    banner_url text
+    banner_url text,
+    post_submit_heading text,
+    show_confirmation boolean DEFAULT false NOT NULL,
+    confirmation_note text
 );
 
 
@@ -7560,6 +7906,13 @@ CREATE TABLE greendogops.qr_form (
 --
 
 COMMENT ON TABLE greendogops.qr_form IS 'Reusable public intake form rendered at /q/<token>. `fields` holds the custom questions; answers land in qr_lead.answers.';
+
+
+--
+-- Name: COLUMN qr_form.success_message; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.success_message IS 'The single message on the confirmation screen, e.g. "Show this screen to spin the prize wheel!". Rendered large and in the form''s accent colour, never as HTML.';
 
 
 --
@@ -7574,6 +7927,27 @@ COMMENT ON COLUMN greendogops.qr_form.theme IS 'Colour scheme key rendered on th
 --
 
 COMMENT ON COLUMN greendogops.qr_form.banner_url IS 'Public URL of the header image in the qr-form-banners bucket. Null = no banner.';
+
+
+--
+-- Name: COLUMN qr_form.post_submit_heading; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.post_submit_heading IS 'Large heading on the success screen. Null falls back to "Thanks — you''re all set!".';
+
+
+--
+-- Name: COLUMN qr_form.show_confirmation; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.show_confirmation IS 'When true the success screen renders the verification ticket: confirmation code, submitter name and a live submitted-at clock.';
+
+
+--
+-- Name: COLUMN qr_form.confirmation_note; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.confirmation_note IS 'Small print under the ticket, e.g. "One spin per household."';
 
 
 --
@@ -7599,7 +7973,8 @@ CREATE TABLE greendogops.qr_lead (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     ce_event_id uuid,
     referral_partner_id uuid,
-    influencer_id uuid
+    influencer_id uuid,
+    confirmation_code text DEFAULT greendogops.new_confirmation_code() NOT NULL
 );
 
 
@@ -7622,6 +7997,321 @@ COMMENT ON COLUMN greendogops.qr_lead.ce_event_id IS 'Denormalized from the scan
 --
 
 COMMENT ON COLUMN greendogops.qr_lead.influencer_id IS 'Influencer whose code captured this lead (denormalized from qr_code).';
+
+
+--
+-- Name: COLUMN qr_lead.confirmation_code; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_lead.confirmation_code IS 'Shown to the scanner on the success screen so staff can verify a submission on the spot. Search it in Event Leads to settle a dispute.';
+
+
+--
+-- Name: rate_limit_bucket; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.rate_limit_bucket (
+    bucket_key text NOT NULL,
+    window_start timestamp with time zone DEFAULT now() NOT NULL,
+    hits integer DEFAULT 0 NOT NULL
+);
+
+
+--
+-- Name: recruiter_google_token; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiter_google_token (
+    user_id uuid NOT NULL,
+    google_email text,
+    refresh_token text NOT NULL,
+    scope text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE recruiter_google_token; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.recruiter_google_token IS 'Per-user Google Calendar OAuth refresh tokens. Service role only.';
+
+
+--
+-- Name: recruiter_schedule; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiter_schedule (
+    user_id uuid NOT NULL,
+    timezone text DEFAULT 'America/Los_Angeles'::text NOT NULL,
+    weekly_hours jsonb DEFAULT '[]'::jsonb NOT NULL,
+    default_duration integer DEFAULT 30 NOT NULL,
+    buffer_minutes integer DEFAULT 15 NOT NULL,
+    min_notice_hours integer DEFAULT 12 NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    google_email text,
+    google_connected_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT recruiter_schedule_buffer_minutes_check CHECK (((buffer_minutes >= 0) AND (buffer_minutes <= 120))),
+    CONSTRAINT recruiter_schedule_default_duration_check CHECK (((default_duration >= 10) AND (default_duration <= 240))),
+    CONSTRAINT recruiter_schedule_min_notice_hours_check CHECK (((min_notice_hours >= 0) AND (min_notice_hours <= 336)))
+);
+
+
+--
+-- Name: COLUMN recruiter_schedule.weekly_hours; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiter_schedule.weekly_hours IS '[{day: 0=Sun..6=Sat, start: "HH:MM", end: "HH:MM"}] in timezone';
+
+
+--
+-- Name: recruiting_activity; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_activity (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid NOT NULL,
+    activity_type text DEFAULT 'note'::text NOT NULL,
+    body text NOT NULL,
+    occurred_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_by uuid,
+    created_by_name text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: COLUMN recruiting_activity.activity_type; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_activity.activity_type IS 'call | text | email | note';
+
+
+--
+-- Name: recruiting_email_template; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_email_template (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    kind text DEFAULT 'rejection'::text NOT NULL,
+    name text NOT NULL,
+    subject text NOT NULL,
+    body text NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT recruiting_email_template_kind_check CHECK ((kind = 'rejection'::text))
+);
+
+
+--
+-- Name: COLUMN recruiting_email_template.body; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_email_template.body IS 'Plain text; {first_name}, {full_name}, {role} are filled in when sent';
+
+
+--
+-- Name: recruiting_form; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_form (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    kind text NOT NULL,
+    name text NOT NULL,
+    description text,
+    intro text,
+    success_message text,
+    fields jsonb DEFAULT '[]'::jsonb NOT NULL,
+    job_titles text[] DEFAULT '{}'::text[] NOT NULL,
+    slug text,
+    is_default boolean DEFAULT false NOT NULL,
+    require_resume boolean DEFAULT true NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    interview_types text[] DEFAULT '{}'::text[] NOT NULL,
+    CONSTRAINT recruiting_form_default_check CHECK (((NOT is_default) OR (kind = 'application'::text))),
+    CONSTRAINT recruiting_form_kind_check CHECK ((kind = ANY (ARRAY['application'::text, 'screening'::text, 'interview'::text]))),
+    CONSTRAINT recruiting_form_slug_check CHECK (((slug IS NULL) OR (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$'::text)))
+);
+
+
+--
+-- Name: TABLE recruiting_form; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.recruiting_form IS 'Recruiting forms: the public Standard Application, role-specific screening questionnaires, and interviewer-facing interview guides';
+
+
+--
+-- Name: COLUMN recruiting_form.fields; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_form.fields IS 'Questions (src/lib/ats/forms.ts RecruitingFormField[])';
+
+
+--
+-- Name: COLUMN recruiting_form.job_titles; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_form.job_titles IS 'Role titles this form is for (e.g. CSR); suggested first when sending';
+
+
+--
+-- Name: COLUMN recruiting_form.slug; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_form.slug IS 'Application forms: public URL /apply/<slug>';
+
+
+--
+-- Name: COLUMN recruiting_form.is_default; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_form.is_default IS 'The application served at /apply';
+
+
+--
+-- Name: COLUMN recruiting_form.interview_types; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_form.interview_types IS 'Interview guides: person_interview.interview_type values the guide loads for (empty = any)';
+
+
+--
+-- Name: recruiting_form_request; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_form_request (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    token text NOT NULL,
+    form_id uuid NOT NULL,
+    person_id uuid NOT NULL,
+    status text DEFAULT 'sent'::text NOT NULL,
+    sent_to text,
+    sent_at timestamp with time zone DEFAULT now() NOT NULL,
+    sent_by uuid,
+    sent_by_name text,
+    completed_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    reviewed_at timestamp with time zone,
+    reviewed_by_name text,
+    CONSTRAINT recruiting_form_request_status_check CHECK ((status = ANY (ARRAY['sent'::text, 'completed'::text, 'cancelled'::text])))
+);
+
+
+--
+-- Name: recruiting_form_response; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_form_response (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    form_id uuid,
+    request_id uuid,
+    person_id uuid NOT NULL,
+    form_name text NOT NULL,
+    form_kind text NOT NULL,
+    fields jsonb DEFAULT '[]'::jsonb NOT NULL,
+    answers jsonb DEFAULT '{}'::jsonb NOT NULL,
+    submitted_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: COLUMN recruiting_form_response.fields; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_form_response.fields IS 'The questions as they were when submitted';
+
+
+--
+-- Name: COLUMN recruiting_form_response.answers; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_form_response.answers IS 'Answers keyed by question id; file answers hold person_document ids';
+
+
+--
+-- Name: recruiting_rejection; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_rejection (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid NOT NULL,
+    rejected_from text NOT NULL,
+    prev_stage text,
+    prev_review_status text,
+    rejected_stage text,
+    rejected_by uuid,
+    rejected_by_name text,
+    rejected_at timestamp with time zone DEFAULT now() NOT NULL,
+    send_email boolean DEFAULT true NOT NULL,
+    template_id uuid,
+    template_name text,
+    email_to text,
+    email_scheduled_for timestamp with time zone,
+    email_status text DEFAULT 'scheduled'::text NOT NULL,
+    email_sent_at timestamp with time zone,
+    email_error text,
+    undone_at timestamp with time zone,
+    undone_by_name text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT recruiting_rejection_email_status_check CHECK ((email_status = ANY (ARRAY['scheduled'::text, 'sending'::text, 'sent'::text, 'cancelled'::text, 'not_sending'::text, 'failed'::text])))
+);
+
+
+--
+-- Name: COLUMN recruiting_rejection.rejected_from; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_rejection.rejected_from IS 'review | forms | interviews | profile';
+
+
+--
+-- Name: COLUMN recruiting_rejection.email_status; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.recruiting_rejection.email_status IS 'scheduled (48h window) | sending | sent | cancelled | not_sending (opted out / no email) | failed';
+
+
+--
+-- Name: recruiting_score_change; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_score_change (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid NOT NULL,
+    old_score numeric(3,1),
+    new_score numeric(3,1),
+    note text,
+    changed_by uuid,
+    changed_by_name text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: recruiting_task; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.recruiting_task (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid NOT NULL,
+    title text NOT NULL,
+    details text,
+    due_date date,
+    is_done boolean DEFAULT false NOT NULL,
+    completed_at timestamp with time zone,
+    created_by uuid,
+    created_by_name text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
 
 
 --
@@ -8416,7 +9106,8 @@ CREATE TABLE greendogops.sched_week (
     published_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    is_template boolean DEFAULT false NOT NULL
+    is_template boolean DEFAULT false NOT NULL,
+    CONSTRAINT sched_week_template_needs_title CHECK (((NOT is_template) OR (COALESCE(btrim(title), ''::text) <> ''::text)))
 );
 
 
@@ -9342,6 +10033,90 @@ COMMENT ON TABLE greendogops.smart_question_log IS 'Every Smart Report question:
 
 
 --
+-- Name: sms_consent; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.sms_consent (
+    person_id uuid NOT NULL,
+    source text NOT NULL,
+    consented_at timestamp with time zone DEFAULT now() NOT NULL,
+    recorded_by uuid,
+    recorded_by_name text
+);
+
+
+--
+-- Name: TABLE sms_consent; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.sms_consent IS 'Texting consent recorded by staff (how it was given in source). Service role only.';
+
+
+--
+-- Name: sms_message; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.sms_message (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid,
+    direction text NOT NULL,
+    phone text NOT NULL,
+    body text NOT NULL,
+    status text DEFAULT 'queued'::text NOT NULL,
+    twilio_sid text,
+    error_code text,
+    error_message text,
+    sent_by uuid,
+    sent_by_name text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sms_message_direction_check CHECK ((direction = ANY (ARRAY['outbound'::text, 'inbound'::text]))),
+    CONSTRAINT sms_message_phone_check CHECK ((phone ~ '^\+[1-9][0-9]{6,14}$'::text)),
+    CONSTRAINT sms_message_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'sending'::text, 'sent'::text, 'delivered'::text, 'undelivered'::text, 'failed'::text, 'received'::text])))
+);
+
+
+--
+-- Name: TABLE sms_message; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.sms_message IS 'Texts sent to / received from candidates and employees via Twilio. Service role only.';
+
+
+--
+-- Name: COLUMN sms_message.phone; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.sms_message.phone IS 'The other party, E.164 (+13105551234)';
+
+
+--
+-- Name: COLUMN sms_message.twilio_sid; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.sms_message.twilio_sid IS 'Twilio Message SID (SM…); unique so webhook retries are idempotent';
+
+
+--
+-- Name: sms_opt_out; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.sms_opt_out (
+    phone text NOT NULL,
+    keyword text,
+    opted_out_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sms_opt_out_phone_check CHECK ((phone ~ '^\+[1-9][0-9]{6,14}$'::text))
+);
+
+
+--
+-- Name: TABLE sms_opt_out; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.sms_opt_out IS 'Numbers that replied STOP. Never text these until they reply START. Service role only.';
+
+
+--
 -- Name: agent agent_key_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -10062,6 +10837,22 @@ ALTER TABLE ONLY greendogops.ezyvet_wellness_plan_use
 
 
 --
+-- Name: interview_invite interview_invite_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.interview_invite
+    ADD CONSTRAINT interview_invite_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: interview_invite interview_invite_token_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.interview_invite
+    ADD CONSTRAINT interview_invite_token_key UNIQUE (token);
+
+
+--
 -- Name: location location_code_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -10350,6 +11141,14 @@ ALTER TABLE ONLY greendogops.person_review
 
 
 --
+-- Name: person_slack_link person_slack_link_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.person_slack_link
+    ADD CONSTRAINT person_slack_link_pkey PRIMARY KEY (person_id);
+
+
+--
 -- Name: person_time_off person_time_off_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -10398,14 +11197,6 @@ ALTER TABLE ONLY greendogops."position"
 
 
 --
--- Name: position position_title_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
---
-
-ALTER TABLE ONLY greendogops."position"
-    ADD CONSTRAINT position_title_key UNIQUE (title);
-
-
---
 -- Name: profile_transition_log profile_transition_log_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -10435,6 +11226,102 @@ ALTER TABLE ONLY greendogops.qr_form
 
 ALTER TABLE ONLY greendogops.qr_lead
     ADD CONSTRAINT qr_lead_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rate_limit_bucket rate_limit_bucket_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.rate_limit_bucket
+    ADD CONSTRAINT rate_limit_bucket_pkey PRIMARY KEY (bucket_key);
+
+
+--
+-- Name: recruiter_google_token recruiter_google_token_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiter_google_token
+    ADD CONSTRAINT recruiter_google_token_pkey PRIMARY KEY (user_id);
+
+
+--
+-- Name: recruiter_schedule recruiter_schedule_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiter_schedule
+    ADD CONSTRAINT recruiter_schedule_pkey PRIMARY KEY (user_id);
+
+
+--
+-- Name: recruiting_activity recruiting_activity_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_activity
+    ADD CONSTRAINT recruiting_activity_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recruiting_email_template recruiting_email_template_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_email_template
+    ADD CONSTRAINT recruiting_email_template_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recruiting_form recruiting_form_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form
+    ADD CONSTRAINT recruiting_form_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recruiting_form_request recruiting_form_request_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_request
+    ADD CONSTRAINT recruiting_form_request_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recruiting_form_request recruiting_form_request_token_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_request
+    ADD CONSTRAINT recruiting_form_request_token_key UNIQUE (token);
+
+
+--
+-- Name: recruiting_form_response recruiting_form_response_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_response
+    ADD CONSTRAINT recruiting_form_response_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recruiting_rejection recruiting_rejection_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_rejection
+    ADD CONSTRAINT recruiting_rejection_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recruiting_score_change recruiting_score_change_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_score_change
+    ADD CONSTRAINT recruiting_score_change_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: recruiting_task recruiting_task_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_task
+    ADD CONSTRAINT recruiting_task_pkey PRIMARY KEY (id);
 
 
 --
@@ -10675,6 +11562,38 @@ ALTER TABLE ONLY greendogops.smart_glossary
 
 ALTER TABLE ONLY greendogops.smart_question_log
     ADD CONSTRAINT smart_question_log_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sms_consent sms_consent_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_consent
+    ADD CONSTRAINT sms_consent_pkey PRIMARY KEY (person_id);
+
+
+--
+-- Name: sms_message sms_message_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_message
+    ADD CONSTRAINT sms_message_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sms_message sms_message_twilio_sid_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_message
+    ADD CONSTRAINT sms_message_twilio_sid_key UNIQUE (twilio_sid);
+
+
+--
+-- Name: sms_opt_out sms_opt_out_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_opt_out
+    ADD CONSTRAINT sms_opt_out_pkey PRIMARY KEY (phone);
 
 
 --
@@ -10969,6 +11888,13 @@ CREATE UNIQUE INDEX crm_organization_source_external_idx ON greendogops.crm_orga
 --
 
 CREATE INDEX crm_organization_status_idx ON greendogops.crm_organization USING btree (status);
+
+
+--
+-- Name: crm_retail_lead_confirmation_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX crm_retail_lead_confirmation_idx ON greendogops.crm_retail_lead USING btree (confirmation_code);
 
 
 --
@@ -11903,6 +12829,13 @@ CREATE INDEX idx_rtpg_year ON greendogops.report_top_product_group USING btree (
 
 
 --
+-- Name: interview_invite_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX interview_invite_person_idx ON greendogops.interview_invite USING btree (person_id, created_at DESC);
+
+
+--
 -- Name: marketing_activity_created_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -12141,6 +13074,20 @@ CREATE INDEX person_document_person_idx ON greendogops.person_document USING btr
 
 
 --
+-- Name: person_interview_guide_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX person_interview_guide_idx ON greendogops.person_interview USING btree (guide_id) WHERE (guide_id IS NOT NULL);
+
+
+--
+-- Name: person_interview_host_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX person_interview_host_idx ON greendogops.person_interview USING btree (host_user_id, interview_date) WHERE (host_user_id IS NOT NULL);
+
+
+--
 -- Name: person_interview_person_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -12197,10 +13144,31 @@ CREATE INDEX person_recruiting_review_status_idx ON greendogops.person_recruitin
 
 
 --
+-- Name: person_recruiting_target_position_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX person_recruiting_target_position_idx ON greendogops.person_recruiting USING btree (target_position_id);
+
+
+--
 -- Name: person_review_person_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
 CREATE INDEX person_review_person_idx ON greendogops.person_review USING btree (person_id, review_date DESC);
+
+
+--
+-- Name: person_slack_link_connected_user_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX person_slack_link_connected_user_uq ON greendogops.person_slack_link USING btree (slack_team_id, slack_user_id) WHERE (status = 'connected'::text);
+
+
+--
+-- Name: person_slack_link_status_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX person_slack_link_status_idx ON greendogops.person_slack_link USING btree (status);
 
 
 --
@@ -12295,6 +13263,13 @@ CREATE INDEX planning_guide_source_week_idx ON greendogops.planning_guide USING 
 
 
 --
+-- Name: position_title_location_key; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX position_title_location_key ON greendogops."position" USING btree (title, COALESCE(location, ''::text));
+
+
+--
 -- Name: profile_transition_log_contact_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -12379,6 +13354,13 @@ CREATE INDEX qr_lead_code_idx ON greendogops.qr_lead USING btree (qr_code_id, sc
 
 
 --
+-- Name: qr_lead_confirmation_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX qr_lead_confirmation_idx ON greendogops.qr_lead USING btree (confirmation_code);
+
+
+--
 -- Name: qr_lead_event_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -12418,6 +13400,83 @@ CREATE INDEX qr_lead_scanned_idx ON greendogops.qr_lead USING btree (scanned_at 
 --
 
 CREATE INDEX qr_lead_status_idx ON greendogops.qr_lead USING btree (status);
+
+
+--
+-- Name: recruiting_activity_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_activity_person_idx ON greendogops.recruiting_activity USING btree (person_id, occurred_at DESC);
+
+
+--
+-- Name: recruiting_form_one_default; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX recruiting_form_one_default ON greendogops.recruiting_form USING btree ((true)) WHERE is_default;
+
+
+--
+-- Name: recruiting_form_request_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_form_request_person_idx ON greendogops.recruiting_form_request USING btree (person_id, sent_at DESC);
+
+
+--
+-- Name: recruiting_form_response_form_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_form_response_form_idx ON greendogops.recruiting_form_response USING btree (form_id);
+
+
+--
+-- Name: recruiting_form_response_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_form_response_person_idx ON greendogops.recruiting_form_response USING btree (person_id, submitted_at DESC);
+
+
+--
+-- Name: recruiting_form_slug_key; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX recruiting_form_slug_key ON greendogops.recruiting_form USING btree (slug) WHERE (slug IS NOT NULL);
+
+
+--
+-- Name: recruiting_rejection_due_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_rejection_due_idx ON greendogops.recruiting_rejection USING btree (email_scheduled_for) WHERE ((email_status = 'scheduled'::text) AND (undone_at IS NULL));
+
+
+--
+-- Name: recruiting_rejection_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_rejection_person_idx ON greendogops.recruiting_rejection USING btree (person_id, rejected_at DESC);
+
+
+--
+-- Name: recruiting_score_change_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_score_change_person_idx ON greendogops.recruiting_score_change USING btree (person_id, created_at DESC);
+
+
+--
+-- Name: recruiting_task_open_due_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_task_open_due_idx ON greendogops.recruiting_task USING btree (due_date) WHERE (NOT is_done);
+
+
+--
+-- Name: recruiting_task_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX recruiting_task_person_idx ON greendogops.recruiting_task USING btree (person_id);
 
 
 --
@@ -12806,17 +13865,17 @@ CREATE UNIQUE INDEX sched_week_location_uq ON greendogops.sched_week_location US
 
 
 --
--- Name: sched_week_single_template; Type: INDEX; Schema: greendogops; Owner: -
---
-
-CREATE UNIQUE INDEX sched_week_single_template ON greendogops.sched_week USING btree (is_template) WHERE is_template;
-
-
---
 -- Name: sched_week_start_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
-CREATE UNIQUE INDEX sched_week_start_idx ON greendogops.sched_week USING btree (week_start);
+CREATE UNIQUE INDEX sched_week_start_idx ON greendogops.sched_week USING btree (week_start) WHERE (NOT is_template);
+
+
+--
+-- Name: sched_week_template_title_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX sched_week_template_title_idx ON greendogops.sched_week USING btree (lower(btrim(title))) WHERE is_template;
 
 
 --
@@ -12862,10 +13921,38 @@ CREATE INDEX smart_question_log_verified_idx ON greendogops.smart_question_log U
 
 
 --
+-- Name: sms_message_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX sms_message_person_idx ON greendogops.sms_message USING btree (person_id, created_at DESC);
+
+
+--
+-- Name: sms_message_phone_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX sms_message_phone_idx ON greendogops.sms_message USING btree (phone, created_at DESC);
+
+
+--
 -- Name: ux_ezv_appointment; Type: INDEX; Schema: greendogops; Owner: -
 --
 
 CREATE UNIQUE INDEX ux_ezv_appointment ON greendogops.ezyvet_appointment USING btree (client_contact_code, service_date, location_key);
+
+
+--
+-- Name: audit_log audit_log_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER audit_log_append_only_row BEFORE DELETE OR UPDATE ON greendogops.audit_log FOR EACH ROW EXECUTE FUNCTION greendogops.audit_log_append_only();
+
+
+--
+-- Name: audit_log audit_log_append_only_truncate; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER audit_log_append_only_truncate BEFORE TRUNCATE ON greendogops.audit_log FOR EACH STATEMENT EXECUTE FUNCTION greendogops.audit_log_append_only();
 
 
 --
@@ -13240,6 +14327,13 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.person_review FOR EAC
 
 
 --
+-- Name: person_slack_link set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.person_slack_link FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
 -- Name: person_time_off set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
@@ -13300,6 +14394,34 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.qr_form FOR EACH ROW 
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.qr_lead FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: recruiter_schedule set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.recruiter_schedule FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: recruiting_email_template set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.recruiting_email_template FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: recruiting_form set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.recruiting_form FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: recruiting_task set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.recruiting_task FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
 
 
 --
@@ -13398,6 +14520,13 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.sheet_sync_source FOR
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.smart_glossary FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: sms_message set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.sms_message FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
 
 
 --
@@ -13631,6 +14760,30 @@ ALTER TABLE ONLY greendogops.ezyvet_record_tag
 
 
 --
+-- Name: interview_invite interview_invite_host_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.interview_invite
+    ADD CONSTRAINT interview_invite_host_user_id_fkey FOREIGN KEY (host_user_id) REFERENCES greendogops.app_user(id);
+
+
+--
+-- Name: interview_invite interview_invite_interview_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.interview_invite
+    ADD CONSTRAINT interview_invite_interview_id_fkey FOREIGN KEY (interview_id) REFERENCES greendogops.person_interview(id) ON DELETE SET NULL;
+
+
+--
+-- Name: interview_invite interview_invite_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.interview_invite
+    ADD CONSTRAINT interview_invite_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
 -- Name: location location_parent_location_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -13799,6 +14952,30 @@ ALTER TABLE ONLY greendogops.person_employment
 
 
 --
+-- Name: person_interview person_interview_guide_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.person_interview
+    ADD CONSTRAINT person_interview_guide_id_fkey FOREIGN KEY (guide_id) REFERENCES greendogops.recruiting_form(id) ON DELETE SET NULL;
+
+
+--
+-- Name: person_interview person_interview_host_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.person_interview
+    ADD CONSTRAINT person_interview_host_user_id_fkey FOREIGN KEY (host_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: person_interview person_interview_invite_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.person_interview
+    ADD CONSTRAINT person_interview_invite_id_fkey FOREIGN KEY (invite_id) REFERENCES greendogops.interview_invite(id) ON DELETE SET NULL;
+
+
+--
 -- Name: person_interview person_interview_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -13852,6 +15029,22 @@ ALTER TABLE ONLY greendogops.person_recruiting
 
 ALTER TABLE ONLY greendogops.person_review
     ADD CONSTRAINT person_review_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: person_slack_link person_slack_link_matched_by_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.person_slack_link
+    ADD CONSTRAINT person_slack_link_matched_by_fkey FOREIGN KEY (matched_by) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: person_slack_link person_slack_link_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.person_slack_link
+    ADD CONSTRAINT person_slack_link_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
 
 
 --
@@ -14052,6 +15245,102 @@ ALTER TABLE ONLY greendogops.qr_lead
 
 ALTER TABLE ONLY greendogops.qr_lead
     ADD CONSTRAINT qr_lead_referral_partner_id_fkey FOREIGN KEY (referral_partner_id) REFERENCES greendogops.referral_partners(id) ON DELETE SET NULL;
+
+
+--
+-- Name: recruiter_google_token recruiter_google_token_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiter_google_token
+    ADD CONSTRAINT recruiter_google_token_user_id_fkey FOREIGN KEY (user_id) REFERENCES greendogops.app_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiter_schedule recruiter_schedule_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiter_schedule
+    ADD CONSTRAINT recruiter_schedule_user_id_fkey FOREIGN KEY (user_id) REFERENCES greendogops.app_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiting_activity recruiting_activity_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_activity
+    ADD CONSTRAINT recruiting_activity_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiting_form_request recruiting_form_request_form_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_request
+    ADD CONSTRAINT recruiting_form_request_form_id_fkey FOREIGN KEY (form_id) REFERENCES greendogops.recruiting_form(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiting_form_request recruiting_form_request_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_request
+    ADD CONSTRAINT recruiting_form_request_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiting_form_response recruiting_form_response_form_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_response
+    ADD CONSTRAINT recruiting_form_response_form_id_fkey FOREIGN KEY (form_id) REFERENCES greendogops.recruiting_form(id) ON DELETE SET NULL;
+
+
+--
+-- Name: recruiting_form_response recruiting_form_response_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_response
+    ADD CONSTRAINT recruiting_form_response_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiting_form_response recruiting_form_response_request_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_form_response
+    ADD CONSTRAINT recruiting_form_response_request_id_fkey FOREIGN KEY (request_id) REFERENCES greendogops.recruiting_form_request(id) ON DELETE SET NULL;
+
+
+--
+-- Name: recruiting_rejection recruiting_rejection_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_rejection
+    ADD CONSTRAINT recruiting_rejection_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiting_rejection recruiting_rejection_template_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_rejection
+    ADD CONSTRAINT recruiting_rejection_template_id_fkey FOREIGN KEY (template_id) REFERENCES greendogops.recruiting_email_template(id) ON DELETE SET NULL;
+
+
+--
+-- Name: recruiting_score_change recruiting_score_change_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_score_change
+    ADD CONSTRAINT recruiting_score_change_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: recruiting_task recruiting_task_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.recruiting_task
+    ADD CONSTRAINT recruiting_task_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
 
 
 --
@@ -14292,6 +15581,38 @@ ALTER TABLE ONLY greendogops.smart_question_log
 
 ALTER TABLE ONLY greendogops.smart_question_log
     ADD CONSTRAINT smart_question_log_verified_by_fkey FOREIGN KEY (verified_by) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: sms_consent sms_consent_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_consent
+    ADD CONSTRAINT sms_consent_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sms_consent sms_consent_recorded_by_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_consent
+    ADD CONSTRAINT sms_consent_recorded_by_fkey FOREIGN KEY (recorded_by) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: sms_message sms_message_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_message
+    ADD CONSTRAINT sms_message_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sms_message sms_message_sent_by_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.sms_message
+    ADD CONSTRAINT sms_message_sent_by_fkey FOREIGN KEY (sent_by) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
 
 
 --
@@ -14775,13 +16096,6 @@ CREATE POLICY gdo_members_all ON greendogops.app_setting TO authenticated USING 
 
 
 --
--- Name: audit_log gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.audit_log TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
 -- Name: bizdev_appt_type gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -15230,6 +16544,13 @@ CREATE POLICY gdo_members_all ON greendogops.ezyvet_wellness_plan_use TO authent
 
 
 --
+-- Name: interview_invite gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.interview_invite TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
 -- Name: location gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -15363,34 +16684,6 @@ CREATE POLICY gdo_members_all ON greendogops.person TO authenticated USING (gree
 
 
 --
--- Name: person_asset gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.person_asset TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
--- Name: person_compliance_entry gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.person_compliance_entry TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
--- Name: person_disciplinary_action gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.person_disciplinary_action TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
--- Name: person_document gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.person_document TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
 -- Name: person_employment gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -15402,20 +16695,6 @@ CREATE POLICY gdo_members_all ON greendogops.person_employment TO authenticated 
 --
 
 CREATE POLICY gdo_members_all ON greendogops.person_interview TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
--- Name: person_license gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.person_license TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
--- Name: person_onboarding_item gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.person_onboarding_item TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
 
 
 --
@@ -15433,10 +16712,10 @@ CREATE POLICY gdo_members_all ON greendogops.person_recruiting TO authenticated 
 
 
 --
--- Name: person_review gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+-- Name: person_recruiting_cleanup_0220 gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
 --
 
-CREATE POLICY gdo_members_all ON greendogops.person_review TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+CREATE POLICY gdo_members_all ON greendogops.person_recruiting_cleanup_0220 TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
 
 
 --
@@ -15482,13 +16761,6 @@ CREATE POLICY gdo_members_all ON greendogops."position" TO authenticated USING (
 
 
 --
--- Name: profile_transition_log gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.profile_transition_log TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
 -- Name: qr_code gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -15507,6 +16779,69 @@ CREATE POLICY gdo_members_all ON greendogops.qr_form TO authenticated USING (gre
 --
 
 CREATE POLICY gdo_members_all ON greendogops.qr_lead TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiter_schedule gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiter_schedule TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_activity gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_activity TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_email_template gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_email_template TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_form gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_form TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_form_request gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_form_request TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_form_response gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_form_response TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_rejection gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_rejection TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_score_change gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_score_change TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
+
+
+--
+-- Name: recruiting_task gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY gdo_members_all ON greendogops.recruiting_task TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
 
 
 --
@@ -15685,6 +17020,463 @@ CREATE POLICY gdo_members_all ON greendogops.smart_question_log TO authenticated
 
 
 --
+-- Name: person_asset hr_file_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_delete ON greendogops.person_asset FOR DELETE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_compliance_entry hr_file_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_delete ON greendogops.person_compliance_entry FOR DELETE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_disciplinary_action hr_file_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_delete ON greendogops.person_disciplinary_action FOR DELETE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_document hr_file_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_delete ON greendogops.person_document FOR DELETE TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))) OR ((EXISTS ( SELECT 1
+   FROM greendogops.person p
+  WHERE ((p.id = person_document.person_id) AND ((p.status)::text = ANY (ARRAY['prospect'::text, 'applicant'::text]))))) AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text <> 'staff'::text) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
+            ELSE true
+        END)))))));
+
+
+--
+-- Name: person_license hr_file_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_delete ON greendogops.person_license FOR DELETE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_onboarding_item hr_file_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_delete ON greendogops.person_onboarding_item FOR DELETE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_review hr_file_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_delete ON greendogops.person_review FOR DELETE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_asset hr_file_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_insert ON greendogops.person_asset FOR INSERT TO authenticated WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_compliance_entry hr_file_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_insert ON greendogops.person_compliance_entry FOR INSERT TO authenticated WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_disciplinary_action hr_file_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_insert ON greendogops.person_disciplinary_action FOR INSERT TO authenticated WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_document hr_file_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_insert ON greendogops.person_document FOR INSERT TO authenticated WITH CHECK ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))) OR ((EXISTS ( SELECT 1
+   FROM greendogops.person p
+  WHERE ((p.id = person_document.person_id) AND ((p.status)::text = ANY (ARRAY['prospect'::text, 'applicant'::text]))))) AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text <> 'staff'::text) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
+            ELSE true
+        END)))))));
+
+
+--
+-- Name: person_license hr_file_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_insert ON greendogops.person_license FOR INSERT TO authenticated WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_onboarding_item hr_file_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_insert ON greendogops.person_onboarding_item FOR INSERT TO authenticated WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_review hr_file_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_insert ON greendogops.person_review FOR INSERT TO authenticated WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_asset hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.person_asset FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))))));
+
+
+--
+-- Name: person_compliance_entry hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.person_compliance_entry FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))))));
+
+
+--
+-- Name: person_disciplinary_action hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.person_disciplinary_action FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))))));
+
+
+--
+-- Name: person_document hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.person_document FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))) OR ((EXISTS ( SELECT 1
+   FROM greendogops.person p
+  WHERE ((p.id = person_document.person_id) AND ((p.status)::text = ANY (ARRAY['prospect'::text, 'applicant'::text]))))) AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
+            ELSE true
+        END)))))));
+
+
+--
+-- Name: person_license hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.person_license FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))))));
+
+
+--
+-- Name: person_onboarding_item hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.person_onboarding_item FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))))));
+
+
+--
+-- Name: person_review hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.person_review FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))))));
+
+
+--
+-- Name: profile_transition_log hr_file_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_read ON greendogops.profile_transition_log FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((person_id IS NULL) OR (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))) OR (person_id = ( SELECT u.person_id
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active))) OR ((EXISTS ( SELECT 1
+   FROM greendogops.person p
+  WHERE ((p.id = profile_transition_log.person_id) AND ((p.status)::text = ANY (ARRAY['prospect'::text, 'applicant'::text]))))) AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
+            ELSE true
+        END)))))));
+
+
+--
+-- Name: person_asset hr_file_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_update ON greendogops.person_asset FOR UPDATE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))))) WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_compliance_entry hr_file_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_update ON greendogops.person_compliance_entry FOR UPDATE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))))) WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_disciplinary_action hr_file_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_update ON greendogops.person_disciplinary_action FOR UPDATE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))))) WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_document hr_file_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_update ON greendogops.person_document FOR UPDATE TO authenticated USING ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))) OR ((EXISTS ( SELECT 1
+   FROM greendogops.person p
+  WHERE ((p.id = person_document.person_id) AND ((p.status)::text = ANY (ARRAY['prospect'::text, 'applicant'::text]))))) AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text <> 'staff'::text) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
+            ELSE true
+        END))))))) WITH CHECK ((greendogops.is_gdo_user() AND ((EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))) OR ((EXISTS ( SELECT 1
+   FROM greendogops.person p
+  WHERE ((p.id = person_document.person_id) AND ((p.status)::text = ANY (ARRAY['prospect'::text, 'applicant'::text]))))) AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text <> 'staff'::text) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
+            ELSE true
+        END)))))));
+
+
+--
+-- Name: person_license hr_file_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_update ON greendogops.person_license FOR UPDATE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))))) WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_onboarding_item hr_file_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_update ON greendogops.person_onboarding_item FOR UPDATE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))))) WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: person_review hr_file_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY hr_file_update ON greendogops.person_review FOR UPDATE TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END))))) WITH CHECK ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) AND
+        CASE
+            WHEN (jsonb_typeof((u.module_access -> 'hr'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'hr'::text))::boolean
+            ELSE true
+        END)))));
+
+
+--
+-- Name: interview_invite; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.interview_invite ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: location; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -15859,10 +17651,28 @@ ALTER TABLE greendogops.person_pto_day ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.person_recruiting ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: person_recruiting_cleanup_0220; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.person_recruiting_cleanup_0220 ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: person_recruiting_score_backup_0225; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.person_recruiting_score_backup_0225 ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: person_review; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
 ALTER TABLE greendogops.person_review ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: person_slack_link; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.person_slack_link ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: person_time_off; Type: ROW SECURITY; Schema: greendogops; Owner: -
@@ -15923,6 +17733,72 @@ ALTER TABLE greendogops.qr_form ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE greendogops.qr_lead ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: rate_limit_bucket; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.rate_limit_bucket ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiter_google_token; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiter_google_token ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiter_schedule; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiter_schedule ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_activity; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_activity ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_email_template; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_email_template ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_form; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_form ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_form_request; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_form_request ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_form_response; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_form_response ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_rejection; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_rejection ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_score_change; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_score_change ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: recruiting_task; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.recruiting_task ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: referral_partners; Type: ROW SECURITY; Schema: greendogops; Owner: -
@@ -16051,6 +17927,62 @@ ALTER TABLE greendogops.sched_week_line ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.sched_week_location ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: audit_log service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.audit_log TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: person_recruiting_score_backup_0225 service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.person_recruiting_score_backup_0225 TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: person_slack_link service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.person_slack_link TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: rate_limit_bucket service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.rate_limit_bucket TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: recruiter_google_token service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.recruiter_google_token TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: sms_consent service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.sms_consent TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: sms_message service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.sms_message TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: sms_opt_out service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.sms_opt_out TO authenticated USING (false) WITH CHECK (false);
+
+
+--
 -- Name: sheet_sync_issue; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -16073,6 +18005,24 @@ ALTER TABLE greendogops.smart_glossary ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE greendogops.smart_question_log ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: sms_consent; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.sms_consent ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: sms_message; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.sms_message ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: sms_opt_out; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.sms_opt_out ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: SCHEMA greendogops; Type: ACL; Schema: -; Owner: -
@@ -16147,6 +18097,14 @@ GRANT ALL ON FUNCTION greendogops.appt_type_observed_counts() TO service_role;
 
 
 --
+-- Name: FUNCTION audit_log_append_only(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.audit_log_append_only() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.audit_log_append_only() TO service_role;
+
+
+--
 -- Name: FUNCTION bizdev_appt_type_daily_avg(); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -16192,6 +18150,14 @@ GRANT ALL ON FUNCTION greendogops.bizdev_weekday_factor() TO service_role;
 
 
 --
+-- Name: FUNCTION book_interview_slot(p_invite_id uuid, p_date date, p_start time without time zone, p_end time without time zone, p_interviewer text, p_booked_start timestamp with time zone); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.book_interview_slot(p_invite_id uuid, p_date date, p_start time without time zone, p_end time without time zone, p_interviewer text, p_booked_start timestamp with time zone) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.book_interview_slot(p_invite_id uuid, p_date date, p_start time without time zone, p_end time without time zone, p_interviewer text, p_booked_start timestamp with time zone) TO service_role;
+
+
+--
 -- Name: FUNCTION cancelled_appointments_by_type(p_start date, p_end date); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -16207,15 +18173,6 @@ GRANT ALL ON FUNCTION greendogops.cancelled_appointments_by_type(p_start date, p
 REVOKE ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_start date, p_end date, p_type text) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_start date, p_end date, p_type text) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_start date, p_end date, p_type text) TO service_role;
-
-
---
--- Name: FUNCTION format_phone(raw text); Type: ACL; Schema: greendogops; Owner: -
---
-
-REVOKE ALL ON FUNCTION greendogops.format_phone(raw text) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.format_phone(raw text) TO service_role;
-GRANT ALL ON FUNCTION greendogops.format_phone(raw text) TO authenticated;
 
 
 --
@@ -16433,6 +18390,15 @@ GRANT ALL ON FUNCTION greendogops.name_tokens(raw text) TO authenticated;
 
 
 --
+-- Name: FUNCTION new_confirmation_code(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.new_confirmation_code() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.new_confirmation_code() TO service_role;
+GRANT ALL ON FUNCTION greendogops.new_confirmation_code() TO authenticated;
+
+
+--
 -- Name: FUNCTION new_qr_token(); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -16514,6 +18480,14 @@ GRANT ALL ON FUNCTION greendogops.protect_new_objects() TO authenticated;
 
 
 --
+-- Name: FUNCTION rate_limit_hit(p_key text, p_limit integer, p_window_seconds integer); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.rate_limit_hit(p_key text, p_limit integer, p_window_seconds integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.rate_limit_hit(p_key text, p_limit integer, p_window_seconds integer) TO service_role;
+
+
+--
 -- Name: TABLE referral_partners; Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -16581,6 +18555,15 @@ GRANT ALL ON FUNCTION greendogops.register_partner_qr_code() TO authenticated;
 REVOKE ALL ON FUNCTION greendogops.register_referral_qr_code() FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.register_referral_qr_code() TO service_role;
 GRANT ALL ON FUNCTION greendogops.register_referral_qr_code() TO authenticated;
+
+
+--
+-- Name: FUNCTION report_location_daily(p_start date, p_end date); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.report_location_daily(p_start date, p_end date) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.report_location_daily(p_start date, p_end date) TO service_role;
+GRANT ALL ON FUNCTION greendogops.report_location_daily(p_start date, p_end date) TO authenticated;
 
 
 --
@@ -16779,8 +18762,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.ats_hr_merge_backup_0032 
 -- Name: TABLE audit_log; Type: ACL; Schema: greendogops; Owner: -
 --
 
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.audit_log TO authenticated;
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.audit_log TO service_role;
+GRANT SELECT,INSERT ON TABLE greendogops.audit_log TO service_role;
 
 
 --
@@ -17307,6 +19289,14 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.ezyvet_wellness_plan_use 
 
 
 --
+-- Name: TABLE interview_invite; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.interview_invite TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.interview_invite TO service_role;
+
+
+--
 -- Name: TABLE location; Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -17494,8 +19484,176 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_document TO servic
 -- Name: TABLE person_employment; Type: ACL; Schema: greendogops; Owner: -
 --
 
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_employment TO authenticated;
+GRANT DELETE ON TABLE greendogops.person_employment TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_employment TO service_role;
+
+
+--
+-- Name: COLUMN person_employment.person_id; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(person_id),INSERT(person_id),UPDATE(person_id) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.position_id; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(position_id),INSERT(position_id),UPDATE(position_id) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.location_id; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(location_id),INSERT(location_id),UPDATE(location_id) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.offer_title; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(offer_title),INSERT(offer_title),UPDATE(offer_title) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.adp_job_title; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(adp_job_title),INSERT(adp_job_title),UPDATE(adp_job_title) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.flsa_status; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(flsa_status),INSERT(flsa_status),UPDATE(flsa_status) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.work_schedule; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(work_schedule),INSERT(work_schedule),UPDATE(work_schedule) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.days_per_week; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(days_per_week),INSERT(days_per_week),UPDATE(days_per_week) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.hire_date; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(hire_date),INSERT(hire_date),UPDATE(hire_date) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.original_hire_date; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(original_hire_date),INSERT(original_hire_date),UPDATE(original_hire_date) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.pto_allotment; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(pto_allotment),INSERT(pto_allotment),UPDATE(pto_allotment) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.pto_policy_allotment; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(pto_policy_allotment),INSERT(pto_policy_allotment),UPDATE(pto_policy_allotment) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.pto_used; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(pto_used),INSERT(pto_used),UPDATE(pto_used) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.pto_available; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(pto_available),INSERT(pto_available),UPDATE(pto_available) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.pto_notes; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(pto_notes),INSERT(pto_notes),UPDATE(pto_notes) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.compliance; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(compliance),INSERT(compliance),UPDATE(compliance) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.separation_date; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(separation_date),INSERT(separation_date),UPDATE(separation_date) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.separation_type; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(separation_type),INSERT(separation_type),UPDATE(separation_type) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.separation_letter_signed; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(separation_letter_signed),INSERT(separation_letter_signed),UPDATE(separation_letter_signed) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.separation_notes; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(separation_notes),INSERT(separation_notes),UPDATE(separation_notes) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.created_at; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(created_at),INSERT(created_at),UPDATE(created_at) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.updated_at; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(updated_at),INSERT(updated_at),UPDATE(updated_at) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.schedule_type; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(schedule_type),INSERT(schedule_type),UPDATE(schedule_type) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.preferred_location_id; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(preferred_location_id),INSERT(preferred_location_id),UPDATE(preferred_location_id) ON TABLE greendogops.person_employment TO authenticated;
 
 
 --
@@ -17539,11 +19697,33 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_recruiting TO serv
 
 
 --
+-- Name: TABLE person_recruiting_cleanup_0220; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_recruiting_cleanup_0220 TO service_role;
+
+
+--
+-- Name: TABLE person_recruiting_score_backup_0225; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_recruiting_score_backup_0225 TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_recruiting_score_backup_0225 TO service_role;
+
+
+--
 -- Name: TABLE person_review; Type: ACL; Schema: greendogops; Owner: -
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_review TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_review TO service_role;
+
+
+--
+-- Name: TABLE person_slack_link; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.person_slack_link TO service_role;
 
 
 --
@@ -17624,6 +19804,92 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.qr_form TO service_role;
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.qr_lead TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.qr_lead TO service_role;
+
+
+--
+-- Name: TABLE rate_limit_bucket; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.rate_limit_bucket TO service_role;
+
+
+--
+-- Name: TABLE recruiter_google_token; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiter_google_token TO service_role;
+
+
+--
+-- Name: TABLE recruiter_schedule; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiter_schedule TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiter_schedule TO service_role;
+
+
+--
+-- Name: TABLE recruiting_activity; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_activity TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_activity TO service_role;
+
+
+--
+-- Name: TABLE recruiting_email_template; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_email_template TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_email_template TO service_role;
+
+
+--
+-- Name: TABLE recruiting_form; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_form TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_form TO service_role;
+
+
+--
+-- Name: TABLE recruiting_form_request; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_form_request TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_form_request TO service_role;
+
+
+--
+-- Name: TABLE recruiting_form_response; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_form_response TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_form_response TO service_role;
+
+
+--
+-- Name: TABLE recruiting_rejection; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_rejection TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_rejection TO service_role;
+
+
+--
+-- Name: TABLE recruiting_score_change; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_score_change TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_score_change TO service_role;
+
+
+--
+-- Name: TABLE recruiting_task; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_task TO authenticated;
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.recruiting_task TO service_role;
 
 
 --
@@ -18179,6 +20445,27 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.smart_glossary TO service
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.smart_question_log TO service_role;
+
+
+--
+-- Name: TABLE sms_consent; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sms_consent TO service_role;
+
+
+--
+-- Name: TABLE sms_message; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sms_message TO service_role;
+
+
+--
+-- Name: TABLE sms_opt_out; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sms_opt_out TO service_role;
 
 
 --

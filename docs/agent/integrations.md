@@ -27,6 +27,15 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 - Google auth: service account or stored OAuth refresh token (`scripts/google_oauth_setup.mjs`, `scripts/gmail_oauth_setup.mjs`). An `invalid_grant` means the refresh token was revoked/expired — needs the user to re-run setup; not fixable by code.
 - Resend delivery events arrive at `/api/email/webhook`.
 
+## Slack user linking (`src/lib/slack/users.ts`, `link-sync.ts`)
+
+- Workspace `GREEN DOG` (green-dog-group.slack.com). On 2026-10-09 `auth.test` showed the bot token's scopes as only `chat:write, chat:write.customize, channels:join`. Linking also needs `users:read` + `users:read.email`: add both in the Slack app (OAuth & Permissions → Bot Token Scopes) and reinstall. If the token changes, update `SLACK_BOT_TOKEN` in Vercel. Admin → Slack shows any missing scope (read from the `x-oauth-scopes` response header).
+- Without `users:read.email`, `users.list` succeeds but omits every email. The sync refuses to run in that state, so it never marks everyone `not_found`.
+- One `users.list` sweep (200/page) per sync; 429s are retried up to 3 times, honouring `Retry-After`. The sync is read-only toward Slack; it never posts.
+- Matching is by exact email against `person.email` and the person's login email. On 2026-10-09, 85 of 94 active employees had a personal gmail.com HR email, so expect many `not_found` rows that need a manual link in Admin → Slack.
+- A connected link is kept by Slack user id. A deactivated Slack account becomes `inactive` (the id is kept) and is never re-linked to another account automatically. `disconnected` (unlinked by an admin) is left alone until an admin retries.
+- Recovery: a failed nightly run shows in Admin → Agents (`slack_user_sync`) with the Slack error. `missing_scope` / `invalid_auth` need the Slack app or token fixed, not code.
+
 ## Twilio texting (`src/lib/sms`)
 
 - Off until `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` are all set; until then nothing touches the `sms_*` tables (migration 0228).

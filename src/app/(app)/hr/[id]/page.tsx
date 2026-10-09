@@ -36,7 +36,8 @@ import {
   getPersonEligibility,
 } from "../../schedule/data";
 import { canTextPerson } from "@/lib/sms/access";
-import { EmployeeProfile, type LinkedAccount } from "./employee-profile";
+import { EmployeeProfile, type LinkedAccount, type SlackChipInfo } from "./employee-profile";
+import { getSlackLinkForPerson } from "@/lib/slack/link-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -251,6 +252,14 @@ export default async function EmployeeDetailPage({
     .maybeSingle();
   const account = (accountRow as LinkedAccount | null) ?? null;
 
+  const slackLink = await getSlackLinkForPerson(id);
+  const slack: SlackChipInfo | null = slackLink
+    ? {
+        status: slackLink.status,
+        handle: slackLink.slackDisplayName ?? slackLink.slackRealName,
+      }
+    : null;
+
   // Active clinic locations for the Preferred location dropdown.
   const { data: locationRows } = await supabase
     .from("location")
@@ -325,6 +334,7 @@ export default async function EmployeeDetailPage({
         compliance={compliance}
         licenses={licenses}
         account={account}
+        slack={slack}
         canViewComp={canViewComp}
         canEdit={canEdit}
         isAdmin={isAdmin}

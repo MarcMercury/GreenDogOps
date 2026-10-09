@@ -51,6 +51,12 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** `GH_TOKEN="$GITHUB_TOKEN" gh api repos/MarcMercury/GreenDogOps/commits/<sha>/status --jq '.state, (.statuses[] | "\(.context) \(.state) \(.description)")'` — Vercel reports as context `Vercel`. `gh api repos/MarcMercury/GreenDogOps/deployments` lists Production deployments by sha.
 - **Evidence:** returned `success` / "Deployment has completed" for `eddc044` on 2026-10-08.
 
+### Editor diagnostics (`problems`) may not type-check — use a scoped `tsc`
+- **Problem:** the `problems` tool reported "No errors" for a file with a deliberate type error (`const x: number = <array>`).
+- **Root cause:** not confirmed — probably the editor's TS server doesn't analyse files that aren't open.
+- **Fix:** run `tsc` over only the changed files. Write a temp tsconfig that `extends` the repo's, with `noEmit`, `incremental: false`, `skipLibCheck`, and `include` = `next-env.d.ts` + the changed files (match `[id]` folders with `?id?`). Then run `NODE_OPTIONS=--max-old-space-size=2560 npx tsc -p <that file>`. This follows imports, so their types are checked too. A full-project `tsc` still OOMs.
+- **Evidence:** 2026-10-09: the planted error was caught as TS2322 by the scoped run and missed by `problems`. The scoped run over the Slack-linking files finished with exit 0.
+
 ### Test suite baseline
 - `npx vitest run` with no config file: 14 files / 186 tests, ~9s, all passing on 2026-10-08 (`eddc044` + uncommitted ATS work). Tests are pure-logic `*.test.ts` files beside their modules in `src/lib/**`.
 

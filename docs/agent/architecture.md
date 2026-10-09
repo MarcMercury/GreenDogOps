@@ -31,6 +31,11 @@ there, or that need a sharper statement for agents.
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
 
+### 2026-10-09 — Slack identity keyed on person (migration 0229)
+- **Context:** Ops needs to DM employees (schedule changes, PTO decisions, interview assignments). Only 22 of 94 active employees have an `app_user` login, so a link on `app_user` would miss most staff.
+- **Decision:** `person_slack_link` keyed by `person_id` (service-role only, deny-all policy). `slack_user_id` is the permanent identifier; email is only used to find it, and never a name. A partial unique index stops one Slack account being connected to two people. Rows are never deleted. Whether a person may be messaged (`person.status`) is checked at send time and not copied onto the link, so the `person_after_change` triggers stay the single source for offboarding.
+- **Consequences:** any future sender (Phase 2 notification service) must use only `status = 'connected'` links and must also check `person.status` itself. The rules are pinned by `src/lib/slack/matching.test.ts`.
+
 ### 2026-10-09 — Texting via Twilio, service-role tables (migration 0228)
 - **Context:** staff need to text candidates and employees; US carriers require A2P 10DLC registration, consent, and STOP handling.
 - **Decision:** Twilio REST over `fetch` (no SDK). `sms_message`, `sms_opt_out` and `sms_consent` are service-role only (deny-all policy); the app reads and writes them after `canTextPerson`. Opt-outs are keyed by phone number, because STOP comes from a number, not a person. Candidate consent is read straight from the application's `sms_consent` answer (not copied); `sms_consent` only holds consent that staff record. The feature stays dark until all Twilio env vars exist, and `SMS_LIVE` gates real recipients.

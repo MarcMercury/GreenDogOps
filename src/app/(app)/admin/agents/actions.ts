@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin, recordAudit } from "@/lib/auth/session";
 import { dispatchAgentWorker } from "@/lib/admin/agent-runner";
 import { runSheetSync } from "@/lib/sheets/sync";
+import { runSlackUserSync, SLACK_SYNC_AGENT_KEY } from "@/lib/slack/link-sync";
 import type { Agent } from "@/lib/admin/agents";
 
 type ActionResult = { ok: true; message: string } | { ok: false; error: string };
@@ -54,8 +55,36 @@ export async function runAgentNow(agentId: string): Promise<ActionResult> {
 
   const targetDate = previousDayLA();
 
-  // Inline agents (the spreadsheet sync) run inside the app rather than on the
-  // off-Vercel browser worker, and record their own agent_run row.
+  // Inline agents run inside the app rather than on the off-Vercel browser
+  // worker, and record their own agent_run row.
+  if (
+    agent.key === SLACK_SYNC_AGENT_KEY &&
+    (agent.config as Record<string, unknown> | null)?.runner === "inline"
+  ) {
+    const result = await runSlackUserSync({
+      trigger: "manual",
+      triggeredBy: current.authId,
+      triggeredByEmail: current.email,
+    });
+    await recordAudit({
+      actorId: current.authId,
+      actorEmail: current.email,
+      action: "agent.run_triggered",
+      entity: "agent",
+      entityId: agentId,
+      summary: `Manually ran ${agent.name}`,
+      metadata: { runId: result.runId, counts: result.counts },
+    });
+    revalidatePath("/admin/agents");
+    revalidatePath("/admin/slack");
+    return result.ok
+      ? {
+          ok: true,
+          message: `Slack sync finished — ${result.counts.connected} connected, ${result.counts.newlyConnected} new.`,
+        }
+      : { ok: false, error: `Slack sync failed — ${result.error}` };
+  }
+
   if ((agent.config as Record<string, unknown> | null)?.runner === "inline") {
     const result = await runSheetSync({
       trigger: "manual",

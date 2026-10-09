@@ -11,7 +11,8 @@ import "server-only";
 // Required env:
 //   SLACK_BOT_TOKEN        — bot token from the Slack app's OAuth page.
 //                            Scopes: chat:write, chat:write.customize,
-//                            channels:join (to self-join public channels).
+//                            channels:join (to self-join public channels);
+//                            users:read + users:read.email for ./users.ts.
 //   SLACK_CHANNEL_*        — see ./channels.ts. The bot must be a member of
 //                            private channels (`/invite @Green Dog Ops`).
 // Optional:

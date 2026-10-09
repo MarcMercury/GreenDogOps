@@ -201,7 +201,7 @@ from users who cannot access it.
 - **Emp Reporting** (`/emp-reporting`) — payroll and compensation analytics.
 - **Biz Dev** (`/biz-dev`) — business-development planner and partner targeting.
 - **Admin** (`/admin`) — users, roles, per-user module overrides, locations,
-  credentials, settings, agent runs, and the audit log.
+  credentials, Slack user links, settings, agent runs, and the audit log.
 
 ---
 
@@ -341,6 +341,7 @@ against a queue snapshot taken before printing.
 | `/api/ats/gmail` | every 5 min | Poll Gmail for new applicants |
 | `/api/agents/wheniwork/timeoff` | every 15 min | WhenIWork PTO via Gmail notifications |
 | `/api/admin/users/roster-sync` | daily | Reconcile `app_user` against the roster |
+| `/api/admin/slack/sync` | daily | Link active staff to Slack accounts by email (`person_slack_link`) |
 | `/api/agents/ezyvet/rescue-partners` | daily | Rescue/shelter partner refresh |
 | `/api/med-ops/boards/rollover` | daily | Roll medical boards to the next day |
 | `/api/agents/sheets/sync` | daily | Google Sheets ⇄ roster / schedule / students |
@@ -358,7 +359,9 @@ All cron routes authenticate with `CRON_SECRET`; long-running ones set
   Maps/Places geocoding, and Custom Search. Auth via a service account or a
   stored OAuth refresh token.
 - **Slack** ([src/lib/slack](src/lib/slack)) — hiring, ops reporting, and
-  upcoming-appointment channels.
+  upcoming-appointment channels. Every active employee/contractor is linked to
+  their Slack user id in `person_slack_link` (matched by exact email nightly,
+  or by hand in **Admin → Slack**), ready for direct-message notifications.
 - **Resend** — transactional email plus a delivery webhook (`/api/email/webhook`).
 - **Twilio** ([src/lib/sms](src/lib/sms)) — texting candidates and employees
   from the **Texts** tab on their profiles; replies and STOP arrive at

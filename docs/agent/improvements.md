@@ -18,7 +18,7 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 ### Security follow-ups from the ASVS L2 pass (0227)
 - **Why:** items deliberately left out of the 0227 security commit; see `docs/security.md` §11 for owner-only actions.
 - **Scope:**
-  - Regenerate `supabase/baseline` once staging has caught up with production (staging lacked 0215–0224 on 2026-10-08, and `generate_baseline.sh` reads staging by default).
+  - Bring staging up to date with production. On 2026-10-09 the staging dry-run listed 0215–0227 as unapplied, though 0228 and 0229 are applied there. `generate_baseline.sh` reads staging by default, so until staging catches up, regenerate the baseline from a read-only production dump: `SOURCE_REF=<prod ref> DB_PASS=… scripts/generate_baseline.sh`. That is how it was regenerated on 2026-10-09, with 0229.
   - ATS Slack announcements post a 7-day signed resume URL (`src/lib/ats/slack-announce.ts`) — link to `/ats/<id>` instead.
   - `recordAudit()` swallows failures; consider surfacing audit-write errors for security events.
   - Indeed webhook has HMAC but no replay window (Indeed sends no timestamp) — confirm ingest is idempotent per application id.
@@ -27,6 +27,24 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Risk:** low each.
 
 ## P2 — Reliability
+
+### Slack notifications — Phase 2/3 (Phase 1 linking shipped with 0229)
+- **Why:** staff should get Slack DMs for actionable events. `person_slack_link` now maps people to Slack ids.
+- **Scope (Phase 2):**
+  - `notification` table (person, event type, payload with no sensitive data, unique dedupe key, read_at) and `notification_delivery` table (channel, slack id, status, attempts, Slack ts, error).
+  - `publishNotification()` in `src/lib/notify/`, plus a dispatcher cron that records each delivery before sending, retries a bounded number of times, and debounces schedule edits.
+  - DM via `chat.postMessage` with `channel = <slack user id>`. Needs only `chat:write`; never set `username`/`icon_url` on DMs.
+  - Gate real sends behind `SLACK_DM_LIVE` plus a test allow-list.
+  - Events: PTO approved/denied (both `reviewTimeOff` and `setTimeOffStatus`), interview assigned (`person_interview.host_user_id`), schedule published/changed (`sched_change_log`).
+  - In-app inbox for login holders.
+- **Open decisions:** who receives `PTO_REQUESTED` (no manager relationship exists in the data model); whether `TIMECARD_EXCEPTION` maps to `sched_assignment.attendance_status` (there is no timecard/punch data).
+- **Phase 3:** per-user preferences, email/SMS fallback, push, schedule acknowledgement.
+- **Risk:** medium — sends are externally visible; must not include compensation, HR notes or other sensitive data.
+
+### Unused `calendar_notification` table
+- **Why:** it exists in the schema but nothing in `src` reads or writes it (checked 2026-10-09). The Phase 2 delivery log supersedes it.
+- **Scope:** confirm no external consumer, then drop it in a migration.
+- **Risk:** low.
 
 ### Unified integration-health view
 - **Why:** `/admin/agents` shows browser-agent runs only. Cron jobs (calendar sync, Gmail poller, Sheets sync, Slack digests) have no shared last-success / staleness record, so silent failures go unnoticed.
