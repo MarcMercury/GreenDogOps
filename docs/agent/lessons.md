@@ -98,3 +98,10 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** service-role paths must apply the same rule in TypeScript (`personDocumentAccess()` in `permissions.ts`, mirroring the `person_document` policy) and look up storage paths server-side.
 - **Prevent:** when tightening a policy, grep for `admin.from("<table>")` and `.storage.from(` on the same data — not just user-scoped queries.
 - **Evidence:** code review of the 0227 commit, 2026-10-08; regression test in `src/lib/auth/permissions.test.ts`.
+
+### `@types/node` must match the Vercel Node runtime (24.x)
+- **Problem:** Dependabot PR "Bump vitest to 5.0.3" failed its Vercel preview with `npm error ERESOLVE … peerOptional @types/node@"^22.0.0 || >=24.0.0" from vitest@5.0.3` because `package.json` pinned `@types/node` `^20`.
+- **Root cause:** `@types/node` lagged the runtime — Vercel project `nodeVersion` is `24.x` (Vercel API `/v9/projects/<id>`), Codespace is Node 24.
+- **Fix:** `@types/node@^24` (commit `7ed3e8b` on the vitest PR); `.github/dependabot.yml` ignores `@types/node` majors so it isn't bumped past the runtime. Change both when Vercel's Node version changes.
+- **Note:** Vercel previews only prove `npm install` + `next build`; they do not run lint or vitest, so a green Dependabot preview is not proof the tests pass (see improvements.md "CI for lint + unit tests").
+- **Evidence:** 2026-10-09 — with the fix: vitest 225/225, full `tsc` rc=0, lint 0 errors, `npm audit --omit=dev` 0.
