@@ -63,6 +63,22 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** the list now lives in `src/lib/supabase/public-paths.ts` (`isPublicPath`). `public-paths.test.ts` fails if any `vercel.json` cron path isn't on it.
 - **Evidence:** 2026-10-09: `curl` on the deployed route returned 307 before the fix; the test fails for that path without the fix and passes with it.
 
+### A new `runner: inline` agent falls through to the Sheets sync
+- **Problem:** Admin ▸ Agents ▸ "Run now" on a new inline agent would run the Google Sheets sync instead.
+- **Root cause:** `runAgentNow` (`src/app/(app)/admin/agents/actions.ts`) special-cases `slack_user_sync`, then treats *every other* `config.runner = 'inline'` agent as the Sheets sync.
+- **Fix:** add an explicit `agent.key === …` branch before the generic inline branch. `notification_dispatch` has one (0230).
+- **Prevent:** when registering an inline agent in a migration, add its branch in the same change.
+- **Evidence:** code read on 2026-10-09 while adding `notification_dispatch`.
+
+### Staging is missing 0215–0227, so module queries fail there
+- **Problem:** on staging, dashboard sources failed with "Could not find the table 'greendogops.recruiting_task'" and "column person_interview.start_time does not exist". Production had no errors.
+- **Fix:** expect this until staging catches up (improvements.md). The dashboard shows it as per-source warnings, and only missing 0230 tables trigger the "not set up" banner. Check module queries read-only against production (as below). Use staging only for writes.
+- **Evidence:** `scripts/e2e_work_center.mts` run on 2026-10-09.
+
+### Running server-only lib code from a script
+- **Fix:** stub `server-only` (`/tmp/stub/node_modules/server-only` exporting `{}`) and run with `NODE_PATH=/tmp/stub/node_modules npx --yes tsx@4 <script>.mts`. Load env by parsing `.env.local` in the script: `source .env.local` breaks on `RESEND_FROM_EMAIL=Name <addr>`. `after()` from `next/server` throws outside a request, so guard it. Examples: `scripts/ask_smart.mts`, `scripts/e2e_work_center.mts`.
+- **Evidence:** 2026-10-09: a read-only dashboard probe against production and the staging e2e both ran this way.
+
 ### Baseline CI can fail on Docker Hub, and the Codespace token can't re-run it
 - **Problem:** `verify-baseline.yml` failed in "Initialize containers": the `docker pull postgres:17` from Docker Hub timed out, so no SQL ran. `gh run rerun` answered `Resource not accessible by integration` (the Codespace `GITHUB_TOKEN` has no Actions write permission).
 - **Fix:** run the same check locally with `scripts/verify_baseline.sh` (Docker works in this Codespace, ~1 min). Report CI as Failed/infra, quoting the local result. A new push touching `supabase/**` re-triggers CI.

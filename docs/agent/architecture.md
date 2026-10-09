@@ -13,7 +13,8 @@ there, or that need a sharper statement for agents.
 4. `SUPABASE_SERVICE_ROLE_KEY` / `createAdminClient()` are never reachable from client components or `NEXT_PUBLIC_*`.
 5. Every exported Server Action in an `actions.ts` re-checks permissions before writing.
 6. Every cron route checks `isAuthorizedCronRequest` (`src/lib/auth/cron.ts`).
-7. Adding a module touches `ModuleKey`/`MODULES`/`ROUTE_MODULES` in `permissions.ts`, the nav in `app-shell.tsx`, and `MODULE_ICONS` in `(app)/page.tsx`.
+7. Adding a module touches `ModuleKey`/`MODULES`/`ROUTE_MODULES` in `permissions.ts`, the nav in `app-shell.tsx`, and `MODULE_ICONS` in `src/lib/shared/module-icons.ts`.
+8. Every write to `ops_task` goes through `src/lib/worklist/tasks.ts`, and every notification through `publishNotification()` (`src/lib/notify/publish.ts`). Work-center tables are service-role only and every read filters to the signed-in user.
 
 ## Authoritative sources
 
@@ -26,10 +27,17 @@ there, or that need a sharper statement for agents.
 | Compensation values (`person_employment` pay/benefit columns) | read/write via `src/lib/hr/compensation.ts` (service role) after `canViewAllCompensation` / own-record check | select them through the user-scoped client — the columns are not granted (0227) |
 | Who sees the confidential HR file | `canViewSensitiveHr` / `hasRestrictedHrView` in `permissions.ts`, mirrored by the `hr_full`/`hr_edit` RLS predicates in 0227 | change one side without the other (run `scripts/security_rls_matrix.sql`) |
 | Who may be texted, and by whom | `blockReason` (`src/lib/sms/rules.ts`) and `canTextPerson` (`src/lib/sms/access.ts`), enforced in `sendSmsToPerson` | send through Twilio directly, or skip the consent/opt-out/quiet-hours checks |
+| What is waiting on a user (dashboard work list) | module tables, projected at read time by `src/lib/worklist/sources.ts`; only ad-hoc work lives in `ops_task` | copy module work (interviews, approvals, licenses) into `ops_task` |
+| Who may be DMed by Ops | `connectedSlackUserFor()` (`src/lib/notify/publish.ts`): active login + employee/contractor + `connected` link, re-checked at send time | DM a Slack id without that check, or set `username`/`icon_url` on DMs |
 
 ## Decisions log
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
+
+### 2026-10-09 — Dashboard becomes a per-user work center (migration 0230)
+- **Context:** the home page was a grid of module tiles. Users need one place for what is waiting on them, recurring checks, and notifications, and the owner plans Slack workflows that create Ops tasks and vice versa. Only `person_interview.host_user_id` was a true per-user assignment; everything else was a shared queue.
+- **Decision:** five service-role tables — `ops_task`, `user_notification`, `notification_delivery`, `reminder_rule`, `reminder_ack` — keyed on `app_user` (the dashboard is for logins). Module work is **projected** at read time, gated by `canAccessModule`/`canEditModule`, never copied into `ops_task`. Each source loads independently, so one failure becomes a warning. Slack → Ops: `/api/tasks/inbound` (bearer secret, idempotent on `(source, external_ref)`). Ops → Slack: DMs through `notification_delivery` and the 5-minute dispatcher, recorded before sending, never resent after a possible delivery, dark until `SLACK_DM_LIVE`; and workflow events to `SLACK_WORKFLOW_WEBHOOK_URL`, never echoed back for Slack-sourced tasks. Ops still does not read Slack messages (no `*:history` scopes). Smart Report always blocks these tables.
+- **Consequences:** a new module event should call `publishNotification()` with a `dedupeKey`. A new work source is a `Source` in `sources.ts` with its permission gate. Notifying employees who have no login (most of them) needs a person-keyed recipient — see improvements.md.
 
 ### 2026-10-09 — Slack identity keyed on person (migration 0229)
 - **Context:** Ops needs to DM employees (schedule changes, PTO decisions, interview assignments). Only 22 of 94 active employees have an `app_user` login, so a link on `app_user` would miss most staff.

@@ -1,4 +1,4 @@
-import { isAdminRole, type AppRole } from "@/lib/auth/permissions";
+import { isAdminRole, type AppRole } from "../auth/permissions";
 
 // ---------------------------------------------------------------------------
 // Smart Report data scope.
@@ -66,8 +66,19 @@ const HR_RECORD_TABLES = [
   "ats_hr_merge_backup_0032",
 ] as const;
 
-/** Stored third-party logins — never an answer to a reporting question. */
-const ALWAYS_BLOCKED_TABLES = ["credential"] as const;
+/**
+ * Stored third-party logins, and each user's private dashboard data (tasks,
+ * notifications, personal reminders — migration 0230) — never an answer to a
+ * reporting question.
+ */
+export const ALWAYS_BLOCKED_TABLES = [
+  "credential",
+  "ops_task",
+  "user_notification",
+  "notification_delivery",
+  "reminder_rule",
+  "reminder_ack",
+] as const;
 
 /**
  * Compensation is deliberately gated on Owner/Admin/Executive rather than

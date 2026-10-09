@@ -50,6 +50,15 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 - The same number's own SMS URL still points at another app (`ourhomes.me`). The service setting wins (`use_inbound_webhook_on_number=false`), so that app no longer receives replies on this number.
 - Check the setup: an unsigned POST to `/api/sms/status` returns 403; a correctly signed one with an unknown MessageSid returns 204 and writes nothing.
 
+## Notifications, Slack DMs and Slack workflows (`src/lib/notify`, `src/lib/worklist`)
+
+- `publishNotification()` writes `user_notification` and, with `slack: true`, a `notification_delivery` row: `pending` when the recipient has a connected Slack link, `skipped` ("No connected Slack account") otherwise. It never throws.
+- `/api/notify/dispatch` (every 5 min, `notification_dispatch` in Admin ▸ Agents; a run is recorded only when something was processed). DMs are sent only when `SLACK_DM_LIVE=true` or the Slack id is in `SLACK_DM_TEST_USER_IDS`; otherwise the row is marked `skipped`, so turning DMs on never sends a backlog. Older than 24 h → `skipped`. The row is claimed `pending → sending` before Slack is called. Only Slack's own "not delivered" answers (`ratelimited`, `internal_error`, …) are retried, up to 3 attempts. Timeouts and network errors are `failed` and never resent. A row stuck in `sending` for 15 min is `failed` with "may have been delivered".
+- DMs use `chat.postMessage` with `channel = <Slack user id>` (scope `chat:write`, already granted). No `username`/`icon_url` on DMs.
+- **Slack → Ops:** `POST /api/tasks/inbound`, `Authorization: Bearer $OPS_INBOUND_TASK_SECRET`, JSON `{external_id, assignee_slack_user_id | assignee_email, title, details?, due_date?, priority?, link?, created_by_slack_user_id?}`. Blank strings count as absent, because Slack sends empty variables that way. Responses: 201 created, 200 `duplicate` (same `external_id`), 400 bad payload, 401 bad or unset secret, 422 the assignee has no active login (their Slack must be connected, or the email must match exactly one login). A `link` on slack.com makes it an "Open in Slack" item. Workflow Builder has no plain outbound HTTP step. Call the endpoint from a custom step / Slack app function, or a connector (Zapier/Make).
+- **Ops → Slack:** set `SLACK_WORKFLOW_WEBHOOK_URL` to a Workflow Builder "Starts with a webhook" URL. Ops then POSTs `{event, task_id, title, details, due_date, priority, assignee_name, assignee_email, actor_name, source, external_ref, link}`, all strings. It makes one attempt with a 5 s timeout and logs failures to the Vercel logs. `task.created` is not sent for tasks that came from Slack.
+- Recovery: a failed DM shows its Slack error on the user's dashboard (Slack panel) and in `notification_delivery.last_error`. Never re-queue a `failed` row by hand unless you know it wasn't delivered.
+
 ## Recovery log
 
 Add entries as `### YYYY-MM-DD — system — symptom` with root cause, fix, and evidence.

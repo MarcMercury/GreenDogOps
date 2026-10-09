@@ -21,6 +21,10 @@
       "schedule": "15 5 * * *"
     },
     {
+      "path": "/api/notify/dispatch",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/admin/slack/sync",
       "schedule": "30 5 * * *"
     },

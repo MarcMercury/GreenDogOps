@@ -6,6 +6,7 @@ import { requireAdmin, recordAudit } from "@/lib/auth/session";
 import { dispatchAgentWorker } from "@/lib/admin/agent-runner";
 import { runSheetSync } from "@/lib/sheets/sync";
 import { runSlackUserSync, SLACK_SYNC_AGENT_KEY } from "@/lib/slack/link-sync";
+import { dispatchPendingDeliveries, NOTIFY_DISPATCH_AGENT_KEY } from "@/lib/notify/dispatch";
 import type { Agent } from "@/lib/admin/agents";
 
 type ActionResult = { ok: true; message: string } | { ok: false; error: string };
@@ -83,6 +84,24 @@ export async function runAgentNow(agentId: string): Promise<ActionResult> {
           message: `Slack sync finished — ${result.counts.connected} connected, ${result.counts.newlyConnected} new.`,
         }
       : { ok: false, error: `Slack sync failed — ${result.error}` };
+  }
+
+  if (agent.key === NOTIFY_DISPATCH_AGENT_KEY) {
+    const result = await dispatchPendingDeliveries({ trigger: "manual", triggeredBy: current.authId });
+    await recordAudit({
+      actorId: current.authId,
+      actorEmail: current.email,
+      action: "agent.run_triggered",
+      entity: "agent",
+      entityId: agentId,
+      summary: `Manually ran ${agent.name}`,
+      metadata: { counts: result.counts },
+    });
+    revalidatePath("/admin/agents");
+    const c = result.counts;
+    return result.ok
+      ? { ok: true, message: `Dispatch finished — ${c.sent} sent, ${c.skipped} skipped, ${c.failed} failed.` }
+      : { ok: false, error: `Dispatch failed — ${result.error}` };
   }
 
   if ((agent.config as Record<string, unknown> | null)?.runner === "inline") {

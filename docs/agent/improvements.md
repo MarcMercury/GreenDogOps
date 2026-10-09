@@ -28,18 +28,27 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
-### Slack notifications — Phase 2/3 (Phase 1 linking shipped with 0229)
-- **Why:** staff should get Slack DMs for actionable events. `person_slack_link` now maps people to Slack ids.
-- **Scope (Phase 2):**
-  - `notification` table (person, event type, payload with no sensitive data, unique dedupe key, read_at) and `notification_delivery` table (channel, slack id, status, attempts, Slack ts, error).
-  - `publishNotification()` in `src/lib/notify/`, plus a dispatcher cron that records each delivery before sending, retries a bounded number of times, and debounces schedule edits.
-  - DM via `chat.postMessage` with `channel = <slack user id>`. Needs only `chat:write`; never set `username`/`icon_url` on DMs.
-  - Gate real sends behind `SLACK_DM_LIVE` plus a test allow-list.
-  - Events: PTO approved/denied (both `reviewTimeOff` and `setTimeOffStatus`), interview assigned (`person_interview.host_user_id`), schedule published/changed (`sched_change_log`).
-  - In-app inbox for login holders.
+### Slack notifications — remaining work (Phase 1 linking: 0229; notification + DM pipeline: 0230)
+- **Done in 0230:** `user_notification` + `notification_delivery`, `publishNotification()`, the `/api/notify/dispatch` cron (gated by `SLACK_DM_LIVE` / `SLACK_DM_TEST_USER_IDS`), the in-app inbox on the dashboard, and the "interview booked" notification to the host.
+- **Still to do:**
+  - Turn DMs on: test with `SLACK_DM_TEST_USER_IDS=<your Slack id>`, then set `SLACK_DM_LIVE=true`.
+  - Notify people who have **no login** (most employees). Recipients are `app_user` today. Add a person-keyed recipient, or a DM-only path for `person_slack_link`.
+  - Events: PTO approved/denied (`reviewTimeOff` and `setTimeOffStatus`), schedule published/changed (`sched_change_log`, debounced), interviews assigned by staff (the candidate self-booking path is done).
 - **Open decisions:** who receives `PTO_REQUESTED` (no manager relationship exists in the data model); whether `TIMECARD_EXCEPTION` maps to `sched_assignment.attendance_status` (there is no timecard/punch data).
-- **Phase 3:** per-user preferences, email/SMS fallback, push, schedule acknowledgement.
-- **Risk:** medium — sends are externally visible; must not include compensation, HR notes or other sensitive data.
+- **Phase 3:** per-user preferences (mute kinds, DM vs in-app), email/SMS fallback, push, schedule acknowledgement.
+- **Risk:** medium — sends are externally visible. Never include compensation, HR notes or other sensitive data.
+
+### Dashboard work center follow-ups (0230)
+- **Slack message summaries:** needs per-user "Connect Slack" OAuth with user scopes (`search:read` / `im:history`), encrypted token storage, and LLM summaries of personal messages. That reverses the documented "app must not read messages" rule, so it needs the owner's explicit approval first. The dashboard has a placeholder.
+- **More work sources:** HR onboarding, but limited to recent hires — 84 employees have legacy incomplete items, so listing all of them would flood the list. CRM follow-ups (`crm_contact.needs_followup` / `next_followup_date`) need an owner column first. CEbroker submissions.
+- **Task history page:** completed and dismissed tasks only disappear today. Add a `/tasks` view with filters.
+- **Starter reminders aren't in the baseline:** `reminder_rule` holds personal rows (FK to `app_user`), so it can't be in `CONFIG_TABLES`. A rebuilt database gets no starter set until 0230's seed block is re-run.
+- **Risk:** low each.
+
+### Smart Report deny-list misses other service-role tables
+- **Why:** 0230's tables are now always blocked (`smart-scope.ts`), but `sms_message` (message bodies), `sms_consent`, `sms_opt_out` and `person_slack_link` are still in the Smart Report catalog for everyone above Staff.
+- **Scope:** add them to `ALWAYS_BLOCKED_TABLES`, then extend `smart-scope.test.ts`. Also consider failing closed: block any table with a `service_role_only` policy.
+- **Risk:** low.
 
 ### Unused `calendar_notification` table
 - **Why:** it exists in the schema but nothing in `src` reads or writes it (checked 2026-10-09). The Phase 2 delivery log supersedes it.

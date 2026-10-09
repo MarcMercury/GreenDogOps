@@ -138,7 +138,21 @@ renders six sidebar sections. Every item is keyed by a `ModuleKey` and hidden
 from users who cannot access it.
 
 **Modules**
-- **Dashboard** — module launcher scoped to the signed-in user.
+- **Dashboard** (`/`, the default page) — each user's work center
+  ([src/lib/worklist](src/lib/worklist)):
+  - **My work** — their `ops_task` to-dos (made in Ops or by a Slack workflow)
+    plus items projected from the modules at read time, filtered by role and
+    module access: interviews they host, recruiting queues, time-off and
+    schedule approvals, expiring licenses. Each item opens in Ops or in Slack.
+  - **Reminders** — recurring checks by day of week / month
+    (`reminder_rule`). Admins manage shared ones in **Admin → Reminders**; anyone
+    can add personal ones at `/reminders`.
+  - **Notifications** — in-app feed (`user_notification`), written only through
+    `publishNotification()` ([src/lib/notify](src/lib/notify)), optionally also
+    sent as a Slack DM.
+  - **Slack** — their Slack link status and what Ops has sent them in Slack.
+    Ops does not read Slack messages; summaries need a later per-user consent.
+  - **Your activity** — their own audit-log entries.
 - **Resources** (`/resources`) — AI search across all program data *and* the
   web, a Green Dog policies wiki (`/resources/policies`, `/policies`), and a
   shared document library with PDF text extraction so uploads are searchable.
@@ -342,6 +356,7 @@ against a queue snapshot taken before printing.
 | `/api/agents/wheniwork/timeoff` | every 15 min | WhenIWork PTO via Gmail notifications |
 | `/api/admin/users/roster-sync` | daily | Reconcile `app_user` against the roster |
 | `/api/admin/slack/sync` | daily | Link active staff to Slack accounts by email (`person_slack_link`) |
+| `/api/notify/dispatch` | every 5 min | Send queued notification Slack DMs (off unless `SLACK_DM_LIVE=true`) |
 | `/api/agents/ezyvet/rescue-partners` | daily | Rescue/shelter partner refresh |
 | `/api/med-ops/boards/rollover` | daily | Roll medical boards to the next day |
 | `/api/agents/sheets/sync` | daily | Google Sheets ⇄ roster / schedule / students |
@@ -361,7 +376,14 @@ All cron routes authenticate with `CRON_SECRET`; long-running ones set
 - **Slack** ([src/lib/slack](src/lib/slack)) — hiring, ops reporting, and
   upcoming-appointment channels. Every active employee/contractor is linked to
   their Slack user id in `person_slack_link` (matched by exact email nightly,
-  or by hand in **Admin → Slack**), ready for direct-message notifications.
+  or by hand in **Admin → Slack**). Notifications can be DMed to them
+  (`notification_delivery`, `/api/notify/dispatch`).
+- **Slack workflows ⇄ Ops tasks** — a Slack workflow creates an Ops task by
+  POSTing to `/api/tasks/inbound` (bearer `OPS_INBOUND_TASK_SECRET`, idempotent on
+  `external_id`); Ops posts `task.created` / `task.completed` / `task.dismissed`
+  to a workflow's webhook trigger (`SLACK_WORKFLOW_WEBHOOK_URL`). Both are off
+  until their env var is set. Contract: [src/lib/worklist/inbound.ts](src/lib/worklist/inbound.ts),
+  [src/lib/notify/slack-workflow.ts](src/lib/notify/slack-workflow.ts).
 - **Resend** — transactional email plus a delivery webhook (`/api/email/webhook`).
 - **Twilio** ([src/lib/sms](src/lib/sms)) — texting candidates and employees
   from the **Texts** tab on their profiles; replies and STOP arrive at
@@ -479,8 +501,9 @@ See `.env.example` for the full list (~90 keys). Groups:
   `GOOGLE_CALENDAR_ID`, `GOOGLE_MAPS_API_KEY`, `GOOGLE_CSE_*`.
 - **Enrichment** — `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPAPI_API_KEY`,
   `APOLLO_API_KEY`, `HUNTER_API_KEY`.
-- **Messaging** — `RESEND_*`, `SLACK_*`, `WHENIWORK_GMAIL_*`, `TWILIO_*`,
-  `SMS_LIVE`, `SMS_TEST_NUMBERS`.
+- **Messaging** — `RESEND_*`, `SLACK_*` (incl. `SLACK_DM_LIVE`,
+  `SLACK_DM_TEST_USER_IDS`, `SLACK_WORKFLOW_WEBHOOK_URL`), `OPS_INBOUND_TASK_SECRET`,
+  `WHENIWORK_GMAIL_*`, `TWILIO_*`, `SMS_LIVE`, `SMS_TEST_NUMBERS`.
 
 `NEXT_PUBLIC_*` is exposed to the browser; everything else is server-only.
 Secrets live only in `.env.local`, `.secrets/`, GitHub secrets, and Vercel env
@@ -505,7 +528,7 @@ src/
   lib/
     admin/ agents/ ai/ ats/ auth/ calendar/ crm/ google/ hr/ marketing/
     med-ops/ planning/ reporting/ resources/ schedule/ sheets/ slack/
-    shared/ supabase/       # domain logic + schema-scoped Supabase clients
+    shared/ supabase/ worklist/ notify/  # domain logic + schema-scoped Supabase clients
 agent/                      # Playwright browser workers (ezyVet, CEbroker, Indeed)
 supabase/migrations/        # sequential, schema-isolated SQL (history; not replayable)
 supabase/baseline/          # rebuild path: schema + security + config snapshot
@@ -523,7 +546,7 @@ Conventions worth knowing:
   Actions that re-check permissions and then `revalidatePath`.
 - Adding a module means touching **four** places: the `ModuleKey` union and
   `MODULES` in `permissions.ts`, `ROUTE_MODULES` in the same file, the nav in
-  `app-shell.tsx`, and `MODULE_ICONS` in `(app)/page.tsx` — an exhaustive
+  `app-shell.tsx`, and `MODULE_ICONS` in `src/lib/shared/module-icons.ts` — an exhaustive
   `Record`, so the build fails if you miss it.
 - Supabase infers to-one embeds as **arrays**; use the existing `first*()`
   helpers when reading joined rows.

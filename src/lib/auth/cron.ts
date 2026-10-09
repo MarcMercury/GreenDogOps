@@ -27,3 +27,17 @@ export function isAuthorizedCronRequest(req: NextRequest): boolean {
     timingSafeEqual(providedBuf, expectedBuf)
   );
 }
+
+/**
+ * Same fail-closed bearer check against any shared secret — e.g. the
+ * OPS_INBOUND_TASK_SECRET that Slack workflows use for /api/tasks/inbound.
+ * A missing or short (< 24 chars) secret rejects every request.
+ */
+export function hasBearerSecret(req: NextRequest, secret: string | undefined): boolean {
+  if (!secret || secret.length < 24) return false;
+  const provided = req.headers.get("authorization");
+  if (!provided) return false;
+  const providedBuf = Buffer.from(provided);
+  const expectedBuf = Buffer.from(`Bearer ${secret}`);
+  return providedBuf.length === expectedBuf.length && timingSafeEqual(providedBuf, expectedBuf);
+}

@@ -6879,6 +6879,103 @@ CREATE TABLE greendogops.medical_board_type (
 
 
 --
+-- Name: notification_delivery; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.notification_delivery (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    notification_id uuid NOT NULL,
+    channel text NOT NULL,
+    slack_user_id text,
+    status text DEFAULT 'pending'::text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    next_attempt_at timestamp with time zone DEFAULT now() NOT NULL,
+    slack_channel_id text,
+    slack_ts text,
+    sent_at timestamp with time zone,
+    last_error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_delivery_attempts_check CHECK ((attempts >= 0)),
+    CONSTRAINT notification_delivery_channel_check CHECK ((channel = 'slack_dm'::text)),
+    CONSTRAINT notification_delivery_slack_user_id_check CHECK (((slack_user_id IS NULL) OR (slack_user_id ~ '^[UW][A-Z0-9]+$'::text))),
+    CONSTRAINT notification_delivery_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'skipped'::text])))
+);
+
+
+--
+-- Name: TABLE notification_delivery; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.notification_delivery IS 'Outbound copies of a notification. Recorded before sending; a send that may have reached Slack is never retried automatically. Service role only.';
+
+
+--
+-- Name: ops_task; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.ops_task (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    title text NOT NULL,
+    details text,
+    assignee_user_id uuid NOT NULL,
+    created_by_user_id uuid,
+    status text DEFAULT 'open'::text NOT NULL,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    due_date date,
+    module text,
+    href text,
+    action_target text DEFAULT 'ops'::text NOT NULL,
+    source text DEFAULT 'ops'::text NOT NULL,
+    external_ref text,
+    slack_user_id text,
+    completed_at timestamp with time zone,
+    completed_by_user_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT ops_task_action_target_check CHECK ((action_target = ANY (ARRAY['ops'::text, 'slack'::text]))),
+    CONSTRAINT ops_task_details_check CHECK (((details IS NULL) OR (length(details) <= 4000))),
+    CONSTRAINT ops_task_done_has_time CHECK (((status = 'open'::text) OR (completed_at IS NOT NULL))),
+    CONSTRAINT ops_task_external_ref_check CHECK (((external_ref IS NULL) OR (length(external_ref) <= 200))),
+    CONSTRAINT ops_task_href_check CHECK (((href IS NULL) OR (href ~ '^/([^/\\]|$)'::text) OR (href ~ '^https://([a-z0-9-]+\.)*slack\.com/'::text))),
+    CONSTRAINT ops_task_module_check CHECK (((module IS NULL) OR (module ~ '^[a-z_]+$'::text))),
+    CONSTRAINT ops_task_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text]))),
+    CONSTRAINT ops_task_slack_user_id_check CHECK (((slack_user_id IS NULL) OR (slack_user_id ~ '^[UW][A-Z0-9]+$'::text))),
+    CONSTRAINT ops_task_source_check CHECK ((source = ANY (ARRAY['ops'::text, 'slack'::text, 'system'::text]))),
+    CONSTRAINT ops_task_status_check CHECK ((status = ANY (ARRAY['open'::text, 'done'::text, 'dismissed'::text]))),
+    CONSTRAINT ops_task_title_check CHECK (((length(btrim(title)) >= 1) AND (length(btrim(title)) <= 200)))
+);
+
+
+--
+-- Name: TABLE ops_task; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.ops_task IS 'Per-user to-do. source=ops (made in the app) | slack (Slack workflow via /api/tasks/inbound) | system. Service role only.';
+
+
+--
+-- Name: COLUMN ops_task.action_target; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.ops_task.action_target IS 'Where the work happens: ops = open href in the app; slack = href is a Slack link.';
+
+
+--
+-- Name: COLUMN ops_task.external_ref; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.ops_task.external_ref IS 'Idempotency key from the creating system (e.g. a Slack workflow run id). Unique per source.';
+
+
+--
+-- Name: COLUMN ops_task.slack_user_id; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.ops_task.slack_user_id IS 'Slack user who created it, for source=slack.';
+
+
+--
 -- Name: partner_contacts; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -8358,6 +8455,78 @@ CREATE TABLE greendogops.referral_sync_history (
     report_type text,
     data_source text DEFAULT 'csv_upload'::text
 );
+
+
+--
+-- Name: reminder_ack; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.reminder_ack (
+    rule_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    occurrence_date date NOT NULL,
+    acked_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE reminder_ack; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.reminder_ack IS 'A user marked one occurrence of a reminder done. Service role only.';
+
+
+--
+-- Name: reminder_rule; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.reminder_rule (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    title text NOT NULL,
+    details text,
+    href text,
+    module text,
+    cadence text NOT NULL,
+    weekdays smallint[] DEFAULT '{}'::smallint[] NOT NULL,
+    month_day smallint,
+    week_of_month smallint,
+    month smallint,
+    audience_roles text[] DEFAULT '{}'::text[] NOT NULL,
+    owner_user_id uuid,
+    is_active boolean DEFAULT true NOT NULL,
+    starts_on date DEFAULT CURRENT_DATE NOT NULL,
+    sort_order integer DEFAULT 100 NOT NULL,
+    created_by_user_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT reminder_rule_audience_roles_check CHECK ((audience_roles <@ ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text, 'schedule_admin'::text, 'marketing_admin'::text, 'staff'::text])),
+    CONSTRAINT reminder_rule_cadence_check CHECK ((cadence = ANY (ARRAY['weekly'::text, 'monthly_day'::text, 'monthly_weekday'::text, 'monthly_business_day'::text, 'yearly'::text]))),
+    CONSTRAINT reminder_rule_cadence_fields CHECK (
+CASE cadence
+    WHEN 'weekly'::text THEN (cardinality(weekdays) > 0)
+    WHEN 'monthly_day'::text THEN (month_day IS NOT NULL)
+    WHEN 'monthly_business_day'::text THEN ((month_day IS NOT NULL) AND ((month_day = '-1'::integer) OR (month_day <= 23)))
+    WHEN 'monthly_weekday'::text THEN ((cardinality(weekdays) = 1) AND (week_of_month IS NOT NULL))
+    WHEN 'yearly'::text THEN ((month IS NOT NULL) AND (month_day IS NOT NULL))
+    ELSE NULL::boolean
+END),
+    CONSTRAINT reminder_rule_details_check CHECK (((details IS NULL) OR (length(details) <= 2000))),
+    CONSTRAINT reminder_rule_href_check CHECK (((href IS NULL) OR (href ~ '^/([^/\\]|$)'::text) OR (href ~ '^https://([a-z0-9-]+\.)*slack\.com/'::text))),
+    CONSTRAINT reminder_rule_module_check CHECK (((module IS NULL) OR (module ~ '^[a-z_]+$'::text))),
+    CONSTRAINT reminder_rule_month_check CHECK (((month IS NULL) OR ((month >= 1) AND (month <= 12)))),
+    CONSTRAINT reminder_rule_month_day_check CHECK (((month_day IS NULL) OR (month_day = '-1'::integer) OR ((month_day >= 1) AND (month_day <= 31)))),
+    CONSTRAINT reminder_rule_personal_has_no_audience CHECK (((owner_user_id IS NULL) OR (cardinality(audience_roles) = 0))),
+    CONSTRAINT reminder_rule_title_check CHECK (((length(btrim(title)) >= 1) AND (length(btrim(title)) <= 200))),
+    CONSTRAINT reminder_rule_week_of_month_check CHECK (((week_of_month IS NULL) OR (week_of_month = '-1'::integer) OR ((week_of_month >= 1) AND (week_of_month <= 5)))),
+    CONSTRAINT reminder_rule_weekdays_check CHECK ((weekdays <@ ARRAY[(0)::smallint, (1)::smallint, (2)::smallint, (3)::smallint, (4)::smallint, (5)::smallint, (6)::smallint]))
+);
+
+
+--
+-- Name: TABLE reminder_rule; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.reminder_rule IS 'Recurring reminders. owner_user_id null = admin-managed (audience_roles + module gate); set = personal. Occurrences are computed in src/lib/worklist/reminders.ts. Service role only.';
 
 
 --
@@ -10117,6 +10286,42 @@ COMMENT ON TABLE greendogops.sms_opt_out IS 'Numbers that replied STOP. Never te
 
 
 --
+-- Name: user_notification; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.user_notification (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    recipient_user_id uuid NOT NULL,
+    kind text NOT NULL,
+    title text NOT NULL,
+    body text,
+    href text,
+    module text,
+    severity text DEFAULT 'info'::text NOT NULL,
+    actor_user_id uuid,
+    task_id uuid,
+    dedupe_key text,
+    read_at timestamp with time zone,
+    archived_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT user_notification_body_check CHECK (((body IS NULL) OR (length(body) <= 2000))),
+    CONSTRAINT user_notification_dedupe_key_check CHECK (((dedupe_key IS NULL) OR (length(dedupe_key) <= 200))),
+    CONSTRAINT user_notification_href_check CHECK (((href IS NULL) OR (href ~ '^/([^/\\]|$)'::text) OR (href ~ '^https://([a-z0-9-]+\.)*slack\.com/'::text))),
+    CONSTRAINT user_notification_kind_check CHECK ((kind ~ '^[a-z_]+(\.[a-z_]+)*$'::text)),
+    CONSTRAINT user_notification_module_check CHECK (((module IS NULL) OR (module ~ '^[a-z_]+$'::text))),
+    CONSTRAINT user_notification_severity_check CHECK ((severity = ANY (ARRAY['info'::text, 'action'::text, 'warning'::text]))),
+    CONSTRAINT user_notification_title_check CHECK (((length(btrim(title)) >= 1) AND (length(btrim(title)) <= 200)))
+);
+
+
+--
+-- Name: TABLE user_notification; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.user_notification IS 'In-app notification feed per Ops login. kind is a dotted event name (task.assigned). Never holds compensation or HR-file content. Service role only.';
+
+
+--
 -- Name: agent agent_key_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -11021,6 +11226,30 @@ ALTER TABLE ONLY greendogops.medical_board_type
 
 
 --
+-- Name: notification_delivery notification_delivery_notification_id_channel_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_delivery
+    ADD CONSTRAINT notification_delivery_notification_id_channel_key UNIQUE (notification_id, channel);
+
+
+--
+-- Name: notification_delivery notification_delivery_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_delivery
+    ADD CONSTRAINT notification_delivery_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ops_task ops_task_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.ops_task
+    ADD CONSTRAINT ops_task_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: partner_contacts partner_contacts_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -11349,6 +11578,22 @@ ALTER TABLE ONLY greendogops.referral_sync_history
 
 
 --
+-- Name: reminder_ack reminder_ack_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.reminder_ack
+    ADD CONSTRAINT reminder_ack_pkey PRIMARY KEY (rule_id, user_id, occurrence_date);
+
+
+--
+-- Name: reminder_rule reminder_rule_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.reminder_rule
+    ADD CONSTRAINT reminder_rule_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: report_capacity_override report_capacity_override_location_id_track_appt_date_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -11594,6 +11839,14 @@ ALTER TABLE ONLY greendogops.sms_message
 
 ALTER TABLE ONLY greendogops.sms_opt_out
     ADD CONSTRAINT sms_opt_out_pkey PRIMARY KEY (phone);
+
+
+--
+-- Name: user_notification user_notification_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.user_notification
+    ADD CONSTRAINT user_notification_pkey PRIMARY KEY (id);
 
 
 --
@@ -13018,6 +13271,34 @@ CREATE INDEX medical_board_row_board_key_idx ON greendogops.medical_board_row US
 
 
 --
+-- Name: notification_delivery_queue_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_delivery_queue_idx ON greendogops.notification_delivery USING btree (next_attempt_at) WHERE (status = ANY (ARRAY['pending'::text, 'sending'::text]));
+
+
+--
+-- Name: ops_task_assignee_open_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX ops_task_assignee_open_idx ON greendogops.ops_task USING btree (assignee_user_id, due_date) WHERE (status = 'open'::text);
+
+
+--
+-- Name: ops_task_creator_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX ops_task_creator_idx ON greendogops.ops_task USING btree (created_by_user_id, status);
+
+
+--
+-- Name: ops_task_source_ref_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX ops_task_source_ref_uq ON greendogops.ops_task USING btree (source, external_ref) WHERE (external_ref IS NOT NULL);
+
+
+--
 -- Name: partner_contacts_partner_id_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -13634,6 +13915,20 @@ CREATE INDEX referral_revenue_line_items_upload_id_idx ON greendogops.referral_r
 
 
 --
+-- Name: reminder_ack_user_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX reminder_ack_user_idx ON greendogops.reminder_ack USING btree (user_id, occurrence_date);
+
+
+--
+-- Name: reminder_rule_owner_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX reminder_rule_owner_idx ON greendogops.reminder_rule USING btree (owner_user_id) WHERE is_active;
+
+
+--
 -- Name: report_by_case_owner_grain_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -13932,6 +14227,20 @@ CREATE INDEX sms_message_person_idx ON greendogops.sms_message USING btree (pers
 --
 
 CREATE INDEX sms_message_phone_idx ON greendogops.sms_message USING btree (phone, created_at DESC);
+
+
+--
+-- Name: user_notification_dedupe_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX user_notification_dedupe_uq ON greendogops.user_notification USING btree (recipient_user_id, dedupe_key) WHERE (dedupe_key IS NOT NULL);
+
+
+--
+-- Name: user_notification_feed_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX user_notification_feed_idx ON greendogops.user_notification USING btree (recipient_user_id, created_at DESC) WHERE (archived_at IS NULL);
 
 
 --
@@ -14243,6 +14552,20 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.medical_board_row FOR
 
 
 --
+-- Name: notification_delivery set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.notification_delivery FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: ops_task set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.ops_task FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
 -- Name: person set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
@@ -14422,6 +14745,13 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.recruiting_form FOR E
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.recruiting_task FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: reminder_rule set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.reminder_rule FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
 
 
 --
@@ -14888,6 +15218,38 @@ ALTER TABLE ONLY greendogops.medical_board_row
 
 
 --
+-- Name: notification_delivery notification_delivery_notification_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_delivery
+    ADD CONSTRAINT notification_delivery_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES greendogops.user_notification(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ops_task ops_task_assignee_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.ops_task
+    ADD CONSTRAINT ops_task_assignee_user_id_fkey FOREIGN KEY (assignee_user_id) REFERENCES greendogops.app_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: ops_task ops_task_completed_by_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.ops_task
+    ADD CONSTRAINT ops_task_completed_by_user_id_fkey FOREIGN KEY (completed_by_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: ops_task ops_task_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.ops_task
+    ADD CONSTRAINT ops_task_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
 -- Name: person_asset person_asset_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -15344,6 +15706,38 @@ ALTER TABLE ONLY greendogops.recruiting_task
 
 
 --
+-- Name: reminder_ack reminder_ack_rule_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.reminder_ack
+    ADD CONSTRAINT reminder_ack_rule_id_fkey FOREIGN KEY (rule_id) REFERENCES greendogops.reminder_rule(id) ON DELETE CASCADE;
+
+
+--
+-- Name: reminder_ack reminder_ack_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.reminder_ack
+    ADD CONSTRAINT reminder_ack_user_id_fkey FOREIGN KEY (user_id) REFERENCES greendogops.app_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: reminder_rule reminder_rule_created_by_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.reminder_rule
+    ADD CONSTRAINT reminder_rule_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: reminder_rule reminder_rule_owner_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.reminder_rule
+    ADD CONSTRAINT reminder_rule_owner_user_id_fkey FOREIGN KEY (owner_user_id) REFERENCES greendogops.app_user(id) ON DELETE CASCADE;
+
+
+--
 -- Name: report_capacity_override report_capacity_override_location_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -15613,6 +16007,30 @@ ALTER TABLE ONLY greendogops.sms_message
 
 ALTER TABLE ONLY greendogops.sms_message
     ADD CONSTRAINT sms_message_sent_by_fkey FOREIGN KEY (sent_by) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: user_notification user_notification_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.user_notification
+    ADD CONSTRAINT user_notification_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: user_notification user_notification_recipient_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.user_notification
+    ADD CONSTRAINT user_notification_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES greendogops.app_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: user_notification user_notification_task_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.user_notification
+    ADD CONSTRAINT user_notification_task_id_fkey FOREIGN KEY (task_id) REFERENCES greendogops.ops_task(id) ON DELETE CASCADE;
 
 
 --
@@ -17573,6 +17991,18 @@ ALTER TABLE greendogops.medical_board_row ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.medical_board_type ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: notification_delivery; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.notification_delivery ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ops_task; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.ops_task ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: partner_contacts; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -17819,6 +18249,18 @@ ALTER TABLE greendogops.referral_revenue_line_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.referral_sync_history ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: reminder_ack; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.reminder_ack ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: reminder_rule; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.reminder_rule ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: report_capacity_override; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -17934,6 +18376,20 @@ CREATE POLICY service_role_only ON greendogops.audit_log TO authenticated USING 
 
 
 --
+-- Name: notification_delivery service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.notification_delivery TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: ops_task service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.ops_task TO authenticated USING (false) WITH CHECK (false);
+
+
+--
 -- Name: person_recruiting_score_backup_0225 service_role_only; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -17962,6 +18418,20 @@ CREATE POLICY service_role_only ON greendogops.recruiter_google_token TO authent
 
 
 --
+-- Name: reminder_ack service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.reminder_ack TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: reminder_rule service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.reminder_rule TO authenticated USING (false) WITH CHECK (false);
+
+
+--
 -- Name: sms_consent service_role_only; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -17980,6 +18450,13 @@ CREATE POLICY service_role_only ON greendogops.sms_message TO authenticated USIN
 --
 
 CREATE POLICY service_role_only ON greendogops.sms_opt_out TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: user_notification service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.user_notification TO authenticated USING (false) WITH CHECK (false);
 
 
 --
@@ -18023,6 +18500,12 @@ ALTER TABLE greendogops.sms_message ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE greendogops.sms_opt_out ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: user_notification; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.user_notification ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: SCHEMA greendogops; Type: ACL; Schema: -; Owner: -
@@ -19425,6 +19908,20 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.medical_board_type TO ser
 
 
 --
+-- Name: TABLE notification_delivery; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.notification_delivery TO service_role;
+
+
+--
+-- Name: TABLE ops_task; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.ops_task TO service_role;
+
+
+--
 -- Name: TABLE partner_contacts; Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -19906,6 +20403,20 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.referral_revenue_line_ite
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.referral_sync_history TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.referral_sync_history TO service_role;
+
+
+--
+-- Name: TABLE reminder_ack; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.reminder_ack TO service_role;
+
+
+--
+-- Name: TABLE reminder_rule; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.reminder_rule TO service_role;
 
 
 --
@@ -20466,6 +20977,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sms_message TO service_ro
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sms_opt_out TO service_role;
+
+
+--
+-- Name: TABLE user_notification; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.user_notification TO service_role;
 
 
 --

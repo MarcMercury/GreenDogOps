@@ -1,470 +1,135 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth/session";
-import {
-  canAccessModule,
-  MODULES,
-  type ModuleKey,
-} from "@/lib/auth/permissions";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { canAccessModule, type ModuleKey } from "@/lib/auth/permissions";
+import { loadDashboard } from "@/lib/worklist/sources";
+import { workSummary } from "@/lib/worklist/items";
+import { relativeDayLabel, shortDateLabel } from "@/lib/worklist/dates";
+import { ActivityLog } from "./_components/activity-log";
 import { PageHeader } from "./_components/ui";
-import {
-  ActivityLog,
-  type ActivityDay,
-  type ActivityItem,
-} from "./_components/activity-log";
+import { buildActivityDays } from "./_work/activity";
+import { WorkList } from "./_work/work-list";
+import { RemindersPanel } from "./_work/reminders-panel";
+import { NotificationsPanel } from "./_work/notifications-panel";
+import { SlackPanel } from "./_work/slack-panel";
 
 export const dynamic = "force-dynamic";
 
-type Card = {
-  href: string;
-  title: string;
-  desc: string;
-  icon: string;
-  dot: string;
-  /** Module key used to decide whether this card is visible for the user. */
-  module: ModuleKey;
-};
+function greeting(): string {
+  const hour = Number(
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/Los_Angeles", hour: "numeric", hour12: false }).format(new Date()),
+  );
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
+  return "Good evening";
+}
 
-type Group = { title: string; cards: Card[] };
-
-// ---------------------------------------------------------------------------
-// Dashboard catalog — mirrors the sidebar navigation so the home page stays in
-// sync with every module the app ships. Each card is gated by a ModuleKey and
-// only rendered when the signed-in user can access that module.
-// ---------------------------------------------------------------------------
-const GROUPS: Group[] = [
-  {
-    title: "Modules",
-    cards: [
-      {
-        href: "/resources",
-        title: "Resources",
-        desc: "AI search, policies wiki & shared document library.",
-        icon: "📚",
-        dot: "bg-rose-500",
-        module: "resources",
-      },
-    ],
-  },
-  {
-    title: "HR / Recruit / GDU",
-    cards: [
-      {
-        href: "/hr",
-        title: "HR / Roster",
-        desc: "Employee records: payroll, reviews, PTO & credentials.",
-        icon: "👥",
-        dot: "bg-emerald-500",
-        module: "hr",
-      },
-      {
-        href: "/ats",
-        title: "Recruiting (ATS)",
-        desc: "Applicant pipeline with interview tracking.",
-        icon: "🎯",
-        dot: "bg-blue-500",
-        module: "ats",
-      },
-      {
-        href: "/crm/student",
-        title: "Student CRM",
-        desc: "Students, externs & program participants.",
-        icon: "🎓",
-        dot: "bg-violet-500",
-        module: "crm_student",
-      },
-    ],
-  },
-  {
-    title: "Marketing",
-    cards: [
-      {
-        href: "/crm/ce",
-        title: "CE Leads/Events",
-        desc: "CE events, CEbroker submissions, attendees & attendance.",
-        icon: "📋",
-        dot: "bg-violet-500",
-        module: "crm_ce",
-      },
-      {
-        href: "/crm/influencer",
-        title: "Influencer CRM",
-        desc: "Influencer partnerships & campaigns.",
-        icon: "⭐",
-        dot: "bg-violet-500",
-        module: "crm_influencer",
-      },
-      {
-        href: "/crm/referral",
-        title: "Referral CRM",
-        desc: "Referring clinics & hospitals with clinic-area mapping.",
-        icon: "🏥",
-        dot: "bg-violet-500",
-        module: "crm_referral",
-      },
-      {
-        href: "/crm/vendor",
-        title: "Non-Med Partners",
-        desc: "Marketing & community business partners, visits & targeting.",
-        icon: "🤝",
-        dot: "bg-violet-500",
-        module: "crm_vendor",
-      },
-      {
-        href: "/marketing?tab=resources",
-        title: "Marketing Vendors",
-        desc: "Printing, media, merchandise & marketing services we buy.",
-        icon: "🧾",
-        dot: "bg-violet-500",
-        module: "marketing",
-      },
-    ],
-  },
-  {
-    title: "Operations",
-    cards: [
-      {
-        href: "/schedule",
-        title: "Scheduling",
-        desc: "Shifts, attendance, time-off & availability.",
-        icon: "🗓️",
-        dot: "bg-amber-500",
-        module: "schedule",
-      },
-      {
-        href: "/capacity",
-        title: "Daily Capacity",
-        desc: "Live staffing capacity vs. demand by site.",
-        icon: "📊",
-        dot: "bg-amber-500",
-        module: "schedule",
-      },
-      {
-        href: "/planning",
-        title: "Planning Guides",
-        desc: "Service-site staffing guides & signatures.",
-        icon: "🧭",
-        dot: "bg-amber-500",
-        module: "planning",
-      },
-    ],
-  },
-  {
-    title: "Biz Dev",
-    cards: [
-      {
-        href: "/crm/supplies",
-        title: "Vendors & Supplies",
-        desc: "Medical, facility & office vendors and suppliers.",
-        icon: "📦",
-        dot: "bg-teal-500",
-        module: "crm_supplies",
-      },
-      {
-        href: "/ezyvet",
-        title: "ezyVet CRM",
-        desc: "Client contacts, customer groups & revenue trends.",
-        icon: "🐾",
-        dot: "bg-teal-500",
-        module: "ezyvet",
-      },
-      {
-        href: "/reporting",
-        title: "Reporting",
-        desc: "Appointments, revenue & client trends.",
-        icon: "📈",
-        dot: "bg-indigo-500",
-        module: "reporting",
-      },
-      {
-        href: "/emp-reporting",
-        title: "Emp Reporting",
-        desc: "Payroll & compensation analytics.",
-        icon: "💰",
-        dot: "bg-indigo-500",
-        module: "emp_reporting",
-      },
-      {
-        href: "/admin",
-        title: "Admin",
-        desc: "Users, roles, locations, settings & audit log.",
-        icon: "⚙️",
-        dot: "bg-slate-500",
-        module: "admin",
-      },
-    ],
-  },
-];
-
-function ModuleCard({ c }: { c: Card }) {
+function Stat({ label, value, tone }: { label: string; value: number; tone: string }) {
   return (
-    <Link
-      href={c.href}
-      className="group flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white/80 px-3 py-2.5 shadow-sm backdrop-blur-sm transition duration-200 hover:-translate-y-0.5 hover:border-emerald-300/70 hover:shadow-md hover:shadow-emerald-600/5"
-    >
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-lg ring-1 ring-inset ring-slate-200/70">
-        {c.icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <h3 className="flex items-center gap-1.5 truncate text-sm font-semibold text-slate-900">
-          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${c.dot}`} />
-          {c.title}
-        </h3>
-        <p className="truncate text-xs leading-relaxed text-slate-500">
-          {c.desc}
-        </p>
-      </div>
-      <span className="shrink-0 text-slate-300 transition-all duration-200 group-hover:translate-x-0.5 group-hover:text-emerald-500">
-        →
-      </span>
-    </Link>
+    <div className="rounded-xl border border-slate-200/80 bg-white px-3 py-2 shadow-sm">
+      <p className={`text-xl font-bold tabular-nums ${value > 0 ? tone : "text-slate-300"}`}>{value}</p>
+      <p className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{label}</p>
+    </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Activity feed — the audit_log powers a per-user log scoped to the signed-in
-// user's own actions (matched by actor_email). Each entry is still mapped to a
-// module so it is only shown to users who can access that module.
-// ---------------------------------------------------------------------------
-const TZ = "America/Los_Angeles";
-
-const MODULE_ICONS: Record<ModuleKey, string> = {
-  dashboard: "🏠",
-  hr: "👥",
-  ats: "🎯",
-  marketing: "📣",
-  crm_referral: "🏥",
-  crm_vendor: "🤝",
-  crm_supplies: "📦",
-  crm_rescue: "🐕",
-  crm_business: "🤝",
-  crm_student: "🎓",
-  crm_ce: "📋",
-  crm_influencer: "⭐",
-  email_templates: "✉️",
-  reporting: "📈",
-  emp_reporting: "💰",
-  ezyvet: "🐾",
-  planning: "🧭",
-  schedule: "🗓️",
-  calendar: "📅",
-  med_boards: "🩺",
-  resources: "📚",
-  admin: "⚙️",
-};
-
-const MODULE_LABELS = MODULES.reduce(
-  (acc, m) => ({ ...acc, [m.key]: m.label }),
-  {} as Record<ModuleKey, string>,
-);
-
-const MODULE_HREFS = MODULES.reduce(
-  (acc, m) => ({ ...acc, [m.key]: m.href }),
-  {} as Record<ModuleKey, string>,
-);
-
-/** Map an audit entry to the module it belongs to (for access filtering). */
-function moduleForActivity(action: string, entity: string | null): ModuleKey {
-  const a = action.toLowerCase();
-  const e = (entity ?? "").toLowerCase();
-
-  if (a.startsWith("referral.")) return "crm_referral";
-  if (a.startsWith("influencer")) return "crm_influencer";
-  if (a.startsWith("student")) return "crm_student";
-  if (a.startsWith("ce.")) return "crm_ce";
-  if (a.startsWith("vendor")) return "crm_vendor";
-  if (a.startsWith("partner.")) return "crm_vendor";
-  if (a.startsWith("resource.")) return "resources";
-  if (a.startsWith("ats.")) return "ats";
-  if (a.startsWith("hr.")) return "hr";
-  if (a.startsWith("schedule.")) return "schedule";
-  if (a.startsWith("planning.")) return "planning";
-  if (
-    a.startsWith("user.") ||
-    a.startsWith("settings.") ||
-    a.startsWith("credential.") ||
-    a.startsWith("location.")
-  ) {
-    return "admin";
-  }
-
-  switch (e) {
-    case "referral_partner":
-      return "crm_referral";
-    case "influencer":
-      return "crm_influencer";
-    case "resource_category":
-    case "resource_document":
-      return "resources";
-    case "person":
-      return "ats";
-    case "contact":
-      return "crm_student";
-    case "credential":
-    case "app_user":
-    case "app_setting":
-    case "location":
-    case "organization":
-      return "admin";
-    default:
-      return "admin";
-  }
-}
-
-/** Turn an action slug into readable text when no summary was stored. */
-function prettifyAction(action: string): string {
-  const words = action.replace(/[._]/g, " ").trim();
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function dayKey(iso: string): string {
-  // en-CA yields YYYY-MM-DD, which sorts lexicographically.
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date(iso));
-}
-
-function dayLabel(key: string, todayKey: string): string {
-  const [y, m, d] = key.split("-").map(Number);
-  const date = new Date(Date.UTC(y, m - 1, d, 12));
-  const base = date.toLocaleDateString("en-US", {
-    timeZone: "UTC",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-  if (key === todayKey) {
-    return `Today · ${date.toLocaleDateString("en-US", {
-      timeZone: "UTC",
-      month: "short",
-      day: "numeric",
-    })}`;
-  }
-  return `${base}, ${y}`;
-}
-
-function timeLabel(iso: string): string {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    timeZone: TZ,
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-async function buildActivityDays(
-  isVisible: (module: ModuleKey) => boolean,
-  actorEmail: string | null,
-): Promise<ActivityDay[]> {
-  // Only ever show the signed-in user their own activity. Without an email to
-  // match against we cannot attribute any entry to them, so show nothing.
-  if (!actorEmail) return [];
-
-  const admin = createAdminClient();
-  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-  const { data } = await admin
-    .from("audit_log")
-    .select("id, action, entity, summary, actor_email, created_at")
-    .gte("created_at", since)
-    .ilike("actor_email", actorEmail)
-    .order("created_at", { ascending: false })
-    .limit(500);
-
-  const rows = (data ?? []) as {
-    id: string;
-    action: string;
-    entity: string | null;
-    summary: string | null;
-    actor_email: string | null;
-    created_at: string;
-  }[];
-
-  const todayKey = dayKey(new Date().toISOString());
-  const byDay = new Map<string, ActivityItem[]>();
-  // Always show today, even when nothing has happened yet.
-  byDay.set(todayKey, []);
-
-  for (const r of rows) {
-    const moduleKey = moduleForActivity(r.action, r.entity);
-    if (!isVisible(moduleKey)) continue;
-
-    const item: ActivityItem = {
-      id: r.id,
-      time: timeLabel(r.created_at),
-      actor: r.actor_email ?? "system",
-      moduleLabel: MODULE_LABELS[moduleKey] ?? moduleKey,
-      moduleIcon: MODULE_ICONS[moduleKey] ?? "•",
-      moduleHref: MODULE_HREFS[moduleKey] ?? "/",
-      summary: r.summary?.trim() || prettifyAction(r.action),
-    };
-
-    const key = dayKey(r.created_at);
-    const bucket = byDay.get(key);
-    if (bucket) bucket.push(item);
-    else byDay.set(key, [item]);
-  }
-
-  return Array.from(byDay.entries())
-    .sort((a, b) => (a[0] < b[0] ? 1 : -1)) // newest day first
-    .map(([key, items]) => ({
-      key,
-      label: dayLabel(key, todayKey),
-      items,
-    }));
-}
-
+/**
+ * Home page: the signed-in user's work center — tasks and items waiting on
+ * them across Ops, recurring reminders, notifications, and what Ops has routed
+ * to them in Slack. Data: src/lib/worklist/sources.ts.
+ */
 export default async function DashboardPage() {
   const current = await getCurrentUser();
+  if (!current) return null;
+  const user = current.appUser;
 
-  const isVisible = (module: ModuleKey) =>
-    current ? canAccessModule(current.appUser, module) : false;
+  const isVisible = (module: ModuleKey) => canAccessModule(user, module);
+  const [data, activityDays] = await Promise.all([
+    loadDashboard(user),
+    buildActivityDays(isVisible, current.email),
+  ]);
 
-  const groups = current
-    ? GROUPS.map((g) => ({
-        title: g.title,
-        cards: g.cards.filter((c) => canAccessModule(current.appUser, c.module)),
-      })).filter((g) => g.cards.length > 0)
-    : GROUPS;
-
-  const activityDays = current
-    ? await buildActivityDays(isVisible, current.email)
-    : [];
+  const summary = workSummary(data.work, data.today);
+  const remindersOpen = data.reminders.current.filter((r) => r.status !== "done").length;
+  const firstName = (user.full_name ?? "").trim().split(/\s+/)[0] || null;
+  const slackWorkCount = data.work.filter((i) => i.target === "slack").length;
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-7xl">
       <PageHeader
-        eyebrow="Overview"
-        title="Dashboard"
-        description="Quick links to every module, plus a live log of your recent activity."
+        eyebrow={relativeDayLabel(data.today, data.today) + " · " + shortDateLabel(data.today)}
+        title={`${greeting()}${firstName ? `, ${firstName}` : ""}`}
+        description="Your work, reminders and notifications across Green Dog Ops. Slack is for talking — this is where things get done."
       />
 
-      {/* Condensed quick links */}
-      <div className="mt-6 space-y-6">
-        {groups.map((g) => (
-          <section key={g.title}>
-            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              {g.title}
-            </h2>
-            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-              {g.cards.map((c) => (
-                <ModuleCard key={c.href} c={c} />
-              ))}
-            </div>
-          </section>
-        ))}
+      <div className="mt-5 grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+        <Stat label="Overdue" value={summary.overdue} tone="text-rose-600" />
+        <Stat label="Due today" value={summary.dueToday} tone="text-emerald-700" />
+        <Stat label="Reminders" value={remindersOpen} tone="text-amber-600" />
+        <Stat label="Unread" value={data.notifications.unread} tone="text-sky-700" />
       </div>
 
-      {/* Personal activity log */}
-      {current ? (
-        <section className="mt-10">
-          <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-            Your Activity
-          </h2>
-          <ActivityLog days={activityDays} />
-        </section>
+      {data.setupNeeded ? (
+        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+          Tasks, reminders and notifications are being set up (database migration 0230 hasn&apos;t been applied yet).
+          Items from your modules still show below.
+        </p>
       ) : null}
+      {data.warnings.length > 0 ? (
+        <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-xs text-rose-700">
+          {data.warnings.map((w) => (
+            <p key={w}>{w}</p>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
+          <WorkList
+            items={data.work}
+            today={data.today}
+            meId={user.id}
+            assignees={data.assignees}
+            slackConnected={data.slack.link?.status === "connected"}
+            canAddTasks={!data.setupNeeded}
+          />
+
+          {data.assignedByMe.length > 0 ? (
+            <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
+              <header className="border-b border-slate-100 px-4 py-3">
+                <h2 className="text-sm font-semibold text-slate-900">Assigned by you</h2>
+                <p className="text-xs text-slate-500">Open tasks you gave to others. You&apos;ll be notified when they&apos;re done.</p>
+              </header>
+              <ul className="divide-y divide-slate-50">
+                {data.assignedByMe.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                    <span className="min-w-0 truncate text-slate-700">{t.title}</span>
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {t.assignee}
+                      {t.due_date ? ` · ${relativeDayLabel(t.due_date, data.today)}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          <section>
+            <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Your activity</h2>
+            <ActivityLog days={activityDays} />
+          </section>
+        </div>
+
+        <aside className="space-y-5">
+          <RemindersPanel current={data.reminders.current} upcoming={data.reminders.upcoming} today={data.today} />
+          <NotificationsPanel items={data.notifications.items} unread={data.notifications.unread} />
+          <SlackPanel
+            slack={data.slack}
+            slackWorkCount={slackWorkCount}
+            hasPerson={!!user.person_id}
+            dmLive={process.env.SLACK_DM_LIVE?.trim().toLowerCase() === "true"}
+          />
+        </aside>
+      </div>
 
       <footer className="mt-12 border-t border-slate-200 pt-4 text-center text-xs text-slate-400">
         <Link href="/privacy" className="hover:text-slate-600">

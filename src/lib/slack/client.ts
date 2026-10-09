@@ -94,6 +94,66 @@ const ERROR_HINTS: Record<string, string> = {
   ratelimited: "Slack is rate limiting us. Try again in a moment.",
 };
 
+export type SlackDmResult =
+  | { ok: true; ts: string | null; channel: string | null }
+  | {
+      ok: false;
+      /** Slack error code, or "timeout"/"network" when the request itself failed. */
+      code: string;
+      error: string;
+      retryAfterSec: number | null;
+    };
+
+/**
+ * DM one Slack user from the app (`chat.postMessage` with the user id as the
+ * channel; needs only chat:write). Never sets username/icon — DMs always come
+ * from the app itself. Callers must have checked that the person may be
+ * messaged (src/lib/notify/dispatch.ts).
+ */
+export async function sendSlackDirectMessage(
+  slackUserId: string,
+  text: string,
+): Promise<SlackDmResult> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) {
+    return { ok: false, code: "not_configured", error: "SLACK_BOT_TOKEN is not set.", retryAfterSec: null };
+  }
+  if (!/^[UW][A-Z0-9]+$/.test(slackUserId)) {
+    return { ok: false, code: "invalid_user", error: "Not a Slack user id.", retryAfterSec: null };
+  }
+  try {
+    const res = await fetch(`${SLACK_API}/chat.postMessage`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json; charset=utf-8",
+      },
+      body: JSON.stringify({ channel: slackUserId, text, unfurl_links: false, unfurl_media: false }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    const retryAfter = Number(res.headers.get("retry-after"));
+    const retryAfterSec = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : null;
+    if (res.status === 429) {
+      return { ok: false, code: "ratelimited", error: ERROR_HINTS.ratelimited, retryAfterSec };
+    }
+    const data = (await res.json()) as SlackApiResponse;
+    if (!data.ok) {
+      const code = data.error ?? "unknown_error";
+      return { ok: false, code, error: ERROR_HINTS[code] ?? `Slack error: ${code}`, retryAfterSec };
+    }
+    return { ok: true, ts: data.ts ?? null, channel: data.channel ?? null };
+  } catch (err) {
+    const timedOut = err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      code: timedOut ? "timeout" : "network",
+      error: `Could not reach Slack: ${message}`,
+      retryAfterSec: null,
+    };
+  }
+}
+
 /**
  * Post a message to an allow-listed channel, optionally attributed to a user.
  */

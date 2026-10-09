@@ -17,19 +17,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { recordAudit } from "@/lib/auth/session";
 import type { CandidateRow } from "./types";
+import { appBaseUrl } from "@/lib/shared/app-url";
+
+export { appBaseUrl };
 
 export { buildInterviewScheduledMessage, buildStageChangeMessage } from "./slack-messages";
-
-/** Public origin for links back into the app, without a trailing slash. */
-export function appBaseUrl(): string {
-  const raw =
-    process.env.APP_BASE_URL ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    (process.env.VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
-      : "http://localhost:3000");
-  return raw.replace(/\/+$/, "");
-}
 
 export function candidateProfileUrl(personId: string): string {
   return `${appBaseUrl()}/ats/${personId}`;

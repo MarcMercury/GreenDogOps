@@ -5,6 +5,7 @@ import { logProfileTransition } from "@/lib/shared/transition-log";
 import { candidateName, candidateProfileUrl } from "./slack-notify";
 import { slackInterviewScheduled } from "./slack-announce";
 import { createGoogleInterviewEvent, googleBusy } from "./google-calendar";
+import { publishNotification } from "@/lib/notify/publish";
 import { sendBookingConfirmationEmail, sendInterviewerBookingEmail } from "./candidate-emails";
 import {
   DEFAULT_TIMEZONE,
@@ -298,6 +299,18 @@ export async function bookInvite(token: string, startIso: string): Promise<BookR
   const title = candidateInterviewTitle(invite.interview_type);
   const when = formatWhen(start, timeZone);
   const profileUrl = candidateProfileUrl(invite.person_id);
+
+  await publishNotification({
+    recipientUserId: host.user_id,
+    kind: "ats.interview_booked",
+    title: `${title} booked: ${name}`,
+    body: when,
+    href: `/ats/${invite.person_id}`,
+    module: "ats",
+    severity: "action",
+    dedupeKey: `ats.interview_booked:${interviewId}`,
+    slack: true,
+  });
 
   const google = await createGoogleInterviewEvent(host.user_id, {
     summary: `${title}: ${name} — Green Dog`,

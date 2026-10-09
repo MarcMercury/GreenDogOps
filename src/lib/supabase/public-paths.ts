@@ -31,6 +31,11 @@ export function isPublicPath(pathname: string): boolean {
     pathname.startsWith("/api/admin/users/roster-sync") ||
     // Slack user sync cron endpoint self-authenticates via CRON_SECRET.
     pathname === "/api/admin/slack/sync" ||
+    // Notification DM dispatcher cron self-authenticates via CRON_SECRET.
+    pathname === "/api/notify/dispatch" ||
+    // Slack workflows create Ops tasks here; authenticated by the
+    // OPS_INBOUND_TASK_SECRET bearer token (fails closed when unset).
+    pathname === "/api/tasks/inbound" ||
     // Medical Boards daily rollover cron self-authenticates via CRON_SECRET.
     pathname.startsWith("/api/med-ops/boards/rollover") ||
     // ATS intake endpoints self-authenticate: the Gmail cron via CRON_SECRET,
