@@ -212,16 +212,18 @@ Open times come from each interviewer's **📅 My Availability** page (Recruitin
 
 The tab badge counts today's interviews plus those needing results. Check it first thing each day.
 
+**Launching an interview:** click its row. The candidate opens on **Interview Tracking** with that interview's form open and its interview guide expanded. The date, time, type, interviewer and location are already filled in from the booking. Any of those left blank are filled with the best available details (you as the interviewer, *Phone call* for phone screens, the job's clinic for in-person). Check them, then log the result.
+
 ### Or log it yourself
 
 1. In Slack, click **Open in GreenDogOps** on the announcement.
 2. Review the candidate's profile, resume (Documents tab), and notes.
-3. Go to the **Interview Tracking** tab and fill in **Schedule / log an interview**:
-   - **Interview date** and **Start / End** time
-   - **Type** (Phone Screen, Virtual, In-Person, Shadow / Working Interview, Final, Doc Call)
+3. Go to the **Interview Tracking** tab and check **Schedule / log an interview**. Ops fills in what it already knows, so you only change what's different:
+   - **Interview date** and **Start / End** time: today, at the nearest quarter hour. The end time follows your interview length (from **📅 My Availability**, or 30 minutes) and moves with the start time.
+   - **Type** (Phone Screen, Virtual, In-Person, Shadow / Working Interview, Final, Doc Call): the interview on the candidate's pending scheduling link, otherwise the one their stage is due for (*New Lead / Contacted / Phone Screen* → Phone Screen, *Interview* → In-Person, *Shadow Day* → Shadow).
    - **Status:** *Scheduled*
-   - **Interviewer:** your name
-   - **Location** (phone, Zoom, clinic)
+   - **Interviewer:** the scheduling link's interviewer, otherwise you. You can pick anyone from the list.
+   - **Location:** the scheduling link's location, otherwise *Phone call* / *Video call*, or the job's clinic for in-person interviews, shadows and finals. It follows the type until you type your own.
 4. Click **Add interview**.
 
 Saving a Scheduled interview puts it on the **Ops calendar**. An in-person interview or shadow also creates the first Slack announcement; anything else posts to Slack only once the candidate has been announced.

@@ -269,7 +269,13 @@ export function InterviewQueue({
         columns={columns}
         filters={filters}
         searchPlaceholder="Search candidate, role, interviewer…"
-        onRowClick={(r) => router.push(`/ats/${r.person_id}?tab=interviews`)}
+        onRowClick={(r) =>
+          router.push(
+            r.kind === "interview"
+              ? `/ats/${r.person_id}?tab=interviews&interview=${r.id}`
+              : `/ats/${r.person_id}?tab=interviews`,
+          )
+        }
         emptyLabel="No interviews in the queue. Use 📅 Invite to schedule on a candidate's Interview Tracking tab."
       />
     </div>

@@ -18,6 +18,7 @@ import type { ProfileTransition } from "@/lib/shared/transitions";
 import { hiresSinceOpened } from "@/lib/ats/jobs";
 import { loadJobHires } from "@/lib/ats/job-hires";
 import { loadInterviewers, canTakeBookings } from "@/lib/ats/booking";
+import { DEFAULT_TIMEZONE, zonedParts } from "@/lib/ats/scheduling";
 import {
   parseFields,
   type FormRequest,
@@ -34,10 +35,10 @@ export default async function CandidateDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ tab?: string | string[] }>;
+  searchParams: Promise<{ tab?: string | string[]; interview?: string | string[] }>;
 }) {
   const { id } = await params;
-  const { tab } = await searchParams;
+  const { tab, interview: launchInterview } = await searchParams;
   const supabase = await createClient();
   const current = await getCurrentUser();
   const canEdit = current ? canEditModule(current.appUser, "ats") : false;
@@ -163,7 +164,7 @@ export default async function CandidateDetailPage({
         .order("sent_at", { ascending: false }),
       supabase
         .from("interview_invite")
-        .select("id, token, interview_type, duration_minutes, host_name, date_from, date_to, status, booked_start, created_at, created_by_name")
+        .select("id, token, interview_type, duration_minutes, host_name, location, date_from, date_to, status, booked_start, created_at, created_by_name")
         .eq("person_id", id)
         .order("created_at", { ascending: false }),
       supabase
@@ -267,6 +268,8 @@ export default async function CandidateDetailPage({
         interviewers={interviewers}
         currentUserId={current?.authId ?? null}
         initialTab={typeof tab === "string" ? tab : undefined}
+        launchInterviewId={typeof launchInterview === "string" ? launchInterview : null}
+        clinicNow={zonedParts(new Date(), DEFAULT_TIMEZONE)}
         canEdit={canEdit}
         canText={current ? canTextPerson(current.appUser, row.status) : false}
         slackEnabled={canEdit && isSlackConfigured()}

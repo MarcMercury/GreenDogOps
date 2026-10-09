@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import type {
@@ -57,6 +57,14 @@ import {
 } from "@/lib/ats/forms";
 import { GuideQuestions } from "../interview-guide-fields";
 import { candidateInterviewTitle } from "@/lib/ats/scheduling";
+import {
+  addMinutesToTime,
+  interviewClinic,
+  locationForType,
+  minutesBetween,
+  prefillInterview,
+  type InterviewPrefillContext,
+} from "@/lib/ats/interview-prefill";
 import { applicationHasData } from "@/lib/ats/application";
 import { CopyForSlackButton } from "./copy-for-slack";
 import { SmsPanel } from "../../_components/sms-panel";
@@ -106,6 +114,7 @@ export interface ProfileInvite {
   interview_type: string;
   duration_minutes: number;
   host_name: string | null;
+  location: string | null;
   date_from: string;
   date_to: string;
   status: "sent" | "booked" | "cancelled";
@@ -135,6 +144,8 @@ export function CandidateProfile({
   rejection = null,
   templates = [],
   initialTab,
+  launchInterviewId = null,
+  clinicNow = null,
   canEdit = false,
   canText = false,
   slackEnabled = false,
@@ -161,6 +172,10 @@ export function CandidateProfile({
   templates?: TemplateOption[];
   /** From `?tab=` — the explorer's follow-up links open straight to Activity. */
   initialTab?: string;
+  /** From `?interview=` — the Interviews queue opens that interview ready to log. */
+  launchInterviewId?: string | null;
+  /** Clinic-local date and time when the page loaded, for new-interview defaults. */
+  clinicNow?: { date: string; time: string } | null;
   canEdit?: boolean;
   /** May read and send texts for this candidate (canTextPerson). */
   canText?: boolean;
@@ -168,13 +183,27 @@ export function CandidateProfile({
 }) {
   const tabs = canText ? TABS : TABS.filter((t) => t.key !== "texts");
   const [activeTab, setActiveTab] = useState<TabKey>(
-    tabs.some((t) => t.key === initialTab) ? (initialTab as TabKey) : "profile",
+    launchInterviewId
+      ? "interviews"
+      : tabs.some((t) => t.key === initialTab)
+        ? (initialTab as TabKey)
+        : "profile",
   );
   const openTasks = tasks.filter((t) => !t.is_done).length;
   const rec = row.person_recruiting;
   const hasApplication = applicationHasData(rec?.application);
-  const jobTitle =
-    positions.find((p) => p.id === rec?.target_position_id)?.title ?? rec?.target_title ?? null;
+  const job = positions.find((p) => p.id === rec?.target_position_id) ?? null;
+  const jobTitle = job?.title ?? rec?.target_title ?? null;
+  const me = interviewers.find((i) => i.user_id === currentUserId) ?? null;
+  const pendingInvite = invites.find((i) => i.status === "sent") ?? null;
+  const prefill: InterviewPrefillContext = {
+    today: clinicNow?.date ?? "",
+    now: clinicNow?.time ?? "",
+    me: me ? { name: me.name, defaultDuration: me.default_duration } : null,
+    stage: rec?.stage ?? null,
+    clinic: interviewClinic(job?.location, rec?.job_location),
+    pendingInvite,
+  };
   const formTab: CandidateFormTab | null =
     activeTab === "profile" || activeTab === "application" || activeTab === "experience"
       ? activeTab
@@ -321,6 +350,9 @@ export function CandidateProfile({
             interviews={interviews}
             guides={interviewGuides}
             jobTitle={jobTitle}
+            prefill={prefill}
+            interviewerNames={interviewers.map((i) => i.name)}
+            launchInterviewId={launchInterviewId}
             canEdit={canEdit}
             slackEnabled={slackEnabled}
           />
@@ -473,6 +505,9 @@ function InterviewsPanel({
   interviews,
   guides,
   jobTitle,
+  prefill,
+  interviewerNames,
+  launchInterviewId = null,
   canEdit = false,
   slackEnabled = false,
 }: {
@@ -480,6 +515,9 @@ function InterviewsPanel({
   interviews: PersonInterview[];
   guides: InterviewGuideOption[];
   jobTitle: string | null;
+  prefill: InterviewPrefillContext;
+  interviewerNames: string[];
+  launchInterviewId?: string | null;
   canEdit?: boolean;
   slackEnabled?: boolean;
 }) {
@@ -494,7 +532,13 @@ function InterviewsPanel({
             Scheduled interviews show on the calendar
             {slackEnabled ? " and post to the candidate's Slack thread" : ""}.
           </p>
-          <InterviewForm personId={row.id} guides={guides} jobTitle={jobTitle} />
+          <InterviewForm
+            personId={row.id}
+            guides={guides}
+            jobTitle={jobTitle}
+            prefill={prefill}
+            interviewerNames={interviewerNames}
+          />
         </section>
       )}
 
@@ -509,6 +553,9 @@ function InterviewsPanel({
               interview={iv}
               guides={guides}
               jobTitle={jobTitle}
+              prefill={prefill}
+              interviewerNames={interviewerNames}
+              launched={iv.id === launchInterviewId}
               canEdit={canEdit}
               slackEnabled={slackEnabled}
             />
@@ -531,6 +578,8 @@ const recommendationOptions = Object.entries(INTERVIEW_RECOMMENDATION_LABELS).ma
   ([value, label]) => ({ value, label }),
 );
 const gradeOptions = INTERVIEW_GRADE_OPTIONS.map((g) => ({ value: g, label: g }));
+const interviewInputCls =
+  "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
 
 /** Add a new interview, or edit an existing one when `interview` is passed. */
 function InterviewForm({
@@ -538,30 +587,60 @@ function InterviewForm({
   interview,
   guides,
   jobTitle,
+  prefill,
+  interviewerNames,
+  launched = false,
   onDone,
 }: {
   personId: string;
   interview?: PersonInterview;
   guides: InterviewGuideOption[];
   jobTitle: string | null;
+  prefill: InterviewPrefillContext;
+  interviewerNames: string[];
+  /** Opened from the Interviews queue: show the guide straight away. */
+  launched?: boolean;
   onDone?: () => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
-  const [showQuestions, setShowQuestions] = useState(false);
-  const [type, setType] = useState(interview?.interview_type ?? "");
+  const listId = useId();
+  const [showQuestions, setShowQuestions] = useState(launched);
+  // Date, time, type, interviewer and location start filled with everything
+  // already known (see prefillInterview) so the interviewer only checks them.
+  const [details, setDetails] = useState(() => prefillInterview(interview ?? null, prefill));
+  const type = details.interview_type;
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
     async (prev, fd) => {
       const res = await saveInterview(personId, prev, fd);
       // A new interview's form clears for the next one.
       if (res.ok && !interview) {
-        setType("");
+        setDetails(prefillInterview(null, prefill));
         setPickedId(null);
       }
       return res;
     },
     null,
   );
+
+  // The end time keeps the interview's length as the start moves; editing the
+  // end changes that length.
+  const setStart = (start: string) =>
+    setDetails((d) => ({ ...d, start_time: start, end_time: addMinutesToTime(start, d.duration) || d.end_time }));
+  const setEnd = (end: string) =>
+    setDetails((d) => ({ ...d, end_time: end, duration: minutesBetween(d.start_time, end) ?? d.duration }));
+  // A location that is blank or was filled for the old type follows the type.
+  const setType = (next: string) =>
+    setDetails((d) => ({
+      ...d,
+      interview_type: next,
+      location:
+        !d.location ||
+        d.location === locationForType(d.interview_type, prefill.clinic) ||
+        d.location === prefill.pendingInvite?.location
+          ? locationForType(next, prefill.clinic)
+          : d.location,
+    }));
 
   // An interview with answers keeps the questions it was logged with. Any
   // other interview loads the guide for its type and the candidate's job,
@@ -591,25 +670,37 @@ function InterviewForm({
       <input type="hidden" name="guide_name" value={guideName ?? ""} />
       <input type="hidden" name="guide_fields" value={JSON.stringify(fields)} />
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Field
-          label="Interview date"
-          name="interview_date"
-          type="date"
-          defaultValue={interview?.interview_date ?? undefined}
-        />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-500">Interview date</span>
+          <input
+            name="interview_date"
+            type="date"
+            value={details.interview_date}
+            onChange={(e) => setDetails((d) => ({ ...d, interview_date: e.target.value }))}
+            className={interviewInputCls}
+          />
+        </label>
         <div className="grid grid-cols-2 gap-2">
-          <Field
-            label="Start"
-            name="start_time"
-            type="time"
-            defaultValue={interview?.start_time?.slice(0, 5)}
-          />
-          <Field
-            label="End"
-            name="end_time"
-            type="time"
-            defaultValue={interview?.end_time?.slice(0, 5)}
-          />
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-slate-500">Start</span>
+            <input
+              name="start_time"
+              type="time"
+              value={details.start_time}
+              onChange={(e) => setStart(e.target.value)}
+              className={interviewInputCls}
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-slate-500">End</span>
+            <input
+              name="end_time"
+              type="time"
+              value={details.end_time}
+              onChange={(e) => setEnd(e.target.value)}
+              className={interviewInputCls}
+            />
+          </label>
         </div>
         <label className="flex flex-col gap-1">
           <span className="text-xs font-medium text-slate-500">Type</span>
@@ -617,7 +708,7 @@ function InterviewForm({
             name="interview_type"
             value={type}
             onChange={(e) => setType(e.target.value)}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className={interviewInputCls}
           >
             <option value="">—</option>
             {typeOptions.map((o) => (
@@ -633,16 +724,31 @@ function InterviewForm({
           options={statusOptions}
           defaultValue={interview?.status ?? "scheduled"}
         />
-        <Field
-          label="Interviewer"
-          name="interviewer"
-          defaultValue={interview?.interviewer ?? undefined}
-        />
-        <Field
-          label="Location"
-          name="location"
-          defaultValue={interview?.location ?? undefined}
-        />
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-500">Interviewer</span>
+          <input
+            name="interviewer"
+            list={listId}
+            value={details.interviewer}
+            onChange={(e) => setDetails((d) => ({ ...d, interviewer: e.target.value }))}
+            className={interviewInputCls}
+          />
+          <datalist id={listId}>
+            {interviewerNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-slate-500">Location</span>
+          <input
+            name="location"
+            value={details.location}
+            onChange={(e) => setDetails((d) => ({ ...d, location: e.target.value }))}
+            placeholder="Phone, Zoom link or clinic"
+            className={interviewInputCls}
+          />
+        </label>
         <Select
           label="Overall grade"
           name="overall_grade"
@@ -747,6 +853,9 @@ function InterviewCard({
   interview,
   guides,
   jobTitle,
+  prefill,
+  interviewerNames,
+  launched = false,
   canEdit = false,
   slackEnabled = false,
 }: {
@@ -754,12 +863,21 @@ function InterviewCard({
   interview: PersonInterview;
   guides: InterviewGuideOption[];
   jobTitle: string | null;
+  prefill: InterviewPrefillContext;
+  interviewerNames: string[];
+  /** Opened from the Interviews queue: start in the logging form. */
+  launched?: boolean;
   canEdit?: boolean;
   slackEnabled?: boolean;
 }) {
   const personId = row.id;
+  const cardRef = useRef<HTMLLIElement>(null);
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(launched && canEdit);
+
+  useEffect(() => {
+    if (launched) cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [launched]);
   const shown = answeredWithSections(interview.responses ?? []);
   const answered = shown.filter((r) => r.type !== "section");
   const statusBadge =
@@ -770,12 +888,15 @@ function InterviewCard({
 
   if (editing) {
     return (
-      <li className="rounded-xl border border-emerald-200 bg-white p-4 shadow-sm">
+      <li ref={cardRef} className="scroll-mt-4 rounded-xl border border-emerald-200 bg-white p-4 shadow-sm">
         <InterviewForm
           personId={personId}
           interview={interview}
           guides={guides}
           jobTitle={jobTitle}
+          prefill={prefill}
+          interviewerNames={interviewerNames}
+          launched={launched}
           onDone={() => setEditing(false)}
         />
       </li>
@@ -783,7 +904,7 @@ function InterviewCard({
   }
 
   return (
-    <li className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <li ref={cardRef} className="scroll-mt-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="flex items-center gap-2 text-sm font-semibold text-slate-900">
