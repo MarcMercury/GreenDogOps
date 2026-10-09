@@ -12,7 +12,7 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.
-- **Scope:** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `actions.ts` export calls a permission helper; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest`; migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.
+- **Scope:** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `actions.ts` export calls a permission helper; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest` (that each one passes the proxy is already tested in `src/lib/supabase/public-paths.test.ts`); migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.
 - **Risk:** low; may surface existing violations that need triage.
 
 ### Security follow-ups from the ASVS L2 pass (0227)

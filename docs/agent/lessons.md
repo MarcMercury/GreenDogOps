@@ -57,6 +57,12 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** run `tsc` over only the changed files. Write a temp tsconfig that `extends` the repo's, with `noEmit`, `incremental: false`, `skipLibCheck`, and `include` = `next-env.d.ts` + the changed files (match `[id]` folders with `?id?`). Then run `NODE_OPTIONS=--max-old-space-size=2560 npx tsc -p <that file>`. This follows imports, so their types are checked too. A full-project `tsc` still OOMs.
 - **Evidence:** 2026-10-09: the planted error was caught as TS2322 by the scoped run and missed by `problems`. The scoped run over the Slack-linking files finished with exit 0.
 
+### A new cron route must also be added to the proxy allow-list
+- **Problem:** the new `/api/admin/slack/sync` cron returned `307 → /login` in production, while the existing crons returned `401`. The nightly job would have been redirected and never run, with no error anywhere.
+- **Root cause:** `src/lib/supabase/proxy.ts` sends every session-less request to /login unless the path is on its public list. Cron routes authenticate themselves with `CRON_SECRET`, so each one must be listed.
+- **Fix:** the list now lives in `src/lib/supabase/public-paths.ts` (`isPublicPath`). `public-paths.test.ts` fails if any `vercel.json` cron path isn't on it.
+- **Evidence:** 2026-10-09: `curl` on the deployed route returned 307 before the fix; the test fails for that path without the fix and passes with it.
+
 ### Baseline CI can fail on Docker Hub, and the Codespace token can't re-run it
 - **Problem:** `verify-baseline.yml` failed in "Initialize containers": the `docker pull postgres:17` from Docker Hub timed out, so no SQL ran. `gh run rerun` answered `Resource not accessible by integration` (the Codespace `GITHUB_TOKEN` has no Actions write permission).
 - **Fix:** run the same check locally with `scripts/verify_baseline.sh` (Docker works in this Codespace, ~1 min). Report CI as Failed/infra, quoting the local result. A new push touching `supabase/**` re-triggers CI.
