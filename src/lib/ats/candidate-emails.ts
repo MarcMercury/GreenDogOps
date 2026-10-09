@@ -125,19 +125,27 @@ export async function sendBookingConfirmationEmail(input: {
   });
 }
 
-/** Tell an interviewer without a connected calendar about a booking. */
+/**
+ * Tell the interviewer about a booking. When the event is already on their
+ * Google Calendar no .ics is attached (it would add a duplicate entry);
+ * otherwise the .ics is their calendar invite.
+ */
 export async function sendInterviewerBookingEmail(input: {
   to: string;
   candidateName: string;
   title: string;
   when: string;
+  location: string | null;
   profileUrl: string;
-  ics: string;
+  ics: string | null;
+  onGoogleCalendar: boolean;
 }): Promise<SendEmailResult> {
   const paragraphs = [
     `${input.candidateName} booked a ${input.title.toLowerCase()} with you.`,
-    `When: ${input.when}`,
-    "Connect your Google Calendar in Ops (Recruiting → My Availability) so bookings land on your calendar automatically.",
+    [`When: ${input.when}`, input.location ? `Where: ${input.location}` : null].filter(Boolean).join("\n"),
+    input.onGoogleCalendar
+      ? "It's on your Google Calendar, and the candidate has been sent the invitation."
+      : "The calendar invitation is attached. Connect your Google Calendar in Ops (Recruiting → My Availability) so bookings land on your calendar automatically.",
   ];
   const button = { label: "Open candidate in Ops", url: input.profileUrl };
   return sendEmail({
@@ -145,13 +153,18 @@ export async function sendInterviewerBookingEmail(input: {
     subject: `Booked: ${input.title} with ${input.candidateName} — ${input.when}`,
     html: layout(paragraphs, button),
     text: text(paragraphs, button),
-    attachments: [
-      {
-        filename: "interview.ics",
-        content: Buffer.from(input.ics, "utf-8").toString("base64"),
-        contentType: "text/calendar; charset=utf-8; method=PUBLISH",
-      },
-    ],
+    tags: [{ name: "category", value: "recruiting_booking" }],
+    ...(input.ics
+      ? {
+          attachments: [
+            {
+              filename: "interview.ics",
+              content: Buffer.from(input.ics, "utf-8").toString("base64"),
+              contentType: "text/calendar; charset=utf-8; method=PUBLISH",
+            },
+          ],
+        }
+      : {}),
   });
 }
 

@@ -14,6 +14,14 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Tooling & environment
 
+### Vercel production env values can't be read back to verify them
+- **Problem:** after `vercel env add X production < file`, `vercel env pull --environment=production` returned `X=""`, so a hash comparison "failed" even though the value was stored.
+- **Root cause:** production vars are encrypted and `env pull` returns `""` for every one of them (long-working vars like `GOOGLE_CALENDAR_ID` also pull as `""`).
+- **Fix:** verify the secret itself instead. For a Google OAuth client, POST a bogus code to `https://oauth2.googleapis.com/token` with the ID/secret: `invalid_grant` = credentials valid, `invalid_client` = wrong ID/secret. Add with a stdin file redirect (piping has stored empty values, see `scripts/gmail_oauth_setup.mjs`), then `vercel redeploy <current prod url> --target production` so new env loads without shipping the working tree.
+- **Where:** Vercel project `green-dog-ops`; per-recruiter Google Calendar connect (`GOOGLE_CALENDAR_OAUTH_CLIENT_ID/_SECRET`, `src/lib/ats/google-calendar.ts`).
+- **Prevent:** don't treat an `env pull` mismatch on production as a failed write; confirm in the app after redeploy.
+- **Evidence:** 2026-10-09 — both vars listed by `vercel env ls production`, Google token endpoint returned `invalid_grant`, redeploy Ready and aliased to greendogops.com.
+
 ### Several agent sessions share one checkout
 - **Problem:** the working tree mixes uncommitted edits from several sessions. One session committed from its own `git worktree` and pushed, then synced only some files back, so the shared checkout's copies of other files were missing parts of the deployed commit. Committing the checkout as-is would have reverted deployed work.
 - **Root cause:** sessions run concurrently in `/workspaces/GreenDogOps` on `main`; a commit made elsewhere doesn't update the shared files.

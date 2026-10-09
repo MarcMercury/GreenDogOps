@@ -4,7 +4,11 @@ import {
   computeSlots,
   datesBetween,
   groupSlotsByDay,
+  monthGrid,
+  monthLabel,
+  monthOf,
   parseWeeklyHours,
+  shiftMonth,
   zonedParts,
   zonedTimeToUtc,
 } from "./scheduling";
@@ -91,6 +95,28 @@ describe("datesBetween", () => {
       "2026-11-01",
       "2026-11-02",
     ]);
+  });
+});
+
+describe("month calendar", () => {
+  it("builds Sunday-first weeks with blanks outside the month", () => {
+    // October 2026 starts on a Thursday and has 31 days.
+    const weeks = monthGrid("2026-10");
+    expect(weeks).toHaveLength(5);
+    expect(weeks[0]).toEqual([null, null, null, null, "2026-10-01", "2026-10-02", "2026-10-03"]);
+    expect(weeks[4]).toEqual(["2026-10-25", "2026-10-26", "2026-10-27", "2026-10-28", "2026-10-29", "2026-10-30", "2026-10-31"]);
+    expect(weeks.every((w) => w.length === 7)).toBe(true);
+  });
+
+  it("handles leap-year February", () => {
+    expect(monthGrid("2028-02").flat().filter(Boolean)).toHaveLength(29);
+  });
+
+  it("shifts months across year boundaries", () => {
+    expect(shiftMonth("2026-12", 1)).toBe("2027-01");
+    expect(shiftMonth("2027-01", -1)).toBe("2026-12");
+    expect(monthOf("2026-10-13")).toBe("2026-10");
+    expect(monthLabel("2026-10")).toBe("October 2026");
   });
 });
 

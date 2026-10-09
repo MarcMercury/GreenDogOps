@@ -345,21 +345,27 @@ export async function bookInvite(token: string, startIso: string): Promise<BookR
     });
     if (!sent.ok) console.error("[ats] booking confirmation email failed:", sent.error);
   }
-  if (!google.eventId) {
+  // The interviewer is always told; Google doesn't email the organizer.
+  if (host.email) {
+    const onGoogleCalendar = Boolean(google.eventId);
     const sent = await sendInterviewerBookingEmail({
       to: host.email,
       candidateName: name,
       title,
       when,
+      location: invite.location,
       profileUrl,
-      ics: buildIcs({
-        uid: `${interviewId}-host@greendogops`,
-        start,
-        end,
-        summary: `${title}: ${name}`,
-        description: `Candidate profile: ${profileUrl}`,
-        location: invite.location,
-      }),
+      onGoogleCalendar,
+      ics: onGoogleCalendar
+        ? null
+        : buildIcs({
+            uid: `${interviewId}-host@greendogops`,
+            start,
+            end,
+            summary: `${title}: ${name}`,
+            description: `Candidate profile: ${profileUrl}`,
+            location: invite.location,
+          }),
     });
     if (!sent.ok) console.error("[ats] interviewer booking email failed:", sent.error);
   }

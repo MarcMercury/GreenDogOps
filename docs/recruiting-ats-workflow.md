@@ -193,11 +193,11 @@ Taking any of these marks the questionnaire **Reviewed**. (**✓ Mark reviewed**
 
 1. Open the candidate → **Interview Tracking** → **📅 Invite to schedule**.
 2. Choose the **interview type**, who it's **with** (**Me** or a **specific person**), the **duration**, the **date range** to offer, and where it is (phone, Zoom link or clinic). The dialog shows how many open times the candidate will see.
-3. Click **Send Scheduling Link**. The candidate gets an email: *"Green Dog would like to schedule a 30-minute phone interview with you."* The link shows the interviewer's open times. No account is needed.
+3. Click **Send Scheduling Link**. The candidate gets an email: *"Green Dog would like to schedule a 30-minute phone interview with you."* The link opens a calendar of the interviewer's open days. The candidate picks a day, then one of that day's open times. No account is needed. This works the same way for every interview type.
 4. When the candidate picks a time and clicks **Confirm Interview**, Ops automatically:
    - adds the interview to **Interview Tracking** (Scheduled, with the interviewer) and to the **Ops calendar**;
-   - puts it on the interviewer's **Google Calendar** and invites the candidate. If the interviewer hasn't connected Google, both get an email with a calendar file instead;
-   - emails the candidate a confirmation;
+   - puts it on the interviewer's **Google Calendar** and Google emails the candidate the invitation. If the interviewer hasn't connected Google, both get an email with a calendar file instead;
+   - emails the candidate a confirmation and emails the interviewer a booking notice (with the calendar file when Google isn't connected);
    - **in-person interview or shadow:** creates the candidate's **first Slack announcement** (see *Slack* below). Phone screens, virtual interviews and doc calls stay inside Ops unless the candidate has already been announced, in which case they reply in the thread.
 
 Open times come from each interviewer's **📅 My Availability** page (Recruiting header): weekly hours, interview length, a buffer between interviews and minimum notice, minus anything busy on their connected Google Calendar and any interviews already in Ops. **Connect your Google Calendar there once.** Ops only reads free/busy times and never imports your events. Only one scheduling link per interview type is live at a time; sending a new one cancels the old one. Pending links show on Interview Tracking with **Copy link** and **Cancel**.
@@ -208,7 +208,7 @@ Open times come from each interviewer's **📅 My Availability** page (Recruitin
 
 - **Interview types:** Phone Screen, Virtual Interview, In-Person Interview, Shadow / Working Interview, Final Interview, Doc Call.
 - **Statuses:** **Needs results** (the date has passed but it's still Scheduled — open it and log the grade, recommendation and status), **Scheduled**, **Awaiting booking** (scheduling link sent, with **Copy link**), and — when *Include completed* is ticked — **Completed** / **No show** from the last 30 days, with grade and recommendation.
-- **Sort** by any column; **filter** by type, date, interviewer, role, location, score, stage and status; or tick **Only my interviews**.
+- **Sort:** the list is in date and time order by default (interviews with no date, then links awaiting booking, come last). Click any column to sort by it instead. **Filter** by type, date, interviewer, role, location, score, stage and status; or tick **Only my interviews**.
 
 The tab badge counts today's interviews plus those needing results. Check it first thing each day.
 

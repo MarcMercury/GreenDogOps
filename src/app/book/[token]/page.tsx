@@ -56,7 +56,13 @@ export default async function BookPage({ params }: { params: Promise<{ token: st
       {days.length === 0 ? (
         <PublicNotice icon="🗓️" title="No times are open right now" body="Reply to the email you received and we'll find a time that works." />
       ) : (
-        <SlotPicker token={token} days={days} zone={zoneAbbreviation(new Date(), result.timeZone)} />
+        <SlotPicker
+          token={token}
+          days={days}
+          zone={zoneAbbreviation(new Date(), result.timeZone)}
+          withName={invite.host_name || result.host.name}
+          durationMinutes={invite.duration_minutes}
+        />
       )}
     </PublicShell>
   );

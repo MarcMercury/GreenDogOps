@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { DataTable, type Column, type FilterDef } from "../_components/data-views";
 import { INTERVIEW_TYPE_LABELS, formatTime } from "@/lib/ats/types";
+import { compareQueueRows } from "@/lib/ats/interview-queue";
 import { ScoreControl } from "./score-control";
 
 export type InterviewQueueStatus = "needs_results" | "scheduled" | "awaiting_booking" | "no_date" | "completed" | "no_show";
@@ -95,20 +96,12 @@ function CopyLink({ token }: { token: string }) {
   );
 }
 
-const ORDER: Record<InterviewQueueStatus, number> = {
-  needs_results: 0,
-  scheduled: 1,
-  no_date: 2,
-  awaiting_booking: 3,
-  completed: 4,
-  no_show: 5,
-};
-
 /**
  * Interview Queue — the working list for everyone actively interviewing:
  * scheduled interviews, ones needing results, and scheduling links the
- * candidate hasn't booked yet. Sort by any column; filter by type, date,
- * status, interviewer, role, location, score and stage. Scores edit inline.
+ * candidate hasn't booked yet. Defaults to date/time order; sort by any
+ * column; filter by type, date, status, interviewer, role, location, score
+ * and stage. Scores edit inline.
  */
 export function InterviewQueue({
   rows,
@@ -142,13 +135,7 @@ export function InterviewQueue({
   const visible = rows
     .filter((r) => showDone || !isDone(r))
     .filter((r) => !mine || isMine(r))
-    .sort(
-      (a, b) =>
-        ORDER[a.status] - ORDER[b.status] ||
-        (isDone(a)
-          ? (b.date ?? "").localeCompare(a.date ?? "")
-          : (a.date ?? "9").localeCompare(b.date ?? "9") || (a.start_time ?? "99").localeCompare(b.start_time ?? "99")),
-    );
+    .sort(compareQueueRows);
 
   const columns: Column<InterviewQueueRow>[] = [
     {

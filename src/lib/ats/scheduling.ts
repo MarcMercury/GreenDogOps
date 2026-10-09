@@ -208,6 +208,44 @@ export function groupSlotsByDay(slots: Date[], timeZone: string): SlotDay[] {
 }
 
 // ---------------------------------------------------------------------------
+// Month calendar for the candidate's day picker. Months are "YYYY-MM"; dates
+// are plain "YYYY-MM-DD" strings, so no time zone math is involved.
+// ---------------------------------------------------------------------------
+
+export function monthOf(date: string): string {
+  return date.slice(0, 7);
+}
+
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/** "October 2026" */
+export function monthLabel(month: string): string {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** Sunday-first weeks for a month; days outside the month are null. */
+export function monthGrid(month: string): (string | null)[][] {
+  const [y, m] = month.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const cells: (string | null)[] = Array.from({ length: first }, () => null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${month}-${String(d).padStart(2, "0")}`);
+  while (cells.length % 7) cells.push(null);
+  const weeks: (string | null)[][] = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
+  return weeks;
+}
+
+// ---------------------------------------------------------------------------
 // Calendar file (.ics) for the candidate / interviewer when no Google
 // calendar is connected to send the invite.
 // ---------------------------------------------------------------------------
