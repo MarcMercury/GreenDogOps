@@ -57,6 +57,17 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** run `tsc` over only the changed files. Write a temp tsconfig that `extends` the repo's, with `noEmit`, `incremental: false`, `skipLibCheck`, and `include` = `next-env.d.ts` + the changed files (match `[id]` folders with `?id?`). Then run `NODE_OPTIONS=--max-old-space-size=2560 npx tsc -p <that file>`. This follows imports, so their types are checked too. A full-project `tsc` still OOMs.
 - **Evidence:** 2026-10-09: the planted error was caught as TS2322 by the scoped run and missed by `problems`. The scoped run over the Slack-linking files finished with exit 0.
 
+### Baseline CI can fail on Docker Hub, and the Codespace token can't re-run it
+- **Problem:** `verify-baseline.yml` failed in "Initialize containers": the `docker pull postgres:17` from Docker Hub timed out, so no SQL ran. `gh run rerun` answered `Resource not accessible by integration` (the Codespace `GITHUB_TOKEN` has no Actions write permission).
+- **Fix:** run the same check locally with `scripts/verify_baseline.sh` (Docker works in this Codespace, ~1 min). Report CI as Failed/infra, quoting the local result. A new push touching `supabase/**` re-triggers CI.
+- **Evidence:** run 37995203668 on 2026-10-09; the local run printed `BASELINE OK`.
+
+### Baseline seed from production must null `planning_guide.source_week_id`
+- **Problem:** a baseline regenerated from production failed to rebuild: `0003_config_seed.sql` hit the `planning_guide_source_week_id_fkey` violation.
+- **Root cause:** production guides reference `sched_week` rows, and schedules are never seeded. Staging data happened to have nulls there.
+- **Fix:** `generate_baseline.sh` now runs the data dump through `null_unseeded_refs`. Add any other config→unseeded-data column to its `NULL_COLS`.
+- **Evidence:** 2026-10-09: the local `verify_baseline.sh` failed with that error before the fix and printed `BASELINE OK` after.
+
 ### Test suite baseline
 - `npx vitest run` with no config file: 14 files / 186 tests, ~9s, all passing on 2026-10-08 (`eddc044` + uncommitted ATS work). Tests are pure-logic `*.test.ts` files beside their modules in `src/lib/**`.
 

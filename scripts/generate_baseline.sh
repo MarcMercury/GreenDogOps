@@ -48,6 +48,50 @@ command -v pg_dump >/dev/null || { echo "ERROR: pg_dump not installed." >&2; exi
 # than piped through psql, so they have to be filtered out.
 strip_meta() { grep -vE '^\\(restrict|unrestrict)([[:space:]]|$)'; }
 
+# Config rows may point at data the seed deliberately leaves out. Null those
+# columns so the seed applies on an empty database (verify_baseline.sh checks).
+#   planning_guide.source_week_id -> sched_week (schedules are never seeded)
+null_unseeded_refs() {
+  python3 -c '
+import re, sys
+
+NULL_COLS = {"planning_guide": {"source_week_id"}}
+HEAD = re.compile(r"^INSERT INTO greendogops\.(\w+) \(([^)]*)\) VALUES \((.*)\);$")
+
+def split_values(s):
+    out, cur, i, q = [], [], 0, False
+    while i < len(s):
+        c = s[i]
+        if q:
+            cur.append(c)
+            if c == "\x27":
+                if i + 1 < len(s) and s[i + 1] == "\x27":
+                    cur.append(s[i + 1]); i += 1
+                else:
+                    q = False
+        elif c == "\x27":
+            q = True; cur.append(c)
+        elif c == ",":
+            out.append("".join(cur).strip()); cur = []
+        else:
+            cur.append(c)
+        i += 1
+    out.append("".join(cur).strip())
+    return out
+
+for line in sys.stdin:
+    m = HEAD.match(line.rstrip("\n"))
+    if m and m.group(1) in NULL_COLS:
+        cols = [c.strip() for c in m.group(2).split(",")]
+        vals = split_values(m.group(3))
+        if len(vals) != len(cols):
+            sys.exit(f"null_unseeded_refs: could not parse {m.group(1)} insert")
+        vals = ["NULL" if c in NULL_COLS[m.group(1)] else v for c, v in zip(cols, vals)]
+        line = "INSERT INTO greendogops.%s (%s) VALUES (%s);\n" % (m.group(1), m.group(2), ", ".join(vals))
+    sys.stdout.write(line)
+'
+}
+
 CONN="$(pooler_uri "${SOURCE_REF}")"
 export PGPASSWORD="$DB_PASS"
 STAMP="$(date -u +%Y-%m-%d)"
@@ -95,7 +139,7 @@ for t in "${CONFIG_TABLES[@]}"; do TABLE_ARGS+=(--table="greendogops.$t"); done
 -- ============================================================================
 
 HDR
-  pg_dump "$CONN" --data-only --no-owner --column-inserts "${TABLE_ARGS[@]}" | strip_meta
+  pg_dump "$CONN" --data-only --no-owner --column-inserts "${TABLE_ARGS[@]}" | strip_meta | null_unseeded_refs
 } > "$OUT/0003_config_seed.sql"
 
 # 0002_global_objects.sql is hand-maintained: event triggers are cluster-wide
