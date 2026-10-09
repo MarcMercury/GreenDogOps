@@ -53,7 +53,10 @@ const CORE_RESPONSE_FIELDS: RecruitingFormField[] = [
   { id: "location", type: "short_text", label: "City or ZIP code", description: null, required: true, options: [] },
   { id: "resume", type: "file", label: "Resume", description: null, required: false, options: [] },
   { id: "cover_letter", type: "long_text", label: "Cover letter / notes", description: null, required: false, options: [] },
+  { id: "sms_consent", type: "short_text", label: "Agreed to recruiting texts", description: null, required: false, options: [] },
 ];
+
+const SMS_CONSENT_SOURCE = "Ticked “Text me about my application” on the Green Dog application";
 
 /**
  * The public Standard Application. Creates (or updates) the candidate, links
@@ -94,6 +97,7 @@ export async function submitApplication(formId: string, fd: FormData): Promise<S
   const coverLetter = str(fd.get("cover_letter"), 20000);
   const jobId = str(fd.get("job"), 60);
   const jobOther = str(fd.get("job_other"), 120);
+  const smsOptIn = str(fd.get("sms_opt_in")) === "yes";
   const resume = fd.get("resume");
   const resumeFile = resume && typeof resume === "object" && resume.size > 0 ? (resume as File) : null;
 
@@ -176,6 +180,7 @@ export async function submitApplication(formId: string, fd: FormData): Promise<S
     job: job ? positionLabel(job) : jobOther,
     location,
     cover_letter: coverLetter,
+    sms_consent: smsOptIn ? "Yes" : null,
   };
   if (resumeFile) {
     const { data: doc } = await admin
@@ -202,6 +207,15 @@ export async function submitApplication(formId: string, fd: FormData): Promise<S
     answers,
   });
   if (rErr) console.error("[apply] response save failed:", rErr.message);
+
+  // The texting consent the Texts tab checks (src/lib/sms). Unticked never removes earlier consent.
+  if (smsOptIn) {
+    const { error: cErr } = await admin.from("sms_consent").upsert(
+      { person_id: personId, source: SMS_CONSENT_SOURCE, consented_at: new Date().toISOString() },
+      { onConflict: "person_id" },
+    );
+    if (cErr) console.error("[apply] sms consent save failed:", cErr.message);
+  }
 
   return { ok: true };
 }

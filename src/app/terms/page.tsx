@@ -10,7 +10,7 @@ export default function TermsPage() {
   return (
     <main className="mx-auto max-w-2xl px-6 py-16 text-slate-700">
       <h1 className="text-2xl font-semibold text-slate-900">Terms of Service</h1>
-      <p className="mt-1 text-sm text-slate-500">Last updated: July 30, 2026</p>
+      <p className="mt-1 text-sm text-slate-500">Last updated: October 9, 2026</p>
 
       <div className="mt-8 space-y-4 text-sm leading-relaxed">
         <p>
@@ -26,6 +26,23 @@ export default function TermsPage() {
         <p>
           The app is provided &ldquo;as is,&rdquo; without warranties of any kind.
           Green Dog Dental is not liable for any damages arising from its use.
+        </p>
+        <p>
+          <strong>Text messaging terms.</strong> Green Dog Dental Recruiting &amp;
+          HR texts are sent to job candidates who check &ldquo;Text me about my
+          application&rdquo; on our application, and to employees who agree to
+          receive work texts. Messages cover recruiting and employment matters
+          such as interview scheduling, reminders and shift updates. Message
+          frequency varies. Message and data rates may apply. Reply{" "}
+          <strong>STOP</strong> to cancel at any time; you will receive one
+          confirmation and no further messages. Reply <strong>HELP</strong> for
+          help, or email marcm@greendogdental.com. Carriers are not liable for
+          delayed or undelivered messages. Consent to texts is never a condition
+          of applying or of employment. See our{" "}
+          <Link className="text-emerald-700 underline" href="/privacy">
+            Privacy Policy
+          </Link>
+          .
         </p>
         <p>
           <strong>Contact.</strong> Questions? Email{" "}

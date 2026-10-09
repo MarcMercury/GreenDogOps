@@ -10,7 +10,7 @@ export default function PrivacyPage() {
   return (
     <main className="mx-auto max-w-2xl px-6 py-16 text-slate-700">
       <h1 className="text-2xl font-semibold text-slate-900">Privacy Policy</h1>
-      <p className="mt-1 text-sm text-slate-500">Last updated: July 30, 2026</p>
+      <p className="mt-1 text-sm text-slate-500">Last updated: October 9, 2026</p>
 
       <div className="mt-8 space-y-4 text-sm leading-relaxed">
         <p>
@@ -37,6 +37,18 @@ export default function PrivacyPage() {
             Google API Services User Data Policy
           </a>
           , including the Limited Use requirements.
+        </p>
+        <p>
+          <strong>Text messages (SMS).</strong> Green Dog Dental texts job
+          candidates who opt in on our application, and employees who give
+          consent, about recruiting and work matters (for example interview
+          scheduling, reminders and shift updates). We use your mobile number only
+          to send these messages and to record your replies. No mobile
+          information will be shared with third parties or affiliates for
+          marketing or promotional purposes. Text messaging originator opt-in
+          data and consent will not be shared with any third parties, except
+          the service providers that deliver the messages (Twilio). Reply STOP
+          to opt out at any time, or HELP for help.
         </p>
         <p>
           <strong>Your control.</strong> You can revoke the app&rsquo;s access at
