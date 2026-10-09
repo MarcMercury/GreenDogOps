@@ -552,20 +552,6 @@ export function RosterGrid({
         />
       ),
     },
-    {
-      key: "notes",
-      header: "Notes",
-      value: (r) => r.notes,
-      render: (r) => (
-        <EditableCell
-          personId={r.id}
-          field="notes"
-          kind="text"
-          rawValue={r.notes}
-          disabled={!editable}
-        />
-      ),
-    },
     // — Compensation & Benefits: compensation —
     {
       key: "pay_type",
@@ -774,6 +760,20 @@ export function RosterGrid({
           field="pto_notes"
           kind="text"
           rawValue={r.person_employment?.pto_notes ?? null}
+          disabled={!editable}
+        />
+      ),
+    },
+    {
+      key: "notes",
+      header: "Notes",
+      value: (r) => r.notes,
+      render: (r) => (
+        <EditableCell
+          personId={r.id}
+          field="notes"
+          kind="text"
+          rawValue={r.notes}
           disabled={!editable}
         />
       ),
