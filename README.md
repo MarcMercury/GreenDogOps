@@ -360,6 +360,10 @@ All cron routes authenticate with `CRON_SECRET`; long-running ones set
 - **Slack** ([src/lib/slack](src/lib/slack)) — hiring, ops reporting, and
   upcoming-appointment channels.
 - **Resend** — transactional email plus a delivery webhook (`/api/email/webhook`).
+- **Twilio** ([src/lib/sms](src/lib/sms)) — texting candidates and employees
+  from the **Texts** tab on their profiles; replies and STOP arrive at
+  `/api/sms/inbound`, delivery status at `/api/sms/status` (both verified by
+  `X-Twilio-Signature`). Off until the Twilio env vars are set.
 - **Enrichment** — Brave, Tavily, SerpAPI, Apollo, Hunter, and Nominatim for CRM
   research and contact enrichment.
 - **LLM fallback chain** ([src/lib/ai/llm.ts](src/lib/ai/llm.ts)) —
@@ -472,7 +476,8 @@ See `.env.example` for the full list (~90 keys). Groups:
   `GOOGLE_CALENDAR_ID`, `GOOGLE_MAPS_API_KEY`, `GOOGLE_CSE_*`.
 - **Enrichment** — `BRAVE_API_KEY`, `TAVILY_API_KEY`, `SERPAPI_API_KEY`,
   `APOLLO_API_KEY`, `HUNTER_API_KEY`.
-- **Messaging** — `RESEND_*`, `SLACK_*`, `WHENIWORK_GMAIL_*`.
+- **Messaging** — `RESEND_*`, `SLACK_*`, `WHENIWORK_GMAIL_*`, `TWILIO_*`,
+  `SMS_LIVE`, `SMS_TEST_NUMBERS`.
 
 `NEXT_PUBLIC_*` is exposed to the browser; everything else is server-only.
 Secrets live only in `.env.local`, `.secrets/`, GitHub secrets, and Vercel env

@@ -35,6 +35,7 @@ import {
   getPersonScheduleSettings,
   getPersonEligibility,
 } from "../../schedule/data";
+import { canTextPerson } from "@/lib/sms/access";
 import { EmployeeProfile, type LinkedAccount } from "./employee-profile";
 
 export const dynamic = "force-dynamic";
@@ -329,6 +330,7 @@ export default async function EmployeeDetailPage({
         isAdmin={isAdmin}
         isScheduleAdmin={isScheduleAdmin}
         canEditSchedule={canEditSchedule}
+        canText={current ? canTextPerson(current.appUser, row.status) : false}
         locations={locations}
       />
     </div>

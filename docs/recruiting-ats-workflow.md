@@ -384,5 +384,9 @@ Interviewers connect their own Google Calendar from **📅 My Availability**. Th
 3. On the OAuth consent screen, add the scopes `calendar.events` and `calendar.freebusy`, and publish the app ("In production"), so connections don't expire after 7 days.
 4. Set `GOOGLE_CALENDAR_OAUTH_CLIENT_ID` and `GOOGLE_CALENDAR_OAUTH_CLIENT_SECRET` in Vercel. Without them, Ops falls back to `GOOGLE_OAUTH_CLIENT_ID` / `_SECRET`.
 
-Candidate emails go out through Resend (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`). Texting and Outlook calendars are planned for a later phase.
+Candidate emails go out through Resend (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`). Outlook calendars are planned for a later phase.
+
+## Texting candidates
+
+Open the candidate → **Texts** tab. You can text a candidate who ticked *"I agree to receive texts and emails about my application"* on the Green Dog application. For anyone else (for example Indeed applicants), get their OK first, then choose how they agreed and click **Record consent**. Ops adds "Green Dog:" to the start of every text and "Reply STOP to opt out." to the first one. Texts only go out 8 AM–9 PM Pacific. If someone replies STOP, Ops won't text them again unless they reply START. When a candidate replies, you get an email and the reply shows in the Texts tab. Employees have the same **Texts** tab on their HR profile (HR roles only). Their consent must be recorded by HR, because the application's checkbox only covers texts about the application.
 

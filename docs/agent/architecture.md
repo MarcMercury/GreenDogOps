@@ -25,10 +25,16 @@ there, or that need a sharper statement for agents.
 | Who may use the app | `app_user` (not `auth.users`, which is shared) | gate on Supabase Auth alone |
 | Compensation values (`person_employment` pay/benefit columns) | read/write via `src/lib/hr/compensation.ts` (service role) after `canViewAllCompensation` / own-record check | select them through the user-scoped client — the columns are not granted (0227) |
 | Who sees the confidential HR file | `canViewSensitiveHr` / `hasRestrictedHrView` in `permissions.ts`, mirrored by the `hr_full`/`hr_edit` RLS predicates in 0227 | change one side without the other (run `scripts/security_rls_matrix.sql`) |
+| Who may be texted, and by whom | `blockReason` (`src/lib/sms/rules.ts`) and `canTextPerson` (`src/lib/sms/access.ts`), enforced in `sendSmsToPerson` | send through Twilio directly, or skip the consent/opt-out/quiet-hours checks |
 
 ## Decisions log
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
+
+### 2026-10-09 — Texting via Twilio, service-role tables (migration 0228)
+- **Context:** staff need to text candidates and employees; US carriers require A2P 10DLC registration, consent, and STOP handling.
+- **Decision:** Twilio REST over `fetch` (no SDK). `sms_message`, `sms_opt_out` and `sms_consent` are service-role only (deny-all policy); the app reads and writes them after `canTextPerson`. Opt-outs are keyed by phone number, because STOP comes from a number, not a person. Candidate consent is read straight from the application's `sms_consent` answer (not copied); `sms_consent` only holds consent that staff record. The feature stays dark until all Twilio env vars exist, and `SMS_LIVE` gates real recipients.
+- **Consequences:** the `sms_*` tables must exist before the Twilio env vars are set in an environment. Adding a send path (e.g. scheduling-link texts) must go through `sendSmsToPerson` so the same rules apply.
 
 ### 2026-10-08 — Sensitive HR boundaries enforced in the database (migration 0227)
 - **Context:** 0164's `gdo_members_all` let every active `app_user` (Staff included) read/write every table through PostgREST with their own token — salaries, reviews, discipline, the audit log — regardless of what the UI hid. OWASP ASVS L2 review.

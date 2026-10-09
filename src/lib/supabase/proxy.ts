@@ -85,6 +85,8 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/api/agents/") ||
     // Resend webhook self-authenticates via its Svix signature (whsec_…).
     pathname.startsWith("/api/email/webhook") ||
+    // Twilio SMS webhooks self-authenticate via X-Twilio-Signature.
+    pathname.startsWith("/api/sms/") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico";
 

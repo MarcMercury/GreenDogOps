@@ -27,6 +27,16 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 - Google auth: service account or stored OAuth refresh token (`scripts/google_oauth_setup.mjs`, `scripts/gmail_oauth_setup.mjs`). An `invalid_grant` means the refresh token was revoked/expired — needs the user to re-run setup; not fixable by code.
 - Resend delivery events arrive at `/api/email/webhook`.
 
+## Twilio texting (`src/lib/sms`)
+
+- Off until `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` are all set; until then nothing touches the `sms_*` tables (migration 0228).
+- Test mode: unless `SMS_LIVE=true`, only numbers in `SMS_TEST_NUMBERS` can be texted.
+- Every send is logged in `sms_message` *before* Twilio is called, and is never retried automatically (a timeout may still have delivered it). Staff see the failure and resend by hand.
+- Before any send: allowed status (not `former`), US mobile number, consent (application `sms_consent` answer or an `sms_consent` row), no `sms_opt_out` row, 8 AM–9 PM Pacific, 60 sends/hour per staff member.
+- Twilio console → Messaging Service → Integration: incoming messages webhook `https://greendogops.com/api/sms/inbound` (HTTP POST). The signature is checked against `APP_BASE_URL` + path, so the URL in Twilio must match it exactly — a mismatch shows up as 403s in Twilio's error log.
+- STOP/START are recorded in `sms_opt_out` and Twilio's Advanced Opt-Out sends the replies. Twilio error 21610 means the number opted out at Twilio's level.
+- Replies email the staff member who last texted that number.
+
 ## Recovery log
 
 Add entries as `### YYYY-MM-DD — system — symptom` with root cause, fix, and evidence.

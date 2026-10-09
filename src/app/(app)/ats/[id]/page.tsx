@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
+import { canTextPerson } from "@/lib/sms/access";
 import { isSlackConfigured } from "@/lib/slack/client";
 import type {
   CandidateRow,
@@ -267,6 +268,7 @@ export default async function CandidateDetailPage({
         currentUserId={current?.authId ?? null}
         initialTab={typeof tab === "string" ? tab : undefined}
         canEdit={canEdit}
+        canText={current ? canTextPerson(current.appUser, row.status) : false}
         slackEnabled={canEdit && isSlackConfigured()}
       />
     </div>

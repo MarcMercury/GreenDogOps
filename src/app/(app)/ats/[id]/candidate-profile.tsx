@@ -59,6 +59,7 @@ import { GuideQuestions } from "../interview-guide-fields";
 import { candidateInterviewTitle } from "@/lib/ats/scheduling";
 import { applicationHasData } from "@/lib/ats/application";
 import { CopyForSlackButton } from "./copy-for-slack";
+import { SmsPanel } from "../../_components/sms-panel";
 import { PostToSlackButton } from "./post-to-slack";
 import { buildInterviewSummary } from "@/lib/ats/slack-summary";
 import {
@@ -83,6 +84,7 @@ type TabKey =
   | "interviews"
   | "activity"
   | "documents"
+  | "texts"
   | "history";
 
 // "profile" stays the Overview key so existing ?tab=profile links still work.
@@ -94,6 +96,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "interviews", label: "Interview Tracking" },
   { key: "activity", label: "Activity & Tasks" },
   { key: "documents", label: "Documents" },
+  { key: "texts", label: "Texts" },
   { key: "history", label: "History" },
 ];
 
@@ -133,6 +136,7 @@ export function CandidateProfile({
   templates = [],
   initialTab,
   canEdit = false,
+  canText = false,
   slackEnabled = false,
 }: {
   row: CandidateRow;
@@ -158,10 +162,13 @@ export function CandidateProfile({
   /** From `?tab=` — the explorer's follow-up links open straight to Activity. */
   initialTab?: string;
   canEdit?: boolean;
+  /** May read and send texts for this candidate (canTextPerson). */
+  canText?: boolean;
   slackEnabled?: boolean;
 }) {
+  const tabs = canText ? TABS : TABS.filter((t) => t.key !== "texts");
   const [activeTab, setActiveTab] = useState<TabKey>(
-    TABS.some((t) => t.key === initialTab) ? (initialTab as TabKey) : "profile",
+    tabs.some((t) => t.key === initialTab) ? (initialTab as TabKey) : "profile",
   );
   const openTasks = tasks.filter((t) => !t.is_done).length;
   const rec = row.person_recruiting;
@@ -235,7 +242,7 @@ export function CandidateProfile({
 
       <div className="overflow-x-auto border-b border-slate-200">
         <nav className="-mb-px flex gap-1">
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             const active = t.key === activeTab;
             const count =
               t.key === "interviews"
@@ -337,6 +344,7 @@ export function CandidateProfile({
         />
       )}
 
+      {activeTab === "texts" && canText && <SmsPanel personId={row.id} audience="candidate" />}
       {activeTab === "history" && <TransitionLogPanel transitions={transitions} />}
     </div>
   );

@@ -87,6 +87,7 @@ import {
   LICENSES_TRACKER_LINK,
 } from "@/lib/hr/onboarding";
 import { DownloadSummaryButton } from "./employee-summary";
+import { SmsPanel } from "../../_components/sms-panel";
 
 type TabKey =
   | FieldTab
@@ -96,6 +97,7 @@ type TabKey =
   | "disciplinary"
   | "documents"
   | "assets"
+  | "texts"
   | "history";
 
 const TABS: Array<{ key: TabKey; label: string }> = [
@@ -108,6 +110,7 @@ const TABS: Array<{ key: TabKey; label: string }> = [
   { key: "disciplinary", label: "Disciplinary Action" },
   { key: "documents", label: "Documents" },
   { key: "assets", label: "Assets" },
+  { key: "texts", label: "Texts" },
   { key: "history", label: "History" },
 ];
 
@@ -141,6 +144,7 @@ export function EmployeeProfile({
   canViewComp,
   canEdit,
   canEditSchedule,
+  canText = false,
   isAdmin = false,
   isScheduleAdmin = false,
   locations,
@@ -164,15 +168,17 @@ export function EmployeeProfile({
   canViewComp: boolean;
   canEdit: boolean;
   canEditSchedule: boolean;
+  /** May read and send texts for this person (canTextPerson). */
+  canText?: boolean;
   isAdmin?: boolean;
   isScheduleAdmin?: boolean;
   locations: LocationOption[];
 }) {
   const [activeTab, setActiveTab] = useState<TabKey>("general");
 
-  const tabs = (canViewComp ? TABS : TABS.filter((t) => t.key !== "comp")).filter(
-    (t) => !isScheduleAdmin || SCHEDULE_ADMIN_VISIBLE_TABS.includes(t.key),
-  );
+  const tabs = (canViewComp ? TABS : TABS.filter((t) => t.key !== "comp"))
+    .filter((t) => canText || t.key !== "texts")
+    .filter((t) => !isScheduleAdmin || SCHEDULE_ADMIN_VISIBLE_TABS.includes(t.key));
 
   const heading =
     row.full_name ||
@@ -318,6 +324,7 @@ export function EmployeeProfile({
       {activeTab === "assets" && (
         <AssetsPanel personId={row.id} assets={assets} />
       )}
+      {activeTab === "texts" && canText && <SmsPanel personId={row.id} audience="employee" />}
       {activeTab === "history" && (
         <HistoryPanel row={row} recruiting={recruiting} transitions={transitions} />
       )}
