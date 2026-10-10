@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { recordAudit } from "@/lib/auth/session";
 import { syncAppUsersToRoster } from "@/lib/admin/user-roster-sync";
+import { trackCron } from "@/lib/admin/cron-run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const result = await syncAppUsersToRoster();
+    const result = await trackCron(
+      "user_roster_sync",
+      syncAppUsersToRoster,
+      (r) => ({ ok: true, processed: r.scannedUsers, changed: r.updatedUsers }),
+      { everyRun: true },
+    );
 
     await recordAudit({
       actorId: null,

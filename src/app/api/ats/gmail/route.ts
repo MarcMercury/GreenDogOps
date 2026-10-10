@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { recordAudit } from "@/lib/auth/session";
 import { ingestGmailInbox } from "@/lib/ats/gmail";
+import { trackCron } from "@/lib/admin/cron-run";
 
 // googleapis + service-role Supabase need the Node.js runtime; never cache.
 export const runtime = "nodejs";
@@ -18,7 +19,12 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-  const result = await ingestGmailInbox();
+  const result = await trackCron("ats_gmail_intake", ingestGmailInbox, (r) => ({
+    ok: r.ok,
+    error: r.errors[0] ?? null,
+    processed: r.scanned,
+    changed: r.created + r.reapplied,
+  }));
 
   // This cron fires every 5 minutes, so only record runs that did something or
   // went wrong — otherwise an expired refresh token looks identical to a quiet

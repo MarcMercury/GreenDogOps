@@ -56,6 +56,10 @@ export async function runAgentNow(agentId: string): Promise<ActionResult> {
 
   const targetDate = previousDayLA();
 
+  if ((agent.config as Record<string, unknown> | null)?.runner === "vercel_cron") {
+    return { ok: false, error: "This job runs on the Vercel schedule and can't be started from here." };
+  }
+
   // Inline agents run inside the app rather than on the off-Vercel browser
   // worker, and record their own agent_run row.
   if (

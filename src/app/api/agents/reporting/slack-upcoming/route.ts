@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { buildUpcomingApptsReport } from "@/lib/reporting/upcoming";
 import { postSlackMessage } from "@/lib/slack/client";
+import { recordCronRun } from "@/lib/admin/cron-run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,9 +21,20 @@ async function run(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  const report = await buildUpcomingApptsReport();
+  const preview = Boolean(req.nextUrl.searchParams.get("preview"));
+  const startedAt = new Date();
+  let report: Awaited<ReturnType<typeof buildUpcomingApptsReport>>;
+  try {
+    report = await buildUpcomingApptsReport();
+  } catch (err) {
+    if (!preview) {
+      const message = err instanceof Error ? err.message : String(err);
+      await recordCronRun("reporting_slack_upcoming", startedAt, { ok: false, error: message }, { everyRun: true });
+    }
+    throw err;
+  }
   // ?preview=1 renders the message without posting it, for checking template edits.
-  if (req.nextUrl.searchParams.get("preview")) {
+  if (preview) {
     return NextResponse.json({ ok: true, preview: true, ...report });
   }
 
@@ -31,6 +43,12 @@ async function run(req: NextRequest) {
     text: report.text,
     username: "Green Dog Ops Reporting",
   });
+  await recordCronRun(
+    "reporting_slack_upcoming",
+    startedAt,
+    { ok: posted.ok, error: posted.ok ? null : posted.error ?? "Slack post failed.", changed: posted.ok ? 1 : 0 },
+    { everyRun: true },
+  );
   if (!posted.ok) {
     return NextResponse.json(
       { ok: false, error: posted.error, week: [report.weekStart, report.weekEnd] },

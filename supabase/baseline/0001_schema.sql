@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Green Dog Ops — baseline schema for the greendogops schema
--- Generated 2026-10-09 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
+-- Generated 2026-10-10 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
 -- ----------------------------------------------------------------------------
 -- A single, internally consistent snapshot: every table, view, materialised
 -- view, function, trigger, enum, index, grant, revoke and RLS policy.
@@ -170,6 +170,38 @@ CREATE TYPE greendogops.work_schedule AS ENUM (
     'per_diem',
     'contractor'
 );
+
+
+--
+-- Name: agent_run_rollup(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.agent_run_rollup() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_temp'
+    AS $$
+begin
+  if new.status not in ('success', 'error') then
+    return new;
+  end if;
+  if tg_op = 'UPDATE' and old.status in ('success', 'error') then
+    return new;
+  end if;
+
+  update greendogops.agent a
+     set last_run_at          = greatest(coalesce(a.last_run_at, '-infinity'), coalesce(new.finished_at, now())),
+         last_status          = new.status,
+         last_error           = new.error,
+         last_success_at      = case
+                                  when new.status = 'success'
+                                    then greatest(coalesce(a.last_success_at, '-infinity'), coalesce(new.finished_at, now()))
+                                  else a.last_success_at
+                                end,
+         consecutive_failures = case when new.status = 'success' then 0 else a.consecutive_failures + 1 end
+   where a.id = new.agent_id;
+  return new;
+end;
+$$;
 
 
 --
@@ -3741,8 +3773,32 @@ CREATE TABLE greendogops.agent (
     last_run_at timestamp with time zone,
     last_status text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_success_at timestamp with time zone,
+    last_error text,
+    consecutive_failures integer DEFAULT 0 NOT NULL
 );
+
+
+--
+-- Name: COLUMN agent.last_success_at; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.agent.last_success_at IS 'Finish time of the latest successful run (maintained by agent_run_rollup and cron-run.ts).';
+
+
+--
+-- Name: COLUMN agent.last_error; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.agent.last_error IS 'Error text of the latest finished run; a success that carries an error is a partial failure.';
+
+
+--
+-- Name: COLUMN agent.consecutive_failures; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.agent.consecutive_failures IS 'Finished runs with status error since the last success.';
 
 
 --
@@ -14251,6 +14307,13 @@ CREATE UNIQUE INDEX ux_ezv_appointment ON greendogops.ezyvet_appointment USING b
 
 
 --
+-- Name: agent_run agent_run_rollup; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER agent_run_rollup AFTER INSERT OR UPDATE OF status ON greendogops.agent_run FOR EACH ROW EXECUTE FUNCTION greendogops.agent_run_rollup();
+
+
+--
 -- Name: audit_log audit_log_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
@@ -18514,6 +18577,14 @@ ALTER TABLE greendogops.user_notification ENABLE ROW LEVEL SECURITY;
 GRANT USAGE ON SCHEMA greendogops TO anon;
 GRANT USAGE ON SCHEMA greendogops TO authenticated;
 GRANT USAGE ON SCHEMA greendogops TO service_role;
+
+
+--
+-- Name: FUNCTION agent_run_rollup(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.agent_run_rollup() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.agent_run_rollup() TO service_role;
 
 
 --

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { recordAudit } from "@/lib/auth/session";
 import { syncRescuePartnersFromEzyvet } from "@/lib/crm/rescue-partner-sync";
+import { trackCron } from "@/lib/admin/cron-run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +38,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true, reason: "not 7 AM Pacific" });
   }
 
-  const result = await syncRescuePartnersFromEzyvet();
+  const result = await trackCron(
+    "rescue_partner_sync",
+    syncRescuePartnersFromEzyvet,
+    (r) => ({ ok: r.ok, error: r.error ?? null, processed: r.contacts, changed: r.created + r.updated }),
+    { everyRun: true },
+  );
 
   await recordAudit({
     actorId: null,

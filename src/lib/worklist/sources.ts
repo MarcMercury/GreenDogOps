@@ -15,9 +15,11 @@ import {
   canEditGeneral,
   canEditModule,
   canViewSensitiveHr,
+  isAdminRole,
   type AppUser,
   type ModuleKey,
 } from "@/lib/auth/permissions";
+import { agentHealth, HEALTH_LABELS, needsAttention, type HealthAgent } from "../admin/health";
 import { addDays, shortDateLabel, todayInWorkTz, weekdayOf } from "./dates";
 import type { WorkItem, WorkPriority } from "./items";
 import {
@@ -353,6 +355,35 @@ const SOURCES: Source[] = [
           due: r.expiration_date,
           priority: (expired ? "urgent" : r.expiration_date <= addDays(today, 14) ? "high" : "normal") as WorkPriority,
         };
+      });
+    },
+  },
+  {
+    label: "scheduled jobs",
+    applies: (u) => isAdminRole(u.role),
+    async load({ admin, today }) {
+      const { data, error } = await admin
+        .from("agent")
+        .select("id, name, enabled, config, last_run_at, last_status, last_success_at, last_error, consecutive_failures")
+        .eq("enabled", true);
+      if (error) throw Object.assign(new Error(error.message), { code: error.code });
+      const now = new Date();
+      return ((data ?? []) as (HealthAgent & { id: string; name: string })[]).flatMap((a) => {
+        const health = agentHealth(a, null, now);
+        if (!needsAttention(a, health)) return [];
+        return [
+          {
+            id: `agent_health:${a.id}`,
+            kind: "job_health",
+            title: `${a.name} is ${HEALTH_LABELS[health.state].toLowerCase()}`,
+            detail: health.summary,
+            module: "admin" as const,
+            href: "/admin/agents",
+            target: "ops" as const,
+            due: today,
+            priority: (health.state === "stale" ? "high" : "urgent") as WorkPriority,
+          },
+        ];
       });
     },
   },

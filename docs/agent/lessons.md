@@ -70,10 +70,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Prevent:** when registering an inline agent in a migration, add its branch in the same change.
 - **Evidence:** code read on 2026-10-09 while adding `notification_dispatch`.
 
-### Staging is missing 0215–0227, so module queries fail there
-- **Problem:** on staging, dashboard sources failed with "Could not find the table 'greendogops.recruiting_task'" and "column person_interview.start_time does not exist". Production had no errors.
-- **Fix:** expect this until staging catches up (improvements.md). The dashboard shows it as per-source warnings, and only missing 0230 tables trigger the "not set up" banner. Check module queries read-only against production (as below). Use staging only for writes.
-- **Evidence:** `scripts/e2e_work_center.mts` run on 2026-10-09.
+### Staging can fall behind production on migrations
+- **Problem:** on 2026-10-09 staging lacked 0215–0227 (applied only to production), so staging dashboard sources failed with "Could not find the table 'greendogops.recruiting_task'" and "column person_interview.start_time does not exist".
+- **Fix:** `SUPABASE_PROJECT_REF=yzxcuiwklrmxarzjzukr scripts/apply_migrations.sh --dry-run`, then without `--dry-run`. It tracks progress in `.secrets/applied-<ref>.log`, so files applied out of order (0228–0230 went in first) are skipped. Before replaying older files after newer ones, check that the two sets define no common function/view (a replay would revert the newer body).
+- **Verify:** `rls_audit()` returns 0 rows on staging, and a diff of greendogops columns, function bodies (md5 of `pg_get_functiondef`), view bodies, policies and triggers between the two projects is empty. The one expected difference is `format_phone(text)`, which exists only on staging (see 0213).
+- **Evidence:** 2026-10-10 — 0215–0227 applied to staging, all ok; `rls_audit` 0 rows; 3,379 production objects all match staging, with `format_phone` the only extra.
 
 ### Running server-only lib code from a script
 - **Fix:** stub `server-only` (`/tmp/stub/node_modules/server-only` exporting `{}`) and run with `NODE_PATH=/tmp/stub/node_modules npx --yes tsx@4 <script>.mts`. Load env by parsing `.env.local` in the script: `source .env.local` breaks on `RESEND_FROM_EMAIL=Name <addr>`. `after()` from `next/server` throws outside a request, so guard it. Examples: `scripts/ask_smart.mts`, `scripts/e2e_work_center.mts`.

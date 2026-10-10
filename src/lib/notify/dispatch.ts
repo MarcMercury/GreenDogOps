@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { sendSlackDirectMessage } from "@/lib/slack/client";
 import { appBaseUrl } from "@/lib/shared/app-url";
 import { todayInWorkTz } from "@/lib/worklist/dates";
+import { recordCronRun } from "@/lib/admin/cron-run";
 import { connectedSlackUserFor } from "./publish";
 import {
   buildDmText,
@@ -172,6 +173,7 @@ export async function dispatchPendingDeliveries(
 
   const processed = counts.sent + counts.failed + counts.skipped + counts.retrying + counts.stuck;
   if (processed > 0 || error) await recordRun(options, startedAt, counts, processed, error);
+  else await recordCronRun(NOTIFY_DISPATCH_AGENT_KEY, startedAt, { ok: true });
   return { ok: !error, counts, error };
 }
 

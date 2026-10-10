@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordCronRun } from "@/lib/admin/cron-run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,11 +16,13 @@ async function run(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
+  const startedAt = new Date();
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("medical_board_rollover", {
     p_today: null,
   });
   if (error) {
+    await recordCronRun("med_board_rollover", startedAt, { ok: false, error: error.message }, { everyRun: true });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
@@ -29,6 +32,20 @@ async function run(req: NextRequest) {
   const { data: staff, error: staffError } = await admin.rpc(
     "medical_board_fill_staff",
     { p_date: null },
+  );
+
+  await recordCronRun(
+    "med_board_rollover",
+    startedAt,
+    {
+      ok: true,
+      error: staffError ? `Staff fill: ${staffError.message}` : null,
+      detail: {
+        rollover: { status: "success", result: data ?? null },
+        staff_fill: staffError ? { status: "error", error: staffError.message } : { status: "success", result: staff },
+      },
+    },
+    { everyRun: true },
   );
 
   return NextResponse.json({

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordCronRun } from "@/lib/admin/cron-run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,12 +20,20 @@ async function run(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
+  const startedAt = new Date();
   const admin = createAdminClient();
   const { data, error } = await admin.rpc("bizdev_refresh_metrics");
   if (error) {
+    await recordCronRun("bizdev_refresh", startedAt, { ok: false, error: error.message }, { everyRun: true });
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
   const stats = Array.isArray(data) ? data[0] : data;
+  await recordCronRun(
+    "bizdev_refresh",
+    startedAt,
+    { ok: true, detail: { metrics: { status: "success", result: stats ?? null } } },
+    { everyRun: true },
+  );
   return NextResponse.json({ ok: true, ...(stats ?? {}) });
 }
 

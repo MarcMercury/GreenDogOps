@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { syncWhenIWorkTimeOff } from "@/lib/hr/wheniwork";
+import { trackCron } from "@/lib/admin/cron-run";
 
 // Service-role Supabase + outbound fetch need the Node.js runtime; never cache.
 export const runtime = "nodejs";
@@ -18,7 +19,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
   try {
-    const result = await syncWhenIWorkTimeOff();
+    const result = await trackCron("wheniwork_timeoff", syncWhenIWorkTimeOff, (r) => ({
+      ok: r.ok,
+      error: r.errors[0] ?? null,
+      processed: r.scanned,
+      changed: r.created + r.updated,
+    }));
     return NextResponse.json(result, { status: result.ok ? 200 : 500 });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Green Dog Ops — baseline configuration data
--- Generated 2026-10-09 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
+-- Generated 2026-10-10 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
 -- ----------------------------------------------------------------------------
 -- Locations, departments, roles, shift templates, planning guides, appointment
 -- type mappings and email templates: the rows the application needs in order to

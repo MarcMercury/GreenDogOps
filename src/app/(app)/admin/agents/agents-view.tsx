@@ -182,6 +182,7 @@ function AgentCard({
     0,
   );
   const hasActive = agentRuns.some((r) => isActiveStatus(r.status));
+  const onVercelSchedule = (agent.config as Record<string, unknown> | null)?.runner === "vercel_cron";
 
   const runsSort = useTableSort(agentRuns.slice(0, 10), {
     status: (r) => r.status,
@@ -229,10 +230,11 @@ function AgentCard({
           <button
             type="button"
             onClick={doRun}
-            disabled={pending || !agent.enabled || hasActive}
+            disabled={pending || !agent.enabled || hasActive || onVercelSchedule}
+            title={onVercelSchedule ? "Runs on the Vercel schedule" : undefined}
             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
           >
-            {pending ? "Working…" : hasActive ? "Run in progress" : "▶ Run now"}
+            {pending ? "Working…" : onVercelSchedule ? "Vercel schedule" : hasActive ? "Run in progress" : "▶ Run now"}
           </button>
         </div>
       }

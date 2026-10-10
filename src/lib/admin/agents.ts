@@ -24,6 +24,10 @@ export interface Agent {
   config: Record<string, unknown>;
   last_run_at: string | null;
   last_status: string | null;
+  /** Migration 0231 (maintained by the agent_run_rollup trigger). */
+  last_success_at: string | null;
+  last_error: string | null;
+  consecutive_failures: number;
   created_at: string;
   updated_at: string;
 }

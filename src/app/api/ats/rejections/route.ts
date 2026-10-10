@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { recordAudit } from "@/lib/auth/session";
 import { sendDueRejectionEmails } from "@/lib/ats/rejection-sender";
+import { trackCron } from "@/lib/admin/cron-run";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,12 @@ export async function GET(req: NextRequest) {
   if (!authorized(req)) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
-  const result = await sendDueRejectionEmails();
+  const result = await trackCron("ats_rejection_emails", sendDueRejectionEmails, (r) => ({
+    ok: r.errors.length === 0,
+    error: r.errors[0] ?? null,
+    processed: r.due,
+    changed: r.sent + r.failed,
+  }));
   if (result.due > 0 || result.errors.length > 0) {
     await recordAudit({
       actorId: null,
