@@ -67,17 +67,47 @@ const HR_RECORD_TABLES = [
 ] as const;
 
 /**
- * Stored third-party logins, and each user's private dashboard data (tasks,
- * notifications, personal reminders — migration 0230) — never an answer to a
- * reporting question.
+ * Never an answer to a reporting question, for any role: stored logins and
+ * OAuth tokens, each user's private dashboard data (0230), text messages and
+ * consent (0228), Slack account links (0229), security logs, other users'
+ * Smart Report questions, and one-off backup tables. smart-scope.test.ts fails
+ * if a service-role-only table in the baseline is missing from this list.
  */
 export const ALWAYS_BLOCKED_TABLES = [
   "credential",
+  "recruiter_google_token",
   "ops_task",
   "user_notification",
   "notification_delivery",
   "reminder_rule",
   "reminder_ack",
+  "sms_message",
+  "sms_consent",
+  "sms_opt_out",
+  "person_slack_link",
+  "audit_log",
+  "rate_limit_bucket",
+  "smart_question_log",
+  "person_recruiting_cleanup_0220",
+  "person_recruiting_score_backup_0225",
+] as const;
+
+/**
+ * smart_query() runs as the service role, which can also read other schemas —
+ * including EmployeeGM's `public` tables. Only greendogops is in scope, so a
+ * query that qualifies a name with any of these schemas is rejected.
+ */
+export const FOREIGN_SCHEMAS = [
+  "public",
+  "auth",
+  "vault",
+  "storage",
+  "realtime",
+  "extensions",
+  "graphql",
+  "graphql_public",
+  "information_schema",
+  "pg_catalog",
 ] as const;
 
 /**
@@ -139,13 +169,17 @@ export function scopeNotice(scope: SmartScope): string {
 
 /** Strip SQL comments and string literals so identifier matching can't be fooled. */
 function sqlIdentifiers(sql: string): Set<string> {
-  const bare = sql
+  return new Set(sqlCode(sql).match(/[a-z_][a-z0-9_]*/g) ?? []);
+}
+
+/** Strip comments and literals, keeping `.` so schema qualifiers stay visible. */
+function sqlCode(sql: string): string {
+  return sql
     .replace(/--[^\n]*/g, " ")
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/'(?:[^']|'')*'/g, " ")
     .replace(/"/g, " ")
     .toLowerCase();
-  return new Set(bare.match(/[a-z_][a-z0-9_]*/g) ?? []);
 }
 
 /**
@@ -153,6 +187,10 @@ function sqlIdentifiers(sql: string): Set<string> {
  * Returned to the model as a query error so it can rewrite within its scope.
  */
 export function blockedIdentifier(sql: string, scope: SmartScope): string | null {
+  const code = sqlCode(sql);
+  for (const schema of FOREIGN_SCHEMAS) {
+    if (new RegExp(`(^|[^a-z0-9_$])${schema}\\s*\\.`).test(code)) return `${schema} schema`;
+  }
   if (!scope.blockedTables.length && !scope.blockedColumns.length) return null;
   const used = sqlIdentifiers(sql);
   for (const name of scope.blockedTables) if (used.has(name)) return name;
