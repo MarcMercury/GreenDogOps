@@ -107,7 +107,7 @@ jobs:
       # Kept regardless, so there is always a second copy even before object
       # storage is configured. The artifact is encrypted; GitHub cannot read it.
       - name: Keep as workflow artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: gdo-${{ steps.tier.outputs.tier }}-${{ github.run_id }}
           path: .backups/
