@@ -64,6 +64,22 @@ export const QR_CHOICE_TYPES: QrFieldType[] = ["select", "radio", "multiselect"]
 
 export const fieldHasOptions = (t: QrFieldType): boolean => QR_CHOICE_TYPES.includes(t);
 
+/** Options are edited one per line — commas are legitimate inside an answer. */
+export const optionsFromText = (v: string): string[] =>
+  v.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 50);
+
+/**
+ * What the options textarea should show. The raw draft is kept while it still
+ * parses to the saved options, so a just-pressed Enter (empty trailing line)
+ * or a trailing space isn't stripped mid-typing; any outside change to the
+ * options (type switch, reorder, duplicate) wins over a stale draft.
+ */
+export const optionsTextFor = (draft: string, options: string[]): string => {
+  const parsed = optionsFromText(draft);
+  const same = parsed.length === options.length && parsed.every((o, i) => o === options[i]);
+  return same ? draft : options.join("\n");
+};
+
 /** Heading blocks are rendered as copy, never submitted. */
 export const fieldIsAnswerable = (t: QrFieldType): boolean => t !== "heading";
 

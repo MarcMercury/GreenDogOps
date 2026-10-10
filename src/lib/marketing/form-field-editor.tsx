@@ -1,11 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import {
   type QrForm,
   type QrFormField,
   QR_FIELD_TYPES,
   fieldHasOptions,
   newFormField,
+  optionsFromText,
+  optionsTextFor,
   slugifyFieldKey,
 } from "@/lib/marketing/qr";
 
@@ -16,10 +19,6 @@ const tinyInput =
 const tinyLabel = "text-[11px] font-medium text-slate-500";
 
 const GROUPS = [...new Set(QR_FIELD_TYPES.map((t) => t.group))];
-
-/** Options are edited one per line — commas are legitimate inside an answer. */
-const linesToOptions = (v: string) =>
-  v.split("\n").map((s) => s.trim()).filter(Boolean).slice(0, 50);
 
 function QuestionCard({
   field,
@@ -40,6 +39,8 @@ function QuestionCard({
 }) {
   const isHeading = field.type === "heading";
   const hasOptions = fieldHasOptions(field.type);
+  const [optionsDraft, setOptionsDraft] = useState(() => field.options.join("\n"));
+  const optionsText = optionsTextFor(optionsDraft, field.options);
 
   return (
     <li className="rounded-lg border border-slate-200 bg-white p-2">
@@ -134,9 +135,12 @@ function QuestionCard({
         <div className="mt-1.5">
           <label className={tinyLabel}>Options — one per line</label>
           <textarea
-            value={field.options.join("\n")}
-            onChange={(e) => onPatch({ options: linesToOptions(e.target.value) })}
-            rows={Math.min(8, Math.max(3, field.options.length + 1))}
+            value={optionsText}
+            onChange={(e) => {
+              setOptionsDraft(e.target.value);
+              onPatch({ options: optionsFromText(e.target.value) });
+            }}
+            rows={Math.min(8, Math.max(3, optionsText.split("\n").length + 1))}
             placeholder={"First option\nSecond option"}
             className={`mt-1 ${rowInput} text-xs`}
           />
