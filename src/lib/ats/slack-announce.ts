@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { postSlackMessage, isSlackConfigured } from "@/lib/slack/client";
 import { recordAudit } from "@/lib/auth/session";
 import { logProfileTransition } from "@/lib/shared/transition-log";
-import { buildInterviewAnnouncement, buildInterviewScheduledMessage } from "./slack-messages";
+import { announcementResumeLink, buildInterviewAnnouncement, buildInterviewScheduledMessage } from "./slack-messages";
 import { candidateName, candidateProfileUrl, notifyCandidateThread } from "./slack-notify";
 import { isAnnounceInterviewType, type PersonInterview } from "./types";
 
@@ -12,8 +12,6 @@ import { isAnnounceInterviewType, type PersonInterview } from "./types";
 // in-person interview or shadow is scheduled the candidate is announced in the
 // hiring channel, and every later update replies in that one thread.
 // ---------------------------------------------------------------------------
-
-const DOCUMENTS_BUCKET = "employee-documents";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -61,21 +59,14 @@ async function loadCandidate(admin: Admin, personId: string): Promise<CandidateI
   };
 }
 
-/** The resume URL entered on the profile, else the newest resume, signed for a week. */
-async function resumeLink(admin: Admin, personId: string, explicit: string | null): Promise<string | null> {
-  if (explicit) return explicit;
-  const { data: doc } = await admin
+/** Whether the candidate has a resume document on file. */
+async function hasResumeDocument(admin: Admin, personId: string): Promise<boolean> {
+  const { count } = await admin
     .from("person_document")
-    .select("storage_path")
+    .select("id", { count: "exact", head: true })
     .eq("person_id", personId)
-    .ilike("category", "resume")
-    .order("uploaded_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  const path = (doc as { storage_path?: string } | null)?.storage_path;
-  if (!path) return null;
-  const { data: signed } = await admin.storage.from(DOCUMENTS_BUCKET).createSignedUrl(path, 60 * 60 * 24 * 7);
-  return signed?.signedUrl ?? null;
+    .ilike("category", "resume");
+  return (count ?? 0) > 0;
 }
 
 /** Which earlier steps the candidate has completed, for the announcement checklist. */
@@ -114,11 +105,12 @@ export async function postCandidateAnnouncement(
   if (!c) return { ok: false, error: "Candidate not found." };
   if (c.announced) return { ok: false, error: "Already announced — updates reply in the original Slack thread." };
 
-  const [steps, resume] = await Promise.all([
+  const [steps, hasResume] = await Promise.all([
     completedSteps(admin, personId),
-    resumeLink(admin, personId, c.resumeUrl),
+    hasResumeDocument(admin, personId),
   ]);
   const profile = candidateProfileUrl(personId);
+  const resume = announcementResumeLink(c.resumeUrl, hasResume, profile);
   const text = buildInterviewAnnouncement({
     name: c.name,
     role: c.role,

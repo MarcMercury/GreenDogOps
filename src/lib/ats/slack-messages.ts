@@ -192,6 +192,20 @@ export interface AnnouncementInput {
 }
 
 /**
+ * The announcement's Resume link: a URL typed on the profile (Drive, a
+ * portfolio) as-is, else the profile's Documents tab when a resume is on file.
+ * Never a signed storage URL — anyone who sees the Slack message could open it.
+ */
+export function announcementResumeLink(
+  explicitUrl: string | null,
+  hasResumeDocument: boolean,
+  profileUrl: string,
+): string | null {
+  if (explicitUrl?.trim()) return explicitUrl.trim();
+  return hasResumeDocument ? `${profileUrl}?tab=documents` : null;
+}
+
+/**
  * The candidate's first Slack post, made when an in-person interview or shadow
  * is scheduled. Everything after replies in its thread.
  */

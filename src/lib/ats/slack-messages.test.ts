@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  announcementResumeLink,
   buildInterviewAnnouncement,
   buildFormCompletedMessage,
   buildFormSentMessage,
@@ -190,5 +191,24 @@ describe("buildInterviewAnnouncement", () => {
     expect(text).not.toContain("Screening Form");
     expect(text).toContain("Shadow Scheduled ✅");
     expect(text).toContain("*<https://p|Open in GreenDogOps>*");
+  });
+});
+
+describe("announcementResumeLink", () => {
+  const profile = "https://greendogops.com/ats/abc";
+
+  it("keeps a resume URL typed on the profile", () => {
+    expect(announcementResumeLink(" https://drive.google.com/x ", true, profile)).toBe("https://drive.google.com/x");
+  });
+
+  it("points an uploaded resume at the login-gated Documents tab, never a storage URL", () => {
+    const link = announcementResumeLink(null, true, profile);
+    expect(link).toBe(`${profile}?tab=documents`);
+    expect(link).not.toMatch(/supabase|token=|\/storage\//);
+  });
+
+  it("omits the link when there is no resume", () => {
+    expect(announcementResumeLink(null, false, profile)).toBeNull();
+    expect(announcementResumeLink("  ", false, profile)).toBeNull();
   });
 });
