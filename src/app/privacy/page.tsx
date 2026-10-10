@@ -39,7 +39,8 @@ export default function PrivacyPage() {
           , including the Limited Use requirements.
         </p>
         <p>
-          <strong>Text messages (SMS).</strong> Green Dog Dental texts job
+          <strong>Text messages (SMS).</strong> Green Dog Dental (Mobile Vet
+          Services, LLC, doing business as Green Dog Dental) texts job
           candidates who opt in on our application, and employees who give
           consent, about recruiting and work matters (for example interview
           scheduling, reminders and shift updates). We use your mobile number only

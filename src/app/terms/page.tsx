@@ -29,7 +29,8 @@ export default function TermsPage() {
         </p>
         <p>
           <strong>Text messaging terms.</strong> Green Dog Dental Recruiting &amp;
-          HR texts are sent to job candidates who check &ldquo;Text me about my
+          HR texts are sent by Mobile Vet Services, LLC, doing business as Green
+          Dog Dental (&ldquo;Green Dog&rdquo;), to job candidates who check &ldquo;Text me about my
           application&rdquo; on our application, and to employees who agree to
           receive work texts. Messages cover recruiting and employment matters
           such as interview scheduling, reminders and shift updates. Message

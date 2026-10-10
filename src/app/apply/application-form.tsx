@@ -105,7 +105,7 @@ export function ApplicationForm({
         <input type="checkbox" name="sms_opt_in" value="yes" className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-emerald-600" />
         <span>
           Text me about my application (optional). By checking this box, I agree to receive recruiting text messages from
-          Green Dog at the number above, such as interview scheduling and reminders. Message frequency varies. Msg &amp;
+          Green Dog Dental (Mobile Vet Services, LLC) at the number above, such as interview scheduling and reminders. Message frequency varies. Msg &amp;
           data rates may apply. Reply STOP to opt out, HELP for help. Consent is not a condition of applying. See our{" "}
           <a href="/privacy" target="_blank" className="text-emerald-700 underline">
             Privacy Policy
