@@ -1,0 +1,37 @@
+name: Lint and test
+
+# Vercel's build is the type-check gate, but it never runs ESLint or the vitest
+# suite, so a green deploy (or a green Dependabot preview) is not proof the
+# tests pass. This runs both on every push to main and every pull request.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Match Vercel's runtime (project "Node.js Version" = 24.x).
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Unit tests
+        run: npm test
