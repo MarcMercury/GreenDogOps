@@ -103,18 +103,19 @@ export function ApplicationForm({
       {/* Carrier (A2P 10DLC) opt-in: optional, never pre-checked, not a condition of applying. */}
       <label className="-mt-2 flex items-start gap-2 text-xs leading-relaxed text-slate-600">
         <input type="checkbox" name="sms_opt_in" value="yes" className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-slate-300 text-emerald-600" />
+        {/* Wording matches the registered A2P campaign's message flow; change both together. */}
         <span>
-          Text me about my application (optional). By checking this box, I agree to receive recruiting text messages from
-          Green Dog Dental (Mobile Vet Services, LLC) at the number above, such as interview scheduling and reminders. Message frequency varies. Msg &amp;
-          data rates may apply. Reply STOP to opt out, HELP for help. Consent is not a condition of applying. See our{" "}
-          <a href="/privacy" target="_blank" className="text-emerald-700 underline">
-            Privacy Policy
-          </a>{" "}
-          and{" "}
+          <span className="font-medium text-slate-700">Text me about my application</span> (optional). I agree to receive
+          recruiting text messages from Green Dog Dental (Mobile Vet Services, LLC) about my application. Message frequency
+          varies. Msg &amp; data rates may apply. Reply STOP to opt out, HELP for help. Consent is not a condition of
+          applying. Terms:{" "}
           <a href="/terms" target="_blank" className="text-emerald-700 underline">
-            Terms
+            greendogops.com/terms
+          </a>{" "}
+          Privacy:{" "}
+          <a href="/privacy" target="_blank" className="text-emerald-700 underline">
+            greendogops.com/privacy
           </a>
-          .
         </span>
       </label>
 

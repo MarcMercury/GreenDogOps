@@ -105,7 +105,8 @@ export function passesGoLiveGate(e164: string, env: { live: boolean; testNumbers
  */
 export function composeOutbound(body: string, opts: { firstToNumber: boolean }): string {
   const trimmed = body.trim();
-  const branded = /^green\s*dog\b/i.test(trimmed) ? trimmed : `Green Dog: ${trimmed}`;
+  // Matches the registered campaign's sample messages (brand: Mobile Vet Services, LLC dba Green Dog Dental).
+  const branded = /^green\s*dog\b/i.test(trimmed) ? trimmed : `Green Dog Dental: ${trimmed}`;
   return opts.firstToNumber ? `${branded}\n${OPT_OUT_FOOTER}` : branded;
 }
 

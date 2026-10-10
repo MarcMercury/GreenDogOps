@@ -117,8 +117,8 @@ describe("go-live gate", () => {
 
 describe("composeOutbound", () => {
   it("brands the text and adds the opt-out line to the first text only", () => {
-    expect(composeOutbound("  See you at 3!  ", { firstToNumber: true })).toBe(`Green Dog: See you at 3!\n${OPT_OUT_FOOTER}`);
-    expect(composeOutbound("See you at 3!", { firstToNumber: false })).toBe("Green Dog: See you at 3!");
+    expect(composeOutbound("  See you at 3!  ", { firstToNumber: true })).toBe(`Green Dog Dental: See you at 3!\n${OPT_OUT_FOOTER}`);
+    expect(composeOutbound("See you at 3!", { firstToNumber: false })).toBe("Green Dog Dental: See you at 3!");
     expect(composeOutbound("Green Dog here — see you at 3", { firstToNumber: false })).toBe("Green Dog here — see you at 3");
   });
 

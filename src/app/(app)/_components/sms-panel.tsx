@@ -198,7 +198,7 @@ export function SmsPanel({ personId, audience }: { personId: string; audience: "
         />
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-slate-400">
-            {body.trim().length}/{MAX_SMS_LENGTH} · &quot;Green Dog:&quot; is added at the start, and &quot;{OPT_OUT_FOOTER}&quot; to the first text.
+            {body.trim().length}/{MAX_SMS_LENGTH} · &quot;Green Dog Dental:&quot; is added at the start, and &quot;{OPT_OUT_FOOTER}&quot; to the first text.
           </p>
           <button
             type="button"
