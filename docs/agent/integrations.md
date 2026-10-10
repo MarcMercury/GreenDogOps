@@ -26,6 +26,7 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 
 - Google auth: service account or stored OAuth refresh token (`scripts/google_oauth_setup.mjs`, `scripts/gmail_oauth_setup.mjs`). An `invalid_grant` means the refresh token was revoked/expired — needs the user to re-run setup; not fixable by code.
 - Resend delivery events arrive at `/api/email/webhook`.
+- Calendar sync (`/api/calendar/sync`, `src/lib/calendar`) reads every calendar in `GOOGLE_CALENDAR_ID`, `GOOGLE_COMPANY_CALENDAR_ID` and `GOOGLE_INTERVIEW_CALENDAR_ID` as the service account `calendar-sync@greendogops-calendar.iam.gserviceaccount.com`. Each calendar must be shared with that address ("See all event details"), otherwise Google returns **404 Not Found**, not 403. A failing calendar is recorded in `calendar_sync_state.last_error` and makes the cron return 500, but the other calendars still sync. On 2026-10-09 `GOOGLE_COMPANY_CALENDAR_ID` was added to Vercel, but the calendar was not yet shared (read-only probe: 404, while the other two returned OK).
 
 ## Slack user linking (`src/lib/slack/users.ts`, `link-sync.ts`)
 
