@@ -152,3 +152,12 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** `@types/node@^24` (commit `7ed3e8b` on the vitest PR); `.github/dependabot.yml` ignores `@types/node` majors so it isn't bumped past the runtime. Change both when Vercel's Node version changes.
 - **Note:** Vercel previews only prove `npm install` + `next build`; they do not run lint or vitest, so a green Dependabot preview is not proof the tests pass (see improvements.md "CI for lint + unit tests").
 - **Evidence:** 2026-10-09 — with the fix: vitest 225/225, full `tsc` rc=0, lint 0 errors, `npm audit --omit=dev` 0.
+
+### Under memory pressure, any agent process over ~150 MB is SIGTERM'd
+- **Problem:** with the Codespace near its 8 GB limit (several VS Code/Copilot sessions, no swap, <1 GB available), `npm ci` died with 137, and `npm run lint`, `npx vitest run` and even `npm install <pkg>` died with 143 within seconds. A bare `node` allocating 150 MB was killed too; 100 MB survived.
+- **Fix:** copy (`cp -a`, or `cp -al` per the worktree lesson) the shared `node_modules` instead of `npm ci`; run npm with `NODE_OPTIONS="--max-old-space-size=120 --max-semi-space-size=1"` (installs/updates then complete). Lint and vitest can't fit — push to a branch and let `ci.yml` run them (the Codespaces token can't `workflow_dispatch`, HTTP 403, so open a draft PR to trigger `pull_request`, then close it).
+- **Evidence:** 2026-10-10 Dependabot batch (#4/#5/#7/#8): local probes above; CI on draft PR #9 ran lint + 357 tests.
+
+### eslint 10 with eslint-config-next 16.4.0
+- `eslint-plugin-react` 7.37.5, `eslint-plugin-import` 2.32.0 and `eslint-plugin-jsx-a11y` 6.10.2 (latest as of 2026-10-10) don't list eslint 10 as a peer, so npm prints `ERESOLVE overriding peer dependency` warnings. They still work: the react plugin falls back to `context.sourceCode`, and the only import rule enabled (`no-anonymous-default-export`) doesn't use the removed `context.parserOptions`. If a future config enables `import/no-default-export`/`no-named-export`/`unambiguous`, it will crash on eslint 10 (`'sourceType' in context.parserOptions`).
+- **Evidence:** CI lint on eslint 10.12.0: 0 errors, same 2 warnings as main (run 38009712712).
