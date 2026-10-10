@@ -66,3 +66,9 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 ## Recovery log
 
 Add entries as `### YYYY-MM-DD — system — symptom` with root cause, fix, and evidence.
+
+### 2026-10-10 — Vercel — production deploy `ERROR` with `errorCode: git_info_fail`
+- **Symptom:** commit status `failure` on `main` (4644f33), but the same sha had already built `READY` as a branch preview. The build never started; `GET /v13/deployments/<id>` showed `readyState: ERROR, errorCode: git_info_fail` and no build log.
+- **Root cause:** Vercel failed to fetch the git metadata — a Vercel-side flake, not the code. It came about 1.5 min after the same sha was pushed to (and later deleted from) a scratch branch; that may be related, but it's unconfirmed.
+- **Fix:** first confirm `origin/main` is still that sha, so an older commit doesn't replace a newer one in production. Then redeploy with `POST /v13/deployments?teamId=…` and body `{"name":"green-dog-ops","project":"<prj id>","target":"production","gitSource":{"type":"github","repoId":1271550897,"ref":"main","sha":"<full sha>"}}`. The commit status then went to `success`.
+- **Evidence:** `dpl_9vjQHB3KznWgzDFmcpg4AQAwefBJ` failed; the redeploy `dpl_AZy7fzwrgCpqdU6tvXXWQzf1hhNM` came back READY.
