@@ -390,13 +390,7 @@ export function SmartChat({ suggestions }: { suggestions: readonly string[] }) {
         ) : null}
         <div className="min-h-[22rem] space-y-4 p-5">
           {!messages.length ? (
-            <div className="space-y-4">
-              <div className="rounded-xl bg-emerald-50/70 p-4 text-sm text-emerald-900">
-                Ruff ruff, I&apos;m Ziggy, your K9i, and I love to play fetch! Ask me about
-                patients, schedules, your schedule or PTO — whatever you want, I&apos;ll retrieve it
-                for you. If I bring back what you want, tell me I&apos;m a good boy! If I don&apos;t,
-                help train me by letting me know I didn&apos;t fetch what you wanted.
-              </div>
+            <div>
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Try one of these

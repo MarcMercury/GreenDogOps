@@ -27,7 +27,7 @@ export default async function AskZiggyPage() {
   if (!current || !canAccessModule(current.appUser, "ask_ziggy")) {
     return (
       <div className="mx-auto max-w-3xl space-y-6">
-        <PageHeader eyebrow="Assistant" title="Ask Ziggy" description="Ask questions in plain English." />
+        <PageHeader eyebrow="K9i" title="Play Fetch with Ziggy!" description="Ask questions in plain English." />
         <SectionCard title="Access required" description="Ask Ziggy is not available on your account.">
           <p className="text-sm text-slate-500">
             If you believe you should have it, ask an administrator to turn on Ask Ziggy for you.
@@ -47,9 +47,9 @@ export default async function AskZiggyPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Assistant"
-        title="Ask Ziggy"
-        description="Ask about patients, clients, appointments, the schedule, your own shifts and PTO, or company policy — answered from live data."
+        eyebrow="K9i"
+        title="Play Fetch with Ziggy!"
+        description="Ruff ruff, I'm Ziggy, your K9i, and I love to play fetch! Ask me about patients, schedules, your schedule or PTO — whatever you want, I'll retrieve it for you. If I bring back what you want, tell me I'm a good boy! If I don't, help train me by letting me know I didn't fetch what you wanted."
         actions={
           canAccessModule(current.appUser, "reporting") ? (
             <Link
