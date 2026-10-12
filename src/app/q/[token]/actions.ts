@@ -3,7 +3,13 @@
 import { allowPublicSubmission, TOO_MANY_MESSAGE } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
-import { type CaptureReceipt, parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
+import {
+  basicRequirementsFrom,
+  type CaptureReceipt,
+  checkBasicAnswers,
+  parseFormFields,
+  readFormAnswers,
+} from "@/lib/marketing/qr";
 
 export type QrLeadResult =
   | { ok: true; receipt?: CaptureReceipt }
@@ -33,7 +39,18 @@ type CodeRow = {
   referral_partner_id: string | null;
   influencer_id: string | null;
   active: boolean;
-  qr_form: { fields: unknown; collect_pet_name: boolean; collect_zip: boolean } | null;
+  qr_form: FormEmbed | FormEmbed[] | null;
+};
+
+type FormEmbed = {
+  fields: unknown;
+  active: boolean;
+  collect_pet_name: boolean;
+  collect_zip: boolean;
+  require_email: boolean;
+  require_phone: boolean;
+  require_pet_name: boolean;
+  require_zip: boolean;
 };
 
 /**
@@ -55,8 +72,7 @@ export async function submitQrLead(
   const petName = clean(formData.get("pet_name"));
   const zip = clean(formData.get("zip"));
 
-  if (!fullName) return { ok: false, error: "Please enter your name." };
-  if (fullName.length > MAX_NAME_LENGTH) {
+  if (fullName && fullName.length > MAX_NAME_LENGTH) {
     return { ok: false, error: "Please enter a shorter name." };
   }
   if (petName && petName.length > MAX_SHORT_LENGTH) {
@@ -64,9 +80,6 @@ export async function submitQrLead(
   }
   if (zip && zip.length > 12) {
     return { ok: false, error: "Please enter a valid ZIP code." };
-  }
-  if (!email && !phone) {
-    return { ok: false, error: "Please enter an email or phone number." };
   }
   if (email && (email.length > MAX_EMAIL_LENGTH || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     return { ok: false, error: "Please enter a valid email address." };
@@ -77,7 +90,7 @@ export async function submitQrLead(
   const { data, error: codeErr } = await admin
     .from("qr_code")
     .select(
-      "id, event_id, ce_event_id, org_id, referral_partner_id, influencer_id, active, qr_form(fields, collect_pet_name, collect_zip)",
+      "id, event_id, ce_event_id, org_id, referral_partner_id, influencer_id, active, qr_form(fields, active, collect_pet_name, collect_zip, require_email, require_phone, require_pet_name, require_zip)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -86,7 +99,22 @@ export async function submitQrLead(
   if (!code || !code.active) return { ok: false, error: "This code is no longer active." };
 
   // Supabase infers a to-one embed as an array in some shapes; normalize.
-  const formRow = Array.isArray(code.qr_form) ? code.qr_form[0] : code.qr_form;
+  const embed = Array.isArray(code.qr_form) ? code.qr_form[0] : code.qr_form;
+  // The page renders a retired form as the plain contact form, so judge the
+  // submission against exactly what the visitor was shown.
+  const formRow = embed?.active ? embed : null;
+
+  const basicsError = checkBasicAnswers(basicRequirementsFrom(formRow), {
+    fullName,
+    email,
+    phone,
+    petName,
+    zip,
+  });
+  if (basicsError || !fullName) {
+    return { ok: false, error: basicsError ?? "Please enter your name." };
+  }
+
   const read = readFormAnswers(parseFormFields(formRow?.fields), formData);
   if ("error" in read) return { ok: false, error: read.error };
 

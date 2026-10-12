@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import {
+  DEFAULT_BASIC_REQUIREMENTS,
   type QrForm,
   type QrFormField,
   QR_FIELD_TYPES,
@@ -324,6 +325,152 @@ export function serializeFields(fields: QrFormField[]): string {
     fields
       .filter((f) => f.label.trim())
       .map((f) => ({ ...f, key: f.key || slugifyFieldKey(f.label) })),
+  );
+}
+
+/** The built-in contact block of a form, as the editors hold it. */
+export interface BasicFields {
+  collect_pet_name: boolean;
+  collect_zip: boolean;
+  require_email: boolean;
+  require_phone: boolean;
+  require_pet_name: boolean;
+  require_zip: boolean;
+}
+
+export const basicFieldsFrom = (form: QrForm | null): BasicFields => ({
+  collect_pet_name: form?.collect_pet_name ?? true,
+  collect_zip: form?.collect_zip ?? false,
+  require_email: form?.require_email ?? DEFAULT_BASIC_REQUIREMENTS.email,
+  require_phone: form?.require_phone ?? DEFAULT_BASIC_REQUIREMENTS.phone,
+  require_pet_name: form?.require_pet_name ?? DEFAULT_BASIC_REQUIREMENTS.petName,
+  require_zip: form?.require_zip ?? DEFAULT_BASIC_REQUIREMENTS.zip,
+});
+
+/** Copy the block onto a hand-built FormData (unchecked boxes post nothing). */
+export function setBasicFields(fd: FormData, value: BasicFields): void {
+  fd.set("basic_fields", "1");
+  for (const [k, v] of Object.entries(value)) {
+    if (v) fd.set(k, "true");
+    else fd.delete(k);
+  }
+}
+
+function RequiredToggle({
+  name,
+  checked,
+  disabled,
+  onChange,
+}: {
+  name: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label
+      className={`flex items-center gap-1.5 text-xs ${disabled ? "text-slate-300" : "text-slate-600"}`}
+    >
+      <input
+        type="checkbox"
+        name={name}
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600"
+      />
+      Required
+    </label>
+  );
+}
+
+/**
+ * Which basic contact fields the public form shows and which must be filled
+ * in before it can be submitted. Like AfterSubmissionFields, inputs carry real
+ * `name`s for hosts that post `new FormData(form)`.
+ */
+export function BasicFieldsEditor({
+  value,
+  onChange,
+}: {
+  value: BasicFields;
+  onChange: (next: BasicFields) => void;
+}) {
+  const patch = (p: Partial<BasicFields>) => onChange({ ...value, ...p });
+  const row = "flex items-center justify-between gap-3 py-1.5";
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+      <input type="hidden" name="basic_fields" value="1" />
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Basic info</p>
+      <p className="mt-0.5 text-[11px] text-slate-400">
+        Required fields must be filled in before the form can be submitted.
+      </p>
+
+      <div className="mt-2 divide-y divide-slate-100">
+        <div className={row}>
+          <span className="text-sm text-slate-700">Name</span>
+          <span className="text-xs text-slate-400">Always required</span>
+        </div>
+        <div className={row}>
+          <span className="text-sm text-slate-700">Email</span>
+          <RequiredToggle
+            name="require_email"
+            checked={value.require_email}
+            onChange={(v) => patch({ require_email: v })}
+          />
+        </div>
+        <div className={row}>
+          <span className="text-sm text-slate-700">Phone</span>
+          <RequiredToggle
+            name="require_phone"
+            checked={value.require_phone}
+            onChange={(v) => patch({ require_phone: v })}
+          />
+        </div>
+        <div className={row}>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              name="collect_pet_name"
+              checked={value.collect_pet_name}
+              onChange={(e) => patch({ collect_pet_name: e.target.checked })}
+              className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+            />
+            Ask for pet name
+          </label>
+          <RequiredToggle
+            name="require_pet_name"
+            checked={value.collect_pet_name && value.require_pet_name}
+            disabled={!value.collect_pet_name}
+            onChange={(v) => patch({ require_pet_name: v })}
+          />
+        </div>
+        <div className={row}>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              name="collect_zip"
+              checked={value.collect_zip}
+              onChange={(e) => patch({ collect_zip: e.target.checked })}
+              className="h-4 w-4 rounded border-slate-300 text-emerald-600"
+            />
+            Ask for ZIP code
+          </label>
+          <RequiredToggle
+            name="require_zip"
+            checked={value.collect_zip && value.require_zip}
+            disabled={!value.collect_zip}
+            onChange={(v) => patch({ require_zip: v })}
+          />
+        </div>
+      </div>
+      {!value.require_email && !value.require_phone && (
+        <p className="mt-2 text-[11px] text-amber-600">
+          Neither is required, so visitors must still give at least an email or a phone number.
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -12,7 +12,17 @@ import {
   type QrSubject,
   qrPublicUrl,
 } from "@/lib/marketing/qr";
-import { FormFieldEditor, serializeFields, AfterSubmissionFields, afterSubmissionFrom, type AfterSubmission } from "@/lib/marketing/form-field-editor";
+import {
+  FormFieldEditor,
+  serializeFields,
+  AfterSubmissionFields,
+  afterSubmissionFrom,
+  type AfterSubmission,
+  BasicFieldsEditor,
+  basicFieldsFrom,
+  setBasicFields,
+  type BasicFields,
+} from "@/lib/marketing/form-field-editor";
 import {
   createQrCodeFor,
   deleteQrCode,
@@ -304,8 +314,7 @@ type FormDraft = {
   name: string;
   headline: string;
   intro: string;
-  collect_pet_name: boolean;
-  collect_zip: boolean;
+  basics: BasicFields;
   fields: QrFormField[];
   after: AfterSubmission;
 };
@@ -327,8 +336,7 @@ function QrFormEditor({
     name: form?.name ?? code.label,
     headline: form?.headline ?? "",
     intro: form?.intro ?? "",
-    collect_pet_name: form?.collect_pet_name ?? true,
-    collect_zip: form?.collect_zip ?? false,
+    basics: basicFieldsFrom(form),
     fields: form?.fields ?? [],
     after: afterSubmissionFrom(form),
   }));
@@ -349,8 +357,7 @@ function QrFormEditor({
     fd.set("success_message", draft.after.success_message);
     if (draft.after.show_confirmation) fd.set("show_confirmation", "true");
     fd.set("confirmation_note", draft.after.confirmation_note);
-    if (draft.collect_pet_name) fd.set("collect_pet_name", "true");
-    if (draft.collect_zip) fd.set("collect_zip", "true");
+    setBasicFields(fd, draft.basics);
     fd.set("active", "true");
     fd.set("fields_json", serializeFields(draft.fields));
     run(() => saveQrForm(fd));
@@ -436,26 +443,8 @@ function QrFormEditor({
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-4">
-        <label className="flex items-center gap-2 text-sm text-slate-600">
-          <input
-            type="checkbox"
-            checked={draft.collect_pet_name}
-            onChange={(e) => patch({ collect_pet_name: e.target.checked })}
-            className="h-4 w-4 rounded border-slate-300 text-emerald-600"
-          />
-          Ask for pet name
-        </label>
-        <label className="flex items-center gap-2 text-sm text-slate-600">
-          <input
-            type="checkbox"
-            checked={draft.collect_zip}
-            onChange={(e) => patch({ collect_zip: e.target.checked })}
-            className="h-4 w-4 rounded border-slate-300 text-emerald-600"
-          />
-          Ask for ZIP code
-        </label>
-        <span className="text-xs text-slate-400">Name + email/phone are always collected.</span>
+      <div className="mt-3">
+        <BasicFieldsEditor value={draft.basics} onChange={(basics) => patch({ basics })} />
       </div>
 
       <div className="mt-4">

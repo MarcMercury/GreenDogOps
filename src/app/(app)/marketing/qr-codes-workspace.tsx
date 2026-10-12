@@ -16,7 +16,15 @@ import {
   qrCodeTypeLabel,
   qrPublicUrl,
 } from "@/lib/marketing/qr";
-import { FormFieldEditor, serializeFields, AfterSubmissionFields, afterSubmissionFrom } from "@/lib/marketing/form-field-editor";
+import {
+  FormFieldEditor,
+  serializeFields,
+  AfterSubmissionFields,
+  afterSubmissionFrom,
+  BasicFieldsEditor,
+  basicFieldsFrom,
+  setBasicFields,
+} from "@/lib/marketing/form-field-editor";
 import {
   saveQrCode,
   deleteQrCode,
@@ -1053,10 +1061,12 @@ function FormDialog({
 }) {
   const [fields, setFields] = useState<QrFormField[]>(form?.fields ?? []);
   const [after, setAfter] = useState(() => afterSubmissionFrom(form));
+  const [basics, setBasics] = useState(() => basicFieldsFrom(form));
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    setBasicFields(fd, basics);
     fd.set("fields_json", serializeFields(fields));
     run(() => saveQrForm(fd), onClose);
   }
@@ -1084,25 +1094,9 @@ function FormDialog({
 
         <BrandingFields theme={form?.theme ?? "emerald"} bannerUrl={form?.banner_url ?? null} />
 
+        <BasicFieldsEditor value={basics} onChange={setBasics} />
+
         <div className="flex flex-wrap gap-4">
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              name="collect_pet_name"
-              defaultChecked={form?.collect_pet_name ?? true}
-              className="h-4 w-4 rounded border-slate-300 text-emerald-600"
-            />
-            Ask for pet name
-          </label>
-          <label className="flex items-center gap-2 text-sm text-slate-600">
-            <input
-              type="checkbox"
-              name="collect_zip"
-              defaultChecked={form?.collect_zip ?? false}
-              className="h-4 w-4 rounded border-slate-300 text-emerald-600"
-            />
-            Ask for ZIP code
-          </label>
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input
               type="checkbox"

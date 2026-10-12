@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseFormFields, qrFormTheme } from "@/lib/marketing/qr";
+import { basicRequirementsFrom, parseFormFields, qrFormTheme } from "@/lib/marketing/qr";
 import { CaptureForm } from "@/lib/marketing/capture-form";
 import { submitRetailLead } from "./actions";
 
@@ -15,6 +15,10 @@ type FormRow = {
   confirmation_note: string | null;
   collect_pet_name: boolean;
   collect_zip: boolean;
+  require_email: boolean;
+  require_phone: boolean;
+  require_pet_name: boolean;
+  require_zip: boolean;
   fields: unknown;
   theme: string | null;
   banner_url: string | null;
@@ -50,7 +54,7 @@ export default async function RetailLeadPage({
   const { data: codeData } = await admin
     .from("qr_code")
     .select(
-      "active, target_url, qr_form(headline, intro, success_message, post_submit_heading, show_confirmation, confirmation_note, collect_pet_name, collect_zip, fields, theme, banner_url, active)",
+      "active, target_url, qr_form(headline, intro, success_message, post_submit_heading, show_confirmation, confirmation_note, collect_pet_name, collect_zip, require_email, require_phone, require_pet_name, require_zip, fields, theme, banner_url, active)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -87,6 +91,7 @@ export default async function RetailLeadPage({
           confirmationNote={form?.confirmation_note ?? null}
           collectPetName={form ? form.collect_pet_name : true}
           collectZip={form?.collect_zip ?? false}
+          required={basicRequirementsFrom(form)}
           fields={parseFormFields(form?.fields)}
           theme={form?.theme ?? null}
           bannerUrl={form?.banner_url ?? null}

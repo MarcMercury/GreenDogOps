@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseFormFields, qrFormTheme, type QrFormField } from "@/lib/marketing/qr";
+import { basicRequirementsFrom, parseFormFields, qrFormTheme, type QrFormField } from "@/lib/marketing/qr";
 import { CaptureForm } from "@/lib/marketing/capture-form";
 import { submitQrLead } from "./actions";
 
@@ -15,6 +15,10 @@ type FormRow = {
   confirmation_note: string | null;
   collect_pet_name: boolean;
   collect_zip: boolean;
+  require_email: boolean;
+  require_phone: boolean;
+  require_pet_name: boolean;
+  require_zip: boolean;
   fields: unknown;
   theme: string | null;
   banner_url: string | null;
@@ -39,7 +43,7 @@ export default async function QrScanPage({
   const { data } = await admin
     .from("qr_code")
     .select(
-      "label, active, target_url, qr_form(headline, intro, success_message, post_submit_heading, show_confirmation, confirmation_note, collect_pet_name, collect_zip, fields, theme, banner_url, active)",
+      "label, active, target_url, qr_form(headline, intro, success_message, post_submit_heading, show_confirmation, confirmation_note, collect_pet_name, collect_zip, require_email, require_phone, require_pet_name, require_zip, fields, theme, banner_url, active)",
     )
     .eq("token", token)
     .maybeSingle();
@@ -78,6 +82,7 @@ export default async function QrScanPage({
           confirmationNote={live?.confirmation_note ?? null}
           collectPetName={live ? live.collect_pet_name : true}
           collectZip={live?.collect_zip ?? false}
+          required={basicRequirementsFrom(live)}
           fields={fields}
           theme={live?.theme ?? null}
           bannerUrl={live?.banner_url ?? null}

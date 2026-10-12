@@ -66,3 +66,12 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ### Vitest config
 - No `vitest.config.*`; works today on defaults. Add one if path aliases or `server-only` imports start breaking tests.
+
+### Baseline config seed has drifted from staging
+- **Found:** 2026-10-12 while regenerating the baseline for 0232. `scripts/generate_baseline.sh` wanted to rewrite `0003_config_seed.sql` (sched_department `show_in_planning` flags, 3 extra sched_role rows, a planning_capacity_rule row, ezyvet_appt_type_dept_map rows). These are staging data edits unrelated to 0232, so only `0001_schema.sql` was committed.
+- **Scope:** confirm whether staging's config matches production; regenerate `0003` deliberately (or fix staging first).
+- **Risk:** low.
+
+### `format_phone()` is executable by `authenticated`
+- **Found:** the regenerated baseline shows `GRANT ALL ON FUNCTION greendogops.format_phone(text) TO authenticated` (Supabase default privileges; created in 0162/0213). It is an IMMUTABLE pure formatter with no table access, so exposure is nil, but it breaks the "no RPC EXECUTE for authenticated" rule. Revoke in a migration if nothing client-side calls it.
+- **Risk:** low.

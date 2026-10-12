@@ -3,7 +3,13 @@
 import { allowPublicSubmission, TOO_MANY_MESSAGE } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { formatPhoneNumber } from "@/lib/shared/phone";
-import { type CaptureReceipt, parseFormFields, readFormAnswers } from "@/lib/marketing/qr";
+import {
+  basicRequirementsFrom,
+  type CaptureReceipt,
+  checkBasicAnswers,
+  parseFormFields,
+  readFormAnswers,
+} from "@/lib/marketing/qr";
 
 export type LeadResult =
   | { ok: true; receipt?: CaptureReceipt }
@@ -25,7 +31,16 @@ const MAX_PET_LENGTH = 120;
 const BURST_WINDOW_MINUTES = 10;
 const BURST_MAX_LEADS = 40;
 
-type FormEmbed = { fields: unknown; active: boolean };
+type FormEmbed = {
+  fields: unknown;
+  active: boolean;
+  collect_pet_name: boolean;
+  collect_zip: boolean;
+  require_email: boolean;
+  require_phone: boolean;
+  require_pet_name: boolean;
+  require_zip: boolean;
+};
 
 /**
  * PUBLIC action — called from the unauthenticated retail lead form reached by
@@ -46,15 +61,11 @@ export async function submitRetailLead(
   const petName = clean(formData.get("pet_name"));
   const zip = clean(formData.get("zip"))?.slice(0, 16) ?? null;
 
-  if (!fullName) return { ok: false, error: "Please enter your name." };
-  if (fullName.length > MAX_NAME_LENGTH) {
+  if (fullName && fullName.length > MAX_NAME_LENGTH) {
     return { ok: false, error: "Please enter a shorter name." };
   }
   if (petName && petName.length > MAX_PET_LENGTH) {
     return { ok: false, error: "Please enter a shorter pet name." };
-  }
-  if (!email && !phone) {
-    return { ok: false, error: "Please enter an email or phone number." };
   }
   if (email && (email.length > MAX_EMAIL_LENGTH || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     return { ok: false, error: "Please enter a valid email address." };
@@ -75,15 +86,27 @@ export async function submitRetailLead(
   // a form assigned in QR Code Mgmt decides which custom questions were asked.
   const { data: codeRow } = await admin
     .from("qr_code")
-    .select("qr_form(fields, active)")
+    .select(
+      "qr_form(fields, active, collect_pet_name, collect_zip, require_email, require_phone, require_pet_name, require_zip)",
+    )
     .eq("token", token)
     .maybeSingle();
   const embed = (codeRow as { qr_form: FormEmbed | FormEmbed[] | null } | null)?.qr_form;
-  const formRow = Array.isArray(embed) ? embed[0] : embed;
-  const read = readFormAnswers(
-    formRow?.active ? parseFormFields(formRow.fields) : [],
-    formData,
-  );
+  const raw = Array.isArray(embed) ? embed[0] : embed;
+  const formRow = raw?.active ? raw : null;
+
+  const basicsError = checkBasicAnswers(basicRequirementsFrom(formRow), {
+    fullName,
+    email,
+    phone,
+    petName,
+    zip,
+  });
+  if (basicsError || !fullName) {
+    return { ok: false, error: basicsError ?? "Please enter your name." };
+  }
+
+  const read = readFormAnswers(parseFormFields(formRow?.fields), formData);
   if ("error" in read) return { ok: false, error: read.error };
 
   const windowStart = new Date(Date.now() - BURST_WINDOW_MINUTES * 60_000).toISOString();

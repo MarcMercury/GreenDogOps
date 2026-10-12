@@ -4,7 +4,9 @@ import { useActionState, useEffect, useState } from "react";
 import Image from "next/image";
 import { PhoneInput } from "@/lib/shared/phone-input";
 import {
+  type BasicRequirements,
   type CaptureReceipt,
+  DEFAULT_BASIC_REQUIREMENTS,
   type QrFormField,
   type QrFormTheme,
   OTHER_VALUE,
@@ -23,6 +25,15 @@ export type CaptureAction = (
   prev: CaptureResult | null,
   formData: FormData,
 ) => Promise<CaptureResult>;
+
+function BasicLabel({ text, required }: { text: string; required?: boolean }) {
+  return (
+    <span className="text-sm font-medium text-slate-700">
+      {text}
+      {required && <span className="text-red-500"> *</span>}
+    </span>
+  );
+}
 
 function Prompt({ field }: { field: QrFormField }) {
   return (
@@ -209,7 +220,7 @@ function CustomField({ field, focus }: { field: QrFormField; focus: string }) {
           className={inputClass}
         />
       ) : field.type === "phone" ? (
-        <PhoneInput name={name} className={inputClass} />
+        <PhoneInput name={name} required={field.required} className={inputClass} />
       ) : field.type === "number" ? (
         <input
           name={name}
@@ -314,6 +325,7 @@ export function CaptureForm({
   confirmationNote,
   collectPetName,
   collectZip,
+  required = DEFAULT_BASIC_REQUIREMENTS,
   fields,
   theme,
   bannerUrl,
@@ -328,6 +340,8 @@ export function CaptureForm({
   confirmationNote?: string | null;
   collectPetName: boolean;
   collectZip: boolean;
+  /** Which basic contact fields must be filled in; name is always required. */
+  required?: BasicRequirements;
   fields: QrFormField[];
   theme: string | null;
   bannerUrl: string | null;
@@ -386,27 +400,43 @@ export function CaptureForm({
 
         <div className="mt-6 space-y-4">
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Your name</span>
+            <BasicLabel text="Your name" required />
             <input name="full_name" type="text" required autoComplete="name" className={inputClass} />
           </label>
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Email</span>
-            <input name="email" type="email" autoComplete="email" className={inputClass} />
+            <BasicLabel text="Email" required={required.email} />
+            <input
+              name="email"
+              type="email"
+              required={required.email}
+              autoComplete="email"
+              className={inputClass}
+            />
           </label>
           <label className="block">
-            <span className="text-sm font-medium text-slate-700">Phone number</span>
-            <PhoneInput name="phone" className={inputClass} />
+            <BasicLabel text="Phone number" required={required.phone} />
+            <PhoneInput name="phone" required={required.phone} className={inputClass} />
           </label>
+          {!required.email && !required.phone && (
+            <p className="-mt-2 text-xs text-slate-500">Please give us an email or a phone number.</p>
+          )}
           {collectPetName && (
             <label className="block">
-              <span className="text-sm font-medium text-slate-700">Pet&apos;s name</span>
-              <input name="pet_name" type="text" className={inputClass} />
+              <BasicLabel text="Pet's name" required={required.petName} />
+              <input name="pet_name" type="text" required={required.petName} className={inputClass} />
             </label>
           )}
           {collectZip && (
             <label className="block">
-              <span className="text-sm font-medium text-slate-700">ZIP code</span>
-              <input name="zip" type="text" inputMode="numeric" className={inputClass} />
+              <BasicLabel text="ZIP code" required={required.zip} />
+              <input
+                name="zip"
+                type="text"
+                inputMode="numeric"
+                autoComplete="postal-code"
+                required={required.zip}
+                className={inputClass}
+              />
             </label>
           )}
           {fields.map((f) => (

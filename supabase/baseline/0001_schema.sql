@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Green Dog Ops — baseline schema for the greendogops schema
--- Generated 2026-10-10 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
+-- Generated 2026-10-12 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
 -- ----------------------------------------------------------------------------
 -- A single, internally consistent snapshot: every table, view, materialised
 -- view, function, trigger, enum, index, grant, revoke and RLS policy.
@@ -1228,6 +1228,106 @@ CREATE FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_sta
     and c.location_id is not distinct from p_location
     and coalesce(nullif(btrim(c.appt_type), ''), 'Unspecified') = p_type
   order by c.appt_date desc, c.start_time;
+$$;
+
+
+--
+-- Name: format_phone(text); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.format_phone(raw text) RETURNS text
+    LANGUAGE plpgsql IMMUTABLE
+    SET search_path TO 'greendogops', 'public', 'pg_temp'
+    AS $$
+declare
+  -- ITU-T E.164 country calling codes, excluding 1 (US / Canada / NANP).
+  calling_codes constant text[] := array[
+    '7','20','27','30','31','32','33','34','36','39','40','41','43','44','45',
+    '46','47','48','49','51','52','53','54','55','56','57','58','60','61','62',
+    '63','64','65','66','81','82','84','86','90','91','92','93','94','95','98',
+    '211','212','213','216','218','220','221','222','223','224','225','226',
+    '227','228','229','230','231','232','233','234','235','236','237','238',
+    '239','240','241','242','243','244','245','246','247','248','249','250',
+    '251','252','253','254','255','256','257','258','260','261','262','263',
+    '264','265','266','267','268','269','290','291','297','298','299',
+    '350','351','352','353','354','355','356','357','358','359','370','371',
+    '372','373','374','375','376','377','378','379','380','381','382','383',
+    '385','386','387','389','420','421','423',
+    '500','501','502','503','504','505','506','507','508','509','590','591',
+    '592','593','594','595','596','597','598','599',
+    '670','672','673','674','675','676','677','678','679','680','681','682',
+    '683','685','686','687','688','689','690','691','692',
+    '850','852','853','855','856','880','886',
+    '960','961','962','963','964','965','966','967','968','970','971','972',
+    '973','974','975','976','977','992','993','994','995','996','998'
+  ];
+  trimmed  text;
+  cleaned  text;
+  digits   text;
+  intl     boolean := false;
+  cc       text := null;
+  national text;
+  grouped  text;
+  pos      int;
+  head     int;
+begin
+  if raw is null then return null; end if;
+  trimmed := btrim(raw);
+  if trimmed = '' then return null; end if;
+
+  cleaned := regexp_replace(trimmed, '[^0-9+]', '', 'g');
+  if cleaned = '' then return trimmed; end if;
+
+  digits := regexp_replace(cleaned, '[^0-9]', '', 'g');
+  intl := left(cleaned, 1) = '+';
+
+  -- "011" / "00" are international dialing prefixes; same meaning as a "+".
+  if not intl and digits ~ '^(011|00)[0-9]' then
+    digits := regexp_replace(digits, '^(011|00)', '');
+    intl := true;
+  end if;
+
+  if length(digits) = 11 and left(digits, 1) = '1' then
+    digits := right(digits, 10);
+  end if;
+
+  if length(digits) = 10 then
+    return '(' || substr(digits, 1, 3) || ') '
+               || substr(digits, 4, 3) || '-'
+               || substr(digits, 7, 4);
+  end if;
+
+  if intl or length(digits) > 11 then
+    for pos in reverse 3 .. 1 loop
+      if left(digits, pos) = any (calling_codes) then
+        cc := left(digits, pos);
+        exit;
+      end if;
+    end loop;
+
+    if cc is not null then
+      national := substr(digits, length(cc) + 1);
+      if length(national) >= 4 then
+        -- Right-aligned 3-digit blocks; a lone leading digit joins the next.
+        head := length(national) % 3;
+        if head = 0 then
+          head := 3;
+        elsif head = 1 then
+          head := 4;
+        end if;
+        grouped := substr(national, 1, head);
+        pos := head + 1;
+        while pos <= length(national) loop
+          grouped := grouped || ' ' || substr(national, pos, 3);
+          pos := pos + 3;
+        end loop;
+        return '+' || cc || ' ' || grouped;
+      end if;
+    end if;
+  end if;
+
+  return trimmed;
+end;
 $$;
 
 
@@ -6865,6 +6965,7 @@ CREATE TABLE greendogops.medical_board_row (
     patient text,
     client_name text,
     appt_type text,
+    appt_description text,
     is_out boolean DEFAULT false NOT NULL,
     pmc boolean DEFAULT false NOT NULL,
     emr boolean DEFAULT false NOT NULL,
@@ -6895,7 +6996,6 @@ CREATE TABLE greendogops.medical_board_row (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     board_key text,
-    appt_description text,
     card jsonb DEFAULT '{}'::jsonb NOT NULL,
     patient_code text,
     species text,
@@ -7084,7 +7184,6 @@ CREATE TABLE greendogops.person (
     status_changed_at timestamp with time zone DEFAULT now() NOT NULL,
     first_name text,
     last_name text,
-    preferred_name text,
     grid_name text,
     full_name text,
     email text,
@@ -7103,15 +7202,9 @@ CREATE TABLE greendogops.person (
     phone_home text,
     phone_other text,
     opportunity_type text,
-    grid_aliases text[]
+    grid_aliases text[],
+    preferred_name text
 );
-
-
---
--- Name: COLUMN person.preferred_name; Type: COMMENT; Schema: greendogops; Owner: -
---
-
-COMMENT ON COLUMN greendogops.person.preferred_name IS 'Unused and empty as of 0213. Retained only so production and the migration history agree. Safe to drop once confirmed no external consumer reads it.';
 
 
 --
@@ -7126,6 +7219,13 @@ COMMENT ON COLUMN greendogops.person.opportunity_type IS 'Nature of engagement (
 --
 
 COMMENT ON COLUMN greendogops.person.grid_aliases IS 'Additional spellings the staff schedule sheet uses for this person, beyond grid_name. Read only by the sheet schedule importer.';
+
+
+--
+-- Name: COLUMN person.preferred_name; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person.preferred_name IS 'Unused and empty as of 0213. Retained only so production and the migration history agree. Safe to drop once confirmed no external consumer reads it.';
 
 
 --
@@ -7242,8 +7342,8 @@ CREATE TABLE greendogops.person_employment (
     separation_notes text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    schedule_type text,
     preferred_location_id uuid,
+    schedule_type text,
     CONSTRAINT person_employment_pay_type_check CHECK ((pay_type = ANY (ARRAY['hourly'::text, 'salary'::text, 'day_rate'::text, 'contract'::text])))
 );
 
@@ -7382,10 +7482,10 @@ CREATE TABLE greendogops.person_recruiting (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     target_title text,
+    application_date date,
     review_status text DEFAULT 'accepted'::text NOT NULL,
     reviewed_at timestamp with time zone,
     reviewed_by uuid,
-    application_date date,
     candidate_location text,
     relevant_experience text,
     education text,
@@ -7414,6 +7514,13 @@ COMMENT ON COLUMN greendogops.person_recruiting.score IS 'Candidate Score, 0–1
 
 
 --
+-- Name: COLUMN person_recruiting.application_date; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_recruiting.application_date IS 'Date the candidate applied / their resume was received. Defaults to the upload date at intake; editable on the candidate profile.';
+
+
+--
 -- Name: COLUMN person_recruiting.review_status; Type: COMMENT; Schema: greendogops; Owner: -
 --
 
@@ -7432,13 +7539,6 @@ COMMENT ON COLUMN greendogops.person_recruiting.reviewed_at IS 'When the pending
 --
 
 COMMENT ON COLUMN greendogops.person_recruiting.reviewed_by IS 'auth.uid() of the recruiter who accepted or rejected the applicant.';
-
-
---
--- Name: COLUMN person_recruiting.application_date; Type: COMMENT; Schema: greendogops; Owner: -
---
-
-COMMENT ON COLUMN greendogops.person_recruiting.application_date IS 'Date the candidate applied / their resume was received. Defaults to the upload date at intake; editable on the candidate profile.';
 
 
 --
@@ -8050,7 +8150,11 @@ CREATE TABLE greendogops.qr_form (
     banner_url text,
     post_submit_heading text,
     show_confirmation boolean DEFAULT false NOT NULL,
-    confirmation_note text
+    confirmation_note text,
+    require_email boolean DEFAULT true NOT NULL,
+    require_phone boolean DEFAULT true NOT NULL,
+    require_pet_name boolean DEFAULT false NOT NULL,
+    require_zip boolean DEFAULT false NOT NULL
 );
 
 
@@ -8101,6 +8205,34 @@ COMMENT ON COLUMN greendogops.qr_form.show_confirmation IS 'When true the succes
 --
 
 COMMENT ON COLUMN greendogops.qr_form.confirmation_note IS 'Small print under the ticket, e.g. "One spin per household."';
+
+
+--
+-- Name: COLUMN qr_form.require_email; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.require_email IS 'Public capture form must include an email address. Enforced in the browser and again in the submit action.';
+
+
+--
+-- Name: COLUMN qr_form.require_phone; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.require_phone IS 'Public capture form must include a phone number. Enforced in the browser and again in the submit action.';
+
+
+--
+-- Name: COLUMN qr_form.require_pet_name; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.require_pet_name IS 'Pet name is required — only while collect_pet_name is on.';
+
+
+--
+-- Name: COLUMN qr_form.require_zip; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.qr_form.require_zip IS 'ZIP code is required — only while collect_zip is on.';
 
 
 --
@@ -18730,6 +18862,15 @@ GRANT ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid,
 
 
 --
+-- Name: FUNCTION format_phone(raw text); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.format_phone(raw text) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.format_phone(raw text) TO service_role;
+GRANT ALL ON FUNCTION greendogops.format_phone(raw text) TO authenticated;
+
+
+--
 -- Name: FUNCTION is_appt_line(p_name text, p_group text); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -20211,17 +20352,17 @@ GRANT SELECT(updated_at),INSERT(updated_at),UPDATE(updated_at) ON TABLE greendog
 
 
 --
--- Name: COLUMN person_employment.schedule_type; Type: ACL; Schema: greendogops; Owner: -
---
-
-GRANT SELECT(schedule_type),INSERT(schedule_type),UPDATE(schedule_type) ON TABLE greendogops.person_employment TO authenticated;
-
-
---
 -- Name: COLUMN person_employment.preferred_location_id; Type: ACL; Schema: greendogops; Owner: -
 --
 
 GRANT SELECT(preferred_location_id),INSERT(preferred_location_id),UPDATE(preferred_location_id) ON TABLE greendogops.person_employment TO authenticated;
+
+
+--
+-- Name: COLUMN person_employment.schedule_type; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT(schedule_type),INSERT(schedule_type),UPDATE(schedule_type) ON TABLE greendogops.person_employment TO authenticated;
 
 
 --

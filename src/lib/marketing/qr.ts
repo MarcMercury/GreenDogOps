@@ -146,6 +146,10 @@ export interface QrForm {
   success_message: string | null;
   collect_pet_name: boolean;
   collect_zip: boolean;
+  require_email: boolean;
+  require_phone: boolean;
+  require_pet_name: boolean;
+  require_zip: boolean;
   fields: QrFormField[];
   theme: string;
   banner_url: string | null;
@@ -155,6 +159,80 @@ export interface QrForm {
   active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/**
+ * Which of the built-in contact fields a capture form insists on. Name is
+ * always required, so it has no flag.
+ */
+export interface BasicRequirements {
+  email: boolean;
+  phone: boolean;
+  petName: boolean;
+  zip: boolean;
+}
+
+/** Mirrors the column defaults in migration 0232. */
+export const DEFAULT_BASIC_REQUIREMENTS: BasicRequirements = {
+  email: true,
+  phone: true,
+  petName: false,
+  zip: false,
+};
+
+type BasicRequirementColumns = {
+  collect_pet_name?: boolean | null;
+  collect_zip?: boolean | null;
+  require_email?: boolean | null;
+  require_phone?: boolean | null;
+  require_pet_name?: boolean | null;
+  require_zip?: boolean | null;
+};
+
+/**
+ * Resolve a form row (or no form at all) to its basic-field requirements. A
+ * code with no live form still gets the default contact rules, and pet name /
+ * ZIP can only be required while the form actually asks for them.
+ */
+export function basicRequirementsFrom(
+  form: BasicRequirementColumns | null | undefined,
+): BasicRequirements {
+  if (!form) return { ...DEFAULT_BASIC_REQUIREMENTS };
+  return {
+    email: form.require_email ?? DEFAULT_BASIC_REQUIREMENTS.email,
+    phone: form.require_phone ?? DEFAULT_BASIC_REQUIREMENTS.phone,
+    petName: form.collect_pet_name === true && form.require_pet_name === true,
+    zip: form.collect_zip === true && form.require_zip === true,
+  };
+}
+
+const MIN_PHONE_DIGITS = 7;
+
+/**
+ * Enforce the basic contact block of an untrusted public submission. Values
+ * are expected trimmed, with blanks as null. Returns the first problem, or
+ * null when the submission is acceptable.
+ */
+export function checkBasicAnswers(
+  req: BasicRequirements,
+  v: {
+    fullName: string | null;
+    email: string | null;
+    phone: string | null;
+    petName: string | null;
+    zip: string | null;
+  },
+): string | null {
+  if (!v.fullName) return "Please enter your name.";
+  if (req.email && !v.email) return "Please enter your email address.";
+  if (req.phone && !v.phone) return "Please enter your phone number.";
+  if (v.phone && v.phone.replace(/\D/g, "").length < MIN_PHONE_DIGITS) {
+    return "Please enter a valid phone number.";
+  }
+  if (!v.email && !v.phone) return "Please enter an email or phone number.";
+  if (req.petName && !v.petName) return "Please enter your pet's name.";
+  if (req.zip && !v.zip) return "Please enter your ZIP code.";
+  return null;
 }
 
 /**

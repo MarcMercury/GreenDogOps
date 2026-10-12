@@ -117,6 +117,17 @@ export async function saveQrForm(formData: FormData): Promise<ActionResult> {
     confirmation_note: str(formData.get("confirmation_note")),
     collect_pet_name: bool(formData.get("collect_pet_name")),
     collect_zip: bool(formData.get("collect_zip")),
+    // Only the Basic info editor posts these; without its marker (e.g. a tab
+    // opened before this shipped) the stored requirements are left alone.
+    ...(formData.has("basic_fields")
+      ? {
+          require_email: bool(formData.get("require_email")),
+          require_phone: bool(formData.get("require_phone")),
+          require_pet_name:
+            bool(formData.get("collect_pet_name")) && bool(formData.get("require_pet_name")),
+          require_zip: bool(formData.get("collect_zip")) && bool(formData.get("require_zip")),
+        }
+      : {}),
     fields,
     active: formData.has("active") ? bool(formData.get("active")) : true,
     // Branding is only edited in the Forms tab; the event dialog's editor posts
