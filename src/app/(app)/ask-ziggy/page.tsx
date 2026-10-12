@@ -12,23 +12,11 @@ export const dynamic = "force-dynamic";
 // 60s default would 504 the server action mid-answer.
 export const maxDuration = 300;
 
-/** Starter questions per data scope — General users cannot run revenue reports. */
-const GENERAL_SUGGESTIONS = [
-  "How much is a vet exam?",
+/** Starter questions — no revenue or production, so every access level can run them. */
+const SUGGESTIONS = [
+  "How much PTO do I have left?",
   "When am I working next?",
-  "How much PTO do I have available?",
-  "Who is working at Venice tomorrow?",
-  "Which patients have appointments at Venice tomorrow?",
-  "What does our policy say about clocking in late?",
-];
-
-const FULL_SUGGESTIONS = [
-  "How much revenue did we generate last month?",
-  "Top 10 revenue-producing doctors this year",
-  "Which location had the most appointments last month?",
-  "How many active patients do we have by species?",
-  "When am I working next?",
-  "What does our policy say about clocking in late?",
+  "How many Advanced Procedures do we have scheduled tomorrow in Venice?",
 ];
 
 export default async function AskZiggyPage() {
@@ -83,7 +71,7 @@ export default async function AskZiggyPage() {
         Ziggy reports what is on record — it does not diagnose. Clinical notes, labs and imaging live
         in ezyVet and are not searchable here yet.
       </p>
-      <SmartChat suggestions={scope.canViewFinancials ? FULL_SUGGESTIONS : GENERAL_SUGGESTIONS} />
+      <SmartChat suggestions={SUGGESTIONS} />
       {scope.canViewFinancials ? (
         <GlossaryPanel
           canEdit={canEditModule(current.appUser, "reporting") || isAdminRole(current.appUser.role)}

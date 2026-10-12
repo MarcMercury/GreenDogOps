@@ -217,33 +217,35 @@ function AnswerFeedback({ logId }: { logId: string }) {
 
   return (
     <div className="mt-3 flex items-center gap-2 border-t border-slate-200/70 pt-2">
-      <span className="text-[11px] text-slate-400">Was this right?</span>
+      <span className="text-[11px] text-slate-400">Help train Ziggy</span>
       <button
         type="button"
         onClick={() => rate(1)}
-        aria-label="Correct"
-        className={`rounded px-1.5 py-0.5 text-sm transition ${
-          rating === 1 ? "bg-emerald-100 text-emerald-700" : "text-slate-300 hover:text-emerald-600"
+        aria-label="Good boy — this answer was right"
+        title="Good boy"
+        className={`rounded px-1.5 py-0.5 text-xs transition ${
+          rating === 1 ? "bg-emerald-100 text-emerald-700" : "text-slate-400 hover:text-emerald-600"
         }`}
       >
-        ✓
+        ✓ Good boy
       </button>
       <button
         type="button"
         onClick={() => rate(-1)}
-        aria-label="Wrong"
-        className={`rounded px-1.5 py-0.5 text-sm transition ${
-          rating === -1 ? "bg-rose-100 text-rose-700" : "text-slate-300 hover:text-rose-600"
+        aria-label="Bad boy — this answer was wrong"
+        title="Bad boy"
+        className={`rounded px-1.5 py-0.5 text-xs transition ${
+          rating === -1 ? "bg-rose-100 text-rose-700" : "text-slate-400 hover:text-rose-600"
         }`}
       >
-        ✕
+        ✕ Bad boy
       </button>
-      {verified ? (
+      {rating === 1 ? (
         <span className="text-[11px] font-medium text-emerald-600">
-          Saved as a verified example
+          Such a good boy!{verified ? " · Saved as a verified example" : ""}
         </span>
       ) : rating === -1 ? (
-        <span className="text-[11px] text-slate-400">Logged — thanks, this helps us fix it.</span>
+        <span className="text-[11px] font-medium text-rose-600">Bad Ziggy, Bad!</span>
       ) : null}
     </div>
   );
@@ -390,9 +392,10 @@ export function SmartChat({ suggestions }: { suggestions: readonly string[] }) {
           {!messages.length ? (
             <div className="space-y-4">
               <div className="rounded-xl bg-emerald-50/70 p-4 text-sm text-emerald-900">
-                Hi, I&apos;m Ziggy. Ask me about patients, clients, appointments, the schedule,
-                your own shifts and time off, or company policies — I answer from live Green Dog Ops
-                data and the policy library, and I&apos;ll tell you when something isn&apos;t on record.
+                Ruff ruff, I&apos;m Ziggy, your K9i, and I love to play fetch! Ask me about
+                patients, schedules, your schedule or PTO — whatever you want, I&apos;ll retrieve it
+                for you. If I bring back what you want, tell me I&apos;m a good boy! If I don&apos;t,
+                help train me by letting me know I didn&apos;t fetch what you wanted.
               </div>
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
