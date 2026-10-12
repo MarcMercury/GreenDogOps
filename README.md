@@ -175,7 +175,8 @@ from users who cannot access it.
 **HR / Recruit / GDU**
 - **HR / Roster** (`/hr`) — master employee records: employment, payroll,
   reviews, discipline, PTO, credentials, licenses, assets, documents, and
-  onboarding checklists.
+  onboarding checklists. Applicants are not listed here — they are managed
+  only in the ATS until hired.
 - **Recruiting (ATS)** (`/ats`) — applicant pipeline, interview tracking, and
   Jobs (open/close; candidates linked to a job, auto-matched on intake), Forms
   (public application at `/apply`, role-specific questionnaires at

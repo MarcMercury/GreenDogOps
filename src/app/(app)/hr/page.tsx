@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { RosterRow } from "@/lib/hr/types";
-import { redactPrivate } from "@/lib/hr/types";
+import { redactPrivate, ROSTER_EXCLUDED_STATUS } from "@/lib/hr/types";
 import {
   loadCompensation,
   withCompensation,
@@ -45,6 +45,7 @@ export default async function HrRosterPage() {
        ),
        sched_employee_setting ( is_schedulable )`,
         )
+        .neq("status", ROSTER_EXCLUDED_STATUS)
         .order("last_name", { ascending: true })
         .range(from, to),
     ),

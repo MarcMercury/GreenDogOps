@@ -6,6 +6,7 @@ import {
   type RosterRow,
   type EmploymentStatus,
   STATUS_LABELS,
+  ROSTER_STATUS_LABELS,
   WORK_LOCATION_LABELS,
   SCHEDULE_LABELS,
   PAY_TYPE_LABELS,
@@ -52,7 +53,7 @@ function toOptions(map: Record<string, string>): SelectOption[] {
 }
 
 const WORK_LOCATION_OPTIONS = toOptions(WORK_LOCATION_LABELS);
-const STATUS_OPTIONS = toOptions(STATUS_LABELS);
+const STATUS_OPTIONS = toOptions(ROSTER_STATUS_LABELS);
 const FLSA_OPTIONS = toOptions(FLSA_LABELS);
 const SCHEDULE_OPTIONS = toOptions(SCHEDULE_LABELS);
 const SCHEDULE_TYPE_SELECT_OPTIONS: SelectOption[] = SCHEDULE_TYPE_OPTIONS.map(

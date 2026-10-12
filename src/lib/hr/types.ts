@@ -395,6 +395,22 @@ export const STATUS_LABELS: Record<EmploymentStatus, string> = {
   contractor: "Contractor",
 };
 
+/** Applicants are managed exclusively in the ATS; the HR roster shows everyone else. */
+export const ROSTER_EXCLUDED_STATUS = "applicant" satisfies EmploymentStatus;
+
+export type RosterStatus = Exclude<EmploymentStatus, typeof ROSTER_EXCLUDED_STATUS>;
+
+export const ROSTER_STATUS_LABELS: Record<RosterStatus, string> = {
+  prospect: STATUS_LABELS.prospect,
+  employee: STATUS_LABELS.employee,
+  former: STATUS_LABELS.former,
+  contractor: STATUS_LABELS.contractor,
+};
+
+export function isRosterStatus(status: EmploymentStatus): status is RosterStatus {
+  return status !== ROSTER_EXCLUDED_STATUS;
+}
+
 export const WORK_LOCATION_LABELS: Record<WorkLocationType, string> = {
   in_house: "In-House",
   remote: "Remote",

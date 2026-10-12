@@ -5,6 +5,9 @@ import {
   PRIVATE_PERSON_FIELDS,
   redactCompensation,
   redactPrivate,
+  isRosterStatus,
+  ROSTER_STATUS_LABELS,
+  STATUS_LABELS,
   type RosterRow,
 } from "./types";
 
@@ -118,6 +121,23 @@ describe("compensation column list (mirrored in migration 0227)", () => {
         "ce_remaining",
         "last_review_date",
       ].sort(),
+    );
+  });
+});
+
+describe("roster statuses", () => {
+  it("excludes applicants, which are managed only in the ATS", () => {
+    expect(isRosterStatus("applicant")).toBe(false);
+    expect(Object.keys(ROSTER_STATUS_LABELS)).not.toContain("applicant");
+  });
+
+  it("keeps every other employment status on the roster", () => {
+    for (const s of ["prospect", "employee", "former", "contractor"] as const) {
+      expect(isRosterStatus(s)).toBe(true);
+      expect(ROSTER_STATUS_LABELS[s]).toBe(STATUS_LABELS[s]);
+    }
+    expect(Object.keys(ROSTER_STATUS_LABELS).sort()).toEqual(
+      Object.keys(STATUS_LABELS).filter((s) => s !== "applicant").sort(),
     );
   });
 });

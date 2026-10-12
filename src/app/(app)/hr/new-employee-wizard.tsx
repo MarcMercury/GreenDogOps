@@ -6,7 +6,7 @@ import {
   OPPORTUNITY_GROUPS,
   OPPORTUNITY_TYPES,
 } from "@/lib/shared/opportunity-types";
-import { SCHEDULE_TYPE_OPTIONS } from "@/lib/hr/types";
+import { ROSTER_STATUS_LABELS, SCHEDULE_TYPE_OPTIONS } from "@/lib/hr/types";
 import { PhoneInput } from "@/lib/shared/phone-input";
 import { createEmployee } from "./actions";
 
@@ -304,13 +304,9 @@ export function NewEmployeeWizard() {
                 label="Status"
                 value={form.status}
                 onChange={(v) => set("status", v)}
-                options={[
-                  { value: "prospect", label: "Prospect" },
-                  { value: "applicant", label: "Applicant" },
-                  { value: "employee", label: "Employee" },
-                  { value: "former", label: "Former" },
-                  { value: "contractor", label: "Contractor" },
-                ]}
+                options={Object.entries(ROSTER_STATUS_LABELS).map(
+                  ([value, label]) => ({ value, label }),
+                )}
               />
               <SelectField
                 label="Work location"
@@ -480,13 +476,7 @@ function ReviewRow({
   );
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  prospect: "Prospect",
-  applicant: "Applicant",
-  employee: "Employee",
-  former: "Former",
-  contractor: "Contractor",
-};
+const STATUS_LABEL: Record<string, string> = ROSTER_STATUS_LABELS;
 
 const LOCATION_LABEL: Record<string, string> = {
   in_house: "In-House",
