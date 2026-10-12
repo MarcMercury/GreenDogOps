@@ -12,7 +12,17 @@ import {
   withCatalog,
   type SmartScope,
 } from "./smart-scope";
-import { tagMismatchError, unmatchedTagFilters } from "./smart-tags";
+import {
+  PROBLEM_SPEC,
+  TAG_SPEC,
+  coverageError,
+  coverageGaps,
+  coverageWarning,
+  notInSubqueryProblem,
+  rawTagTextProblem,
+  unmatchedFilters,
+  vocabMismatchError,
+} from "./smart-sql-checks";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -31,6 +41,8 @@ export type SmartRow = Record<string, unknown>;
 export interface SmartTurn {
   role: "user" | "assistant";
   content: string;
+  /** The SQL behind an assistant answer, loaded server-side from smart_question_log. */
+  sql?: string | null;
 }
 
 export interface SmartAttempt {
@@ -190,8 +202,17 @@ let catalogCache: {
   hints: ValueHint[];
   functions: CatalogFunction[];
   tags: string[];
+  problems: { item: string; pets: number }[];
   at: number;
 } | null = null;
+
+/** Each item of the comma-joined master_problems list, most common first. */
+const PROBLEM_VOCAB_SQL = `select btrim(p) as item, count(*)::int as pets
+from ezyvet_animal, unnest(string_to_array(master_problems, ',')) as p
+where coalesce(master_problems, '') <> '' and btrim(p) <> ''
+group by 1 order by 2 desc, 1`;
+/** master_problems items shown in the prompt; the guard checks against all of them. */
+const PROBLEM_PROMPT_MIN_PETS = 20;
 
 function rowLabel(rows: number | null): string {
   if (rows === null || rows === undefined || rows < 0) return "";
@@ -222,15 +243,19 @@ async function getSchemaCatalog(
   functions: string;
   scope: SmartScope;
   tags: string[];
+  problems: string[];
 }> {
   if (!catalogCache || Date.now() - catalogCache.at >= SCHEMA_TTL_MS) {
-    const [{ data, error }, hints, fns, tagRows] = await Promise.all([
+    const [{ data, error }, hints, fns, tagRows, problemRows] = await Promise.all([
       admin.rpc("smart_schema"),
       admin.rpc("smart_value_hints"),
       admin.rpc("smart_functions"),
       // report_contact_tag is a view, so smart_value_hints (planner stats) never
       // lists the tag spellings — read them directly.
       admin.from("report_contact_tag_summary").select("tag_norm").order("contacts", { ascending: false }),
+      // master_problems is one comma-joined cell per pet, so planner stats only
+      // see whole combinations — split it into items.
+      admin.rpc("smart_query", { p_sql: PROBLEM_VOCAB_SQL, p_limit: null }),
     ]);
     if (error) throw new Error(`Could not read the database schema: ${error.message}`);
     catalogCache = {
@@ -241,6 +266,8 @@ async function getSchemaCatalog(
       tags: ((tagRows.data ?? []) as { tag_norm: string | null }[])
         .map((r) => r.tag_norm?.trim().toLowerCase() ?? "")
         .filter(Boolean),
+      problems: (problemRows.error ? [] : ((problemRows.data ?? []) as { item: string; pets: number }[]))
+        .filter((r) => typeof r.item === "string" && r.item),
       at: Date.now(),
     };
   }
@@ -268,6 +295,9 @@ async function getSchemaCatalog(
 
   const tags =
     blockedTables.has("report_contact_tag") || blockedColumns.has("tag_norm") ? [] : catalogCache.tags;
+  const problemRows =
+    blockedTables.has("ezyvet_animal") || blockedColumns.has("master_problems") ? [] : catalogCache.problems;
+  const commonProblems = problemRows.filter((p) => p.pets >= PROBLEM_PROMPT_MIN_PETS).map((p) => p.item);
 
   const values = [
     ...catalogCache.hints
@@ -278,6 +308,11 @@ async function getSchemaCatalog(
       )
       .map((h) => `${h.table}.${h.column} = ${h.values.join(" | ")}`),
     ...(tags.length ? [`report_contact_tag.tag_norm (every tag in use) = ${tags.join(" | ")}`] : []),
+    ...(commonProblems.length
+      ? [
+          `ezyvet_animal.master_problems (comma-joined list per pet; match one item with ILIKE '%item%') items on ${PROBLEM_PROMPT_MIN_PETS}+ pets = ${commonProblems.join(" | ")}`,
+        ]
+      : []),
   ].join("\n");
 
   const functions = catalogCache.functions
@@ -290,7 +325,7 @@ async function getSchemaCatalog(
     )
     .join("\n");
 
-  return { schema, values, functions, scope, tags };
+  return { schema, values, functions, scope, tags, problems: problemRows.map((p) => p.item) };
 }
 
 const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles hospitals):
@@ -300,19 +335,20 @@ window — the practice has been open since 2014, but the imports have not. Filt
 window it does not cover returns ZERO ROWS, which reads like "this never happened" and is the
 single worst failure this report can produce:
 - APPOINTMENT TYPE and per-appointment rows (ezyvet_appointment_record, report_appointment_detail,
-  report_appointment_type_volume, report_appointment_type_by_species): 2026-01-01 onwards ONLY.
-  There is NO appointment type, resource or booking note for ANY date before 2026.
+  report_appointment_type_volume, report_appointment_type_by_species): complete from 2024-11-01
+  onwards ONLY (a few thousand scattered 2015–2016 rows exist — never treat them as history).
+  There is NO appointment type, resource or booking note for dates between 2017 and October 2024.
 - BILLED LINES, visit days and every revenue/appointment roll-up (ezyvet_invoice_line,
   the ezyvet_appointment matview, all report_* revenue views): 2025-01-02 onwards ONLY.
 - LAST VISIT DATE per client and per pet (ezyvet_contact.last_invoiced,
-  ezyvet_animal.last_visit): back to 2014. This is the ONLY history that predates 2025.
+  ezyvet_animal.last_visit): back to 2014. This is the ONLY history that predates November 2024.
 - The pet and client records themselves (ezyvet_animal, ezyvet_contact, master_problems,
   contact details) are a CURRENT snapshot with no date limit at all.
 RULES that follow from this, and they override everything else:
-- NEVER put a date filter earlier than 2026-01-01 on an appointment-type table, and never put one
+- NEVER put a date filter earlier than 2024-11-01 on an appointment-type table, and never put one
   earlier than 2025-01-02 on invoice/visit tables. Use the source that covers the window instead.
 - If the user asks for a field that only exists in a window their question predates (most often
-  the appointment TYPE for a pre-2026 date), DROP THAT COLUMN, answer the rest of the question
+  the appointment TYPE for a date before November 2024), DROP THAT COLUMN, answer the rest of the question
   with the source that does cover the period, and state the omission in "note". Returning zero
   rows because one requested column has no history is never the right answer.
 - ezyvet_invoice_line = every billed line. Revenue = sum(total_incl) (total_excl is pre-tax).
@@ -519,7 +555,7 @@ SERVICE LINES / DEPARTMENTS — how the team names a department is NOT what the 
   TYPE to a specific pet and owner, so use it for "how many <type> appointments", appointment-mix,
   and demand/volume planning by type. Do NOT confuse it with the ezyvet_appointment MATVIEW
   (billed visit days) — different grain, different name. Coverage is whatever date windows have
-  been pulled (2026 onward), and it spans past AND future dates. Rows with an empty client_code
+  been pulled (complete from 2024-11-01 onward), and it spans past AND future dates. Rows with an empty client_code
   and pet_code are calendar blocks, holds and internal columns, not bookings: filter
   is_booking on report_appointment_detail, or require a non-empty client_code/pet_code. It
   includes CANCELLED appointments and carries no status column, so pair it with
@@ -700,6 +736,13 @@ const SQL_RULES = `Rules for the SQL:
 - If the question is a FOLLOW-UP to an earlier turn ("of those, how many...", "how many of them"),
   reuse the SAME population, table and filters as the previous query so the numbers reconcile
   with the answer already given. Never silently switch the counted entity between turns.
+- "Now remove / exclude / add / only keep ..." and "take this list and ..." EDIT THE LIST THE
+  USER IS LOOKING AT. The query behind the previous answer is shown in the conversation: copy it
+  and add or change only the condition the user asked for, keeping every other filter, column
+  and the date window exactly as they were, so the new list is the old list minus (or plus)
+  what they named. Never rebuild a list from scratch for a follow-up — that is how "remove the
+  101 clients" turned a 2,686-row list into 3 rows. If a filter from an older turn no longer
+  applies, say so in "note" rather than silently keeping or dropping it.
 - A CORRECTION or instruction is not a new question. When the user says "that's not right",
   "fix this", "fix this permanently", "remember this", "always use X" or "what about <other
   thing>", take the PREVIOUS turn's query and change only what the user corrected. Carry over
@@ -708,11 +751,25 @@ const SQL_RULES = `Rules for the SQL:
   whole history and produces an answer that is wrong by a thousandfold. Say in "note" what you
   changed, and if the user is asking for a lasting rule, add that the correction applies to this
   answer and should be saved to the glossary to make it permanent.
+- When the user LISTS SPECIFIC ITEMS ("find ONLY these services: A, B, C", "match these to our
+  products") return exactly one group of rows per item they listed, in their order: put the list
+  in a VALUES (item_no, requested) CTE and LEFT JOIN LATERAL the catalog on ILIKE '%word%' for
+  each significant word of that item (a LIMIT inside the lateral is fine), so an item with no
+  match still appears as a row with NULL matches. Never add items they did not ask for, never
+  return a whole category, and say in "note" which items found no match.
+- Words that RULE THINGS OUT are filters, not decoration: "ignore anything that says PROMO or
+  Credit" = AND name NOT ILIKE '%promo%' AND name NOT ILIKE '%credit%'. A qualifier also
+  excludes its opposite — a KITTEN or puppy plan excludes names containing ADULT or SENIOR,
+  a feline question excludes canine items, "in-house" excludes referral. When a follow-up adds an
+  exclusion, keep every earlier filter and add this one.
 - Round money to 2 decimals and averages to 1 decimal.
 - Match names/text case-insensitively with ILIKE, and match category values with
   ILIKE '%fragment%' rather than = unless the exact stored value is listed under
   "Common column values" below. Guessed literals are the #1 cause of a wrong answer:
   a filter that matches nothing returns an empty/NULL result that reads like "no data".
+- Exclusions ("clients who do NOT ...", "remove anyone with ...") use AND NOT EXISTS (SELECT 1
+  ... WHERE inner.key = outer.key ...). NOT IN (SELECT ...) is rejected: one NULL in the
+  subquery makes it return zero rows.
 - Prefer the widest correct scope. Do not add filters the user did not ask for (no date
   window, no location, no is_active) unless the question implies one.
 - Ignore NULLs that would skew an average (e.g. patients with no date_of_birth), and report
@@ -786,7 +843,7 @@ ${passages}`
     : ""
 }
 Reply with a single JSON object, no prose, using exactly these keys:
-{"sql": "<the SELECT statement, or null>", "note": "<one short sentence on any assumption you made, or null>", "answer": "<only when no query is needed or the question cannot be answered from this schema, otherwise null>", "source": "<'data' when you wrote SQL, 'policy' when answered from the policy excerpts, 'personal' when answered from the About-the-person-asking section, 'restricted' when the question needs data the access restrictions above say this user may not see, otherwise null>"}
+{"sql": "<the SELECT statement, or null>", "note": "<one short sentence on any assumption you made, or null>", "answer": "<only when no query is needed or the question cannot be answered from this schema, otherwise null>", "source": "<'data' when you wrote SQL, 'policy' when answered from the policy excerpts, 'personal' when answered from the About-the-person-asking section, 'restricted' when the question needs data the access restrictions above say this user may not see, 'external' when the question is about information from OUTSIDE Green Dog's own records (industry benchmarks or averages, other practices, published statistics, general veterinary knowledge) — then put in "answer" that this is not in Green Dog Ops data and, when one exists, which of our OWN figures you could show instead; never use 'external' for a question about our own clients, pets, staff or revenue, otherwise null>"}
 
 Database schema (name [kind, approx rows](column type, ...)):
 ${schema}
@@ -908,13 +965,35 @@ function isEmptyResult(rows: SmartRow[]): boolean {
 function historyBlock(history: SmartTurn[]): string {
   const recent = history.slice(-6);
   if (!recent.length) return "";
+  // Only the latest query: a follow-up edits the list the user is looking at.
+  const lastSql = recent.findLastIndex((t) => t.role === "assistant" && t.sql);
   return `Earlier in this conversation:\n${recent
-    .map((t) => `${t.role === "user" ? "User" : "Assistant"}: ${t.content.slice(0, 400)}`)
+    .map(
+      (t, i) =>
+        `${t.role === "user" ? "User" : "Assistant"}: ${t.content.slice(0, 400)}${
+          i === lastSql ? `\n[The query behind that answer — start from it for a follow-up:]\n${t.sql}` : ""
+        }`,
+    )
     .join("\n")}\n\n`;
 }
 
 function isRestrictedScope(scope: SmartScope): boolean {
   return !scope.canViewFinancials || !scope.canViewCompensation || !scope.canViewHrRecords;
+}
+
+/** A query that would run but answer the wrong question (see smart-sql-checks.ts). */
+function sqlProblem(sql: string, tags: string[], problems: string[]): string | null {
+  const vocab = [
+    { spec: TAG_SPEC, values: tags },
+    { spec: PROBLEM_SPEC, values: problems },
+  ]
+    .map(({ spec, values }) => {
+      const bad = unmatchedFilters(sql, spec, values);
+      return bad.length ? vocabMismatchError(spec, bad, values) : null;
+    })
+    .filter(Boolean)
+    .join("\n\n");
+  return vocab || rawTagTextProblem(sql) || notInSubqueryProblem(sql);
 }
 
 function askerBlock(asker: string | null): string {
@@ -961,7 +1040,7 @@ export async function askSmartReport(
     };
   }
 
-  const [{ schema, values, functions, scope, tags }, passages, rawExamples, glossary] = await Promise.all([
+  const [{ schema, values, functions, scope, tags, problems }, passages, rawExamples, glossary] = await Promise.all([
     getSchemaCatalog(admin, requestedScope),
     getPolicyPassages(admin, q),
     getExamples(admin, q),
@@ -970,7 +1049,17 @@ export async function askSmartReport(
   // A verified query that touches something this user may not read would leak
   // the name and tempt a query the guard then rejects.
   const examples = rawExamples.filter(
-    (e) => e.sql && !blockedIdentifier(e.sql, scope) && !lookupCallProblem(e.sql, scope),
+    (e) =>
+      e.sql &&
+      !blockedIdentifier(e.sql, scope) &&
+      !lookupCallProblem(e.sql, scope) &&
+      // A verified answer that predates a check would teach the model the bug back.
+      !sqlProblem(e.sql, tags, problems) &&
+      !coverageGaps(e.sql).length,
+  );
+  // Same rule for the previous answer's query.
+  const turns = history.map((t) =>
+    t.sql && (blockedIdentifier(t.sql, scope) || lookupCallProblem(t.sql, scope)) ? { ...t, sql: null } : t,
   );
   const today = new Date().toISOString().slice(0, 10);
   const system = planSystemPrompt(
@@ -991,6 +1080,7 @@ export async function askSmartReport(
   let rows: SmartRow[] = [];
   let note: string | null = null;
   let emptyRetries = 0;
+  let coverageRetried = false;
   // The best query that actually ran, kept so a genuinely empty dataset still
   // gets an answer instead of "I couldn't build a query".
   let fallback: { sql: string; rows: SmartRow[]; note: string | null } | null = null;
@@ -1004,7 +1094,7 @@ export async function askSmartReport(
 
     const plan = await callTextLLM(
       system,
-      `${historyBlock(history)}Question: ${q}${retryBlock}`,
+      `${historyBlock(turns)}Question: ${q}${retryBlock}`,
       { json: true, maxTokens: 4000, thinkingBudget: 1024 },
     );
     if (!plan.ok) return { ok: false, answer: plan.error, ...empty, attempts };
@@ -1039,6 +1129,12 @@ export async function askSmartReport(
           attempts,
         };
       }
+      // Outside data (industry benchmarks, competitors, general knowledge) is
+      // not in Green Dog Ops — the honest "we don't have that" is the answer,
+      // and the refusal retry would only push the model into a wrong query.
+      if (parsed.answer && parsed.source === "external") {
+        return { ok: true, answer: parsed.answer, ...empty, provider, attempts };
+      }
       if (parsed.answer && attempt === MAX_SQL_ATTEMPTS - 1) {
         return { ok: false, answer: parsed.answer, ...empty, provider, attempts };
       }
@@ -1066,11 +1162,22 @@ export async function askSmartReport(
       continue;
     }
 
-    // A misspelled tag in an exclusion still returns rows — every client,
-    // unfiltered — so neither the database nor the empty-result retry notices.
-    const badTags = unmatchedTagFilters(sql, tags);
-    if (badTags.length) {
-      attempts.push({ sql, error: tagMismatchError(badTags, tags) });
+    // A filter on a value that is not stored still returns rows — in an
+    // exclusion, every row, unfiltered — so neither the database nor the
+    // empty-result retry notices. See smart-sql-checks.ts.
+    const queryProblem = sqlProblem(sql, tags, problems);
+    if (queryProblem) {
+      attempts.push({ sql, error: queryProblem });
+      sql = null;
+      continue;
+    }
+
+    // A window older than the table's history reads as "nothing happened".
+    // Send it back once; if the model keeps it, say so under the answer.
+    const gaps = coverageGaps(sql);
+    if (gaps.length && !coverageRetried) {
+      coverageRetried = true;
+      attempts.push({ sql, error: coverageError(gaps) });
       sql = null;
       continue;
     }
@@ -1100,7 +1207,7 @@ export async function askSmartReport(
       attempts.push({
         sql,
         error:
-          "The query ran but returned no usable data (no rows, or every value was NULL or zero). A zero is almost always a filter that matched nothing, not a real answer — this is a busy three-hospital practice. FIRST check the date window against the coverage list: appointment-type tables hold 2026 onwards only and invoice/visit tables 2025-01-02 onwards, so any earlier window on them returns nothing — rebuild the query on ezyvet_contact.last_invoiced / ezyvet_animal.last_visit (back to 2014) and drop the columns that do not exist that far back, noting the omission. Otherwise check every literal against the \"Common column values\" list, drop the most suspect filter, and try again with looser matching (ILIKE '%fragment%').",
+          "The query ran but returned no usable data (no rows, or every value was NULL or zero). A zero is almost always a filter that matched nothing, not a real answer — this is a busy three-hospital practice. FIRST check the date window against the coverage list: appointment records (type, resource, booking detail) hold 2024-11-01 onwards only and invoice/visit tables 2025-01-02 onwards, so any earlier window on them returns nothing — rebuild the query on ezyvet_contact.last_invoiced / ezyvet_animal.last_visit (back to 2014) and drop the columns that do not exist that far back, noting the omission. Otherwise check every literal against the \"Common column values\" list, drop the most suspect filter, and try again with looser matching (ILIKE '%fragment%').",
       });
       rows = [];
       sql = null;
@@ -1134,13 +1241,16 @@ export async function askSmartReport(
     { maxTokens: 700, temperature: 0.2 },
   );
 
+  const gaps = coverageGaps(sql);
+  const answer = summary.ok
+    ? summary.content.trim()
+    : rows.length
+      ? "Here are the results."
+      : "That query returned no rows.";
+
   return {
     ok: true,
-    answer: summary.ok
-      ? summary.content.trim()
-      : rows.length
-        ? "Here are the results."
-        : "That query returned no rows.",
+    answer: gaps.length ? `${answer}\n\n${coverageWarning(gaps)}` : answer,
     sql,
     rows,
     columns: columnsOf(rows),

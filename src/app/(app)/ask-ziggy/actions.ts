@@ -9,6 +9,14 @@ import { formatAskerContext, getAskerFacts } from "@/lib/reporting/ziggy-context
 
 const MAX_QUESTION_CHARS = 800;
 const HISTORY_LIMIT = 40;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A chat turn from the browser. An answer carries its log id, never its SQL. */
+export interface SmartChatTurn {
+  role: "user" | "assistant";
+  content: string;
+  logId?: string | null;
+}
 
 export interface SmartHistoryEntry {
   id: string;
@@ -38,7 +46,7 @@ const canUseAskZiggy = (user: AppUser) => canAccessModule(user, "ask_ziggy");
  */
 export async function askSmartQuestion(
   question: string,
-  history: SmartTurn[] = [],
+  history: SmartChatTurn[] = [],
 ): Promise<SmartAnswer> {
   const current = await requireUser();
   if (!canUseAskZiggy(current.appUser)) {
@@ -47,12 +55,33 @@ export async function askSmartQuestion(
   const scope = scopeForUser(current.appUser);
 
   const q = typeof question === "string" ? question.trim().slice(0, MAX_QUESTION_CHARS) : "";
-  const turns: SmartTurn[] = (Array.isArray(history) ? history : [])
+  const recent = (Array.isArray(history) ? history : [])
     .slice(-6)
-    .filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string")
-    .map((t) => ({ role: t.role, content: t.content.slice(0, 600) }));
+    .filter((t) => t && (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
 
   const admin = createAdminClient();
+
+  // A follow-up ("now remove the 101 clients") must edit the query behind the
+  // last answer, so load it — from this user's own log, never from the browser.
+  const lastLogId = recent.findLast(
+    (t) => t.role === "assistant" && typeof t.logId === "string" && UUID.test(t.logId),
+  )?.logId;
+  let lastSql: string | null = null;
+  if (lastLogId) {
+    const { data } = await admin
+      .from("smart_question_log")
+      .select("sql")
+      .eq("id", lastLogId)
+      .eq("app_user_id", current.appUser.id)
+      .maybeSingle();
+    lastSql = typeof data?.sql === "string" ? data.sql : null;
+  }
+  const turns: SmartTurn[] = recent.map((t) => ({
+    role: t.role,
+    content: t.content.slice(0, 600),
+    sql: t.role === "assistant" && t.logId === lastLogId ? lastSql : null,
+  }));
+
   const startedAt = Date.now();
   let result: SmartResult;
   try {

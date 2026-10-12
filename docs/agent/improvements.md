@@ -28,6 +28,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
   - **Harden `smart_query()` in the database:** mirror the TS unsafe-function guard (xml/ts_stat/regclass/pg_*) in the keyword check, alongside the `search_path` item above.
   - **Clinical notes:** probe the ezyVet Records dashboard for a clinical-record export (note text, prescriptions, allergies). Export cap is 10,000 records.
   - **Reach:** only ~22 of ~94 employees have logins. Either provision Staff logins or add a Slack slash command (no `*:history` scopes needed).
+  - **Search-quality follow-ups (2026-10-12):**
+    - Two *verified* examples (`smart_question_log` 781a7086…, 4df788f5…) match raw `contact_tags` and read invoice lines from 2024-09-01. They are now skipped at prompt time by `sqlProblem()`/`coverageGaps()`, but un-verify them (production write — needs owner OK) so the admin view stops treating them as correct.
+    - Review and activate/edit the four glossary drafts (`code 101`, `lapsed client`, `ap required`, `active client`). "active client" needs a business decision (ezyVet flag ≈ 32k vs seen-in-12-months ≈ 8.2k).
+    - The "advanced procedures" glossary entry aliases `ap`, so any "AP Required" question also injects AP-department revenue guidance. Drop that alias, or rely on the `ap required` entry once active.
+    - `smart_value_hints()` skips views (`relkind in ('r','p','m')`), so any view-only vocabulary is invisible to the model. Tags and master problems are now loaded in `smart.ts`; a general fix is a DB function that samples distinct values from allow-listed view columns.
   - **Links in answers:** link patients to `/ezyvet/patients` and employees to `/hr/[id]` from result rows.
 - **Risk:** medium — every item widens what the model can see; keep each behind the allow-list tests.
 

@@ -6,9 +6,10 @@ import {
   getSmartHistory,
   rateSmartAnswer,
   type SmartAnswer,
+  type SmartChatTurn,
   type SmartHistoryEntry,
 } from "./actions";
-import type { SmartResult, SmartRow, SmartTurn } from "@/lib/reporting/smart";
+import type { SmartResult, SmartRow } from "@/lib/reporting/smart";
 
 type Message =
   | { id: string; role: "user"; content: string }
@@ -326,7 +327,9 @@ export function SmartChat({ suggestions }: { suggestions: readonly string[] }) {
     const q = question.trim();
     if (!q || pending) return;
 
-    const turns: SmartTurn[] = messages.slice(-6).map((m) => ({ role: m.role, content: m.content }));
+    const turns: SmartChatTurn[] = messages
+      .slice(-6)
+      .map((m) => ({ role: m.role, content: m.content, logId: m.role === "assistant" ? m.logId : null }));
     setMessages((prev) => [...prev, { id: `${Date.now()}-u`, role: "user", content: q }]);
     setInput("");
     setPending(true);
