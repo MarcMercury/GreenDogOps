@@ -40,8 +40,9 @@ export default async function UsersPage({
     string,
     { name: string; title: string | null }
   >();
+  const slackById = new Map<string, string>();
   if (personIds.length > 0) {
-    const [{ data: persons }, { data: employments }] = await Promise.all([
+    const [{ data: persons }, { data: employments }, { data: slackLinks }] = await Promise.all([
       admin
         .from("person")
         .select("id, full_name, first_name, last_name")
@@ -50,7 +51,14 @@ export default async function UsersPage({
         .from("person_employment")
         .select("person_id, adp_job_title, offer_title")
         .in("person_id", personIds),
+      admin
+        .from("person_slack_link")
+        .select("person_id, status")
+        .in("person_id", personIds),
     ]);
+    for (const l of (slackLinks ?? []) as Array<{ person_id: string; status: string }>) {
+      slackById.set(l.person_id, l.status);
+    }
     const titleById = new Map<string, string | null>();
     for (const e of (employments ?? []) as Array<{
       person_id: string;
@@ -100,6 +108,7 @@ export default async function UsersPage({
       person_id: u.person_id,
       rosterName: roster?.name ?? null,
       rosterTitle: roster?.title ?? null,
+      slackStatus: u.person_id ? (slackById.get(u.person_id) ?? null) : null,
       role: u.role,
       is_active: u.is_active,
       last_seen_at: u.last_seen_at,

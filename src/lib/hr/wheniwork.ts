@@ -3,6 +3,7 @@ import { gmail as gmailApi, type gmail_v1 } from "@googleapis/gmail";
 import { OAuth2Client } from "google-auth-library";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { TimeOffKind } from "@/lib/hr/types";
+import { notifyTimeOffRequested } from "@/lib/notify/events/schedule";
 
 // ---------------------------------------------------------------------------
 // When I Work → HR time-off sync (email-based).
@@ -305,6 +306,7 @@ export async function syncWhenIWorkTimeOff(): Promise<WhenIWorkSyncResult> {
   if (peopleErr) throw new Error(`Failed to load people: ${peopleErr.message}`);
   const nameIndex = buildNameIndex((people ?? []) as PersonRow[]);
 
+  const newRequestIds: string[] = [];
   for (const msg of messages) {
     if (!msg.id) continue;
     try {
@@ -343,14 +345,17 @@ export async function syncWhenIWorkTimeOff(): Promise<WhenIWorkSyncResult> {
           },
           { onConflict: "source,external_id" },
         )
-        .select("created_at, updated_at")
+        .select("id, created_at, updated_at")
         .single();
       if (error) {
         result.errors.push(`message ${msg.id}: ${error.message}`);
         continue;
       }
       // created_at === updated_at on a fresh insert; the trigger bumps updated_at on update.
-      if (upserted && upserted.created_at === upserted.updated_at) result.created += 1;
+      if (upserted && upserted.created_at === upserted.updated_at) {
+        result.created += 1;
+        newRequestIds.push(upserted.id as string);
+      }
       else result.updated += 1;
 
       // Mark processed so it is never re-imported.
@@ -365,6 +370,9 @@ export async function syncWhenIWorkTimeOff(): Promise<WhenIWorkSyncResult> {
       );
     }
   }
+
+  // Tell the schedule admins about new requests (never fails the import).
+  for (const id of newRequestIds) await notifyTimeOffRequested(id, null);
 
   result.ok = result.errors.length === 0;
   return result;

@@ -10,6 +10,8 @@ import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordAudit, type CurrentUser } from "@/lib/auth/session";
 import { publishNotification } from "@/lib/notify/publish";
+import { resolveCards } from "@/lib/notify/engine";
+import { runInBackground } from "@/lib/notify/emit";
 import { emitSlackWorkflowEvent, slackWorkflowConfigured, type SlackWorkflowEvent } from "@/lib/notify/slack-workflow";
 import { appBaseUrl } from "@/lib/shared/app-url";
 import { canAssignTaskTo, canChangeTask, isSafeWorkLink, isSlackLink, type WorkPriority } from "./items";
@@ -200,6 +202,10 @@ export async function setOpsTaskStatus(
   if (closing) {
     const assignee = await loadLogin(task.assignee_user_id);
     emitLater(status === "done" ? "task.completed" : "task.dismissed", { ...task, status }, assignee, actorName);
+    // Clear the "Mark complete" button on any Slack card about this task.
+    runInBackground(() =>
+      resolveCards(`task:${taskId}`, `${status === "done" ? "✅ Completed" : "Dismissed"} by ${actorName}`),
+    );
   }
   return { ok: true };
 }

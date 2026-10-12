@@ -9,6 +9,8 @@ import { canEditModule, isAdminRole } from "@/lib/auth/permissions";
 import type { InitiativeLink, TreeItem, EventStaffShift } from "@/lib/marketing/types";
 import { searchShifts } from "../schedule-search/data";
 import { formatPhoneNumber } from "@/lib/shared/phone";
+import { runInBackground } from "@/lib/notify/emit";
+import { loadMarketingEvent, notifyMarketingEventSaved } from "@/lib/notify/events/marketing";
 export type ActionResult =
   | { ok: true; message?: string }
   | { ok: false; error: string };
@@ -76,9 +78,10 @@ function parseLinks(formData: FormData): InitiativeLink[] {
 // Events
 // ===========================================================================
 export async function saveEvent(formData: FormData): Promise<ActionResult> {
-  await requireMarketingEditor();
+  const current = await requireMarketingEditor();
   const supabase = await createClient();
   const id = str(formData.get("id"));
+  const before = id && UUID_RE.test(id) ? await loadMarketingEvent(id) : null;
   const patch = {
     name: str(formData.get("name")) ?? "Untitled event",
     event_type: str(formData.get("event_type")) ?? "third_party",
@@ -151,6 +154,11 @@ export async function saveEvent(formData: FormData): Promise<ActionResult> {
       promotion_id: promotionId,
     });
     if (promoErr) return { ok: false, error: promoErr };
+    const savedId = eventId;
+    const actorUserId = current.appUser.id;
+    runInBackground(async () =>
+      notifyMarketingEventSaved({ before, after: await loadMarketingEvent(savedId), actorUserId }),
+    );
   }
   revalidatePath("/marketing/events");
   return done(id ? "Event updated." : "Event added.");
@@ -243,10 +251,13 @@ async function syncEventPromotion(
 }
 
 export async function deleteEvent(id: string): Promise<ActionResult> {
-  await requireMarketingEditor();
+  const current = await requireMarketingEditor();
   const supabase = await createClient();
+  const before = UUID_RE.test(id) ? await loadMarketingEvent(id) : null;
   const { error } = await supabase.from("marketing_event").delete().eq("id", id);
   if (error) return { ok: false, error: error.message };
+  const actorUserId = current.appUser.id;
+  runInBackground(() => notifyMarketingEventSaved({ before, after: null, actorUserId }));
   revalidatePath("/marketing/events");
   return done("Event deleted.");
 }
@@ -405,21 +416,30 @@ export async function createEventFromSource(
   sourceId: string,
   name: string,
 ): Promise<ActionResult> {
-  await requireMarketingEditor();
+  const current = await requireMarketingEditor();
   const supabase = await createClient();
   const { data: source } = await supabase
     .from("marketing_event_source")
     .select("region, name")
     .eq("id", sourceId)
     .maybeSingle();
-  const { error } = await supabase.from("marketing_event").insert({
-    name: name || `Event from ${source?.name ?? "source"}`,
-    event_type: "third_party",
-    status: "researching",
-    location: source?.region ?? null,
-    source_id: sourceId,
-  });
+  const { data: created, error } = await supabase
+    .from("marketing_event")
+    .insert({
+      name: name || `Event from ${source?.name ?? "source"}`,
+      event_type: "third_party",
+      status: "researching",
+      location: source?.region ?? null,
+      source_id: sourceId,
+    })
+    .select("id")
+    .single();
   if (error) return { ok: false, error: error.message };
+  const newId = (created as { id: string }).id;
+  const actorUserId = current.appUser.id;
+  runInBackground(async () =>
+    notifyMarketingEventSaved({ before: null, after: await loadMarketingEvent(newId), actorUserId }),
+  );
   return done("Event created from source.");
 }
 

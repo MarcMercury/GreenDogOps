@@ -8,6 +8,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureCanEdit, ensureCanEditSensitiveHr, getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
 import { refreshSlackLinkForPerson } from "@/lib/slack/link-sync";
+import { runInBackground } from "@/lib/notify/emit";
+import {
+  notifyTimeOffDecided,
+  notifyTimeOffModified,
+  notifyTimeOffRequested,
+  type TimeOffRow,
+} from "@/lib/notify/events/schedule";
 import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { currentRate, upsertCompensation } from "@/lib/hr/compensation";
 import { safeUploadContentType } from "@/lib/security/upload";
@@ -1160,16 +1167,23 @@ export async function saveTimeOff(
     ? kindRaw
     : "pto";
 
-  const { error } = await supabase.from("person_time_off").insert({
-    person_id: personId,
-    kind,
-    status: "requested",
-    start_date: start,
-    end_date: end,
-    note: str(formData.get("note")),
-    requested_by: gate.current.appUser.person_id ?? null,
-  });
+  const { data: created, error } = await supabase
+    .from("person_time_off")
+    .insert({
+      person_id: personId,
+      kind,
+      status: "requested",
+      start_date: start,
+      end_date: end,
+      note: str(formData.get("note")),
+      requested_by: gate.current.appUser.person_id ?? null,
+    })
+    .select("id")
+    .single();
   if (error) return { ok: false, error: error.message };
+  const timeOffId = (created as { id: string }).id;
+  const actorId = gate.current.appUser.id;
+  runInBackground(() => notifyTimeOffRequested(timeOffId, actorId));
 
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/schedule");
@@ -1184,6 +1198,11 @@ export async function reviewTimeOff(
   const gate = await ensureCanEdit("hr");
   if (!gate.ok) return gate;
   const supabase = await createClient();
+  const { data: before } = await supabase
+    .from("person_time_off")
+    .select("status")
+    .eq("id", timeOffId)
+    .maybeSingle();
   const reviewed = status === "requested";
   const { error } = await supabase
     .from("person_time_off")
@@ -1194,6 +1213,17 @@ export async function reviewTimeOff(
     })
     .eq("id", timeOffId);
   if (error) return { ok: false, error: error.message };
+
+  const priorStatus = (before as { status: string } | null)?.status;
+  if (priorStatus && priorStatus !== status) {
+    const actorId = gate.current.appUser.id;
+    const actorName = gate.current.appUser.full_name?.trim() || gate.current.email;
+    runInBackground(() =>
+      status === "requested"
+        ? notifyTimeOffModified({ timeOffId, change: "reopened", actorUserId: actorId, actorName })
+        : notifyTimeOffDecided({ timeOffId, status, reviewerName: actorName, actorUserId: actorId }),
+    );
+  }
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/schedule");
   return { ok: true };
@@ -1206,11 +1236,24 @@ export async function deleteTimeOff(
   const gate = await ensureCanEdit("hr");
   if (!gate.ok) return gate;
   const supabase = await createClient();
+  const { data: before } = await supabase
+    .from("person_time_off")
+    .select("id, person_id, kind, status, start_date, end_date, note")
+    .eq("id", timeOffId)
+    .maybeSingle();
   const { error } = await supabase
     .from("person_time_off")
     .delete()
     .eq("id", timeOffId);
   if (error) return { ok: false, error: error.message };
+  const row = before as TimeOffRow | null;
+  if (row && row.status !== "denied") {
+    const actorId = gate.current.appUser.id;
+    const actorName = gate.current.appUser.full_name?.trim() || gate.current.email;
+    runInBackground(() =>
+      notifyTimeOffModified({ timeOffId, change: "withdrawn", before: row, actorUserId: actorId, actorName }),
+    );
+  }
   revalidatePath(`/hr/${personId}`);
   revalidatePath("/schedule");
   return { ok: true };

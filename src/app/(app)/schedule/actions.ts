@@ -32,6 +32,13 @@ import {
   planTrackLayout,
   trackBlockWindow,
 } from "@/lib/planning/tracks";
+import { runInBackground } from "@/lib/notify/emit";
+import {
+  notifyAttendanceChange,
+  notifySchedulePublished,
+  notifyShiftChanged,
+  notifyTimeOffDecided,
+} from "@/lib/notify/events/schedule";
 
 export type ActionResult<T = undefined> =
   | { ok: true; data?: T }
@@ -1605,6 +1612,7 @@ async function logChange(
   detail: string,
   personId: string | null,
   assignmentId: string | null,
+  workDate: string | null = null,
 ) {
   const supabase = await createClient();
   const me = await actor();
@@ -1617,6 +1625,17 @@ async function logChange(
     actor_id: me.id,
     actor_email: me.email,
   });
+  // Post-publish edits: tell the employee (batched), and flag an open shift.
+  if (personId && action !== "attendance") {
+    runInBackground(() =>
+      notifyShiftChanged({ weekId, personId, action, workDate, actorUserId: me.id }),
+    );
+  }
+  if (action === "auto_absent" && assignmentId) {
+    runInBackground(() =>
+      notifyAttendanceChange({ assignmentId, status: "auto_absent", actorUserId: me.id }),
+    );
+  }
 }
 
 /** Place a person into a (line, location, day) cell. */
@@ -1695,6 +1714,7 @@ export async function assignPerson(
       "Added after publish",
       personId,
       (row as { id: string }).id,
+      workDate,
     );
   }
 
@@ -1747,7 +1767,7 @@ export async function removeAssignment(
       .eq("id", assignmentId);
     if (error) return { ok: false, error: error.message };
     if (isPublished)
-      await logChange(a.week_id, "removed", "Removed after publish", a.person_id, null);
+      await logChange(a.week_id, "removed", "Removed after publish", a.person_id, null, a.work_date);
     revalidateAll();
     return { ok: true };
   }
@@ -1775,6 +1795,7 @@ export async function removeAssignment(
       "Removed but working elsewhere that day",
       a.person_id,
       null,
+      a.work_date,
     );
   } else {
     const { error } = await supabase
@@ -1793,6 +1814,7 @@ export async function removeAssignment(
       "Auto-marked absent (removed after publish)",
       a.person_id,
       assignmentId,
+      a.work_date,
     );
   }
   revalidateAll();
@@ -1917,6 +1939,7 @@ export async function moveAssignment(
           "Moved via drag-and-drop",
           a.person_id,
           a.id,
+          targetDate,
         );
     }
     revalidateAll();
@@ -1969,6 +1992,9 @@ export async function markAttendance(
   if (asg) {
     const a = asg as { week_id: string; person_id: string };
     await logChange(a.week_id, "attendance", `Marked ${status}`, a.person_id, assignmentId);
+    runInBackground(() =>
+      notifyAttendanceChange({ assignmentId, status, note, actorUserId: me.id }),
+    );
   }
   revalidateAll();
   return { ok: true };
@@ -1991,6 +2017,11 @@ export async function setTimeOffStatus(
   if (!gate.ok) return gate;
   const supabase = await createClient();
   const me = await actor();
+  const { data: before } = await supabase
+    .from("person_time_off")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
   const { error } = await supabase
     .from("person_time_off")
     .update({
@@ -2000,6 +2031,12 @@ export async function setTimeOffStatus(
     })
     .eq("id", id);
   if (error) return { ok: false, error: error.message };
+  if ((before as { status: string } | null)?.status !== status) {
+    const reviewerName = gate.current.appUser.full_name?.trim() || gate.current.email;
+    runInBackground(() =>
+      notifyTimeOffDecided({ timeOffId: id, status, reviewerName, actorUserId: me.id }),
+    );
+  }
   revalidateAll();
   return { ok: true };
 }
@@ -2017,6 +2054,12 @@ export async function setWeekStatus(
   const supabase = await createClient();
   const me = await actor();
   const now = new Date().toISOString();
+  const { data: prior } = await supabase
+    .from("sched_week")
+    .select("status")
+    .eq("id", weekId)
+    .maybeSingle();
+  const wasPublished = (prior as { status: ScheduleStatus } | null)?.status === "published";
 
   const patch: Record<string, unknown> = { status };
   if (status === "pending_approval") {
@@ -2038,6 +2081,9 @@ export async function setWeekStatus(
     .update(patch)
     .eq("id", weekId);
   if (error) return { ok: false, error: error.message };
+  if (status === "published" && !wasPublished) {
+    runInBackground(() => notifySchedulePublished(weekId, me.id));
+  }
 
   // Each workflow transition starts a clean baseline: only edits made while the
   // week sits in "Pending Approval" get the light-blue "changed" cue.

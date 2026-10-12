@@ -37,14 +37,16 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
-### Slack notifications — remaining work (Phase 1 linking: 0229; notification + DM pipeline: 0230)
-- **Done in 0230:** `user_notification` + `notification_delivery`, `publishNotification()`, the `/api/notify/dispatch` cron (gated by `SLACK_DM_LIVE` / `SLACK_DM_TEST_USER_IDS`), the in-app inbox on the dashboard, and the "interview booked" notification to the host.
+### Slack notifications — remaining work (0229 linking, 0230 DM pipeline, 0236 notification engine)
+- **Done in 0236:** person-keyed recipients (employees without a login get DMs), the event registry + rules engine (`src/lib/notify/registry.ts`, `engine.ts`), role/editor/department/person/location routing with permission checks at fan-out and again at send time, channel posts, batching/coalescing, escalation, Block Kit cards with Approve/Deny/Acknowledge/Mark complete (`/api/slack/interactions`), card updates in place, Admin ▸ Notifications (rules, preview, test, delivery log, Slack action log), and events for schedule published / shift changed / coverage / missed shift / PTO requested–decided–modified / marketing created–updated–staffed–canceled–reminder.
 - **Still to do:**
   - Turn DMs on: test with `SLACK_DM_TEST_USER_IDS=<your Slack id>`, then set `SLACK_DM_LIVE=true`.
-  - Notify people who have **no login** (most employees). Recipients are `app_user` today. Add a person-keyed recipient, or a DM-only path for `person_slack_link`.
-  - Events: PTO approved/denied (`reviewTimeOff` and `setTimeOffStatus`), schedule published/changed (`sched_change_log`, debounced), interviews assigned by staff (the candidate self-booking path is done).
-- **Open decisions:** who receives `PTO_REQUESTED` (no manager relationship exists in the data model); whether `TIMECARD_EXCEPTION` maps to `sched_assignment.attendance_status` (there is no timecard/punch data).
-- **Phase 3:** per-user preferences (mute kinds, DM vs in-app), email/SMS fallback, push, schedule acknowledgement.
+  - Turn on Slack app ▸ Interactivity (Request URL `/api/slack/interactions`); confirm `SLACK_SIGNING_SECRET` in Vercel matches the app's Signing Secret (a 401 in the Vercel logs on a click means it doesn't).
+  - No `marketing_admin` logins exist yet (2026-10-12), so marketing team notifications reach nobody until someone has that role or Admin ▸ Notifications adds people.
+  - Missed clock-in / clock-out: no punch data exists. Needs a time-clock source (When I Work API on a higher plan, or payroll). `attendance.missed_shift` fires only when a No-show is marked by hand.
+  - Coverage requests: "Eligible staff" is off by default; turn it on per rule once the team wants open-shift pings. There's no "claim this shift" button yet.
+  - More modules (HR onboarding, CE, maintenance, inventory, approvals): add an `EventDefinition` and call `emitEvent()` — see `registry.ts` header.
+- **Phase 3:** per-user preferences (mute kinds, DM vs in-app), email/SMS fallback, push, schedule acknowledgement, Slack slash command to query Ops.
 - **Risk:** medium — sends are externally visible. Never include compensation, HR notes or other sensitive data.
 
 ### Dashboard work center follow-ups (0230)

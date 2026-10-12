@@ -38,6 +38,8 @@ export function isPublicPath(pathname: string): boolean {
     // Slack workflows create Ops tasks here; authenticated by the
     // OPS_INBOUND_TASK_SECRET bearer token (fails closed when unset).
     pathname === "/api/tasks/inbound" ||
+    // Slack button clicks; verified with the SLACK_SIGNING_SECRET signature.
+    pathname.startsWith("/api/slack/") ||
     // Medical Boards daily rollover cron self-authenticates via CRON_SECRET.
     pathname.startsWith("/api/med-ops/boards/rollover") ||
     // ATS intake endpoints self-authenticate: the Gmail cron via CRON_SECRET,

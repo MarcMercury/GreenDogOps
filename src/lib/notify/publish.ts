@@ -14,6 +14,9 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ModuleKey } from "@/lib/auth/permissions";
 import { isSafeWorkLink } from "@/lib/worklist/items";
+import { getEventDefinition } from "./registry";
+import { effectiveRule, type NotificationRuleRow } from "./rule-config";
+import { actionsFor } from "./plan";
 
 export interface PublishNotificationInput {
   recipientUserId: string;
@@ -28,12 +31,16 @@ export interface PublishNotificationInput {
   taskId?: string | null;
   /** Same key for the same recipient = one notification, however often published. */
   dedupeKey?: string | null;
-  /** Also DM the recipient in Slack (if their Slack account is connected). */
+  /**
+   * Also DM the recipient in Slack (if their Slack account is connected).
+   * false = never; true/undefined = follow the event's rule in
+   * Admin ▸ Notifications (its default mirrors the old behaviour).
+   */
   slack?: boolean;
 }
 
 export type PublishResult =
-  | { ok: true; id: string; duplicate: boolean; slack: "queued" | "no_link" | "not_requested" }
+  | { ok: true; id: string; duplicate: boolean; slack: "queued" | "no_link" | "not_requested" | "disabled" }
   | { ok: false; error: string };
 
 const KIND = /^[a-z_]+(\.[a-z_]+)*$/;
@@ -47,6 +54,21 @@ export async function publishNotification(input: PublishNotificationInput): Prom
     if (!isSafeWorkLink(href)) return { ok: false, error: "Notification link must be an app path or Slack URL." };
 
     const admin = createAdminClient();
+
+    // Registered direct events follow their rule (on/off, Slack DM).
+    const def = getEventDefinition(input.kind);
+    let dm = !!input.slack;
+    if (def) {
+      const { data: row } = await admin
+        .from("notification_rule")
+        .select("*")
+        .eq("event_type", input.kind)
+        .maybeSingle();
+      const rule = effectiveRule(def, (row as NotificationRuleRow | null) ?? null);
+      if (!rule.enabled) return { ok: true, id: "", duplicate: false, slack: "disabled" };
+      dm = input.slack === false ? false : rule.deliverDm;
+    }
+
     const { data, error } = await admin
       .from("user_notification")
       .insert({
@@ -83,20 +105,33 @@ export async function publishNotification(input: PublishNotificationInput): Prom
     }
 
     const id = (data as { id: string }).id;
-    if (!input.slack) return { ok: true, id, duplicate: false, slack: "not_requested" };
+    if (!dm) return { ok: true, id, duplicate: false, slack: "not_requested" };
 
-    const slackUserId = await connectedSlackUserFor(input.recipientUserId);
-    await admin.from("notification_delivery").insert(
-      slackUserId
-        ? { notification_id: id, channel: "slack_dm", slack_user_id: slackUserId, status: "pending" }
-        : {
-            notification_id: id,
-            channel: "slack_dm",
-            status: "skipped",
-            last_error: "No connected Slack account (Admin ▸ Slack).",
-          },
-    );
-    return { ok: true, id, duplicate: false, slack: slackUserId ? "queued" : "no_link" };
+    const target = await connectedSlackTargetFor(input.recipientUserId);
+    const body = input.body?.trim().slice(0, 2000) || null;
+    const actions = def ? actionsFor(def, { isSubject: true, canAct: false }) : [];
+    await admin.from("notification_delivery").insert({
+      notification_id: id,
+      channel: "slack_dm",
+      recipient_person_id: target?.personId ?? null,
+      recipient_user_id: input.recipientUserId,
+      event_type: def ? input.kind : null,
+      title,
+      body,
+      href,
+      blocks: {
+        msg: { title, body, href, linkLabel: "Open in Green Dog Ops" },
+        // Task buttons need the task id to act on.
+        actions: input.taskId ? actions : actions.filter((a) => a !== "task.complete"),
+      },
+      // Only the card with a button is updated in place; completed/dismissed
+      // notices must not be swallowed by resolveCards("task:<id>").
+      message_key: input.taskId && actions.includes("task.complete") ? `task:${input.taskId}` : null,
+      ...(target?.slackUserId
+        ? { slack_user_id: target.slackUserId, status: "pending" }
+        : { status: "skipped", last_error: "No connected Slack account (Admin ▸ Slack)." }),
+    });
+    return { ok: true, id, duplicate: false, slack: target?.slackUserId ? "queued" : "no_link" };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -107,6 +142,12 @@ export async function publishNotification(input: PublishNotificationInput): Prom
  * login, an employee/contractor person, and a `connected` link.
  */
 export async function connectedSlackUserFor(appUserId: string): Promise<string | null> {
+  return (await connectedSlackTargetFor(appUserId))?.slackUserId ?? null;
+}
+
+async function connectedSlackTargetFor(
+  appUserId: string,
+): Promise<{ personId: string; slackUserId: string | null } | null> {
   const admin = createAdminClient();
   const { data: user } = await admin
     .from("app_user")
@@ -127,5 +168,8 @@ export async function connectedSlackUserFor(appUserId: string): Promise<string |
   const status = (person as { status: string } | null)?.status;
   if (status !== "employee" && status !== "contractor") return null;
   const l = link as { status: string; slack_user_id: string | null } | null;
-  return l?.status === "connected" && l.slack_user_id ? l.slack_user_id : null;
+  return {
+    personId: u.person_id,
+    slackUserId: l?.status === "connected" && l.slack_user_id ? l.slack_user_id : null,
+  };
 }

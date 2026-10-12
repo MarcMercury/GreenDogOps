@@ -7352,12 +7352,47 @@ CREATE TABLE greendogops.medical_board_type (
 
 
 --
+-- Name: notification_action; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.notification_action (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    delivery_id uuid,
+    event_id uuid,
+    action text NOT NULL,
+    subject_type text,
+    subject_id text,
+    slack_user_id text NOT NULL,
+    actor_user_id uuid,
+    outcome text DEFAULT 'received'::text NOT NULL,
+    detail text,
+    request_key text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_action_action_check CHECK ((action ~ '^[a-z_]+(\.[a-z_]+)*$'::text)),
+    CONSTRAINT notification_action_detail_check CHECK (((detail IS NULL) OR (length(detail) <= 500))),
+    CONSTRAINT notification_action_outcome_check CHECK ((outcome = ANY (ARRAY['received'::text, 'applied'::text, 'already_done'::text, 'forbidden'::text, 'not_found'::text, 'error'::text]))),
+    CONSTRAINT notification_action_request_key_check CHECK ((length(request_key) <= 200)),
+    CONSTRAINT notification_action_slack_user_id_check CHECK ((slack_user_id ~ '^[UW][A-Z0-9]+$'::text)),
+    CONSTRAINT notification_action_subject_id_check CHECK (((subject_id IS NULL) OR (length(subject_id) <= 100))),
+    CONSTRAINT notification_action_subject_type_check CHECK (((subject_type IS NULL) OR (subject_type ~ '^[a-z_]+$'::text)))
+);
+
+
+--
+-- Name: TABLE notification_action; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.notification_action IS 'Audit of Slack button clicks on Ops notifications. request_key (Slack user + action_ts) makes a repeated delivery of the same click a no-op. Service role only.';
+
+
+--
 -- Name: notification_delivery; Type: TABLE; Schema: greendogops; Owner: -
 --
 
 CREATE TABLE greendogops.notification_delivery (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    notification_id uuid NOT NULL,
+    notification_id uuid,
     channel text NOT NULL,
     slack_user_id text,
     status text DEFAULT 'pending'::text NOT NULL,
@@ -7369,10 +7404,29 @@ CREATE TABLE greendogops.notification_delivery (
     last_error text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    event_id uuid,
+    recipient_person_id uuid,
+    recipient_user_id uuid,
+    event_type text,
+    title text,
+    body text,
+    href text,
+    blocks jsonb,
+    required_module text,
+    audience_reason text,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    coalesce_key text,
+    message_key text,
+    batched boolean DEFAULT false NOT NULL,
+    resolved_note text,
+    acknowledged_at timestamp with time zone,
+    acknowledged_by uuid,
     CONSTRAINT notification_delivery_attempts_check CHECK ((attempts >= 0)),
-    CONSTRAINT notification_delivery_channel_check CHECK ((channel = 'slack_dm'::text)),
+    CONSTRAINT notification_delivery_channel_check CHECK ((channel = ANY (ARRAY['slack_dm'::text, 'slack_channel'::text]))),
+    CONSTRAINT notification_delivery_content_check CHECK ((((title IS NULL) OR ((length(btrim(title)) >= 1) AND (length(btrim(title)) <= 200))) AND ((body IS NULL) OR (length(body) <= 3000)) AND ((href IS NULL) OR (href ~ '^/([^/\\]|$)'::text) OR (href ~ '^https://([a-z0-9-]+\.)*slack\.com/'::text)) AND ((event_type IS NULL) OR (event_type ~ '^[a-z_]+(\.[a-z_]+)+$'::text)) AND ((required_module IS NULL) OR (required_module ~ '^[a-z_]+$'::text)) AND (priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text])) AND ((coalesce_key IS NULL) OR (length(coalesce_key) <= 200)) AND ((message_key IS NULL) OR (length(message_key) <= 200)) AND ((resolved_note IS NULL) OR (length(resolved_note) <= 300)))),
     CONSTRAINT notification_delivery_slack_user_id_check CHECK (((slack_user_id IS NULL) OR (slack_user_id ~ '^[UW][A-Z0-9]+$'::text))),
-    CONSTRAINT notification_delivery_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'skipped'::text])))
+    CONSTRAINT notification_delivery_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sending'::text, 'sent'::text, 'failed'::text, 'skipped'::text]))),
+    CONSTRAINT notification_delivery_target_check CHECK ((((channel = 'slack_dm'::text) AND ((notification_id IS NOT NULL) OR (recipient_person_id IS NOT NULL))) OR ((channel = 'slack_channel'::text) AND (slack_channel_id ~ '^[CG][A-Z0-9]+$'::text))))
 );
 
 
@@ -7380,7 +7434,111 @@ CREATE TABLE greendogops.notification_delivery (
 -- Name: TABLE notification_delivery; Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON TABLE greendogops.notification_delivery IS 'Outbound copies of a notification. Recorded before sending; a send that may have reached Slack is never retried automatically. Service role only.';
+COMMENT ON TABLE greendogops.notification_delivery IS 'Outbound copies of a notification (Slack DM to a person, or a Slack channel post). Recorded before sending; a send that may have reached Slack is never retried automatically. Service role only.';
+
+
+--
+-- Name: COLUMN notification_delivery.required_module; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.notification_delivery.required_module IS 'Module the recipient must still be able to open at send time (null = the recipient is the subject, or the content is general).';
+
+
+--
+-- Name: COLUMN notification_delivery.coalesce_key; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.notification_delivery.coalesce_key IS 'While a delivery is still pending, a newer one with the same recipient + coalesce_key replaces its content instead of adding a message.';
+
+
+--
+-- Name: COLUMN notification_delivery.message_key; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.notification_delivery.message_key IS 'Identifies the record a sent card is about (e.g. pto:<id>) so it can be updated in place when the record changes.';
+
+
+--
+-- Name: notification_event; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.notification_event (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    event_type text NOT NULL,
+    module text,
+    subject_type text,
+    subject_id text,
+    subject_person_ids uuid[] DEFAULT '{}'::uuid[] NOT NULL,
+    location_id uuid,
+    actor_user_id uuid,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    dedupe_key text,
+    status text DEFAULT 'pending'::text NOT NULL,
+    attempts integer DEFAULT 0 NOT NULL,
+    recipient_count integer DEFAULT 0 NOT NULL,
+    error text,
+    processed_at timestamp with time zone,
+    escalated_at timestamp with time zone,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_event_attempts_check CHECK ((attempts >= 0)),
+    CONSTRAINT notification_event_dedupe_key_check CHECK (((dedupe_key IS NULL) OR (length(dedupe_key) <= 200))),
+    CONSTRAINT notification_event_event_type_check CHECK ((event_type ~ '^[a-z_]+(\.[a-z_]+)+$'::text)),
+    CONSTRAINT notification_event_module_check CHECK (((module IS NULL) OR (module ~ '^[a-z_]+$'::text))),
+    CONSTRAINT notification_event_recipient_count_check CHECK ((recipient_count >= 0)),
+    CONSTRAINT notification_event_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'processing'::text, 'done'::text, 'skipped'::text, 'failed'::text]))),
+    CONSTRAINT notification_event_subject_id_check CHECK (((subject_id IS NULL) OR (length(subject_id) <= 100))),
+    CONSTRAINT notification_event_subject_type_check CHECK (((subject_type IS NULL) OR (subject_type ~ '^[a-z_]+$'::text)))
+);
+
+
+--
+-- Name: TABLE notification_event; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.notification_event IS 'Operational events published by Ops modules; fanned out to recipients by src/lib/notify/engine.ts. payload holds render data only — never compensation or HR-file content. Service role only.';
+
+
+--
+-- Name: COLUMN notification_event.subject_person_ids; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.notification_event.subject_person_ids IS 'People the event is about (e.g. the employee whose shift changed). They may always see their own notification.';
+
+
+--
+-- Name: notification_rule; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.notification_rule (
+    event_type text NOT NULL,
+    enabled boolean DEFAULT true NOT NULL,
+    audience jsonb DEFAULT '{}'::jsonb NOT NULL,
+    deliver_dm boolean DEFAULT true NOT NULL,
+    deliver_inbox boolean DEFAULT true NOT NULL,
+    slack_channel_id text,
+    slack_channel_name text,
+    priority text DEFAULT 'normal'::text NOT NULL,
+    batch_minutes integer DEFAULT 0 NOT NULL,
+    escalate_after_hours integer,
+    escalate_roles text[] DEFAULT '{}'::text[] NOT NULL,
+    updated_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT notification_rule_batch_minutes_check CHECK (((batch_minutes >= 0) AND (batch_minutes <= 1440))),
+    CONSTRAINT notification_rule_escalate_after_hours_check CHECK (((escalate_after_hours IS NULL) OR ((escalate_after_hours >= 1) AND (escalate_after_hours <= 720)))),
+    CONSTRAINT notification_rule_event_type_check CHECK ((event_type ~ '^[a-z_]+(\.[a-z_]+)+$'::text)),
+    CONSTRAINT notification_rule_priority_check CHECK ((priority = ANY (ARRAY['low'::text, 'normal'::text, 'high'::text, 'urgent'::text]))),
+    CONSTRAINT notification_rule_slack_channel_id_check CHECK (((slack_channel_id IS NULL) OR (slack_channel_id ~ '^[CG][A-Z0-9]+$'::text))),
+    CONSTRAINT notification_rule_slack_channel_name_check CHECK (((slack_channel_name IS NULL) OR (length(slack_channel_name) <= 100)))
+);
+
+
+--
+-- Name: TABLE notification_rule; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.notification_rule IS 'Admin overrides (Admin ▸ Notifications) of the default routing in src/lib/notify/registry.ts. No row = code default. Service role only.';
 
 
 --
@@ -11025,6 +11183,7 @@ CREATE TABLE greendogops.user_notification (
     read_at timestamp with time zone,
     archived_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    event_id uuid,
     CONSTRAINT user_notification_body_check CHECK (((body IS NULL) OR (length(body) <= 2000))),
     CONSTRAINT user_notification_dedupe_key_check CHECK (((dedupe_key IS NULL) OR (length(dedupe_key) <= 200))),
     CONSTRAINT user_notification_href_check CHECK (((href IS NULL) OR (href ~ '^/([^/\\]|$)'::text) OR (href ~ '^https://([a-z0-9-]+\.)*slack\.com/'::text))),
@@ -11947,6 +12106,22 @@ ALTER TABLE ONLY greendogops.medical_board_type
 
 
 --
+-- Name: notification_action notification_action_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_action
+    ADD CONSTRAINT notification_action_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notification_action notification_action_request_key_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_action
+    ADD CONSTRAINT notification_action_request_key_key UNIQUE (request_key);
+
+
+--
 -- Name: notification_delivery notification_delivery_notification_id_channel_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -11960,6 +12135,22 @@ ALTER TABLE ONLY greendogops.notification_delivery
 
 ALTER TABLE ONLY greendogops.notification_delivery
     ADD CONSTRAINT notification_delivery_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notification_event notification_event_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_event
+    ADD CONSTRAINT notification_event_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: notification_rule notification_rule_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_rule
+    ADD CONSTRAINT notification_rule_pkey PRIMARY KEY (event_type);
 
 
 --
@@ -14053,10 +14244,94 @@ CREATE INDEX medical_board_row_board_key_idx ON greendogops.medical_board_row US
 
 
 --
+-- Name: notification_action_recent_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_action_recent_idx ON greendogops.notification_action USING btree (created_at DESC);
+
+
+--
+-- Name: notification_action_subject_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_action_subject_idx ON greendogops.notification_action USING btree (subject_type, subject_id);
+
+
+--
+-- Name: notification_delivery_coalesce_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX notification_delivery_coalesce_uq ON greendogops.notification_delivery USING btree (recipient_person_id, coalesce_key) WHERE ((status = 'pending'::text) AND (coalesce_key IS NOT NULL) AND (recipient_person_id IS NOT NULL));
+
+
+--
+-- Name: notification_delivery_event_channel_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX notification_delivery_event_channel_uq ON greendogops.notification_delivery USING btree (event_id, slack_channel_id) WHERE ((event_id IS NOT NULL) AND (channel = 'slack_channel'::text));
+
+
+--
+-- Name: notification_delivery_event_person_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX notification_delivery_event_person_uq ON greendogops.notification_delivery USING btree (event_id, channel, recipient_person_id) WHERE ((event_id IS NOT NULL) AND (recipient_person_id IS NOT NULL));
+
+
+--
+-- Name: notification_delivery_message_key_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_delivery_message_key_idx ON greendogops.notification_delivery USING btree (message_key) WHERE ((message_key IS NOT NULL) AND (status = 'sent'::text));
+
+
+--
+-- Name: notification_delivery_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_delivery_person_idx ON greendogops.notification_delivery USING btree (recipient_person_id, status);
+
+
+--
 -- Name: notification_delivery_queue_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
 CREATE INDEX notification_delivery_queue_idx ON greendogops.notification_delivery USING btree (next_attempt_at) WHERE (status = ANY (ARRAY['pending'::text, 'sending'::text]));
+
+
+--
+-- Name: notification_delivery_recent_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_delivery_recent_idx ON greendogops.notification_delivery USING btree (created_at DESC);
+
+
+--
+-- Name: notification_event_dedupe_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX notification_event_dedupe_uq ON greendogops.notification_event USING btree (dedupe_key) WHERE (dedupe_key IS NOT NULL);
+
+
+--
+-- Name: notification_event_queue_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_event_queue_idx ON greendogops.notification_event USING btree (created_at) WHERE (status = ANY (ARRAY['pending'::text, 'processing'::text]));
+
+
+--
+-- Name: notification_event_subject_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_event_subject_idx ON greendogops.notification_event USING btree (subject_type, subject_id);
+
+
+--
+-- Name: notification_event_type_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX notification_event_type_idx ON greendogops.notification_event USING btree (event_type, created_at DESC);
 
 
 --
@@ -15047,6 +15322,13 @@ CREATE UNIQUE INDEX user_notification_dedupe_uq ON greendogops.user_notification
 
 
 --
+-- Name: user_notification_event_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX user_notification_event_idx ON greendogops.user_notification USING btree (event_id) WHERE (event_id IS NOT NULL);
+
+
+--
 -- Name: user_notification_feed_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -15369,10 +15651,31 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.medical_board_row FOR
 
 
 --
+-- Name: notification_action set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.notification_action FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
 -- Name: notification_delivery set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.notification_delivery FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: notification_event set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.notification_event FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: notification_rule set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.notification_rule FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
 
 
 --
@@ -16035,11 +16338,91 @@ ALTER TABLE ONLY greendogops.medical_board_row
 
 
 --
+-- Name: notification_action notification_action_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_action
+    ADD CONSTRAINT notification_action_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_action notification_action_delivery_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_action
+    ADD CONSTRAINT notification_action_delivery_id_fkey FOREIGN KEY (delivery_id) REFERENCES greendogops.notification_delivery(id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_action notification_action_event_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_action
+    ADD CONSTRAINT notification_action_event_id_fkey FOREIGN KEY (event_id) REFERENCES greendogops.notification_event(id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_delivery notification_delivery_acknowledged_by_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_delivery
+    ADD CONSTRAINT notification_delivery_acknowledged_by_fkey FOREIGN KEY (acknowledged_by) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_delivery notification_delivery_event_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_delivery
+    ADD CONSTRAINT notification_delivery_event_id_fkey FOREIGN KEY (event_id) REFERENCES greendogops.notification_event(id) ON DELETE CASCADE;
+
+
+--
 -- Name: notification_delivery notification_delivery_notification_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
 ALTER TABLE ONLY greendogops.notification_delivery
     ADD CONSTRAINT notification_delivery_notification_id_fkey FOREIGN KEY (notification_id) REFERENCES greendogops.user_notification(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notification_delivery notification_delivery_recipient_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_delivery
+    ADD CONSTRAINT notification_delivery_recipient_person_id_fkey FOREIGN KEY (recipient_person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: notification_delivery notification_delivery_recipient_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_delivery
+    ADD CONSTRAINT notification_delivery_recipient_user_id_fkey FOREIGN KEY (recipient_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_event notification_event_actor_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_event
+    ADD CONSTRAINT notification_event_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_event notification_event_location_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_event
+    ADD CONSTRAINT notification_event_location_id_fkey FOREIGN KEY (location_id) REFERENCES greendogops.location(id) ON DELETE SET NULL;
+
+
+--
+-- Name: notification_rule notification_rule_updated_by_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.notification_rule
+    ADD CONSTRAINT notification_rule_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
 
 
 --
@@ -16896,6 +17279,14 @@ ALTER TABLE ONLY greendogops.sms_message
 
 ALTER TABLE ONLY greendogops.user_notification
     ADD CONSTRAINT user_notification_actor_user_id_fkey FOREIGN KEY (actor_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: user_notification user_notification_event_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.user_notification
+    ADD CONSTRAINT user_notification_event_id_fkey FOREIGN KEY (event_id) REFERENCES greendogops.notification_event(id) ON DELETE SET NULL;
 
 
 --
@@ -18858,10 +19249,28 @@ ALTER TABLE greendogops.medical_board_row ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.medical_board_type ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: notification_action; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.notification_action ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: notification_delivery; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
 ALTER TABLE greendogops.notification_delivery ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notification_event; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.notification_event ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: notification_rule; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.notification_rule ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: ops_task; Type: ROW SECURITY; Schema: greendogops; Owner: -
@@ -19308,10 +19717,31 @@ CREATE POLICY service_role_only ON greendogops.audit_log TO authenticated USING 
 
 
 --
+-- Name: notification_action service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.notification_action TO authenticated USING (false) WITH CHECK (false);
+
+
+--
 -- Name: notification_delivery service_role_only; Type: POLICY; Schema: greendogops; Owner: -
 --
 
 CREATE POLICY service_role_only ON greendogops.notification_delivery TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: notification_event service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.notification_event TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: notification_rule service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.notification_rule TO authenticated USING (false) WITH CHECK (false);
 
 
 --
@@ -20897,10 +21327,31 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.medical_board_type TO ser
 
 
 --
+-- Name: TABLE notification_action; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.notification_action TO service_role;
+
+
+--
 -- Name: TABLE notification_delivery; Type: ACL; Schema: greendogops; Owner: -
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.notification_delivery TO service_role;
+
+
+--
+-- Name: TABLE notification_event; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.notification_event TO service_role;
+
+
+--
+-- Name: TABLE notification_rule; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.notification_rule TO service_role;
 
 
 --

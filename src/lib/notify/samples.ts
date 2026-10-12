@@ -1,0 +1,73 @@
+// Example payloads for Admin ▸ Notifications previews and "Send me a test". Pure.
+
+export const SAMPLE_PAYLOADS: Record<string, Record<string, unknown>> = {
+  "schedule.published": {
+    weekId: "",
+    weekStart: "2026-10-18",
+    peopleCount: 42,
+    shifts: {},
+  },
+  "schedule.shift_changed": {
+    weekStart: "2026-10-18",
+    personName: "Jane Smith",
+    change: "A shift was moved (Tue, Oct 20).",
+    shifts: ["Mon, Oct 19 · 7a–5p · Venice · DVM", "Tue, Oct 20 · 9a–7p · Aetna · DVM"],
+  },
+  "schedule.coverage_needed": {
+    personName: "Jane Smith",
+    dateLabel: "Tue, Oct 20",
+    roleLabel: "Veterinary Technician",
+    time: "7a–5p",
+    locationName: "Aetna",
+    reason: "No Show",
+  },
+  "attendance.missed_shift": {
+    personName: "Jane Smith",
+    statusLabel: "No Show",
+    dateLabel: "Tue, Oct 20",
+    locationName: "Aetna",
+  },
+  "pto.requested": {
+    personName: "Jane Smith",
+    dates: "Thu, Nov 12 – Sat, Nov 14",
+    kindLabel: "PTO",
+    locationName: "Aetna",
+    note: "Family trip",
+  },
+  "pto.approved": { personName: "Jane Smith", dates: "Thu, Nov 12 – Sat, Nov 14", reviewerName: "Alex Lee" },
+  "pto.denied": { personName: "Jane Smith", dates: "Thu, Nov 12 – Sat, Nov 14", reviewerName: "Alex Lee" },
+  "pto.modified": { personName: "Jane Smith", dates: "Thu, Nov 12 – Sat, Nov 14", kindLabel: "PTO", change: "withdrawn" },
+  "marketing.event_created": {
+    name: "Green Dog University CE Dinner",
+    dates: "Thu, Nov 5",
+    time: "6:00 PM – 9:00 PM",
+    location: "Aetna",
+    clinic: "Aetna",
+    status: "Planning",
+    staffNames: ["Jane Smith", "Alex Lee"],
+  },
+  "marketing.event_updated": {
+    name: "Green Dog University CE Dinner",
+    dates: "Thu, Nov 5",
+    time: "6:30 PM – 9:00 PM",
+    location: "Aetna",
+    changes: ["arrival time"],
+    staffNames: ["Jane Smith"],
+  },
+  "marketing.staff_assigned": {
+    name: "Venice Pet Fair",
+    dates: "Sat, Nov 7",
+    time: "9:00 AM – 2:00 PM",
+    location: "Venice Beach Boardwalk",
+    arrival: "8:15 AM",
+    parking: "Lot B behind the pier",
+  },
+  "marketing.event_canceled": { name: "Venice Pet Fair", dates: "Sat, Nov 7", location: "Venice Beach Boardwalk" },
+  "marketing.event_upcoming": {
+    name: "Venice Pet Fair",
+    dates: "Sat, Nov 7",
+    time: "9:00 AM – 2:00 PM",
+    location: "Venice Beach Boardwalk",
+    arrival: "8:15 AM",
+  },
+};

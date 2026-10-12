@@ -14,6 +14,13 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Tooling & environment
 
+### Vitest does not resolve the `@/` alias — pure modules under test need relative imports
+- **Problem:** new tests failed with `Cannot find package '@/lib/worklist/dates'` / `'@/lib/auth/permissions'`.
+- **Root cause:** there is no vitest config with the tsconfig `paths` alias, so a runtime (value) `import … from "@/…"` can't be resolved. `import type` from `@/…` is erased and works.
+- **Fix:** in modules that tests import, use relative paths for value imports (`../auth/permissions`). Server-only modules that tests never import can keep `@/`.
+- **Prevent:** keep business rules in small pure files (`src/lib/notify/audience.ts`, `plan.ts`, `rule-config.ts`) with relative imports, and keep DB/Slack calls in separate `server-only` files.
+- **Evidence:** 2026-10-12, 0236 notification engine: 5 test files failed to load, all passed after switching the imports.
+
 ### OpenRouter retires `:free` model ids — default to the `openrouter/free` router
 - **Problem:** the OpenRouter fallback (LLM chain + ATS resume parse) defaulted to `google/gemini-2.0-flash-exp:free`, which no longer exists, so every OpenRouter call would fail even with a valid key.
 - **Root cause:** individual free model ids are removed from OpenRouter without notice.
@@ -220,3 +227,9 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** put inserts and assertions in one `DO` block that always ends with `raise exception 'PASS ...'`, so the whole block rolls back; any other error text names the failing check. Example: `scripts/ziggy_lookup_test.sql` (run with `SUPABASE_PROJECT_REF=yzxcuiwklrmxarzjzukr scripts/supabase-sql.sh -f ...`). Staging has no ezyVet rows, so synthetic data is the only way to exercise ezyVet functions there.
 - **Baseline seed drift:** `scripts/generate_baseline.sh` (staging by default) also rewrites `0003_config_seed.sql` from staging's config rows, which differ from production's (departments IM/AP/Exotic, `show_in_planning`). For a schema-only migration, keep `0001_schema.sql` and restore `0003_config_seed.sql`. Evidence: 2026-10-12, 0233/0234 regeneration.
 
+
+### Verifying staff emails: use the live Slack directory, not the Merit Increase spreadsheet
+- **Fact:** `public/Merit Increase Calculator (1).xlsx` contains no email addresses in any sheet (no `@` in cells, formulas, hyperlinks, or `sharedStrings.xml`). It is useful only as a list of current employees ("2026 EMP PROFILE DATA").
+- **Best source:** Slack `users.list` (with `SLACK_BOT_TOKEN`, read-only). Compare `person.email` with the live member, and flag cases where the HR address belongs to a **deleted** Slack member while an active member with the same name uses another address. Work emails follow `greendog<name>@gmail.com` (older ones: `mypet<name>@gmail.com`). Some doctors and contractors keep practice or personal addresses by design.
+- **Before changing `person.email`:** it is used to auto-provision logins (`ensureAuthUserForPerson`), match users in `user-roster-sync`, match Slack accounts, and send ATS forms and bookings. Check `app_user` and other `person` rows for collisions first.
+- **Evidence:** 2026-10-12. Of 93 scheduler-active people, 82 Slack links were live and matched exactly. 3 stale HR emails were fixed with user approval. 2 people had no email in any source.

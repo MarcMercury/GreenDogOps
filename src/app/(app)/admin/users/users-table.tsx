@@ -12,6 +12,8 @@ export interface UserRow {
   person_id: string | null;
   rosterName: string | null;
   rosterTitle: string | null;
+  /** person_slack_link.status, or null when not synced / no roster profile. */
+  slackStatus: string | null;
   role: AppRole;
   is_active: boolean;
   last_seen_at: string | null;
@@ -39,6 +41,7 @@ export function UsersTable({ users }: { users: UserRow[] }) {
     lastSeen: (u) => u.last_seen_at,
     lastSignIn: (u) => u.last_sign_in_at,
     mfa: (u) => (u.mfa_enabled ? 1 : 0),
+    slack: (u) => (u.slackStatus === "connected" ? 1 : 0),
   });
 
   return (
@@ -51,6 +54,7 @@ export function UsersTable({ users }: { users: UserRow[] }) {
             <SortHeader label="Role" sortKey="role" sort={sort} className="px-3 py-2.5" />
             <SortHeader label="Status" sortKey="status" sort={sort} className="px-3 py-2.5" />
             <SortHeader label="2-step" sortKey="mfa" sort={sort} className="px-3 py-2.5" />
+            <SortHeader label="Slack" sortKey="slack" sort={sort} className="px-3 py-2.5" />
             <SortHeader label="Last sign-in" sortKey="lastSignIn" sort={sort} className="px-3 py-2.5" />
             <SortHeader label="Last seen" sortKey="lastSeen" sort={sort} className="px-3 py-2.5" />
             <th className="px-5 py-2.5"></th>
@@ -104,6 +108,15 @@ export function UsersTable({ users }: { users: UserRow[] }) {
                   <span className="text-emerald-600">● On</span>
                 ) : (
                   <span className="text-slate-400">○ Off</span>
+                )}
+              </td>
+              <td className="px-3 py-3">
+                {u.slackStatus === "connected" ? (
+                  <span className="text-emerald-600">● Connected</span>
+                ) : (
+                  <Link href="/admin/slack" className="text-xs font-medium text-amber-600 hover:underline">
+                    {u.slackStatus ? `⚠ ${u.slackStatus.replace(/_/g, " ")}` : "○ Not linked"}
+                  </Link>
                 )}
               </td>
               <td className="px-3 py-3 text-slate-500">{lastSeen(u.last_sign_in_at)}</td>

@@ -104,31 +104,23 @@ export type SlackDmResult =
       retryAfterSec: number | null;
     };
 
-/**
- * DM one Slack user from the app (`chat.postMessage` with the user id as the
- * channel; needs only chat:write). Never sets username/icon — DMs always come
- * from the app itself. Callers must have checked that the person may be
- * messaged (src/lib/notify/dispatch.ts).
- */
-export async function sendSlackDirectMessage(
-  slackUserId: string,
-  text: string,
+/** One Web API call with the error mapping the notification dispatcher relies on. */
+async function callSlackApi(
+  method: string,
+  body: Record<string, unknown>,
 ): Promise<SlackDmResult> {
   const token = process.env.SLACK_BOT_TOKEN;
   if (!token) {
     return { ok: false, code: "not_configured", error: "SLACK_BOT_TOKEN is not set.", retryAfterSec: null };
   }
-  if (!/^[UW][A-Z0-9]+$/.test(slackUserId)) {
-    return { ok: false, code: "invalid_user", error: "Not a Slack user id.", retryAfterSec: null };
-  }
   try {
-    const res = await fetch(`${SLACK_API}/chat.postMessage`, {
+    const res = await fetch(`${SLACK_API}/${method}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json; charset=utf-8",
       },
-      body: JSON.stringify({ channel: slackUserId, text, unfurl_links: false, unfurl_media: false }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const retryAfter = Number(res.headers.get("retry-after"));
@@ -152,6 +144,111 @@ export async function sendSlackDirectMessage(
       retryAfterSec: null,
     };
   }
+}
+
+/**
+ * DM one Slack user from the app (`chat.postMessage` with the user id as the
+ * channel; needs only chat:write). Never sets username/icon — DMs always come
+ * from the app itself. Callers must have checked that the person may be
+ * messaged (src/lib/notify/dispatch.ts).
+ */
+export async function sendSlackDirectMessage(
+  slackUserId: string,
+  text: string,
+  blocks?: Record<string, unknown>[],
+): Promise<SlackDmResult> {
+  if (!/^[UW][A-Z0-9]+$/.test(slackUserId)) {
+    return { ok: false, code: "invalid_user", error: "Not a Slack user id.", retryAfterSec: null };
+  }
+  const body: Record<string, unknown> = { channel: slackUserId, text, unfurl_links: false, unfurl_media: false };
+  if (blocks?.length) body.blocks = blocks;
+  return callSlackApi("chat.postMessage", body);
+}
+
+/**
+ * Post to a channel by id (chosen by an admin in Admin ▸ Notifications).
+ * Public channels are joined automatically; private ones need
+ * /invite @Green Dog Ops.
+ */
+export async function postSlackChannelMessage(
+  channelId: string,
+  text: string,
+  blocks?: Record<string, unknown>[],
+): Promise<SlackDmResult> {
+  if (!isChannelId(channelId)) {
+    return { ok: false, code: "invalid_channel", error: "Not a Slack channel id.", retryAfterSec: null };
+  }
+  const body: Record<string, unknown> = { channel: channelId, text, unfurl_links: false, unfurl_media: false };
+  if (blocks?.length) body.blocks = blocks;
+  let res = await callSlackApi("chat.postMessage", body);
+  if (!res.ok && res.code === "not_in_channel") {
+    const joined = await callSlackApi("conversations.join", { channel: channelId });
+    if (joined.ok) res = await callSlackApi("chat.postMessage", body);
+  }
+  return res;
+}
+
+/** Replace a message the app posted earlier (e.g. a PTO card once it's decided). */
+export async function updateSlackMessage(
+  channel: string,
+  ts: string,
+  text: string,
+  blocks?: Record<string, unknown>[],
+): Promise<SlackDmResult> {
+  const body: Record<string, unknown> = { channel, ts, text };
+  if (blocks) body.blocks = blocks;
+  return callSlackApi("chat.update", body);
+}
+
+export interface SlackChannelOption {
+  id: string;
+  name: string;
+  isPrivate: boolean;
+  isMember: boolean;
+}
+
+/**
+ * Channels the bot can see (public, plus private ones it was invited to).
+ * Needs channels:read and groups:read.
+ */
+export async function listSlackChannels(): Promise<{ ok: true; channels: SlackChannelOption[] } | { ok: false; error: string }> {
+  const token = process.env.SLACK_BOT_TOKEN;
+  if (!token) return { ok: false, error: "SLACK_BOT_TOKEN is not set." };
+  const out: SlackChannelOption[] = [];
+  let cursor = "";
+  try {
+    for (let page = 0; page < 10; page++) {
+      const params = new URLSearchParams({
+        types: "public_channel,private_channel",
+        exclude_archived: "true",
+        limit: "200",
+      });
+      if (cursor) params.set("cursor", cursor);
+      const res = await fetch(`${SLACK_API}/conversations.list?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      const data = (await res.json()) as {
+        ok: boolean;
+        error?: string;
+        channels?: { id: string; name: string; is_private?: boolean; is_member?: boolean }[];
+        response_metadata?: { next_cursor?: string };
+      };
+      if (!data.ok) {
+        const code = data.error ?? "unknown_error";
+        return { ok: false, error: ERROR_HINTS[code] ?? `Slack error: ${code}` };
+      }
+      for (const c of data.channels ?? []) {
+        out.push({ id: c.id, name: c.name, isPrivate: !!c.is_private, isMember: !!c.is_member });
+      }
+      cursor = data.response_metadata?.next_cursor ?? "";
+      if (!cursor) break;
+    }
+  } catch (err) {
+    return { ok: false, error: `Could not reach Slack: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  out.sort((a, b) => a.name.localeCompare(b.name));
+  return { ok: true, channels: out };
 }
 
 /**

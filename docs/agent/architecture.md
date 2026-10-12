@@ -14,7 +14,7 @@ there, or that need a sharper statement for agents.
 5. Every exported Server Action in an `actions.ts` re-checks permissions before writing.
 6. Every cron route checks `isAuthorizedCronRequest` (`src/lib/auth/cron.ts`).
 7. Adding a module touches `ModuleKey`/`MODULES`/`ROUTE_MODULES` in `permissions.ts`, the nav in `app-shell.tsx`, and `MODULE_ICONS` in `src/lib/shared/module-icons.ts`.
-8. Every write to `ops_task` goes through `src/lib/worklist/tasks.ts`, and every notification through `publishNotification()` (`src/lib/notify/publish.ts`). Work-center tables are service-role only and every read filters to the signed-in user.
+8. Every write to `ops_task` goes through `src/lib/worklist/tasks.ts`. Every notification goes through `emitEvent()` (module events, routed by rules — `src/lib/notify/emit.ts`) or `publishNotification()` (one chosen login — `src/lib/notify/publish.ts`); every event type is registered in `src/lib/notify/registry.ts`. Work-center and notification tables are service-role only and every read filters to the signed-in user (Admin ▸ Notifications excepted).
 
 ## Authoritative sources
 
@@ -28,7 +28,9 @@ there, or that need a sharper statement for agents.
 | Who sees the confidential HR file | `canViewSensitiveHr` / `hasRestrictedHrView` in `permissions.ts`, mirrored by the `hr_full`/`hr_edit` RLS predicates in 0227 | change one side without the other (run `scripts/security_rls_matrix.sql`) |
 | Who may be texted, and by whom | `blockReason` (`src/lib/sms/rules.ts`) and `canTextPerson` (`src/lib/sms/access.ts`), enforced in `sendSmsToPerson` | send through Twilio directly, or skip the consent/opt-out/quiet-hours checks |
 | What is waiting on a user (dashboard work list) | module tables, projected at read time by `src/lib/worklist/sources.ts`; only ad-hoc work lives in `ops_task` | copy module work (interviews, approvals, licenses) into `ops_task` |
-| Who may be DMed by Ops | `connectedSlackUserFor()` (`src/lib/notify/publish.ts`): active login + employee/contractor + `connected` link, re-checked at send time | DM a Slack id without that check, or set `username`/`icon_url` on DMs |
+| Who may be DMed by Ops | person-addressed deliveries: active employee/contractor + `connected` link + (for restricted events, non-subjects) current module access — `resolveAudience()` at fan-out and the dispatcher's re-check at send time; login-addressed: `connectedSlackUserFor()` | DM a Slack id without those checks, or set `username`/`icon_url` on DMs |
+| Who receives a module event | `notification_rule` (Admin ▸ Notifications) over the registry default, resolved against current roles/access at fan-out | hard-code Slack posts or recipient lists in a module |
+| Who may act from a Slack button | `authorizeAction()` (`src/lib/notify/interaction-rules.ts`) + the same write path Ops uses (e.g. only a still-`requested` PTO row changes) | apply a Slack action without mapping the Slack id to a connected, active person and login |
 | Who may view a Resources document, and who it is for | `canViewDocument` / `isDocumentRecipient` (`src/lib/resources/access.ts`), mirrored by the `resource_document_read` policy and `search_resource_content()` in 0235 | filter documents with only one side, or list documents through the service role without `canViewDocument` (the library and doc pages do) |
 | That an employee acknowledged a policy | `resource_document_signature` (one row per user per version, tied to an immutable `resource_document_version`) | copy it into `person_document`, or let a signed document be deleted (archive it) |
 | A converted policy's content | the native row in Ops (`content_json`); Google Docs are no longer the source | re-run `ingest_google_docs.mjs` expecting it to refresh them (it now skips native rows) |
@@ -36,6 +38,11 @@ there, or that need a sharper statement for agents.
 ## Decisions log
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
+
+### 2026-10-12 — Notification engine: events, rules, person-keyed Slack delivery, buttons (migration 0236)
+- **Context:** the owner wants Ops to tell the right people about operational changes through Slack automatically (schedule, PTO, attendance, marketing events, tasks), configurable without code, with actionable buttons. The 0230 pipeline only addressed logins (22 of 94 employees) and every caller picked its own recipient.
+- **Decision:** one engine. A module calls `emitEvent()` with an event type from `registry.ts`, subjects and a payload (render data only). The engine stores a `notification_event`, merges the admin rule (`notification_rule`) with the registry default, resolves recipients from the live directory (subjects, roles, module editors, scheduling departments, named people, eligible candidates, optional same-location), filters restricted (`sensitivity: module`) events to subjects + people who can open the module, and writes inbox rows (logins only) plus `notification_delivery` rows addressed to a **person** (`recipient_person_id`) or a channel. The dispatcher sends Block Kit cards, re-checks employment, Slack link and module access at send time, batches/coalesces, escalates, and stores `slack_ts` so `resolveCards()` can update a card once its record is handled. Slack buttons go to `/api/slack/interactions` (signing secret), are logged in `notification_action`, and apply through the same write rules as Ops. Slack OAuth installation was not built: one workspace, one bot token.
+- **Consequences:** adding Slack to a module = one registry entry + one `emitEvent()` call. Payloads and templates must stay free of compensation, HR-file and clinical content; PTO notes are dropped from channel posts. Missed clock-in/out is not implementable without punch data (improvements.md). `registry.test.ts`, `audience.test.ts`, `plan.test.ts`, `rule-config.test.ts`, `slack-blocks.test.ts`, `signature.test.ts` pin the rules; `smart-scope.test.ts` keeps the new tables out of Ask Ziggy.
 
 ### 2026-10-12 — Policies become native, access-controlled, signable Ops documents (migration 0235)
 - **Context:** the owner is moving policies off Google Docs. HR / Management must edit them in Ops, choose who can view each one, notify that group on save, and optionally require initials + date, recorded on the employee's HR profile.
