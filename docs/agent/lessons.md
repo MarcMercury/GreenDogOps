@@ -106,6 +106,18 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Database
 
+### A new table silently gets a permissive `gdo_members_all` policy
+- **Problem:** after 0235 created `resource_document_signature` with a narrow read policy (own rows or HR roles), the staging RLS matrix showed Staff reading other people's signatures (`staff doc_signatures=2`).
+- **Root cause:** the `greendogops_protect_new_objects` event trigger runs `protect_new_objects()` on every `CREATE TABLE` and adds `gdo_members_all` (FOR ALL, any active user). Policies are OR-ed, so it overrides any narrower policy the migration adds. `rls_audit()` does not flag it — the table has RLS and a policy.
+- **Fix:** in the migration, right after creating the table and before the narrow policies: `drop policy if exists gdo_members_all on greendogops.<table>;` (0230 and 0235 do this). Writes stayed blocked here only because the migration also revoked INSERT/UPDATE/DELETE from `authenticated`.
+- **Prevent:** add the new boundary to `scripts/security_rls_matrix.sql` and run it on staging; check `pg_policies` for the new table.
+- **Evidence:** 2026-10-12, matrix FAIL → added the drops → fresh apply and re-apply both leave only the intended policies; matrix PASS.
+
+### Rehearse a data import on staging by copying only the metadata rows it needs
+- **Problem:** `import_google_docs_native.mjs` could not be dry-run against production before 0235 existed there, and staging had none of the Google-linked rows.
+- **Fix:** generate idempotent `insert … where not exists` statements from production with `format()`/`string_agg` (titles, ids, paths — no personal data), apply them to staging, then run the script with `NEXT_PUBLIC_SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` exported from `.secrets/supabase-staging.env`. Compare a hash of the affected rows before/after to prove a second tool leaves them alone.
+- **Evidence:** 2026-10-12: 22 documents imported on staging, re-run skipped all 22; `ingest_google_docs.mjs` re-run left the md5 of all native rows unchanged.
+
 ### PostgREST silently truncates at 1000 rows
 - **Problem:** large reads return exactly 1000 rows with no error.
 - **Root cause:** project `max_rows` = 1000.

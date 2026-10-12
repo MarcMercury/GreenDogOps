@@ -3546,17 +3546,22 @@ COMMENT ON FUNCTION greendogops.rls_audit() IS 'Returns every greendogops object
 
 
 --
--- Name: search_resource_content(text, integer); Type: FUNCTION; Schema: greendogops; Owner: -
+-- Name: search_resource_content(text, uuid, integer); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
-CREATE FUNCTION greendogops.search_resource_content(p_query text, p_limit integer DEFAULT 8) RETURNS TABLE(document_id uuid, title text, category text, source_url text, chunk_index integer, content text, rank real)
+CREATE FUNCTION greendogops.search_resource_content(p_query text, p_app_user_id uuid, p_limit integer DEFAULT 8) RETURNS TABLE(document_id uuid, title text, category text, source_url text, chunk_index integer, content text, rank real)
     LANGUAGE plpgsql STABLE
     SET search_path TO 'greendogops', 'public'
     AS $$
 declare
-  v_all tsquery := websearch_to_tsquery('english', coalesce(p_query, ''));
-  v_any tsquery;
+  v_all  tsquery := websearch_to_tsquery('english', coalesce(p_query, ''));
+  v_any  tsquery;
+  v_role text;
 begin
+  select u.role::text into v_role
+    from greendogops.app_user u
+   where u.id = p_app_user_id and u.is_active;
+
   -- OR of every lexeme left after stemming and stop-word removal.
   select string_agg(quote_literal(lex), ' | ')::tsquery
     into v_any
@@ -3567,12 +3572,23 @@ begin
   end if;
 
   return query
-    select d.id, d.title, d.category, d.source_url, c.chunk_index, c.content,
+    select d.id, d.title, d.category,
+           case when d.storage_path is not null or d.content_json is not null
+                then '/resources/doc/' || d.id::text
+                else d.source_url end,
+           c.chunk_index, c.content,
            ts_rank(c.tsv, v_any) as rank
       from greendogops.resource_document_chunk c
       join greendogops.resource_document d on d.id = c.document_id
      where d.is_active
        and c.tsv @@ v_any
+       and (
+         d.visible_roles is null
+         or v_role in ('owner', 'admin', 'executive', 'manager')
+         or v_role = any (d.visible_roles)
+         or exists (select 1 from greendogops.resource_document_viewer v
+                     where v.document_id = d.id and v.app_user_id = p_app_user_id)
+       )
      order by (v_all is not null and c.tsv @@ v_all) desc,
               ts_rank(c.tsv, v_any) desc,
               d.title, c.chunk_index
@@ -10427,8 +10443,54 @@ CREATE TABLE greendogops.resource_document (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     google_file_id text,
     content_synced_at timestamp with time zone,
-    CONSTRAINT resource_document_has_target CHECK (((storage_path IS NOT NULL) OR (source_url IS NOT NULL)))
+    content_json jsonb,
+    content_text text,
+    visible_roles text[],
+    current_version integer DEFAULT 0 NOT NULL,
+    require_signature boolean DEFAULT false NOT NULL,
+    signature_from_version integer,
+    superseded_by uuid,
+    updated_by uuid,
+    CONSTRAINT resource_document_content_json_object CHECK (((content_json IS NULL) OR (jsonb_typeof(content_json) = 'object'::text))),
+    CONSTRAINT resource_document_has_target CHECK (((storage_path IS NOT NULL) OR (source_url IS NOT NULL) OR (content_json IS NOT NULL))),
+    CONSTRAINT resource_document_signature_baseline CHECK (((NOT require_signature) OR ((signature_from_version IS NOT NULL) AND ((signature_from_version >= 1) AND (signature_from_version <= GREATEST(current_version, 1)))))),
+    CONSTRAINT resource_document_visible_roles_valid CHECK (((visible_roles IS NULL) OR (visible_roles <@ ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text, 'schedule_admin'::text, 'marketing_admin'::text, 'staff'::text])))
 );
+
+
+--
+-- Name: COLUMN resource_document.content_json; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.resource_document.content_json IS 'Native document body (TipTap/ProseMirror JSON). NULL for uploaded files and external links.';
+
+
+--
+-- Name: COLUMN resource_document.content_text; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.resource_document.content_text IS 'Plain text of content_json, kept for search and Ask Ziggy chunks.';
+
+
+--
+-- Name: COLUMN resource_document.visible_roles; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.resource_document.visible_roles IS 'app_role values that may view. NULL = everyone; {} = only the people in resource_document_viewer. HR / Manager and above always see every document.';
+
+
+--
+-- Name: COLUMN resource_document.signature_from_version; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.resource_document.signature_from_version IS 'Signatures on this version or later count as current. Raised when an editor asks everyone to re-sign.';
+
+
+--
+-- Name: COLUMN resource_document.superseded_by; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.resource_document.superseded_by IS 'Set when this row was replaced (e.g. a PDF/Google link converted to a native document). The row is kept, inactive.';
 
 
 --
@@ -10464,6 +10526,89 @@ ALTER TABLE greendogops.resource_document_chunk ALTER COLUMN id ADD GENERATED AL
     NO MAXVALUE
     CACHE 1
 );
+
+
+--
+-- Name: resource_document_signature; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.resource_document_signature (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    document_id uuid NOT NULL,
+    version_id uuid NOT NULL,
+    version_no integer NOT NULL,
+    document_title text NOT NULL,
+    app_user_id uuid,
+    person_id uuid,
+    signer_name text NOT NULL,
+    signer_email text,
+    initials text NOT NULL,
+    signed_on date NOT NULL,
+    signed_at timestamp with time zone DEFAULT now() NOT NULL,
+    user_agent text,
+    CONSTRAINT resource_document_signature_initials_check CHECK ((initials ~ '^[A-Za-z][A-Za-z.''\- ]{0,9}$'::text)),
+    CONSTRAINT resource_document_signature_user_agent_check CHECK (((user_agent IS NULL) OR (length(user_agent) <= 400)))
+);
+
+
+--
+-- Name: TABLE resource_document_signature; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.resource_document_signature IS 'Initials + date acknowledgement of one resource_document version. Shown on the HR profile Documents tab. Service-role writes only.';
+
+
+--
+-- Name: resource_document_version; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.resource_document_version (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    document_id uuid NOT NULL,
+    version_no integer NOT NULL,
+    title text NOT NULL,
+    content_json jsonb,
+    content_text text,
+    storage_path text,
+    file_name text,
+    mime_type text,
+    size_bytes bigint,
+    change_note text,
+    signature_required boolean DEFAULT false NOT NULL,
+    notified_count integer DEFAULT 0 NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT resource_document_version_change_note_check CHECK (((change_note IS NULL) OR (length(change_note) <= 500))),
+    CONSTRAINT resource_document_version_check CHECK (((content_json IS NOT NULL) OR (storage_path IS NOT NULL))),
+    CONSTRAINT resource_document_version_notified_count_check CHECK ((notified_count >= 0)),
+    CONSTRAINT resource_document_version_version_no_check CHECK ((version_no >= 1))
+);
+
+
+--
+-- Name: TABLE resource_document_version; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.resource_document_version IS 'Immutable snapshot of a resource_document per save. Signatures point here.';
+
+
+--
+-- Name: resource_document_viewer; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.resource_document_viewer (
+    document_id uuid NOT NULL,
+    app_user_id uuid NOT NULL,
+    added_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE resource_document_viewer; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.resource_document_viewer IS 'People who may view a resource_document in addition to its visible_roles.';
 
 
 --
@@ -12239,6 +12384,46 @@ ALTER TABLE ONLY greendogops.resource_document_chunk
 
 ALTER TABLE ONLY greendogops.resource_document
     ADD CONSTRAINT resource_document_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: resource_document_signature resource_document_signature_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_signature
+    ADD CONSTRAINT resource_document_signature_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: resource_document_signature resource_document_signature_version_id_app_user_id_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_signature
+    ADD CONSTRAINT resource_document_signature_version_id_app_user_id_key UNIQUE (version_id, app_user_id);
+
+
+--
+-- Name: resource_document_version resource_document_version_document_id_version_no_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_version
+    ADD CONSTRAINT resource_document_version_document_id_version_no_key UNIQUE (document_id, version_no);
+
+
+--
+-- Name: resource_document_version resource_document_version_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_version
+    ADD CONSTRAINT resource_document_version_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: resource_document_viewer resource_document_viewer_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_viewer
+    ADD CONSTRAINT resource_document_viewer_pkey PRIMARY KEY (document_id, app_user_id);
 
 
 --
@@ -14645,6 +14830,34 @@ CREATE UNIQUE INDEX resource_document_google_file_id_key ON greendogops.resource
 
 
 --
+-- Name: resource_document_signature_document_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX resource_document_signature_document_idx ON greendogops.resource_document_signature USING btree (document_id, version_no DESC);
+
+
+--
+-- Name: resource_document_signature_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX resource_document_signature_person_idx ON greendogops.resource_document_signature USING btree (person_id, signed_at DESC);
+
+
+--
+-- Name: resource_document_signature_user_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX resource_document_signature_user_idx ON greendogops.resource_document_signature USING btree (app_user_id);
+
+
+--
+-- Name: resource_document_viewer_user_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX resource_document_viewer_user_idx ON greendogops.resource_document_viewer USING btree (app_user_id);
+
+
+--
 -- Name: sched_assignment_cell_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -16366,6 +16579,70 @@ ALTER TABLE ONLY greendogops.resource_document_chunk
 
 
 --
+-- Name: resource_document_signature resource_document_signature_app_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_signature
+    ADD CONSTRAINT resource_document_signature_app_user_id_fkey FOREIGN KEY (app_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: resource_document_signature resource_document_signature_document_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_signature
+    ADD CONSTRAINT resource_document_signature_document_id_fkey FOREIGN KEY (document_id) REFERENCES greendogops.resource_document(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: resource_document_signature resource_document_signature_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_signature
+    ADD CONSTRAINT resource_document_signature_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE SET NULL;
+
+
+--
+-- Name: resource_document_signature resource_document_signature_version_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_signature
+    ADD CONSTRAINT resource_document_signature_version_id_fkey FOREIGN KEY (version_id) REFERENCES greendogops.resource_document_version(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: resource_document resource_document_superseded_by_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document
+    ADD CONSTRAINT resource_document_superseded_by_fkey FOREIGN KEY (superseded_by) REFERENCES greendogops.resource_document(id) ON DELETE SET NULL;
+
+
+--
+-- Name: resource_document_version resource_document_version_document_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_version
+    ADD CONSTRAINT resource_document_version_document_id_fkey FOREIGN KEY (document_id) REFERENCES greendogops.resource_document(id) ON DELETE CASCADE;
+
+
+--
+-- Name: resource_document_viewer resource_document_viewer_app_user_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_viewer
+    ADD CONSTRAINT resource_document_viewer_app_user_id_fkey FOREIGN KEY (app_user_id) REFERENCES greendogops.app_user(id) ON DELETE CASCADE;
+
+
+--
+-- Name: resource_document_viewer resource_document_viewer_document_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.resource_document_viewer
+    ADD CONSTRAINT resource_document_viewer_document_id_fkey FOREIGN KEY (document_id) REFERENCES greendogops.resource_document(id) ON DELETE CASCADE;
+
+
+--
 -- Name: sched_assignment sched_assignment_line_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -17916,20 +18193,6 @@ CREATE POLICY gdo_members_all ON greendogops.resource_category TO authenticated 
 
 
 --
--- Name: resource_document gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.resource_document TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
--- Name: resource_document_chunk gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
---
-
-CREATE POLICY gdo_members_all ON greendogops.resource_document_chunk TO authenticated USING (greendogops.is_gdo_user()) WITH CHECK (greendogops.is_gdo_user());
-
-
---
 -- Name: sched_assignment gdo_members_all; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -18901,6 +19164,71 @@ ALTER TABLE greendogops.resource_document ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.resource_document_chunk ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: resource_document_chunk resource_document_chunk_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY resource_document_chunk_read ON greendogops.resource_document_chunk FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.resource_document d
+  WHERE (d.id = resource_document_chunk.document_id)))));
+
+
+--
+-- Name: resource_document resource_document_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY resource_document_read ON greendogops.resource_document FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((visible_roles IS NULL) OR (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND (((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text])) OR ((u.role)::text = ANY (resource_document.visible_roles)))))) OR (EXISTS ( SELECT 1
+   FROM greendogops.resource_document_viewer v
+  WHERE ((v.document_id = resource_document.id) AND (v.app_user_id = auth.uid())))))));
+
+
+--
+-- Name: resource_document_signature; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.resource_document_signature ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: resource_document_signature resource_document_signature_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY resource_document_signature_read ON greendogops.resource_document_signature FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((app_user_id = auth.uid()) OR (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))))));
+
+
+--
+-- Name: resource_document_version; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.resource_document_version ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: resource_document_version resource_document_version_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY resource_document_version_read ON greendogops.resource_document_version FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND (EXISTS ( SELECT 1
+   FROM greendogops.resource_document d
+  WHERE (d.id = resource_document_version.document_id)))));
+
+
+--
+-- Name: resource_document_viewer; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.resource_document_viewer ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: resource_document_viewer resource_document_viewer_read; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY resource_document_viewer_read ON greendogops.resource_document_viewer FOR SELECT TO authenticated USING ((greendogops.is_gdo_user() AND ((app_user_id = auth.uid()) OR (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = ANY (ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text]))))))));
+
+
+--
 -- Name: sched_assignment; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -19721,11 +20049,11 @@ GRANT ALL ON FUNCTION greendogops.rls_audit() TO service_role;
 
 
 --
--- Name: FUNCTION search_resource_content(p_query text, p_limit integer); Type: ACL; Schema: greendogops; Owner: -
+-- Name: FUNCTION search_resource_content(p_query text, p_app_user_id uuid, p_limit integer); Type: ACL; Schema: greendogops; Owner: -
 --
 
-REVOKE ALL ON FUNCTION greendogops.search_resource_content(p_query text, p_limit integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.search_resource_content(p_query text, p_limit integer) TO service_role;
+REVOKE ALL ON FUNCTION greendogops.search_resource_content(p_query text, p_app_user_id uuid, p_limit integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.search_resource_content(p_query text, p_app_user_id uuid, p_limit integer) TO service_role;
 
 
 --
@@ -21520,7 +21848,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_category TO serv
 -- Name: TABLE resource_document; Type: ACL; Schema: greendogops; Owner: -
 --
 
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document TO authenticated;
+GRANT SELECT ON TABLE greendogops.resource_document TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document TO service_role;
 
 
@@ -21528,7 +21856,7 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document TO serv
 -- Name: TABLE resource_document_chunk; Type: ACL; Schema: greendogops; Owner: -
 --
 
-GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document_chunk TO authenticated;
+GRANT SELECT ON TABLE greendogops.resource_document_chunk TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document_chunk TO service_role;
 
 
@@ -21538,6 +21866,30 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document_chunk T
 
 GRANT SELECT,USAGE ON SEQUENCE greendogops.resource_document_chunk_id_seq TO authenticated;
 GRANT SELECT,USAGE ON SEQUENCE greendogops.resource_document_chunk_id_seq TO service_role;
+
+
+--
+-- Name: TABLE resource_document_signature; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document_signature TO service_role;
+GRANT SELECT ON TABLE greendogops.resource_document_signature TO authenticated;
+
+
+--
+-- Name: TABLE resource_document_version; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document_version TO service_role;
+GRANT SELECT ON TABLE greendogops.resource_document_version TO authenticated;
+
+
+--
+-- Name: TABLE resource_document_viewer; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.resource_document_viewer TO service_role;
+GRANT SELECT ON TABLE greendogops.resource_document_viewer TO authenticated;
 
 
 --

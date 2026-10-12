@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useActionState } from "react";
+import type { PersonPolicyStatus } from "@/lib/resources/server";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import type {
@@ -137,6 +138,7 @@ export function EmployeeProfile({
   disciplinary,
   assets,
   documents,
+  policies = null,
   recruiting,
   transitions,
   attendance,
@@ -162,6 +164,8 @@ export function EmployeeProfile({
   disciplinary: PersonDisciplinaryAction[];
   assets: PersonAsset[];
   documents: PersonDocumentWithUrl[];
+  /** Policy acknowledgements (Resources signatures); null when not loaded. */
+  policies?: PersonPolicyStatus | null;
   recruiting: PersonRecruitingSummary | null;
   transitions: ProfileTransition[];
   attendance: PersonAttendanceSummary;
@@ -330,7 +334,7 @@ export function EmployeeProfile({
         />
       )}
       {activeTab === "documents" && (
-        <DocumentsPanel personId={row.id} documents={documents} />
+        <DocumentsPanel personId={row.id} documents={documents} policies={policies} />
       )}
       {activeTab === "assets" && (
         <AssetsPanel personId={row.id} assets={assets} />
@@ -1587,9 +1591,11 @@ function fmtSize(bytes: number | null): string {
 function DocumentsPanel({
   personId,
   documents,
+  policies,
 }: {
   personId: string;
   documents: PersonDocumentWithUrl[];
+  policies: PersonPolicyStatus | null;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [result, formAction] = useActionState<SaveResult | null, FormData>(
@@ -1631,6 +1637,8 @@ function DocumentsPanel({
           </div>
         </form>
       </Section>
+
+      {policies ? <PolicyAcknowledgements policies={policies} /> : null}
 
       {documents.length === 0 ? (
         <EmptyState>No documents uploaded yet.</EmptyState>
@@ -1674,6 +1682,70 @@ function DocumentsPanel({
         </ul>
       )}
     </div>
+  );
+}
+
+/** "2026-10-12" → "Oct 12, 2026" without a time-zone shift. */
+function fmtDay(day: string): string {
+  const [y, m, d] = day.slice(0, 10).split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+/** Resources documents this employee initialled, and ones still awaiting them. */
+function PolicyAcknowledgements({ policies }: { policies: PersonPolicyStatus }) {
+  if (!policies.signed.length && !policies.pending.length) return null;
+  return (
+    <Section title="Policy acknowledgements">
+      <div className="space-y-3 sm:col-span-2 lg:col-span-3">
+        {policies.pending.length ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-800">Awaiting signature</p>
+            <ul className="mt-1 space-y-0.5 text-sm">
+              {policies.pending.map((p) => (
+                <li key={p.document_id}>
+                  <Link href={`/resources/doc/${p.document_id}`} className="text-amber-900 hover:underline">
+                    {p.title}
+                  </Link>{" "}
+                  <span className="text-xs text-amber-700">v{p.version}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+        {policies.signed.length ? (
+          <ul className="divide-y divide-slate-100 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            {policies.signed.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+                <div className="min-w-0">
+                  <Link
+                    href={`/resources/doc/${s.document_id}?v=${s.version_no}`}
+                    className="truncate text-sm font-medium text-emerald-700 hover:text-emerald-900 hover:underline"
+                  >
+                    {s.document_title}
+                  </Link>
+                  <p className="text-xs text-slate-500">
+                    Version {s.version_no} · initialled <span className="font-semibold">{s.initials}</span> on{" "}
+                    {fmtDay(s.signed_on)}
+                  </p>
+                </div>
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-semibold ${
+                    s.current ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  ✅ {s.current ? "Verified" : "Earlier version"}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </Section>
   );
 }
 

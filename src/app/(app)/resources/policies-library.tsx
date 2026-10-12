@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
+import Link from "next/link";
 import {
   formatBytes,
   resourceCategoryMeta,
-  type PolicyCategory,
+  resourceKind,
   type ResourceCategory,
   type ResourceDocumentWithUrl,
+  type ResourceKind,
 } from "@/lib/resources/types";
 import {
   createResourceCategory,
@@ -33,7 +35,12 @@ type CollectionItem = {
   isLink?: boolean;
   category?: string;
   sourceUrl?: string | null;
+  kind: ResourceKind;
+  mySignature?: "not_required" | "signed" | "pending";
+  restricted?: boolean;
 };
+
+type KindFilter = "all" | "native" | "other";
 
 type Collection = {
   key: string;
@@ -62,26 +69,21 @@ const KIND_META = {
 
 export function PoliciesLibrary({
   documents,
-  policies,
   categories,
   canUpload = false,
 }: {
   documents: ResourceDocumentWithUrl[];
-  policies: PolicyCategory[];
   categories: ResourceCategory[];
   canUpload?: boolean;
 }) {
   const [query, setQuery] = useState("");
-  const [activeKind, setActiveKind] = useState<"all" | "document" | "policy">(
-    "all",
-  );
+  const [activeKind, setActiveKind] = useState<KindFilter>("all");
   const [editItem, setEditItem] = useState<CollectionItem | null>(null);
   const [manageCat, setManageCat] = useState<Collection | null>(null);
   // Sections start collapsed for a cleaner page; toggling removes the key.
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     const keys = new Set<string>();
     for (const d of documents) keys.add(`doc:${d.category}`);
-    for (const cat of policies) keys.add(`policy:${cat.title}`);
     return keys;
   });
 
@@ -120,48 +122,44 @@ export function PoliciesLibrary({
           accent: "text-emerald-700",
           categoryKey: category,
           managed: true,
-          items: docs.map((doc) => ({
-            id: doc.id,
-            title: doc.title,
-            href: doc.signed_url,
-            description: doc.description,
-            meta: formatBytes(doc.size_bytes),
-            staffOnly: doc.staff_only,
-            docId: doc.id,
-            isLink: !doc.storage_path && !!doc.source_url,
-            category: doc.category,
-            sourceUrl: doc.source_url,
-          })),
+          items: docs.map((doc) => {
+            const kind = resourceKind(doc);
+            return {
+              id: doc.id,
+              title: doc.title,
+              href: doc.signed_url,
+              description: doc.description,
+              meta: kind === "file" ? formatBytes(doc.size_bytes) : null,
+              staffOnly: doc.staff_only,
+              docId: doc.id,
+              isLink: kind === "link",
+              category: doc.category,
+              sourceUrl: doc.source_url,
+              kind,
+              mySignature: doc.my_signature,
+              restricted: doc.visible_roles !== null,
+            };
+          }),
         };
       })
       .sort((a, b) => a.label.localeCompare(b.label));
 
-    const policyCollections: Collection[] = policies.map((cat) => ({
-      key: `policy:${cat.title}`,
-      label: cat.title,
-      icon: cat.icon,
-      kind: "policy" as const,
-      accent: cat.accent,
-      items: cat.links.map((link) => ({
-        id: link.url,
-        title: link.name,
-        href: link.url,
-      })),
-    }));
-
-    return [...docCollections, ...policyCollections];
-  }, [documents, policies, catMeta]);
+    return docCollections;
+  }, [documents, catMeta]);
 
   const filtered = useMemo<Collection[]>(() => {
     const q = query.trim().toLowerCase();
     return allCollections
-      .filter((c) => activeKind === "all" || c.kind === activeKind)
       .map((c) => {
-        if (!q) return c;
+        const byKind =
+          activeKind === "all"
+            ? c.items
+            : c.items.filter((it) => (activeKind === "native") === (it.kind === "native"));
+        if (!q) return { ...c, items: byKind };
         const labelMatch = c.label.toLowerCase().includes(q);
         const items = labelMatch
-          ? c.items
-          : c.items.filter(
+          ? byKind
+          : byKind.filter(
               (it) =>
                 it.title.toLowerCase().includes(q) ||
                 (it.description ?? "").toLowerCase().includes(q),
@@ -172,10 +170,14 @@ export function PoliciesLibrary({
   }, [allCollections, activeKind, query]);
 
   const totals = useMemo(() => {
-    const docCount = documents.length;
-    const policyCount = policies.reduce((n, c) => n + c.links.length, 0);
-    return { docCount, policyCount, all: docCount + policyCount };
-  }, [documents, policies]);
+    const nativeCount = documents.filter((d) => resourceKind(d) === "native").length;
+    return { nativeCount, otherCount: documents.length - nativeCount, all: documents.length };
+  }, [documents]);
+
+  const toSign = useMemo(
+    () => documents.filter((d) => d.my_signature === "pending"),
+    [documents],
+  );
 
   const visibleCount = filtered.reduce((n, c) => n + c.items.length, 0);
   const allCollapsed =
@@ -214,20 +216,54 @@ export function PoliciesLibrary({
               onClick={() => setActiveKind("all")}
             />
             <FilterTab
-              label="Documents"
-              count={totals.docCount}
-              active={activeKind === "document"}
-              onClick={() => setActiveKind("document")}
+              label="Policies"
+              count={totals.nativeCount}
+              active={activeKind === "native"}
+              onClick={() => setActiveKind("native")}
             />
             <FilterTab
-              label="Policies"
-              count={totals.policyCount}
-              active={activeKind === "policy"}
-              onClick={() => setActiveKind("policy")}
+              label="Files & links"
+              count={totals.otherCount}
+              active={activeKind === "other"}
+              onClick={() => setActiveKind("other")}
             />
           </div>
         </div>
       </div>
+
+      {toSign.length ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+          <p className="text-sm font-semibold text-amber-900">
+            ✍️ {toSign.length === 1 ? "1 document needs" : `${toSign.length} documents need`} your signature
+          </p>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {toSign.map((d) => (
+              <li key={d.id}>
+                <Link
+                  href={`/resources/doc/${d.id}#sign`}
+                  className="inline-block rounded-lg bg-white px-3 py-1.5 text-sm font-medium text-amber-900 shadow-sm ring-1 ring-amber-200 hover:bg-amber-100"
+                >
+                  {d.title} →
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {canUpload ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/resources/doc/new"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+          >
+            📝 New document
+          </Link>
+          <span className="text-xs text-slate-500">
+            Write a policy in Ops, choose who can view it, notify them and collect signatures.
+          </span>
+        </div>
+      ) : null}
 
       {canUpload ? <UploadPanel categories={categories} /> : null}
 
@@ -405,6 +441,27 @@ function UploadPanel({ categories }: { categories: ResourceCategory[] }) {
               />
               <span className="text-sm text-slate-600">Staff only</span>
             </label>
+
+            <label className="flex items-center gap-2">
+              <input
+                name="notify"
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-slate-600">Notify everyone</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                name="require_signature"
+                type="checkbox"
+                className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-slate-600">Require signature (initials + date)</span>
+            </label>
+            <p className="-mt-2 text-xs text-slate-400 sm:col-span-2">
+              New uploads are visible to everyone. To limit who sees it, upload without these options, set access on
+              the document page, then use “Send to access group”.
+            </p>
 
             <div className="flex flex-wrap items-center gap-3 sm:col-span-2">
               <SubmitButton />
@@ -724,12 +781,13 @@ function CollectionCard({
       <ul className={`divide-y divide-slate-100 ${open ? "" : "hidden"}`}>
         {collection.items.map((item) => {
           const canEditItem = canManage && !!item.docId;
+          const external = item.kind === "link";
           return (
             <li key={item.id} className="flex items-stretch">
               <a
                 href={item.href ?? "#"}
-                target={item.href ? "_blank" : undefined}
-                rel={item.href ? "noopener noreferrer" : undefined}
+                target={item.href && external ? "_blank" : undefined}
+                rel={item.href && external ? "noopener noreferrer" : undefined}
                 aria-disabled={item.href ? undefined : true}
                 className={`flex min-w-0 flex-1 items-start justify-between gap-3 px-4 py-2.5 text-sm transition ${
                   item.href ? kind.hover : "cursor-not-allowed opacity-60"
@@ -737,8 +795,18 @@ function CollectionCard({
               >
                 <span className="min-w-0">
                   <span className="flex items-center gap-1.5 font-medium text-slate-800">
-                    <span aria-hidden>{item.isLink ? "🔗" : "📄"}</span>
+                    <span aria-hidden>{item.kind === "link" ? "🔗" : item.kind === "native" ? "📝" : "📄"}</span>
                     <span className="truncate">{item.title}</span>
+                    {item.mySignature === "pending" ? (
+                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-800">
+                        Sign
+                      </span>
+                    ) : null}
+                    {canManage && item.restricted ? (
+                      <span className="shrink-0 text-[11px]" title="Limited access" aria-label="Limited access">
+                        🔒
+                      </span>
+                    ) : null}
                     {item.staffOnly ? (
                       <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">
                         Staff only
@@ -756,7 +824,7 @@ function CollectionCard({
                     <span className="text-xs text-slate-400">{item.meta}</span>
                   ) : null}
                   <span className="text-slate-300" aria-hidden>
-                    ↗
+                    {external ? "↗" : "→"}
                   </span>
                 </span>
               </a>
@@ -946,7 +1014,7 @@ function DocumentEditModal({
         onSubmit={(e) => {
           if (
             !window.confirm(
-              `Delete "${item.title}"? This can't be undone.`,
+              `Delete "${item.title}"? This can't be undone. (A document with signatures is archived instead, so the signatures stay on record.)`,
             )
           ) {
             e.preventDefault();

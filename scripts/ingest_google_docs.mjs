@@ -12,6 +12,9 @@
  *
  * Each linked document becomes a link-only resource_document row keyed by
  * google_file_id, plus resource_document_chunk rows (migration 0174).
+ *
+ * Rows already converted to native Ops documents (content_json set, see
+ * import_google_docs_native.mjs) are left alone: Ops is now their source.
  */
 import { parseFileId } from "./lib/google-auth.mjs";
 import { fetchFileText } from "./lib/google-docs.mjs";
@@ -73,17 +76,19 @@ values (${q(title)}, ${q(CATEGORY)}, ${q(t.label && t.label !== title ? t.label 
 on conflict (google_file_id) where google_file_id is not null
 do update set title = excluded.title,
               source_url = excluded.source_url,
-              updated_at = now();`);
+              updated_at = now()
+        where resource_document.content_json is null;`);
+  const linkRow = `select id from greendogops.resource_document
+                       where google_file_id = ${q(t.id)} and content_json is null`;
   out.push(`delete from greendogops.resource_document_chunk
- where document_id = (select id from greendogops.resource_document
-                       where google_file_id = ${q(t.id)});`);
+ where document_id = (${linkRow});`);
   chunks.forEach((c, i) => {
     out.push(`insert into greendogops.resource_document_chunk (document_id, chunk_index, content)
 select id, ${i}, ${dollar(c)}
-  from greendogops.resource_document where google_file_id = ${q(t.id)};`);
+  from greendogops.resource_document where google_file_id = ${q(t.id)} and content_json is null;`);
   });
   out.push(`update greendogops.resource_document
-   set content_synced_at = now() where google_file_id = ${q(t.id)};`);
+   set content_synced_at = now() where google_file_id = ${q(t.id)} and content_json is null;`);
 }
 
 out.push("");

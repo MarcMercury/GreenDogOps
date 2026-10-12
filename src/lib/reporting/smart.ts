@@ -166,9 +166,13 @@ adapt the filters rather than inventing a different approach:\n${examples
 async function getPolicyPassages(
   admin: AdminClient,
   question: string,
+  askerUserId: string | null,
 ): Promise<PolicyPassage[]> {
+  // Documents can be limited to roles/people (0235); with no asker only the
+  // documents everyone may read come back.
   const { data, error } = await admin.rpc("search_resource_content", {
     p_query: question,
+    p_app_user_id: askerUserId,
     p_limit: PASSAGE_LIMIT,
   });
   // Documents are a bonus source — never fail the report over them.
@@ -1010,7 +1014,8 @@ employees' records to answer a question about the asker:\n${asker}\n`;
  * allowed to see: smart_query bypasses RLS, so it is the only thing keeping
  * salaries, revenue and confidential employee records out of the answer.
  * `asker` is the caller's own records (see ziggy-context.ts), fetched by
- * person_id on the server — never by the model's SQL.
+ * person_id on the server — never by the model's SQL. `askerUserId` limits
+ * policy passages to the documents that user may view.
  */
 export async function askSmartReport(
   admin: AdminClient,
@@ -1018,6 +1023,7 @@ export async function askSmartReport(
   requestedScope: SmartScope,
   history: SmartTurn[] = [],
   asker: string | null = null,
+  askerUserId: string | null = null,
 ): Promise<SmartResult> {
   const empty: Omit<SmartResult, "answer" | "ok"> = {
     sql: null,
@@ -1042,7 +1048,7 @@ export async function askSmartReport(
 
   const [{ schema, values, functions, scope, tags, problems }, passages, rawExamples, glossary] = await Promise.all([
     getSchemaCatalog(admin, requestedScope),
-    getPolicyPassages(admin, q),
+    getPolicyPassages(admin, q, askerUserId),
     getExamples(admin, q),
     getGlossary(admin, q),
   ]);

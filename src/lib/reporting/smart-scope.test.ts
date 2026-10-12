@@ -82,6 +82,19 @@ describe("smartScopeFor", () => {
     expect(smartScopeFor("manager").canViewCompensation).toBe(false);
     expect(smartScopeFor("schedule_admin").blockedTables).toContain("person_license");
   });
+
+  it("keeps access-limited policy documents and signatures out of raw SQL for roles that cannot see them all", () => {
+    const managers: AppRole[] = ["owner", "admin", "executive", "manager"];
+    for (const role of APP_ROLES) {
+      const blocked = smartScopeFor(role).blockedTables;
+      const seesAll = managers.includes(role);
+      for (const table of ["resource_document", "resource_document_chunk", "resource_document_viewer", "resource_document_signature"]) {
+        expect(blocked.includes(table), `${role} ${table}`).toBe(!seesAll);
+      }
+      // Version snapshots are never a reporting answer.
+      expect(blocked).toContain("resource_document_version");
+    }
+  });
 });
 
 describe("blockedIdentifier", () => {

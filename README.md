@@ -154,10 +154,18 @@ from users who cannot access it.
     Ops does not read Slack messages; summaries need a later per-user consent.
   - **Your activity** — their own audit-log entries.
 - **Resources** (`/resources`) — the library of company policies, protocols and
-  documents: links grouped by category, with upload and editing for editor
-  roles. Uploaded PDFs are text-extracted so Ask Ziggy can answer from them
-  (questions go to Ask Ziggy; Resources has no search of its own).
-  `/policies` and `/resources/policies` redirect here.
+  documents, grouped by category. Policies are **native Ops documents**
+  (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),
+  versioned on every save, and addressed to everyone or to chosen roles and
+  people. HR / Manager and above create and edit them and can open every
+  document. On save — or with "Send to access group" — they can notify the
+  recipients in Ops and **require a signature**: each recipient enters initials
+  (date stamped in clinic time) against that exact version, and the signature
+  is listed on their HR profile's Documents tab as a verified acknowledgement.
+  Uploaded PDFs/Word files and external links still work (uploads get versions,
+  notify and signatures too). Every document's text is indexed so Ask Ziggy can
+  answer from the ones the asker may view (questions go to Ask Ziggy; Resources
+  has no search of its own). `/policies` and `/resources/policies` redirect here.
 - **Ask Ziggy** (`/ask-ziggy`) — the company AI assistant, open to every
   employee: plain-English questions about patients, clients, appointments, the
   schedule, company policy, and the asker's own shifts and PTO. What each user
@@ -420,7 +428,8 @@ All cron routes authenticate with `CRON_SECRET`; long-running ones set
 ### Other integrations
 
 - **Google** — Calendar sync, Sheets two-way sync for the HR roster, schedule and
-  students ([src/lib/sheets](src/lib/sheets)), Docs ingestion for Resources,
+  students ([src/lib/sheets](src/lib/sheets)), the one-time Google Docs → native
+  Resources import (`scripts/import_google_docs_native.mjs`),
   Maps/Places geocoding, and Custom Search. Auth via a service account or a
   stored OAuth refresh token.
 - **Slack** ([src/lib/slack](src/lib/slack)) — hiring, ops reporting, and
@@ -530,7 +539,9 @@ Encryption is `age`, asymmetric: CI holds only the public key. **If
 shell) used to seed and maintain the database from CSV/XLSX exports — e.g.
 `import_ezyvet_invoices.py`, `import_roster.py`, `import_ats.py`,
 `import_schedule_weeks.py`, `ingest_resource_pdfs.mjs`,
-`publish_google_doc_pdfs.mjs` (publish Google Docs to Resources as viewable PDFs), `enrich_vendors.py`,
+`import_google_docs_native.mjs` (convert Google Docs / .docx policies into native
+Ops documents), `publish_google_doc_pdfs.mjs` (older: publish a Google Doc as a
+PDF), `enrich_vendors.py`,
 `derive_role_members.py`, and `ask_smart.mts` (run an Ask Ziggy question
 locally with no dev server and no auth; `GDO_SMART_ROLE` / `GDO_ASKER_EMAIL`). Sample source exports live in
 [public](public).

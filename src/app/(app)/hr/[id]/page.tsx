@@ -38,6 +38,7 @@ import {
 import { canTextPerson } from "@/lib/sms/access";
 import { EmployeeProfile, type LinkedAccount, type SlackChipInfo } from "./employee-profile";
 import { getSlackLinkForPerson } from "@/lib/slack/link-sync";
+import { loadPersonPolicyStatus } from "@/lib/resources/server";
 
 export const dynamic = "force-dynamic";
 
@@ -296,6 +297,12 @@ export default async function EmployeeDetailPage({
     }
   }
 
+  // Policy acknowledgements share the Documents tab's gate (HR / Manager and
+  // above, or the employee's own record). A failure only hides this list.
+  const policies = isScheduleAdmin
+    ? null
+    : await loadPersonPolicyStatus(createAdminClient(), id).catch(() => null);
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link
@@ -323,6 +330,7 @@ export default async function EmployeeDetailPage({
         disciplinary={disciplinary}
         assets={assets}
         documents={documentsWithUrls}
+        policies={policies}
         recruiting={recruiting}
         transitions={transitions}
         attendance={attendance}

@@ -83,6 +83,20 @@ const HR_RECORD_TABLES = [
   "person_asset",
   "person_onboarding_item",
   "ats_hr_merge_backup_0032",
+  // Policy acknowledgements (initials + date) are part of the employee file.
+  "resource_document_signature",
+] as const;
+
+/**
+ * Resources documents can be limited to roles or named people (0235). Ask Ziggy
+ * reads their text through search_resource_content(), which applies that rule
+ * for the asker; raw SQL on these tables would not, so only the tiers that may
+ * view every document (HR / Manager and above) can query them.
+ */
+const RESTRICTED_DOCUMENT_TABLES = [
+  "resource_document",
+  "resource_document_chunk",
+  "resource_document_viewer",
 ] as const;
 
 /**
@@ -109,6 +123,8 @@ export const ALWAYS_BLOCKED_TABLES = [
   "smart_question_log",
   "person_recruiting_cleanup_0220",
   "person_recruiting_score_backup_0225",
+  // Full snapshots of every policy version, including restricted ones.
+  "resource_document_version",
 ] as const;
 
 /**
@@ -266,7 +282,7 @@ export function smartScopeFor(role: AppRole): SmartScope {
     literalArgFunctions: tier === "general" ? GENERAL_LOOKUP_FUNCTIONS : [],
     blockedTables: [
       ...ALWAYS_BLOCKED_TABLES,
-      ...(canViewHrRecords ? [] : HR_RECORD_TABLES),
+      ...(canViewHrRecords ? [] : [...HR_RECORD_TABLES, ...RESTRICTED_DOCUMENT_TABLES]),
     ],
     blockedColumns: canViewCompensation ? [] : [...COMPENSATION_COLUMNS],
   };

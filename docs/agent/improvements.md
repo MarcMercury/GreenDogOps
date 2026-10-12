@@ -79,10 +79,16 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - README says "use the existing first*() helpers" but none exist; files unwrap ad hoc (e.g. `one<T>()` in `src/lib/ats/job-hires.ts`). Add one helper in `src/lib/supabase/` and fix the README.
 - **Risk:** low.
 
-### Duplicate link-only Google Doc rows in the Resources HR category
-- **Why:** `ingest_google_docs.mjs` (b11dc7c) added ~20 active, link-only `resource_document` rows (category `hr`, sort 50, `staff_only`) for Docs that already exist as viewable PDFs — e.g. "GDD Urgent Care Locations and Injury Protocol" appears in HR as a Google link and in Safety as a PDF. Staff see each policy twice, and the link copy needs Google access.
-- **Scope:** decide whether those rows should stay as search-only (their chunks feed Ask Ziggy), e.g. set `is_active = false` on rows whose PDF twin is indexed (check `search_resource_content` filters on `is_active` first — it does, so deactivating drops their chunks from search unless the PDF twin is indexed). Production data change — needs authorization.
-- **Risk:** low–medium; verify each PDF twin has chunks before deactivating.
+### Policy documents — follow-ups to 0235
+- **Why:** native policies with access, versions and signatures shipped (0235); these were left out to keep the first release small.
+- **Scope:**
+  - Work Center: a "Documents to sign" work-list item projected from `resource_document` (today the in-app notification and the Resources banner carry it).
+  - Reminders for people who have not signed after N days (a cron + `publishNotification` with a new dedupe key) — needs the owner's cadence.
+  - Archived documents: a manager view to list and restore `is_active = false` rows (today only reachable by URL; converted PDF/link copies live there too).
+  - Printable acknowledgement (document version + initials + timestamp) for an employee's file, if HR needs paper/PDF evidence.
+  - Retire `resource_document.staff_only` (a badge only) now that access control exists.
+  - Inline images are data URLs inside every version; move them to storage if documents get image-heavy (Roles & Responsibilities is ~1.4 MB per version).
+- **Risk:** low each.
 
 ### Vitest config
 - No `vitest.config.*`; works today on defaults. Add one if path aliases or `server-only` imports start breaking tests.

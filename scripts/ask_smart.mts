@@ -24,15 +24,20 @@ const role = (process.env.GDO_SMART_ROLE ?? "owner") as Parameters<typeof smartS
 const question = process.argv.slice(2).join(" ");
 const admin = createAdminClient();
 let asker: string | null = null;
+let askerUserId: string | null = null;
 if (process.env.GDO_ASKER_EMAIL) {
   const { data } = await admin
     .from("app_user")
-    .select("full_name, role, person_id, email")
+    .select("id, full_name, role, person_id, email")
     .ilike("email", process.env.GDO_ASKER_EMAIL)
     .maybeSingle();
-  if (data) asker = formatAskerContext(await getAskerFacts(admin, data, data.email));
+  if (data) {
+    asker = formatAskerContext(await getAskerFacts(admin, data, data.email));
+    askerUserId = data.id;
+  }
 }
-const result = await askSmartReport(admin, question, smartScopeFor(role), [], asker);
+// Without GDO_ASKER_EMAIL, policy passages come only from documents everyone may view.
+const result = await askSmartReport(admin, question, smartScopeFor(role), [], asker, askerUserId);
 console.log("ROLE:", role);
 console.log("Q:", question);
 console.log("SQL:", result.sql);

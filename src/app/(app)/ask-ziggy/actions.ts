@@ -90,7 +90,7 @@ export async function askSmartQuestion(
     const asker = await getAskerFacts(admin, current.appUser, current.email)
       .then(formatAskerContext)
       .catch(() => null);
-    result = await askSmartReport(admin, q, scope, turns, asker);
+    result = await askSmartReport(admin, q, scope, turns, asker, current.appUser.id);
   } catch (e) {
     result = {
       ok: false,

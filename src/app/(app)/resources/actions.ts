@@ -5,6 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { safeUploadContentType } from "@/lib/security/upload";
 import { getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { isEditorRole } from "@/lib/auth/permissions";
+import { notifyAudience, reindexDocument } from "@/lib/resources/server";
+import type { ResourceDocument } from "@/lib/resources/types";
 
 const RESOURCES_BUCKET = "resources";
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -45,6 +47,20 @@ async function categoryExists(
     .eq("is_active", true)
     .maybeSingle();
   return !!data;
+}
+
+/** Text of an uploaded PDF for the Ask Ziggy index, or null (Word files, scans). */
+async function uploadedPdfText(file: File): Promise<string | null> {
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") return null;
+  try {
+    const { getDocumentProxy, extractText } = await import("unpdf");
+    const pdf = await getDocumentProxy(new Uint8Array(await file.arrayBuffer()));
+    const { text } = await extractText(pdf, { mergePages: true });
+    const t = (Array.isArray(text) ? text.join("\n") : text).replace(/\n{3,}/g, "\n\n").trim();
+    return t.length >= 200 ? t : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Upload a new policy/resource document. Admins and managers only. */
@@ -93,22 +109,64 @@ export async function uploadPolicyDocument(
 
   if (upErr) return { ok: false, error: upErr.message };
 
-  const { error: dbErr } = await admin.from("resource_document").insert({
+  const notify = formData.get("notify") === "on";
+  const requireSignature = formData.get("require_signature") === "on";
+
+  const { data: inserted, error: dbErr } = await admin
+    .from("resource_document")
+    .insert({
+      title,
+      category,
+      description,
+      storage_path: storagePath,
+      file_name: file.name,
+      mime_type: file.type || null,
+      size_bytes: file.size,
+      staff_only: staffOnly,
+      uploaded_by: current.authId,
+      updated_by: current.authId,
+      current_version: 1,
+      require_signature: requireSignature,
+      signature_from_version: requireSignature ? 1 : null,
+    })
+    .select("*")
+    .single();
+
+  if (dbErr || !inserted) {
+    // Roll back the orphaned upload so storage and the table stay in sync.
+    await admin.storage.from(RESOURCES_BUCKET).remove([storagePath]);
+    return { ok: false, error: dbErr?.message ?? "Could not save the document." };
+  }
+  const doc = inserted as ResourceDocument;
+
+  // Version 1 is what signatures point at; the file itself is the snapshot.
+  const { error: vErr } = await admin.from("resource_document_version").insert({
+    document_id: doc.id,
+    version_no: 1,
     title,
-    category,
-    description,
     storage_path: storagePath,
     file_name: file.name,
     mime_type: file.type || null,
     size_bytes: file.size,
-    staff_only: staffOnly,
-    uploaded_by: current.authId,
+    change_note: "Uploaded",
+    signature_required: requireSignature,
+    created_by: current.authId,
   });
-
-  if (dbErr) {
-    // Roll back the orphaned upload so storage and the table stay in sync.
+  if (vErr) {
+    await admin.from("resource_document").delete().eq("id", doc.id);
     await admin.storage.from(RESOURCES_BUCKET).remove([storagePath]);
-    return { ok: false, error: dbErr.message };
+    return { ok: false, error: vErr.message };
+  }
+
+  await reindexDocument(admin, doc.id, await uploadedPdfText(file));
+  let notice = "";
+  if (notify || requireSignature) {
+    const res = await notifyAudience(admin, doc, 1, {
+      actorUserId: current.authId,
+      signatureRequired: requireSignature,
+      note: null,
+    });
+    notice = ` Notified ${res.notified}.`;
   }
 
   await recordAudit({
@@ -116,8 +174,9 @@ export async function uploadPolicyDocument(
     actorEmail: current.email,
     action: "resource.uploaded",
     entity: "resource_document",
-    summary: `Uploaded policy document "${title}" (${category})`,
-    metadata: { category, file_name: file.name, size_bytes: file.size },
+    entityId: doc.id,
+    summary: `Uploaded policy document "${title}" (${category}).${notice}`,
+    metadata: { category, file_name: file.name, size_bytes: file.size, notify, require_signature: requireSignature },
   });
 
   revalidatePath("/resources");
@@ -405,15 +464,49 @@ export async function deleteResourceDocument(
     .maybeSingle();
   if (!row) return { ok: false, error: "That item no longer exists." };
 
-  if (row.storage_path) {
-    await admin.storage.from(RESOURCES_BUCKET).remove([row.storage_path]);
+  // Signatures are HR records: keep the document (archived) instead of deleting.
+  const { count: signatures } = await admin
+    .from("resource_document_signature")
+    .select("id", { count: "exact", head: true })
+    .eq("document_id", id);
+  if ((signatures ?? 0) > 0) {
+    const { error: archErr } = await admin
+      .from("resource_document")
+      .update({ is_active: false })
+      .eq("id", id);
+    if (archErr) return { ok: false, error: archErr.message };
+    await recordAudit({
+      actorId: current.authId,
+      actorEmail: current.email,
+      action: "resource.archived",
+      entity: "resource_document",
+      entityId: id,
+      summary: `Archived resource "${row.title}" (it has ${signatures} signature(s), so it was not deleted)`,
+    });
+    revalidatePath("/resources");
+    return { ok: true };
   }
+
+  const { data: versions } = await admin
+    .from("resource_document_version")
+    .select("storage_path")
+    .eq("document_id", id);
+  const paths = [
+    ...new Set(
+      [row.storage_path, ...(versions ?? []).map((v) => (v as { storage_path: string | null }).storage_path)].filter(
+        (p): p is string => !!p,
+      ),
+    ),
+  ];
 
   const { error: dbErr } = await admin
     .from("resource_document")
     .delete()
     .eq("id", id);
   if (dbErr) return { ok: false, error: dbErr.message };
+
+  // Files go only after the row is gone, so a failed delete never orphans the row.
+  if (paths.length) await admin.storage.from(RESOURCES_BUCKET).remove(paths);
 
   await recordAudit({
     actorId: current.authId,

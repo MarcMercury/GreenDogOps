@@ -24,6 +24,13 @@ declare
   failures  text[] := '{}';
   hr_full   boolean;
   cand_edit boolean;
+  -- Resource documents (0235)
+  v_doc_public uuid;
+  v_doc_staff  uuid;
+  v_doc_named  uuid;
+  v_doc_hidden uuid;
+  v_doc_ver    uuid;
+  role_staff   boolean;
 begin
   if v_uid is null then
     raise exception 'needs at least one app_user';
@@ -38,6 +45,27 @@ begin
     values ('Rls', 'Candidate', 'applicant') returning id into v_cand;
   insert into greendogops.person_review (person_id, review_type)
     values (v_self, 'rls-test'), (v_other, 'rls-test');
+
+  -- Resource documents: everyone / staff role / named viewer / nobody named.
+  insert into greendogops.resource_document (title, source_url, visible_roles)
+    values ('rls-doc-public', 'https://example.com/a', null) returning id into v_doc_public;
+  insert into greendogops.resource_document (title, source_url, visible_roles)
+    values ('rls-doc-staff', 'https://example.com/b', array['staff']) returning id into v_doc_staff;
+  insert into greendogops.resource_document (title, source_url, visible_roles)
+    values ('rls-doc-named', 'https://example.com/c', '{}') returning id into v_doc_named;
+  insert into greendogops.resource_document (title, source_url, visible_roles)
+    values ('rls-doc-hidden', 'https://example.com/d', '{}') returning id into v_doc_hidden;
+  insert into greendogops.resource_document_viewer (document_id, app_user_id)
+    values (v_doc_named, v_uid);
+  insert into greendogops.resource_document_chunk (document_id, chunk_index, content)
+    values (v_doc_hidden, 0, 'rls hidden chunk');
+  insert into greendogops.resource_document_version (document_id, version_no, title, content_json)
+    values (v_doc_public, 1, 'rls-doc-public', '{"type":"doc"}') returning id into v_doc_ver;
+  insert into greendogops.resource_document_signature
+    (document_id, version_id, version_no, document_title, app_user_id, signer_name, initials, signed_on)
+  values
+    (v_doc_public, v_doc_ver, 1, 'rls-doc-public', v_uid, 'Rls Self', 'RS', current_date),
+    (v_doc_public, v_doc_ver, 1, 'rls-doc-public', null, 'Rls Other', 'RO', current_date);
   insert into greendogops.person_disciplinary_action (person_id)
     values (v_other);
   insert into greendogops.person_document (person_id, title, storage_path)
@@ -136,8 +164,77 @@ begin
       if cand_edit then failures := failures || format('%s write_candidate_doc denied', v_role); end if;
     end;
 
+    -- Resource documents (0235) --------------------------------------------
+    role_staff := v_role = 'staff';
+    select count(*) into v_n from greendogops.resource_document where id = v_doc_public;
+    row_res := row_res || jsonb_build_object('doc_public', v_n);
+    if v_n <> 1 then failures := failures || format('%s doc_public=%s', v_role, v_n); end if;
+
+    select count(*) into v_n from greendogops.resource_document where id = v_doc_staff;
+    row_res := row_res || jsonb_build_object('doc_staff_role', v_n);
+    if (v_n > 0) <> (hr_full or role_staff) then failures := failures || format('%s doc_staff_role=%s', v_role, v_n); end if;
+
+    select count(*) into v_n from greendogops.resource_document where id = v_doc_named;
+    row_res := row_res || jsonb_build_object('doc_named_viewer', v_n);
+    if v_n <> 1 then failures := failures || format('%s doc_named_viewer=%s', v_role, v_n); end if;
+
+    select count(*) into v_n from greendogops.resource_document where id = v_doc_hidden;
+    row_res := row_res || jsonb_build_object('doc_hidden', v_n);
+    if (v_n > 0) <> hr_full then failures := failures || format('%s doc_hidden=%s', v_role, v_n); end if;
+
+    select count(*) into v_n from greendogops.resource_document_chunk where document_id = v_doc_hidden;
+    row_res := row_res || jsonb_build_object('doc_hidden_chunk', v_n);
+    if (v_n > 0) <> hr_full then failures := failures || format('%s doc_hidden_chunk=%s', v_role, v_n); end if;
+
+    select count(*) into v_n from greendogops.resource_document_signature where document_id = v_doc_public;
+    row_res := row_res || jsonb_build_object('doc_signatures', v_n);
+    if v_n <> (case when hr_full then 2 else 1 end) then failures := failures || format('%s doc_signatures=%s', v_role, v_n); end if;
+
+    begin
+      update greendogops.resource_document set title = 'rls-hacked' where id = v_doc_public;
+      get diagnostics v_n = row_count;
+      row_res := row_res || jsonb_build_object('doc_write', case when v_n > 0 then 'ALLOWED' else 'denied' end);
+      if v_n > 0 then failures := failures || format('%s doc_write allowed', v_role); end if;
+    exception when insufficient_privilege then
+      row_res := row_res || jsonb_build_object('doc_write', 'denied');
+    end;
+
+    begin
+      insert into greendogops.resource_document_signature
+        (document_id, version_id, version_no, document_title, app_user_id, signer_name, initials, signed_on)
+      values (v_doc_public, v_doc_ver, 1, 'x', null, 'Forged', 'FG', current_date);
+      row_res := row_res || jsonb_build_object('signature_write', 'ALLOWED');
+      failures := failures || format('%s signature_write allowed', v_role);
+    exception when insufficient_privilege then
+      row_res := row_res || jsonb_build_object('signature_write', 'denied');
+    end;
+
+    begin
+      perform greendogops.search_resource_content('rls', v_uid, 1);
+      row_res := row_res || jsonb_build_object('search_rpc', 'ALLOWED');
+      failures := failures || format('%s search_resource_content callable', v_role);
+    exception when insufficient_privilege then
+      row_res := row_res || jsonb_build_object('search_rpc', 'denied');
+    end;
+
     r := r || jsonb_build_object(v_role, row_res);
   end loop;
+
+  -- Ask Ziggy's passage search only returns documents the asker may view.
+  execute 'reset role';
+  update greendogops.app_user set role = 'staff', module_access = '{}'::jsonb where id = v_uid;
+  select count(*) into v_n from greendogops.search_resource_content('rls hidden chunk', v_uid, 25) s
+   where s.document_id = v_doc_hidden;
+  r := r || jsonb_build_object('search_hidden_as_staff', v_n);
+  if v_n <> 0 then failures := failures || 'search returns hidden doc to staff'::text; end if;
+  update greendogops.app_user set role = 'manager' where id = v_uid;
+  select count(*) into v_n from greendogops.search_resource_content('rls hidden chunk', v_uid, 25) s
+   where s.document_id = v_doc_hidden;
+  r := r || jsonb_build_object('search_hidden_as_manager', v_n);
+  if v_n <> 1 then failures := failures || 'search hides doc from manager'::text; end if;
+  select count(*) into v_n from greendogops.search_resource_content('rls hidden chunk', null, 25) s
+   where s.document_id = v_doc_hidden;
+  if v_n <> 0 then failures := failures || 'search with no asker returns restricted doc'::text; end if;
 
   -- Per-user module overrides are honoured by the policies too.
   execute 'reset role';
