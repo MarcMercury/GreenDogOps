@@ -44,10 +44,10 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:** confirm no external consumer, then drop it in a migration.
 - **Risk:** low.
 
-### Unified integration-health view
-- **Why:** `/admin/agents` shows browser-agent runs only. Cron jobs (calendar sync, Gmail poller, Sheets sync, Slack digests) have no shared last-success / staleness record, so silent failures go unnoticed.
-- **Scope:** record cron runs in `agent_run` (or a sibling table); add last-success, staleness, and error-category to the admin view; alert on repeated failures.
-- **Risk:** medium — touches every cron route.
+### Integration health — remaining work (0231 built the view)
+- **Done in 0231:** every Vercel cron is registered in `agent` and records runs through `src/lib/admin/cron-run.ts`; the `agent_run_rollup` trigger keeps `last_success_at` / `last_error` / `consecutive_failures`; Admin ▸ Agents has a health table; failing / stale / stuck jobs show on admins' dashboards. `cron-registry.test.ts` fails if a `vercel.json` cron isn't registered.
+- **Still to do:** a Slack or email alert for failing jobs (today it is the dashboard only); the GitHub Actions jobs (database backup, baseline verify) are not tracked; `agent` rows are not in the baseline seed (`CONFIG_TABLES`), so a rebuilt database has no registered jobs until the migrations' insert blocks are re-run.
+- **Risk:** low.
 
 ### Recurring-failure improvement report
 - **Why:** turn `agent_run` failures + lessons.md into a periodic, prioritised report instead of rediscovering issues.

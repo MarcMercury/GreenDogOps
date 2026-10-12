@@ -342,6 +342,13 @@ with no DST awareness, so each job fires at **two UTC times** (e.g. 13:00 and
 visible at `/admin/agents`; oversized reports (Animals ~45k rows, Contacts ~33k)
 upload in chunks. Credentials live in `.secrets/` (gitignored) and GitHub secrets.
 
+Every Vercel cron is registered in `agent` too (migration 0231) and records its
+outcome through `src/lib/admin/cron-run.ts`, so `/admin/agents` opens with one
+health table for all scheduled jobs: last success, failures in a row, staleness
+against each job's `config.stale_after_minutes`, and the likely cause of the
+latest error. Failing, stale and stuck jobs also appear on admins' dashboards.
+A new cron must be registered the same way — `cron-registry.test.ts` enforces it.
+
 Two gotchas are baked into the agent code: the ezyVet login sits behind an AWS
 WAF JS challenge (passes automatically only with a realistic browser
 fingerprint), and the Report Queue retains stale runs, so downloads are matched
