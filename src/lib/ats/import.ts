@@ -279,7 +279,7 @@ function docxXmlToText(xml: string): string {
 //   GEMINI_API_KEY   (or GOOGLE_API_KEY)   GEMINI_MODEL     default gemini-2.5-flash
 //   OPENAI_API_KEY                          OPENAI_MODEL     default gpt-4o-mini
 //   ANTHROPIC_API_KEY                       ANTHROPIC_MODEL  default claude-3-5-haiku-latest
-//   OPENROUTER_API_KEY                      OPENROUTER_MODEL default google/gemini-2.0-flash-exp:free
+//   OPENROUTER_API_KEY                      OPENROUTER_MODEL default openrouter/free
 //   GROQ_API_KEY                            GROQ_MODEL       default llama-3.3-70b-versatile
 // Override the try order with LLM_PROVIDER_ORDER (comma-separated provider
 // names, e.g. "gemini,groq,openai").
@@ -493,7 +493,7 @@ const PROVIDERS: Record<string, LlmProvider> = {
         {
           baseUrl: "https://openrouter.ai/api/v1",
           apiKey: process.env.OPENROUTER_API_KEY || "",
-          model: process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-exp:free",
+          model: process.env.OPENROUTER_MODEL || "openrouter/free",
           extraHeaders: {
             "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://greendogops.app",
             "X-Title": "GreenDogOps ATS",

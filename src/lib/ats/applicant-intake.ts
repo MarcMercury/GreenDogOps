@@ -12,11 +12,11 @@ import { applicationHasData, type ApplicationDetails } from "./application";
 // ---------------------------------------------------------------------------
 // Shared applicant intake.
 //
-// Both the Indeed Apply webhook and the Gmail poller funnel new applicants
-// through here so profile creation, de-duplication, and resume storage behave
-// identically no matter where the application arrived from. Everything runs on
-// the service-role admin client because these callers are machine-to-machine
-// (authenticated by webhook signature / OAuth), not a signed-in user.
+// The Gmail poller funnels new applicants (including Indeed notification
+// emails) through here so profile creation, de-duplication, and resume storage
+// behave identically no matter where the application arrived from. Everything
+// runs on the service-role admin client because the caller is
+// machine-to-machine (authenticated by cron secret / OAuth), not a signed-in user.
 // ---------------------------------------------------------------------------
 
 const DOCUMENTS_BUCKET = "employee-documents";

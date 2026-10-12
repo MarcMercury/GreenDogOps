@@ -15,7 +15,6 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:**
   - Smart Report: unqualified names still resolve through `smart_query()`'s `search_path` (`greendogops, public, pg_temp`), so a query naming an EmployeeGM table without `public.` reaches it. Schema-qualified names are rejected in `smart-scope.ts` (`fefe355`). Fix in the database: drop `public` from the `search_path` of `smart_query` and `smart_value_hints` (production DDL — needs authorization), or run the query as a role that can read only greendogops.
   - `recordAudit()` swallows failures; consider surfacing audit-write errors for security events.
-  - Indeed webhook has HMAC but no replay window (Indeed sends no timestamp) — confirm ingest is idempotent per application id.
   - Decide whether to enforce `security.session_timeout_minutes` (would sign out always-on board displays).
   - Consider whether `person.date_of_birth` is needed at all (data minimisation).
 - **Risk:** low each.

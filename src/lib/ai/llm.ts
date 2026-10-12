@@ -168,7 +168,7 @@ const PROVIDERS: Record<string, Provider> = {
         {
           baseUrl: "https://openrouter.ai/api/v1",
           apiKey: process.env.OPENROUTER_API_KEY || "",
-          model: process.env.OPENROUTER_MODEL || "google/gemini-2.0-flash-exp:free",
+          model: process.env.OPENROUTER_MODEL || "openrouter/free",
           extraHeaders: {
             "HTTP-Referer": process.env.OPENROUTER_SITE_URL || "https://greendogops.app",
             "X-Title": "GreenDogOps",

@@ -131,7 +131,7 @@ who, why, the cutoff date and row count.
 | Google Maps / Custom Search | Addresses, search queries | API keys (restrict by HTTP referrer / API) | Vercel env | Google Cloud → Credentials |
 | Resend | Candidate/partner email | API key; webhook `whsec_` secret | Vercel env | Resend dashboard |
 | Slack | Hiring/ops posts (no salary, address, HR records); reads workspace member names/emails to link staff (`users:read`, `users:read.email`). Further write/read-metadata scopes are granted for planned DMs/user groups (list in `.env.example`); no `*:history` scope, so the app cannot read messages | Bot token | Vercel env | Slack app settings |
-| Indeed Apply | Candidate applications (inbound) | HMAC signature | `.secrets/indeed.env`, Vercel env | Indeed partner portal |
+| Indeed (employer portal export, no API) | Candidate CSV export (inbound, manual script) | Username/password | `.secrets/indeed.env` | Indeed employer account |
 | When I Work (via Gmail) | Time-off notifications (inbound) | Gmail OAuth refresh token | Vercel env | Google OAuth |
 | ezyVet (browser agent) | Clinic reports (inbound) | Username/password | GitHub Actions secrets | ezyVet admin |
 | CE Broker (agent) | CE attendance | Credentials | `.secrets/cebroker.env` | CE Broker |

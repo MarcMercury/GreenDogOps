@@ -69,7 +69,7 @@ export const RECRUITING_INTEREST_OPTIONS = [
   { value: "Reject", label: "Reject" },
 ] as const;
 
-// Intake triage state. Auto-ingested applicants (Gmail / Indeed webhook) start
+// Intake triage state. Auto-ingested applicants (Gmail poller) start
 // as "pending"; a recruiter accepts (→ active lead) or declines them. Manual
 // entries default to "accepted" so they skip the queue.
 export type ReviewStatus = "pending" | "accepted" | "declined";

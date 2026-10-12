@@ -14,6 +14,14 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Tooling & environment
 
+### OpenRouter retires `:free` model ids — default to the `openrouter/free` router
+- **Problem:** the OpenRouter fallback (LLM chain + ATS resume parse) defaulted to `google/gemini-2.0-flash-exp:free`, which no longer exists, so every OpenRouter call would fail even with a valid key.
+- **Root cause:** individual free model ids are removed from OpenRouter without notice.
+- **Fix:** default `OPENROUTER_MODEL` to `openrouter/free` (OpenRouter's router over whatever free models are current; supports text + image and `response_format`). Pin a specific id via `OPENROUTER_MODEL` only if needed, and re-check it exists.
+- **Where:** `src/lib/ai/llm.ts`, `src/lib/ats/import.ts`.
+- **Prevent:** before relying on a model id, check `curl -s https://openrouter.ai/api/v1/models` for it. The key is free tier (`GET /api/v1/key` → `is_free_tier: true`), so free-model daily rate limits apply.
+- **Evidence:** 2026-10-12 — model list lacked the old id; a live `openrouter/free` JSON completion returned 200.
+
 ### Vercel production env values can't be read back to verify them
 - **Problem:** after `vercel env add X production < file`, `vercel env pull --environment=production` returned `X=""`, so a hash comparison "failed" even though the value was stored.
 - **Root cause:** production vars are encrypted and `env pull` returns `""` for every one of them (long-working vars like `GOOGLE_CALENDAR_ID` also pull as `""`).

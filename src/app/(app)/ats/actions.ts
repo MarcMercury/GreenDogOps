@@ -1039,7 +1039,7 @@ export async function hireCandidate(personId: string, closeJob = false): Promise
 
 // ---------------------------------------------------------------------------
 // Intake review queue — accept / reject auto-ingested applicants
-// (Gmail poller + Indeed webhook). Pending applicants land in the Review tab;
+// (Gmail poller). Pending applicants land in the Review tab;
 // accepting promotes them to an active lead, rejecting marks them Declined but
 // keeps the record for re-apply detection.
 // ---------------------------------------------------------------------------
