@@ -8,7 +8,7 @@ import { toE164 } from "@/lib/sms/rules";
 
 export type OptInResult = { ok: true } | { ok: false; error: string; fieldErrors?: Record<string, string> };
 
-export const OPT_IN_SOURCE = "Opted in at greendogops.com/texts";
+const OPT_IN_SOURCE = "Opted in at greendogops.com/texts";
 
 function str(v: FormDataEntryValue | null, max = 120): string {
   return typeof v === "string" ? v.trim().slice(0, max) : "";

@@ -162,3 +162,9 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 ### eslint 10 with eslint-config-next 16.4.0
 - `eslint-plugin-react` 7.37.5, `eslint-plugin-import` 2.32.0 and `eslint-plugin-jsx-a11y` 6.10.2 (latest as of 2026-10-10) don't list eslint 10 as a peer, so npm prints `ERESOLVE overriding peer dependency` warnings. They still work: the react plugin falls back to `context.sourceCode`, and the only import rule enabled (`no-anonymous-default-export`) doesn't use the removed `context.parserOptions`. If a future config enables `import/no-default-export`/`no-named-export`/`unambiguous`, it will crash on eslint 10 (`'sourceType' in context.parserOptions`).
 - **Evidence:** CI lint on eslint 10.12.0: 0 errors, same 2 warnings as main (run 38009712712).
+
+### A non-function export in a `"use server"` file breaks the production build
+- **Problem:** Vercel build failed with "Export optInToTexts doesn't exist in target module … The module has no exports at all", although the function was exported.
+- **Root cause:** `src/app/texts/actions.ts` (`"use server"`) also had `export const OPT_IN_SOURCE`. Next allows only async function exports there; with any other export Turbopack drops the module's exports entirely. Editor diagnostics and vitest don't catch it — only `next build` does.
+- **Fix:** keep constants non-exported or in a separate module. `src/lib/shared/use-server-exports.test.ts` now fails on `export const/let/var/class/enum/function` (non-async) in any `"use server"` file.
+- **Evidence:** 2026-10-12, `8e7b35a` failed `BUILD_UTILS_SPAWN_1`; production stayed on the previous READY deployment.
