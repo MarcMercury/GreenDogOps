@@ -11,6 +11,7 @@ import {
   withCatalog,
   type SmartScope,
 } from "./smart-scope";
+import { tagMismatchError, unmatchedTagFilters } from "./smart-tags";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -187,6 +188,7 @@ let catalogCache: {
   tables: CatalogTable[];
   hints: ValueHint[];
   functions: CatalogFunction[];
+  tags: string[];
   at: number;
 } | null = null;
 
@@ -213,12 +215,21 @@ function rowLabel(rows: number | null): string {
 async function getSchemaCatalog(
   admin: AdminClient,
   requested: SmartScope,
-): Promise<{ schema: string; values: string; functions: string; scope: SmartScope }> {
+): Promise<{
+  schema: string;
+  values: string;
+  functions: string;
+  scope: SmartScope;
+  tags: string[];
+}> {
   if (!catalogCache || Date.now() - catalogCache.at >= SCHEMA_TTL_MS) {
-    const [{ data, error }, hints, fns] = await Promise.all([
+    const [{ data, error }, hints, fns, tagRows] = await Promise.all([
       admin.rpc("smart_schema"),
       admin.rpc("smart_value_hints"),
       admin.rpc("smart_functions"),
+      // report_contact_tag is a view, so smart_value_hints (planner stats) never
+      // lists the tag spellings — read them directly.
+      admin.from("report_contact_tag_summary").select("tag_norm").order("contacts", { ascending: false }),
     ]);
     if (error) throw new Error(`Could not read the database schema: ${error.message}`);
     catalogCache = {
@@ -226,6 +237,9 @@ async function getSchemaCatalog(
       // A failure here must not break the report — the vocabulary is a bonus.
       hints: ((hints.data ?? []) as ValueHint[]).filter((h) => h.values?.length),
       functions: (fns.data ?? []) as CatalogFunction[],
+      tags: ((tagRows.data ?? []) as { tag_norm: string | null }[])
+        .map((r) => r.tag_norm?.trim().toLowerCase() ?? "")
+        .filter(Boolean),
       at: Date.now(),
     };
   }
@@ -251,14 +265,19 @@ async function getSchemaCatalog(
     )
     .join("\n");
 
-  const values = catalogCache.hints
-    .filter(
-      (h) =>
-        !blockedTables.has(h.table.toLowerCase()) &&
-        !blockedColumns.has(h.column.toLowerCase()),
-    )
-    .map((h) => `${h.table}.${h.column} = ${h.values.join(" | ")}`)
-    .join("\n");
+  const tags =
+    blockedTables.has("report_contact_tag") || blockedColumns.has("tag_norm") ? [] : catalogCache.tags;
+
+  const values = [
+    ...catalogCache.hints
+      .filter(
+        (h) =>
+          !blockedTables.has(h.table.toLowerCase()) &&
+          !blockedColumns.has(h.column.toLowerCase()),
+      )
+      .map((h) => `${h.table}.${h.column} = ${h.values.join(" | ")}`),
+    ...(tags.length ? [`report_contact_tag.tag_norm (every tag in use) = ${tags.join(" | ")}`] : []),
+  ].join("\n");
 
   const functions = catalogCache.functions
     .filter((f) => !blockedTables.has(f.name.toLowerCase()))
@@ -270,7 +289,7 @@ async function getSchemaCatalog(
     )
     .join("\n");
 
-  return { schema, values, functions, scope };
+  return { schema, values, functions, scope, tags };
 }
 
 const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles hospitals):
@@ -358,7 +377,10 @@ NEW CLIENTS and per-hospital client questions — read this before writing the q
     look it up in report_contact_tag_summary (tag_norm, tag, tag_type, contacts, customers,
     active_contacts) — when the question names a tag loosely, select the matching rows from that
     view with tag_norm ilike '%word%' per significant word so the reader sees which spellings
-    exist and what each is worth. For an exact filter use tag_norm = lower('<tag>').
+    exist and what each is worth. For an exact filter use tag_norm = lower('<tag>'), copying the
+    spelling from the report_contact_tag.tag_norm list under "Common column values" — never guess
+    one. Codes carry asterisks: "101 clients" / "501 tag" mean tag_norm 'code *101*' /
+    'code *501*', not 'code 101' or 'code_101'. A filter on a tag that does not exist is rejected.
   * Tags cover a lot of different jobs: how the client heard about us ('google search', 'yelp',
     'word of mouth', 'employee referred'), promo and discount codes ('code *501*', 'tag disabled
     GDD $169'), account warnings ('delinquent account - reach out to...'), review-tree stage,
@@ -932,7 +954,7 @@ export async function askSmartReport(
     };
   }
 
-  const [{ schema, values, functions, scope }, passages, rawExamples, glossary] = await Promise.all([
+  const [{ schema, values, functions, scope, tags }, passages, rawExamples, glossary] = await Promise.all([
     getSchemaCatalog(admin, requestedScope),
     getPolicyPassages(admin, q),
     getExamples(admin, q),
@@ -1031,6 +1053,15 @@ export async function askSmartReport(
         sql,
         error: `"${blocked}" is not available to this user. Answer without it, or explain that the data is restricted.`,
       });
+      sql = null;
+      continue;
+    }
+
+    // A misspelled tag in an exclusion still returns rows — every client,
+    // unfiltered — so neither the database nor the empty-result retry notices.
+    const badTags = unmatchedTagFilters(sql, tags);
+    if (badTags.length) {
+      attempts.push({ sql, error: tagMismatchError(badTags, tags) });
       sql = null;
       continue;
     }

@@ -176,3 +176,9 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** `unsafeFunction()` in `smart-scope.ts` rejects `*_to_xml*`, `ts_stat`, `ts_rewrite`, `reg*` casts / `to_reg*`, `pg_*` and `lo_*` identifiers for every tier (still to mirror in the database — see improvements.md). Separately: column blocking never protects a table, because `to_jsonb(t)` and `t::text` return whole rows — anything on the General allow-list must be safe in full.
 - **Evidence:** 2026-10-12 — unit tests in `smart-scope.test.ts`; live run as the `general` tier refused the injection prompt and revenue questions while the owner tier still answered revenue.
 
+
+### Ask Ziggy: a guessed literal in an exclusion fails silently
+- **Problem:** "remove any 101 and 501 clients" returned clients carrying those tags. The SQL used `tag_norm IN ('code_101', 'code_501')` (other runs: `'code 101'`); the real values are `'code *101*'` / `'code *501*'`. Inside `NOT EXISTS` a non-matching literal excludes nobody, so the query still returns rows and the empty-result retry never fires.
+- **Root cause:** `smart_value_hints()` reads planner stats for tables/matviews only (`relkind in ('r','p','m')`); `report_contact_tag` is a plain view, so the model never saw a tag spelling. Any other view-only vocabulary has the same blind spot.
+- **Fix:** `smart.ts` loads `report_contact_tag_summary.tag_norm` with the cached catalog, lists it under "Common column values", and `unmatchedTagFilters()` (`smart-tags.ts`) rejects SQL whose `tag`/`tag_norm` `=`/`IN`/`<>`/`LIKE` literal matches no real tag, sending the real spellings back for the retry.
+- **Evidence:** 2026-10-12 — `smart_question_log` 1569694c… (2026-10-07) ran the bad SQL; the guessed spellings match 0 active clients vs 69 for the real ones. After the fix a live `ask_smart.mts` run used `'code *101*', 'code *501*'` and returned 31,954 = 32,023 active − 69 tagged.
