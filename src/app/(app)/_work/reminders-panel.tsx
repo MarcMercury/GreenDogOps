@@ -8,6 +8,7 @@ import { describeSchedule } from "@/lib/worklist/reminders";
 import { relativeDayLabel } from "@/lib/worklist/dates";
 import { isSlackLink } from "@/lib/worklist/items";
 import { setReminderDone } from "./actions";
+import { CollapsibleCard } from "./collapsible-card";
 
 function ReminderLink({ href }: { href: string | null }) {
   if (!href) return null;
@@ -75,18 +76,16 @@ export function RemindersPanel({
 }) {
   const open = current.filter((v) => v.status !== "done").length;
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">
-            Reminders {open > 0 ? <span className="ml-1 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">{open}</span> : null}
-          </h2>
-          <p className="text-xs text-slate-500">Recurring things to check today.</p>
-        </div>
+    <CollapsibleCard
+      title="Reminders"
+      subtitle="Recurring things to check today."
+      badges={[{ value: open, tone: "bg-amber-100 text-amber-700", title: "Not done yet" }]}
+      actions={
         <Link href="/reminders" className="text-xs font-medium text-emerald-700 hover:underline">
           Manage
         </Link>
-      </header>
+      }
+    >
       {current.length === 0 ? (
         <p className="px-4 py-5 text-center text-xs text-slate-400">No reminders due today.</p>
       ) : (
@@ -109,6 +108,6 @@ export function RemindersPanel({
           </ul>
         </div>
       ) : null}
-    </section>
+    </CollapsibleCard>
   );
 }

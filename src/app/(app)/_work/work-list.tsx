@@ -4,10 +4,11 @@ import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { WorkItem } from "@/lib/worklist/items";
-import { groupWorkItems, type WorkBucket } from "@/lib/worklist/items";
+import { groupWorkItems, workSummary, type WorkBucket } from "@/lib/worklist/items";
 import { relativeDayLabel } from "@/lib/worklist/dates";
 import { MODULE_ICONS, MODULE_LABELS, isModuleKey } from "@/lib/shared/module-icons";
 import { createTaskAction, setTaskStatusAction } from "./actions";
+import { CollapsibleCard } from "./collapsible-card";
 
 const BUCKET_TONE: Record<WorkBucket, string> = {
   overdue: "text-rose-600",
@@ -263,14 +264,19 @@ export function WorkList({
   );
   const groups = useMemo(() => groupWorkItems(filtered, today), [filtered, today]);
 
+  const summary = useMemo(() => workSummary(items, today), [items, today]);
+
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">My work</h2>
-          <p className="text-xs text-slate-500">Tasks assigned to you and items waiting on you across Ops.</p>
-        </div>
-        <div className="flex items-center gap-2">
+    <CollapsibleCard
+      title="My work"
+      subtitle="Tasks assigned to you and items waiting on you across Ops."
+      badges={[
+        { value: summary.overdue, tone: "bg-rose-100 text-rose-700", title: "Overdue" },
+        { value: summary.dueToday, tone: "bg-emerald-100 text-emerald-700", title: "Due today" },
+        { value: summary.total, tone: "bg-slate-100 text-slate-600", title: "Total items" },
+      ]}
+      actions={
+        <>
           <div className="flex rounded-lg bg-slate-100 p-0.5 text-xs">
             {(
               [
@@ -301,9 +307,9 @@ export function WorkList({
               + Add task
             </button>
           ) : null}
-        </div>
-      </header>
-
+        </>
+      }
+    >
       {adding ? (
         <AddTaskForm meId={meId} assignees={assignees} slackConnected={slackConnected} onDone={() => setAdding(false)} />
       ) : null}
@@ -330,6 +336,6 @@ export function WorkList({
           </div>
         ))
       )}
-    </section>
+    </CollapsibleCard>
   );
 }

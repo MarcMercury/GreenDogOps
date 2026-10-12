@@ -11,6 +11,7 @@ import { WorkList } from "./_work/work-list";
 import { RemindersPanel } from "./_work/reminders-panel";
 import { NotificationsPanel } from "./_work/notifications-panel";
 import { SlackPanel } from "./_work/slack-panel";
+import { CollapsibleCard } from "./_work/collapsible-card";
 
 export const dynamic = "force-dynamic";
 
@@ -52,6 +53,7 @@ export default async function DashboardPage() {
   const remindersOpen = data.reminders.current.filter((r) => r.status !== "done").length;
   const firstName = (user.full_name ?? "").trim().split(/\s+/)[0] || null;
   const slackWorkCount = data.work.filter((i) => i.target === "slack").length;
+  const todayActivity = activityDays[0]?.items.length ?? 0;
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -82,8 +84,8 @@ export default async function DashboardPage() {
         </div>
       ) : null}
 
-      <div className="mt-5 grid gap-5 lg:grid-cols-3">
-        <div className="space-y-5 lg:col-span-2">
+      <div className="mt-5 grid items-start gap-4 lg:grid-cols-3">
+        <div className="space-y-4 lg:col-span-2">
           <WorkList
             items={data.work}
             today={data.today}
@@ -94,11 +96,11 @@ export default async function DashboardPage() {
           />
 
           {data.assignedByMe.length > 0 ? (
-            <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-              <header className="border-b border-slate-100 px-4 py-3">
-                <h2 className="text-sm font-semibold text-slate-900">Assigned by you</h2>
-                <p className="text-xs text-slate-500">Open tasks you gave to others. You&apos;ll be notified when they&apos;re done.</p>
-              </header>
+            <CollapsibleCard
+              title="Assigned by you"
+              subtitle="Open tasks you gave to others. You'll be notified when they're done."
+              badges={[{ value: data.assignedByMe.length, tone: "bg-slate-100 text-slate-600", title: "Open" }]}
+            >
               <ul className="divide-y divide-slate-50">
                 {data.assignedByMe.map((t) => (
                   <li key={t.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
@@ -110,16 +112,21 @@ export default async function DashboardPage() {
                   </li>
                 ))}
               </ul>
-            </section>
+            </CollapsibleCard>
           ) : null}
 
-          <section>
-            <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">Your activity</h2>
-            <ActivityLog days={activityDays} />
-          </section>
+          <CollapsibleCard
+            title="Your activity"
+            subtitle="What you've done in Ops over the last 30 days."
+            badges={[{ value: todayActivity, tone: "bg-slate-100 text-slate-600", title: "Updates today" }]}
+          >
+            <div className="bg-slate-50/60 p-3">
+              <ActivityLog days={activityDays} />
+            </div>
+          </CollapsibleCard>
         </div>
 
-        <aside className="space-y-5">
+        <aside className="space-y-4">
           <RemindersPanel current={data.reminders.current} upcoming={data.reminders.upcoming} today={data.today} />
           <NotificationsPanel items={data.notifications.items} unread={data.notifications.unread} />
           <SlackPanel

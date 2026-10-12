@@ -1,5 +1,6 @@
 import type { DashboardData } from "@/lib/worklist/sources";
 import { slackClientUrl } from "@/lib/worklist/items";
+import { CollapsibleCard } from "./collapsible-card";
 
 const STATUS_CHIP: Record<string, { label: string; tone: string }> = {
   sent: { label: "Sent", tone: "bg-emerald-100 text-emerald-700" },
@@ -37,14 +38,17 @@ export function SlackPanel({
 }) {
   const connected = slack.link?.status === "connected";
   const team = slack.link?.slack_team_id ?? null;
+  const failed = slack.deliveries.filter((d) => d.status === "failed").length;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">Slack</h2>
-          <p className="text-xs text-slate-500">Talk in Slack; act in Ops.</p>
-        </div>
+    <CollapsibleCard
+      title="Slack"
+      subtitle={connected ? "Connected · talk in Slack, act in Ops." : "Not connected · talk in Slack, act in Ops."}
+      badges={[
+        { value: slackWorkCount, tone: "bg-violet-100 text-violet-700", title: "Work-list items done in Slack" },
+        { value: failed, tone: "bg-rose-100 text-rose-700", title: "Slack messages that failed" },
+      ]}
+      actions={
         <a
           href={slackClientUrl(team)}
           target="_blank"
@@ -53,8 +57,8 @@ export function SlackPanel({
         >
           Open Slack ↗
         </a>
-      </header>
-
+      }
+    >
       <div className="space-y-3 px-4 py-3 text-xs">
         <p className="text-slate-600">
           {connected ? (
@@ -117,6 +121,6 @@ export function SlackPanel({
           </p>
         </div>
       </div>
-    </section>
+    </CollapsibleCard>
   );
 }

@@ -7,6 +7,7 @@ import type { NotificationRow } from "@/lib/worklist/sources";
 import { isSlackLink } from "@/lib/worklist/items";
 import { MODULE_ICONS, isModuleKey } from "@/lib/shared/module-icons";
 import { archiveNotification, markNotificationsRead } from "./actions";
+import { CollapsibleCard } from "./collapsible-card";
 
 const SEVERITY_ICON: Record<NotificationRow["severity"], string> = {
   action: "👉",
@@ -88,18 +89,12 @@ export function NotificationsPanel({ items, unread }: { items: NotificationRow[]
   const router = useRouter();
   const [pending, start] = useTransition();
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-      <header className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div>
-          <h2 className="text-sm font-semibold text-slate-900">
-            Notifications{" "}
-            {unread > 0 ? (
-              <span className="ml-1 rounded-full bg-emerald-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{unread}</span>
-            ) : null}
-          </h2>
-          <p className="text-xs text-slate-500">Updates from Ops for you.</p>
-        </div>
-        {unread > 0 ? (
+    <CollapsibleCard
+      title="Notifications"
+      subtitle="Updates from Ops for you."
+      badges={[{ value: unread, tone: "bg-emerald-600 text-white", title: "Unread" }]}
+      actions={
+        unread > 0 ? (
           <button
             type="button"
             disabled={pending}
@@ -113,8 +108,9 @@ export function NotificationsPanel({ items, unread }: { items: NotificationRow[]
           >
             Mark all read
           </button>
-        ) : null}
-      </header>
+        ) : null
+      }
+    >
       {items.length === 0 ? (
         <p className="px-4 py-5 text-center text-xs text-slate-400">You&apos;re all caught up.</p>
       ) : (
@@ -124,6 +120,6 @@ export function NotificationsPanel({ items, unread }: { items: NotificationRow[]
           ))}
         </ul>
       )}
-    </section>
+    </CollapsibleCard>
   );
 }
