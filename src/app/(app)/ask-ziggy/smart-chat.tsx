@@ -10,6 +10,7 @@ import {
   type SmartHistoryEntry,
 } from "./actions";
 import type { SmartResult, SmartRow } from "@/lib/reporting/smart";
+import { tokenizeInline } from "@/lib/reporting/ziggy-markdown";
 
 type Message =
   | { id: string; role: "user"; content: string }
@@ -21,25 +22,37 @@ type Message =
       logId?: string | null;
     };
 
-/** Minimal markdown: **bold**, `code`, and "- " bullet lists. */
+/** Minimal markdown: **bold**, `code`, [links](url), bare URLs, and "- " bullet lists. */
 function renderInline(text: string): React.ReactNode {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return parts.map((part, i) => {
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return (
-        <strong key={i} className="font-semibold text-slate-900">
-          {part.slice(2, -2)}
-        </strong>
-      );
+  return tokenizeInline(text).map((token, i) => {
+    switch (token.type) {
+      case "bold":
+        return (
+          <strong key={i} className="font-semibold text-slate-900">
+            {token.text}
+          </strong>
+        );
+      case "code":
+        return (
+          <code key={i} className="rounded bg-slate-100 px-1 py-0.5 text-[12px] text-slate-700">
+            {token.text}
+          </code>
+        );
+      case "link":
+        return (
+          <a
+            key={i}
+            href={token.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="break-words font-medium text-emerald-700 underline underline-offset-2 hover:text-emerald-900"
+          >
+            {token.text}
+          </a>
+        );
+      default:
+        return <Fragment key={i}>{token.text}</Fragment>;
     }
-    if (part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code key={i} className="rounded bg-slate-100 px-1 py-0.5 text-[12px] text-slate-700">
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-    return <Fragment key={i}>{part}</Fragment>;
   });
 }
 
