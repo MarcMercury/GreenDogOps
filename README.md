@@ -4,7 +4,7 @@ Internal operations platform for a multi-site veterinary practice (Sherman Oaks,
 Van Nuys, Venice). One Next.js app that replaces a pile of spreadsheets and point
 solutions with a single permissioned workspace covering **HR, Recruiting (ATS),
 seven CRMs, Marketing & Events, Scheduling & Capacity, Medical Ops boards, ezyVet
-analytics, an AI assistant (Ask Ziggy), and an AI-searchable Resources hub**.
+analytics, an AI assistant (Ask Ziggy), and a Resources library of policies and documents**.
 
 This README is written for engineers joining the project — it covers the stack,
 the non-obvious architectural constraints, and where things live.
@@ -153,9 +153,11 @@ from users who cannot access it.
   - **Slack** — their Slack link status and what Ops has sent them in Slack.
     Ops does not read Slack messages; summaries need a later per-user consent.
   - **Your activity** — their own audit-log entries.
-- **Resources** (`/resources`) — AI search across all program data *and* the
-  web, a Green Dog policies wiki (`/resources/policies`, `/policies`), and a
-  shared document library with PDF text extraction so uploads are searchable.
+- **Resources** (`/resources`) — the library of company policies, protocols and
+  documents: links grouped by category, with upload and editing for editor
+  roles. Uploaded PDFs are text-extracted so Ask Ziggy can answer from them
+  (questions go to Ask Ziggy; Resources has no search of its own).
+  `/policies` and `/resources/policies` redirect here.
 - **Ask Ziggy** (`/ask-ziggy`) — the company AI assistant, open to every
   employee: plain-English questions about patients, clients, appointments, the
   schedule, company policy, and the asker's own shifts and PTO. What each user
@@ -531,7 +533,7 @@ See `.env.example` for the full list (~90 keys). Groups:
   `SUPABASE_SERVICE_ROLE_KEY` (bypasses everything; used for bulk imports, cron,
   agent ingest, and AI jobs).
 - **Cron / agents** — `CRON_SECRET`, `APP_BASE_URL`.
-- **LLM** — `LLM_PROVIDER_ORDER`, `WEB_SEARCH_PROVIDER_ORDER`, plus per-provider
+- **LLM** — `LLM_PROVIDER_ORDER`, plus per-provider
   key/model pairs for OpenAI, Anthropic, Gemini, Groq, and OpenRouter.
 - **Google** — `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_OAUTH_*`,
   `GOOGLE_CALENDAR_ID`, `GOOGLE_MAPS_API_KEY`, `GOOGLE_CSE_*`.

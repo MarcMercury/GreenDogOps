@@ -1,5 +1,5 @@
+import Link from "next/link";
 import { PageHeader } from "../_components/ui";
-import { ResourcesTabs } from "./resources-tabs";
 
 export default function ResourcesLayout({
   children,
@@ -11,9 +11,16 @@ export default function ResourcesLayout({
       <PageHeader
         eyebrow="Resources"
         title="Resources"
-        description="Search everything in Green Dog Ops — and the web — and browse company policies."
+        description="Company policies, protocols and documents."
+        actions={
+          <Link
+            href="/ask-ziggy"
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
+          >
+            Have a question? Ask Ziggy →
+          </Link>
+        }
       />
-      <ResourcesTabs />
       {children}
     </div>
   );

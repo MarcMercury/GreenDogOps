@@ -1,493 +1,430 @@
 "use server";
 
-import { requireUser } from "@/lib/auth/session";
-import { createClient } from "@/lib/supabase/server";
-import type {
-  GlobalSearchResult,
-  SearchGroup,
-  SearchHit,
-  WebSearchResult,
-} from "./search-types";
+import { revalidatePath } from "next/cache";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { safeUploadContentType } from "@/lib/security/upload";
+import { getCurrentUser, recordAudit } from "@/lib/auth/session";
+import { isEditorRole } from "@/lib/auth/permissions";
 
-/** Strip characters that would break a PostgREST `.or()` filter. */
-function sanitize(raw: string): string {
-  return raw.replace(/[,()%*]/g, " ").replace(/\s+/g, " ").trim();
+const RESOURCES_BUCKET = "resources";
+const MAX_BYTES = 25 * 1024 * 1024;
+
+// PDF + Word document types only.
+const ALLOWED_MIME = new Set([
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+]);
+const ALLOWED_EXT = /\.(pdf|docx?)$/i;
+
+export type UploadResult = { ok: true } | { ok: false; error: string };
+
+function str(v: FormDataEntryValue | null): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
 }
 
-function ilikeOr(columns: string[], term: string): string {
-  return columns.map((c) => `${c}.ilike.%${term}%`).join(",");
+/** Slugify a label into a stable category key (lowercase, a-z0-9_). */
+function categoryKey(label: string): string {
+  return label
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
 }
 
-function personName(r: {
-  full_name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  grid_name: string | null;
-}): string {
-  const composed = [r.first_name, r.last_name].filter(Boolean).join(" ").trim();
-  return (
-    r.full_name?.trim() ||
-    composed ||
-    r.grid_name?.trim() ||
-    "Unnamed"
-  );
+/** True when a category key exists and is active. */
+async function categoryExists(
+  admin: ReturnType<typeof createAdminClient>,
+  key: string,
+): Promise<boolean> {
+  const { data } = await admin
+    .from("resource_category")
+    .select("key")
+    .eq("key", key)
+    .eq("is_active", true)
+    .maybeSingle();
+  return !!data;
 }
 
-async function searchInternal(term: string): Promise<{
-  groups: SearchGroup[];
-  count: number;
-}> {
-  const supabase = await createClient();
+/** Upload a new policy/resource document. Admins and managers only. */
+export async function uploadPolicyDocument(
+  _prev: UploadResult | null,
+  formData: FormData,
+): Promise<UploadResult> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "Not signed in." };
 
-  const [people, orgs, contacts, influencers, partners] = await Promise.all([
-    supabase
-      .from("person")
-      .select(
-        "id, status, first_name, last_name, full_name, grid_name, email",
-      )
-      .or(
-        ilikeOr(
-          [
-            "first_name",
-            "last_name",
-            "full_name",
-            "grid_name",
-            "email",
-          ],
-          term,
-        ),
-      )
-      .limit(10),
-    supabase
-      .from("crm_organization")
-      .select("id, name, org_type, contact_name, email, city, state")
-      .or(ilikeOr(["name", "contact_name", "email", "city"], term))
-      .limit(10),
-    supabase
-      .from("crm_contact")
-      .select(
-        "id, contact_type, first_name, last_name, full_name, email, organization, school",
-      )
-      .or(
-        ilikeOr(
-          ["first_name", "last_name", "full_name", "email", "organization"],
-          term,
-        ),
-      )
-      .limit(10),
-    supabase
-      .from("marketing_influencers")
-      .select("id, contact_name, pet_name, email, instagram_handle, status")
-      .or(
-        ilikeOr(["contact_name", "pet_name", "email", "instagram_handle"], term),
-      )
-      .limit(10),
-    supabase
-      .from("referral_partners")
-      .select("id, name, hospital_name, contact_name, email, zone")
-      .or(ilikeOr(["name", "hospital_name", "contact_name", "email"], term))
-      .limit(10),
-  ]);
-
-  const hr: SearchHit[] = [];
-  const ats: SearchHit[] = [];
-  for (const p of people.data ?? []) {
-    const name = personName(p);
-    // Employees, contractors, and former staff live in the HR roster; only
-    // prospects/applicants are still in the recruiting pipeline.
-    const inRoster =
-      p.status === "employee" ||
-      p.status === "contractor" ||
-      p.status === "former";
-    const hit: SearchHit = {
-      id: p.id,
-      label: name,
-      sublabel: p.email || p.status,
-      href: inRoster ? `/hr/${p.id}` : `/ats/${p.id}`,
-    };
-    (inRoster ? hr : ats).push(hit);
+  if (!isEditorRole(current.appUser.role)) {
+    return { ok: false, error: "You don't have permission to upload." };
   }
 
-  const orgHits: SearchHit[] = (orgs.data ?? []).map((o) => ({
-    id: o.id,
-    label: o.name,
-    sublabel:
-      [o.contact_name, [o.city, o.state].filter(Boolean).join(", ")]
-        .filter(Boolean)
-        .join(" · ") || o.email,
-    href: `/crm/org/${o.id}`,
-  }));
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Please choose a file to upload." };
+  }
+  if (file.size > MAX_BYTES) {
+    return { ok: false, error: "File exceeds the 25 MB limit." };
+  }
+  if (!ALLOWED_MIME.has(file.type) && !ALLOWED_EXT.test(file.name)) {
+    return { ok: false, error: "Only PDF or Word documents are allowed." };
+  }
 
-  const contactHits: SearchHit[] = (contacts.data ?? []).map((c) => {
-    const name =
-      c.full_name?.trim() ||
-      [c.first_name, c.last_name].filter(Boolean).join(" ").trim() ||
-      "Unnamed";
+  const admin = createAdminClient();
+
+  const category = str(formData.get("category")) ?? "general";
+  if (!(await categoryExists(admin, category))) {
+    return { ok: false, error: "Please choose a valid category." };
+  }
+
+  const title = str(formData.get("title")) ?? file.name;
+  const description = str(formData.get("description"));
+  const staffOnly = formData.get("staff_only") === "on";
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  const storagePath = `${category}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await admin.storage
+    .from(RESOURCES_BUCKET)
+    .upload(storagePath, file, {
+      contentType: safeUploadContentType(file.name, file.type),
+      upsert: false,
+    });
+
+  if (upErr) return { ok: false, error: upErr.message };
+
+  const { error: dbErr } = await admin.from("resource_document").insert({
+    title,
+    category,
+    description,
+    storage_path: storagePath,
+    file_name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+    staff_only: staffOnly,
+    uploaded_by: current.authId,
+  });
+
+  if (dbErr) {
+    // Roll back the orphaned upload so storage and the table stay in sync.
+    await admin.storage.from(RESOURCES_BUCKET).remove([storagePath]);
+    return { ok: false, error: dbErr.message };
+  }
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "resource.uploaded",
+    entity: "resource_document",
+    summary: `Uploaded policy document "${title}" (${category})`,
+    metadata: { category, file_name: file.name, size_bytes: file.size },
+  });
+
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+/** Create a new document category. Admins and managers only. */
+export async function createResourceCategory(
+  _prev: UploadResult | null,
+  formData: FormData,
+): Promise<UploadResult> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "Not signed in." };
+
+  if (!isEditorRole(current.appUser.role)) {
     return {
-      id: c.id,
-      label: name,
-      sublabel: c.organization || c.school || c.email,
-      href: `/crm/contact/${c.id}`,
+      ok: false,
+      error: "You don't have permission to create categories.",
     };
+  }
+
+  const label = str(formData.get("label"));
+  if (!label) return { ok: false, error: "Please enter a category name." };
+
+  const key = categoryKey(label);
+  if (!key) {
+    return { ok: false, error: "Please use letters or numbers in the name." };
+  }
+
+  const icon = str(formData.get("icon")) ?? "📄";
+
+  const admin = createAdminClient();
+
+  const { data: existing } = await admin
+    .from("resource_category")
+    .select("key")
+    .eq("key", key)
+    .maybeSingle();
+  if (existing) {
+    return { ok: false, error: "A category with that name already exists." };
+  }
+
+  const { error: dbErr } = await admin.from("resource_category").insert({
+    key,
+    label,
+    icon,
+    sort_order: 90,
+    created_by: current.authId,
   });
 
-  const influencerHits: SearchHit[] = (influencers.data ?? []).map((i) => ({
-    id: i.id,
-    label: i.contact_name || i.pet_name || i.instagram_handle || "Unnamed",
-    sublabel: i.instagram_handle
-      ? `@${i.instagram_handle.replace(/^@/, "")}`
-      : i.email,
-    href: `/crm/influencer/${i.id}`,
-  }));
+  if (dbErr) return { ok: false, error: dbErr.message };
 
-  const partnerHits: SearchHit[] = (partners.data ?? []).map((p) => ({
-    id: p.id,
-    label: p.name || p.hospital_name || "Unnamed clinic",
-    sublabel:
-      [p.contact_name, p.zone].filter(Boolean).join(" · ") || p.email,
-    href: "/crm/referral",
-  }));
-
-  const groups: SearchGroup[] = [
-    { key: "hr", label: "HR / Roster", icon: "👥", hits: hr },
-    { key: "ats", label: "Recruiting (ATS)", icon: "🎯", hits: ats },
-    { key: "orgs", label: "CRM — Organizations", icon: "🏢", hits: orgHits },
-    { key: "contacts", label: "CRM — Contacts", icon: "📇", hits: contactHits },
-    {
-      key: "referral",
-      label: "Referral Partners",
-      icon: "🩺",
-      hits: partnerHits,
-    },
-    {
-      key: "influencers",
-      label: "Influencers",
-      icon: "⭐",
-      hits: influencerHits,
-    },
-  ].filter((g) => g.hits.length > 0);
-
-  const count = groups.reduce((sum, g) => sum + g.hits.length, 0);
-  return { groups, count };
-}
-
-const WEB_SEARCH_SYSTEM_PROMPT =
-  "You are a research assistant for Green Dog, a veterinary business in the Los Angeles area. Answer the user's query concisely using current information from the web. If the query looks like a person or business name, surface useful public details. Always cite your sources.";
-
-type Source = { title: string; url: string };
-
-/** Thrown by a provider when it is rate-limited or unavailable so the chain
- *  falls through to the next provider. */
-class ProviderError extends Error {
-  constructor(
-    public provider: string,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-function dedupeSources(sources: Source[]): Source[] {
-  const seen = new Set<string>();
-  const out: Source[] = [];
-  for (const s of sources) {
-    if (!s.url || seen.has(s.url)) continue;
-    seen.add(s.url);
-    out.push({ title: s.title || s.url, url: s.url });
-  }
-  return out;
-}
-
-// --- Provider: OpenAI (gpt-4o-mini-search-preview) --------------------------
-async function searchOpenAI(query: string): Promise<{
-  answer: string;
-  sources: Source[];
-}> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new ProviderError("OpenAI", "no API key configured");
-
-  const base = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1")
-    .replace(/\/+$/, "");
-
-  const res = await fetch(`${base}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      model: process.env.OPENAI_SEARCH_MODEL || "gpt-4o-mini-search-preview",
-      web_search_options: {},
-      messages: [
-        { role: "system", content: WEB_SEARCH_SYSTEM_PROMPT },
-        { role: "user", content: query },
-      ],
-    }),
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "resource.category_created",
+    entity: "resource_category",
+    summary: `Created resource category "${label}"`,
+    metadata: { key, label, icon },
   });
 
-  if (!res.ok) {
-    throw new ProviderError("OpenAI", `HTTP ${res.status}`);
-  }
-
-  const data = await res.json();
-  const message = data?.choices?.[0]?.message;
-  const answer: string = message?.content ?? "";
-  const annotations: Array<{
-    type?: string;
-    url_citation?: { url?: string; title?: string };
-  }> = message?.annotations ?? [];
-
-  const sources: Source[] = [];
-  for (const a of annotations) {
-    const url = a?.url_citation?.url;
-    if (a?.type !== "url_citation" || !url) continue;
-    sources.push({ title: a.url_citation?.title || url, url });
-  }
-
-  if (!answer.trim()) throw new ProviderError("OpenAI", "empty response");
-  return { answer, sources };
+  revalidatePath("/resources");
+  return { ok: true };
 }
 
-// --- Provider: Anthropic Claude (web_search tool) ---------------------------
-async function searchClaude(query: string): Promise<{
-  answer: string;
-  sources: Source[];
-}> {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) throw new ProviderError("Claude", "no API key configured");
-
-  const base = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com")
-    .replace(/\/+$/, "");
-
-  const res = await fetch(`${base}/v1/messages`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": key,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-latest",
-      max_tokens: 1024,
-      system: WEB_SEARCH_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: query }],
-      tools: [
-        { type: "web_search_20250305", name: "web_search", max_uses: 5 },
-      ],
-    }),
-  });
-
-  if (!res.ok) {
-    throw new ProviderError("Claude", `HTTP ${res.status}`);
+/** Add an external reference link (no uploaded file). Editors only. */
+export async function createResourceLink(
+  _prev: UploadResult | null,
+  formData: FormData,
+): Promise<UploadResult> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "Not signed in." };
+  if (!isEditorRole(current.appUser.role)) {
+    return { ok: false, error: "You don't have permission to add links." };
   }
 
-  const data = await res.json();
-  const content: Array<{
-    type?: string;
-    text?: string;
-    citations?: Array<{ url?: string; title?: string }>;
-  }> = data?.content ?? [];
+  const title = str(formData.get("title"));
+  if (!title) return { ok: false, error: "Please enter a title." };
 
-  let answer = "";
-  const sources: Source[] = [];
-  for (const block of content) {
-    if (block?.type === "text" && block.text) {
-      answer += block.text;
-      for (const c of block.citations ?? []) {
-        if (c?.url) sources.push({ title: c.title || c.url, url: c.url });
-      }
+  const sourceUrl = str(formData.get("source_url"));
+  if (!sourceUrl) return { ok: false, error: "Please enter a link URL." };
+  if (!/^https?:\/\//i.test(sourceUrl)) {
+    return { ok: false, error: "Link must start with http:// or https://." };
+  }
+
+  const description = str(formData.get("description"));
+  const staffOnly = formData.get("staff_only") === "on";
+
+  const admin = createAdminClient();
+
+  const category = str(formData.get("category")) ?? "general";
+  if (!(await categoryExists(admin, category))) {
+    return { ok: false, error: "Please choose a valid category." };
+  }
+
+  const { error: dbErr } = await admin.from("resource_document").insert({
+    title,
+    category,
+    description,
+    source_url: sourceUrl,
+    staff_only: staffOnly,
+    sort_order: 50,
+    uploaded_by: current.authId,
+  });
+  if (dbErr) return { ok: false, error: dbErr.message };
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "resource.link_created",
+    entity: "resource_document",
+    summary: `Added resource link "${title}" (${category})`,
+    metadata: { category, source_url: sourceUrl },
+  });
+
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+/** Rename / re-icon an existing category. Admins and managers only. */
+export async function updateResourceCategory(
+  _prev: UploadResult | null,
+  formData: FormData,
+): Promise<UploadResult> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "Not signed in." };
+  if (!isEditorRole(current.appUser.role)) {
+    return { ok: false, error: "You don't have permission to edit categories." };
+  }
+
+  const key = str(formData.get("key"));
+  if (!key) return { ok: false, error: "Missing category." };
+  const label = str(formData.get("label"));
+  if (!label) return { ok: false, error: "Please enter a category name." };
+  const icon = str(formData.get("icon")) ?? "📄";
+
+  const admin = createAdminClient();
+  const { error: dbErr } = await admin
+    .from("resource_category")
+    .update({ label, icon })
+    .eq("key", key);
+  if (dbErr) return { ok: false, error: dbErr.message };
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "resource.category_updated",
+    entity: "resource_category",
+    summary: `Renamed resource category "${key}" to "${label}"`,
+    metadata: { key, label, icon },
+  });
+
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+/** Delete a category. Blocked while it still holds documents. Editors only. */
+export async function deleteResourceCategory(
+  _prev: UploadResult | null,
+  formData: FormData,
+): Promise<UploadResult> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "Not signed in." };
+  if (!isEditorRole(current.appUser.role)) {
+    return {
+      ok: false,
+      error: "You don't have permission to delete categories.",
+    };
+  }
+
+  const key = str(formData.get("key"));
+  if (!key) return { ok: false, error: "Missing category." };
+
+  const admin = createAdminClient();
+  const { count } = await admin
+    .from("resource_document")
+    .select("id", { count: "exact", head: true })
+    .eq("category", key);
+  if ((count ?? 0) > 0) {
+    return {
+      ok: false,
+      error:
+        "This category still has items. Move or delete them first, then delete the category.",
+    };
+  }
+
+  const { error: dbErr } = await admin
+    .from("resource_category")
+    .delete()
+    .eq("key", key);
+  if (dbErr) return { ok: false, error: dbErr.message };
+
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "resource.category_deleted",
+    entity: "resource_category",
+    summary: `Deleted resource category "${key}"`,
+    metadata: { key },
+  });
+
+  revalidatePath("/resources");
+  return { ok: true };
+}
+
+/** Edit a document/link's metadata. Editors only. */
+export async function updateResourceDocument(
+  _prev: UploadResult | null,
+  formData: FormData,
+): Promise<UploadResult> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "Not signed in." };
+  if (!isEditorRole(current.appUser.role)) {
+    return { ok: false, error: "You don't have permission to edit resources." };
+  }
+
+  const id = str(formData.get("id"));
+  if (!id) return { ok: false, error: "Missing item." };
+  const title = str(formData.get("title"));
+  if (!title) return { ok: false, error: "Please enter a title." };
+  const description = str(formData.get("description"));
+  const category = str(formData.get("category")) ?? "general";
+  const staffOnly = formData.get("staff_only") === "on";
+
+  const admin = createAdminClient();
+  if (!(await categoryExists(admin, category))) {
+    return { ok: false, error: "Please choose a valid category." };
+  }
+
+  const update: Record<string, unknown> = {
+    title,
+    description,
+    category,
+    staff_only: staffOnly,
+  };
+
+  // Only link entries expose the URL field; files keep their storage_path.
+  if (formData.has("source_url")) {
+    const sourceUrl = str(formData.get("source_url"));
+    if (!sourceUrl) return { ok: false, error: "Please enter a link URL." };
+    if (!/^https?:\/\//i.test(sourceUrl)) {
+      return { ok: false, error: "Link must start with http:// or https://." };
     }
+    update.source_url = sourceUrl;
   }
 
-  if (!answer.trim()) throw new ProviderError("Claude", "empty response");
-  return { answer, sources };
-}
+  const { error: dbErr } = await admin
+    .from("resource_document")
+    .update(update)
+    .eq("id", id);
+  if (dbErr) return { ok: false, error: dbErr.message };
 
-// --- Provider: Google Gemini (google_search grounding) ----------------------
-async function searchGemini(query: string): Promise<{
-  answer: string;
-  sources: Source[];
-}> {
-  const key = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
-  if (!key) throw new ProviderError("Google", "no API key configured");
-
-  const base = (
-    process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com"
-  ).replace(/\/+$/, "");
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-
-  const res = await fetch(
-    `${base}/v1beta/models/${model}:generateContent?key=${key}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: WEB_SEARCH_SYSTEM_PROMPT }],
-        },
-        contents: [{ role: "user", parts: [{ text: query }] }],
-        tools: [{ google_search: {} }],
-      }),
-    },
-  );
-
-  if (!res.ok) {
-    throw new ProviderError("Google", `HTTP ${res.status}`);
-  }
-
-  const data = await res.json();
-  const candidate = data?.candidates?.[0];
-  const parts: Array<{ text?: string }> = candidate?.content?.parts ?? [];
-  const answer = parts
-    .map((p) => p?.text ?? "")
-    .join("")
-    .trim();
-
-  const chunks: Array<{ web?: { uri?: string; title?: string } }> =
-    candidate?.groundingMetadata?.groundingChunks ?? [];
-  const sources: Source[] = [];
-  for (const c of chunks) {
-    const url = c?.web?.uri;
-    if (url) sources.push({ title: c.web?.title || url, url });
-  }
-
-  if (!answer) throw new ProviderError("Google", "empty response");
-  return { answer, sources };
-}
-
-// --- Provider: Tavily (native web search, LLM-quota independent) ------------
-async function searchTavily(query: string): Promise<{
-  answer: string;
-  sources: Source[];
-}> {
-  const key = process.env.TAVILY_API_KEY;
-  if (!key) throw new ProviderError("Tavily", "no API key configured");
-
-  const res = await fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${key}`,
-    },
-    body: JSON.stringify({
-      api_key: key,
-      query,
-      search_depth: "advanced",
-      include_answer: "advanced",
-      max_results: 6,
-    }),
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "resource.updated",
+    entity: "resource_document",
+    summary: `Updated resource "${title}" (${category})`,
+    metadata: { id, category },
   });
 
-  if (!res.ok) {
-    throw new ProviderError("Tavily", `HTTP ${res.status}`);
-  }
-
-  const data = await res.json();
-  const answer: string = (data?.answer ?? "").trim();
-  const results: Array<{ url?: string; title?: string }> = data?.results ?? [];
-  const sources: Source[] = [];
-  for (const r of results) {
-    if (r?.url) sources.push({ title: r.title || r.url, url: r.url });
-  }
-
-  if (!answer) throw new ProviderError("Tavily", "empty response");
-  return { answer, sources };
+  revalidatePath("/resources");
+  return { ok: true };
 }
 
-/**
- * Runs web search across providers, falling through to the next whenever one
- * is rate-limited, unconfigured, or fails. The default order leads with free
- * grounding (Google) and a quota-independent search API (Tavily) so paid
- * OpenAI / Claude tokens are only spent as a last resort; override the order
- * with WEB_SEARCH_PROVIDER_ORDER. Returns the first working result, or a
- * combined error if all fail.
- */
-async function searchWeb(query: string): Promise<WebSearchResult> {
-  const registry: Record<
-    string,
-    (q: string) => Promise<{ answer: string; sources: Source[] }>
-  > = {
-    google: searchGemini,
-    tavily: searchTavily,
-    openai: searchOpenAI,
-    claude: searchClaude,
-  };
-  const label: Record<string, string> = {
-    google: "Google",
-    tavily: "Tavily",
-    openai: "OpenAI",
-    claude: "Claude",
-  };
-  // Free grounding (Google) and quota-independent search (Tavily) lead so paid
-  // OpenAI / Claude tokens are only spent when the free tiers are unavailable.
-  // Override with WEB_SEARCH_PROVIDER_ORDER (comma-separated, e.g.
-  // "openai,claude,google,tavily").
-  const defaultOrder = ["google", "tavily", "openai", "claude"];
-  const raw = process.env.WEB_SEARCH_PROVIDER_ORDER;
-  const wanted = raw
-    ? raw
-        .split(",")
-        .map((s) => s.trim().toLowerCase())
-        .filter((n) => n in registry)
-    : [];
-  const order = [
-    ...wanted,
-    ...defaultOrder.filter((n) => !wanted.includes(n)),
-  ];
-  const providers = order.map((name) => ({
-    name: label[name],
-    run: registry[name],
-  }));
-
-  const failures: string[] = [];
-  for (const provider of providers) {
-    try {
-      const { answer, sources } = await provider.run(query);
-      return {
-        ok: true,
-        answer,
-        sources: dedupeSources(sources),
-        provider: provider.name,
-      };
-    } catch (err) {
-      const reason =
-        err instanceof ProviderError
-          ? err.message
-          : err instanceof Error
-            ? err.message
-            : "request failed";
-      failures.push(`${provider.name}: ${reason}`);
-      // Fall through to the next provider.
-    }
+/** Delete a document/link (and its stored file, if any). Editors only. */
+export async function deleteResourceDocument(
+  _prev: UploadResult | null,
+  formData: FormData,
+): Promise<UploadResult> {
+  const current = await getCurrentUser();
+  if (!current) return { ok: false, error: "Not signed in." };
+  if (!isEditorRole(current.appUser.role)) {
+    return { ok: false, error: "You don't have permission to delete resources." };
   }
 
-  return {
-    ok: false,
-    error:
-      failures.length > 0
-        ? `Web search unavailable. Tried ${failures.join("; ")}.`
-        : "Web search is unavailable (no provider configured).",
-  };
-}
+  const id = str(formData.get("id"));
+  if (!id) return { ok: false, error: "Missing item." };
 
-export async function globalSearch(
-  rawQuery: string,
-  includeWeb: boolean,
-): Promise<GlobalSearchResult> {
-  await requireUser();
+  const admin = createAdminClient();
+  const { data: row } = await admin
+    .from("resource_document")
+    .select("storage_path, title")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return { ok: false, error: "That item no longer exists." };
 
-  const query = rawQuery.trim();
-  const term = sanitize(query);
-
-  let internal: SearchGroup[] = [];
-  let internalCount = 0;
-  if (term.length > 0) {
-    const result = await searchInternal(term);
-    internal = result.groups;
-    internalCount = result.count;
+  if (row.storage_path) {
+    await admin.storage.from(RESOURCES_BUCKET).remove([row.storage_path]);
   }
 
-  const web = includeWeb && query.length > 0 ? await searchWeb(query) : null;
+  const { error: dbErr } = await admin
+    .from("resource_document")
+    .delete()
+    .eq("id", id);
+  if (dbErr) return { ok: false, error: dbErr.message };
 
-  return { query, internal, internalCount, web };
+  await recordAudit({
+    actorId: current.authId,
+    actorEmail: current.email,
+    action: "resource.deleted",
+    entity: "resource_document",
+    summary: `Deleted resource "${row.title}"`,
+    metadata: { id },
+  });
+
+  revalidatePath("/resources");
+  return { ok: true };
 }
+
