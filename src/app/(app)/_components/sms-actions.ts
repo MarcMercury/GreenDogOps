@@ -87,42 +87,6 @@ export async function sendText(personId: string, body: string): Promise<{ ok: tr
   return res;
 }
 
-const CONSENT_SOURCES = new Set([
-  "Agreed verbally",
-  "Agreed in writing (text or email)",
-  "Signed onboarding acknowledgement",
-]);
-
-export async function recordTextConsent(
-  personId: string,
-  source: string,
-): Promise<{ ok: true } | { ok: false; error: string }> {
-  const g = await gate(personId);
-  if (!g.ok) return g;
-  if (!smsEnv().configured) return { ok: false, error: "Texting isn't set up yet." };
-  if (!CONSENT_SOURCES.has(source)) return { ok: false, error: "Pick how they agreed." };
-  const { error } = await createAdminClient().from("sms_consent").upsert(
-    {
-      person_id: personId,
-      source,
-      consented_at: new Date().toISOString(),
-      recorded_by: g.current.authId,
-      recorded_by_name: actorName(g.current),
-    },
-    { onConflict: "person_id" },
-  );
-  if (error) return { ok: false, error: error.message };
-  await recordAudit({
-    actorId: g.current.authId,
-    actorEmail: g.current.email,
-    action: "update",
-    entity: "sms_consent",
-    entityId: personId,
-    summary: `Recorded texting consent (${source})`,
-  });
-  return { ok: true };
-}
-
 export async function removeTextConsent(personId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const g = await gate(personId);
   if (!g.ok) return g;

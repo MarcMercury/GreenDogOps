@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { MAX_SMS_LENGTH, OPT_OUT_FOOTER } from "@/lib/sms/rules";
-import { loadTexts, recordTextConsent, removeTextConsent, sendText, type TextsView } from "./sms-actions";
+import { loadTexts, removeTextConsent, sendText, type TextsView } from "./sms-actions";
 
 const inputCls =
   "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
@@ -11,11 +11,8 @@ const primaryBtn =
 const secondaryBtn =
   "rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50";
 
-const CONSENT_SOURCES = [
-  "Agreed verbally",
-  "Agreed in writing (text or email)",
-  "Signed onboarding acknowledgement",
-];
+/** Where people opt in themselves (public page; matches the A2P campaign). */
+const OPT_IN_URL = "https://greendogops.com/texts";
 
 const TEMPLATES: Record<"candidate" | "employee", { label: string; text: string }[]> = {
   candidate: [
@@ -52,7 +49,7 @@ function when(iso: string): string {
 export function SmsPanel({ personId, audience }: { personId: string; audience: "candidate" | "employee" }) {
   const [view, setView] = useState<TextsView | null>(null);
   const [body, setBody] = useState("");
-  const [consentSource, setConsentSource] = useState(CONSENT_SOURCES[0]);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -132,16 +129,18 @@ export function SmsPanel({ personId, audience }: { personId: string; audience: "
             </button>
           ) : (
             !view.consentFromApplication && (
-              <>
-                <select value={consentSource} onChange={(e) => setConsentSource(e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
-                  {CONSENT_SOURCES.map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-                <button type="button" disabled={pending} className={secondaryBtn} onClick={() => run(() => recordTextConsent(personId, consentSource))}>
-                  Record consent
-                </button>
-              </>
+              <button
+                type="button"
+                className={secondaryBtn}
+                title="People opt in themselves. Email or tell them this link; it's never required."
+                onClick={async () => {
+                  await navigator.clipboard.writeText(OPT_IN_URL);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+              >
+                {copied ? "Copied ✓" : "Copy opt-in link"}
+              </button>
             )
           )}
           <button type="button" disabled={pending} className={secondaryBtn} onClick={() => startTransition(refresh)}>

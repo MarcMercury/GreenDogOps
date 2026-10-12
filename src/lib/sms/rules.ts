@@ -141,7 +141,7 @@ export function blockReason(target: SmsTargetFacts, env: SmsEnv, now = new Date(
   if (!target.phoneRaw) return "No mobile number on file.";
   if (!target.phone) return `"${target.phoneRaw}" isn't a US mobile number Ops can text.`;
   if (target.optedOut) return `${target.name} replied STOP, so Ops won't text them unless they reply START.`;
-  if (!target.hasConsent) return `No texting consent on file for ${target.name}. Record it below once they've agreed.`;
+  if (!target.hasConsent) return `No texting consent on file for ${target.name}. They can opt in (voluntarily) at greendogops.com/texts.`;
   if (!passesGoLiveGate(target.phone, env)) {
     return "Texting is in test mode: only the numbers in SMS_TEST_NUMBERS can be texted until SMS_LIVE is turned on.";
   }

@@ -65,10 +65,13 @@ export default function PrivacyPage() {
           <h2 className="text-base font-semibold text-slate-900">Text messages (SMS)</h2>
           <p>
             Green Dog Dental Recruiting &amp; HR texts job applicants who opt in
-            on our application, and employees who agree in writing, about
-            recruiting and work matters such as interview scheduling, reminders,
-            schedule changes and HR notices. Opting in is optional and is never a
-            condition of applying or of employment. Message frequency varies.
+            on our application, and candidates and employees who sign up at{" "}
+            <Link className={link} href="/texts">
+              greendogops.com/texts
+            </Link>
+            , about recruiting and work matters such as interview scheduling,
+            reminders, schedule changes and HR notices. Opting in is optional and
+            is never a condition of applying or of employment. Message frequency varies.
             Message and data rates may apply. Reply STOP to opt out at any time,
             or HELP for help.
           </p>

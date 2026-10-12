@@ -37,8 +37,14 @@ export default function TermsPage() {
               <Link className={link} href="/apply">
                 greendogops.com/apply
               </Link>
-              . Employees opt in by agreeing in writing to receive work texts.
-              Consent is never a condition of applying or of employment.
+              . Employees, and candidates who didn&rsquo;t opt in on the
+              application, can sign up at{" "}
+              <Link className={link} href="/texts">
+                greendogops.com/texts
+              </Link>
+              . Signing up is voluntary. It is never a condition of applying or
+              of employment, and saying no does not affect your application or
+              your job.
             </li>
             <li>
               <strong>Message frequency</strong> varies with your application or

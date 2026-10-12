@@ -16,6 +16,13 @@ describe("isPublicPath", () => {
     },
   );
 
+  it("serves the public legal and SMS opt-in pages without a session", () => {
+    for (const path of ["/privacy", "/terms", "/texts", "/apply"]) {
+      expect(isPublicPath(path), path).toBe(true);
+    }
+    expect(isPublicPath("/texts/admin")).toBe(false);
+  });
+
   it("keeps app pages and other admin APIs behind a session", () => {
     for (const path of ["/", "/hr", "/admin/slack", "/api/admin/slack", "/api/admin/slack/sync-all", "/api/admin/users"]) {
       expect(isPublicPath(path), path).toBe(false);
