@@ -67,6 +67,12 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 
 Add entries as `### YYYY-MM-DD — system — symptom` with root cause, fix, and evidence.
 
+### 2026-10-12 — Vercel — commit status stuck `pending` although the deploy is READY
+- **Symptom:** `gh api …/commits/<sha>/status` stayed `pending` for 10+ minutes with **zero** statuses and no GitHub deployment for the sha, while GitHub Actions checks on the same sha completed.
+- **Root cause:** Vercel built it but never posted the GitHub status — not a build problem.
+- **Fix:** ask Vercel directly: `GET https://api.vercel.com/v6/deployments?projectId=prj_liV87s49GVryA4keKoHQ1eJJzEFJ&teamId=team_oPBOpXX27n3U1EECJx94wfY4&limit=6` with `VERCEL_TOKEN` (in `.env.local`), and match `meta.githubCommitSha`. `state: READY` + `target: production` is the real signal.
+- **Evidence:** `2305d18` → `dpl_5puFaqRMpx6FGPeXzxdEAUp5E4Jp` READY in production while the GitHub status was still `pending`.
+
 ### 2026-10-10 — Vercel — production deploy `ERROR` with `errorCode: git_info_fail`
 - **Symptom:** commit status `failure` on `main` (4644f33), but the same sha had already built `READY` as a branch preview. The build never started; `GET /v13/deployments/<id>` showed `readyState: ERROR, errorCode: git_info_fail` and no build log.
 - **Root cause:** Vercel failed to fetch the git metadata — a Vercel-side flake, not the code. It came about 1.5 min after the same sha was pushed to (and later deleted from) a scratch branch; that may be related, but it's unconfirmed.
