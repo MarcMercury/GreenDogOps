@@ -529,7 +529,8 @@ Encryption is `age`, asymmetric: CI holds only the public key. **If
 [scripts](scripts) holds the importers, enrichers, and probes (Python, Node, and
 shell) used to seed and maintain the database from CSV/XLSX exports — e.g.
 `import_ezyvet_invoices.py`, `import_roster.py`, `import_ats.py`,
-`import_schedule_weeks.py`, `ingest_resource_pdfs.mjs`, `enrich_vendors.py`,
+`import_schedule_weeks.py`, `ingest_resource_pdfs.mjs`,
+`publish_google_doc_pdfs.mjs` (publish Google Docs to Resources as viewable PDFs), `enrich_vendors.py`,
 `derive_role_members.py`, and `ask_smart.mts` (run an Ask Ziggy question
 locally with no dev server and no auth; `GDO_SMART_ROLE` / `GDO_ASKER_EMAIL`). Sample source exports live in
 [public](public).
