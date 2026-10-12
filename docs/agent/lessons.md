@@ -51,6 +51,7 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Problem:** a successful `git push` says nothing about the Vercel build (the only full type-check).
 - **Fix:** `GH_TOKEN="$GITHUB_TOKEN" gh api repos/MarcMercury/GreenDogOps/commits/<sha>/status --jq '.state, (.statuses[] | "\(.context) \(.state) \(.description)")'` — Vercel reports as context `Vercel`. `gh api repos/MarcMercury/GreenDogOps/deployments` lists Production deployments by sha.
 - **Evidence:** returned `success` / "Deployment has completed" for `eddc044` on 2026-10-08.
+- **When the GitHub status stays `pending` with zero statuses:** Vercel stopped posting commit statuses around 2026-10-12 (every commit from `3cf2ed2` on showed `pending`, `statuses: []`, and the `deployments` API returned nothing). Ask Vercel directly with the token in `.secrets/vercel.env` (never print it): `curl -H "Authorization: Bearer $VERCEL_TOKEN" "https://api.vercel.com/v6/deployments?projectId=prj_liV87s49GVryA4keKoHQ1eJJzEFJ&teamId=team_oPBOpXX27n3U1EECJx94wfY4&limit=5"` and read `meta.githubCommitSha` / `state` (`READY` = built and type-checked). The `vercel` CLI in the Codespace has no stored login. Evidence: `35060f1` READY in production, and the new `/reporting/smart` → `/ask-ziggy` 308 was live.
 
 ### Editor diagnostics (`problems`) may not type-check — use a scoped `tsc`
 - **Problem:** the `problems` tool reported "No errors" for a file with a deliberate type error (`const x: number = <array>`).
