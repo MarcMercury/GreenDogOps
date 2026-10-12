@@ -6,6 +6,7 @@ import { REPORT_DOCS } from "./report-docs";
 import { REPORT_SPECS } from "./report-specs";
 import {
   blockedIdentifier,
+  lookupCallProblem,
   scopeNotice,
   scrubRows,
   withCatalog,
@@ -737,11 +738,17 @@ const CLINICAL_NOTES = `Patient and clinical questions:
 - What IS on record: the patient profile (ezyvet_animal: species, breed, sex, date_of_birth,
   weight, master_problems = the problem list, animal_notes, caution_status, microchip, last_visit,
   next_appointment, vaccination dates), vaccinations (ezyvet_vaccination), appointments
-  (ezyvet_appointment_record, agenda snapshots), standard-of-care reminders (ezyvet_soc_overdue)
-  and which consults have an approved clinical record (ezyvet_clinical_note — metadata only).
-- What is NOT in Green Dog Ops: SOAP note text, exam findings, lab results, imaging reports,
-  prescriptions and allergy records. If the question needs them, say they are not imported yet and
-  that the full record is in ezyVet. Never infer a diagnosis, medication, allergy or result.`;
+  (ezyvet_appointment_record, agenda snapshots), standard-of-care reminders (ezyvet_soc_overdue),
+  which consults have an approved clinical record (ezyvet_clinical_note — metadata only), and every
+  billed item since 2025-01-02 — medications dispensed, dental/surgical procedures, exams, vaccines
+  — via patient_visits('<animal_code>') with date, vet and charge.
+- What is NOT in Green Dog Ops: SOAP note text, exam findings, lab results, imaging reports and
+  allergy records. If the question needs them, say they are not imported yet and that the full
+  record is in ezyVet. A medication that was dispensed is not proof the pet is still taking it —
+  say when it was last dispensed. Never infer a diagnosis, allergy or result.
+- Prices: product_catalog.retail_price_incl_tax is what a client pays for a product/service at a
+  division (hospital); a service usually has one row per division and several variants (e.g.
+  "Exam - Consultation", "Exam - Recheck"), so list the matching items rather than one number.`;
 
 function planSystemPrompt(
   schema: string,
@@ -962,7 +969,9 @@ export async function askSmartReport(
   ]);
   // A verified query that touches something this user may not read would leak
   // the name and tempt a query the guard then rejects.
-  const examples = rawExamples.filter((e) => e.sql && !blockedIdentifier(e.sql, scope));
+  const examples = rawExamples.filter(
+    (e) => e.sql && !blockedIdentifier(e.sql, scope) && !lookupCallProblem(e.sql, scope),
+  );
   const today = new Date().toISOString().slice(0, 10);
   const system = planSystemPrompt(
     schema,
@@ -1062,6 +1071,14 @@ export async function askSmartReport(
     const badTags = unmatchedTagFilters(sql, tags);
     if (badTags.length) {
       attempts.push({ sql, error: tagMismatchError(badTags, tags) });
+      sql = null;
+      continue;
+    }
+
+    // Per-client lookups must stay per-client: literal arguments only.
+    const callProblem = lookupCallProblem(sql, scope);
+    if (callProblem) {
+      attempts.push({ sql, error: callProblem });
       sql = null;
       continue;
     }

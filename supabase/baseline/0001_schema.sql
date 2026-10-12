@@ -1232,6 +1232,114 @@ $$;
 
 
 --
+-- Name: client_summary(text); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.client_summary(p_client text) RETURNS TABLE(client_code text, client_name text, email text, phone text, mobile text, customer_group text, client_since date, last_visit date, pets text, spend_ytd_per_ezyvet numeric, spend_since_2025 numeric, billed_visit_days_since_2025 integer, first_billed_visit_since_2025 date, last_billed_visit date)
+    LANGUAGE plpgsql STABLE
+    SET search_path TO 'greendogops', 'pg_temp'
+    AS $$
+#variable_conflict use_column
+begin
+  return query
+  with codes as (
+    select unnest(greendogops.ziggy_client_codes(p_client)) as code
+  ),
+  contact as (
+    select distinct on (c.contact_code) c.*
+      from greendogops.ezyvet_contact c
+      join codes on codes.code = c.contact_code
+     order by c.contact_code, c.ezyvet_modified_at desc nulls last, c.updated_at desc
+  ),
+  billed as (
+    select l.client_contact_code as code,
+           max(nullif(btrim(concat_ws(' ', l.first_name, l.last_name)), '')) as name,
+           sum(l.total_incl) as spend,
+           count(distinct l.line_date)::integer as visit_days,
+           min(l.line_date) as first_day,
+           max(l.line_date) as last_day
+      from greendogops.ezyvet_invoice_line l
+      join codes on codes.code = l.client_contact_code
+     group by l.client_contact_code
+  ),
+  pets as (
+    select a.owner_contact_code as code,
+           string_agg(a.animal_name || coalesce(' (' || a.species || ', ' || a.animal_code || ')', ''), ', '
+                      order by a.animal_name) as pets
+      from greendogops.ezyvet_animal a
+      join codes on codes.code = a.owner_contact_code
+     where not coalesce(a.has_passed_away, false)
+     group by a.owner_contact_code
+  )
+  select codes.code,
+         coalesce(nullif(btrim(contact.full_name), ''), nullif(contact.business_name, ''), billed.name),
+         contact.email,
+         contact.phone,
+         contact.mobile,
+         contact.customer_group,
+         contact.ezyvet_created_at::date,
+         contact.last_invoiced,
+         pets.pets,
+         contact.revenue_spend_ytd,
+         billed.spend,
+         billed.visit_days,
+         billed.first_day,
+         billed.last_day
+    from codes
+    left join contact on contact.contact_code = codes.code
+    left join billed on billed.code = codes.code
+    left join pets on pets.code = codes.code
+   order by 2;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION client_summary(p_client text); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.client_summary(p_client text) IS 'Ask Ziggy: ONE client''s details, living pets and spend (ezyVet YTD figure, and billed total since 2025-01-02). Pass the client name or contact code as a plain quoted string: client_summary(''Jane Smith''). Raises if more than 10 clients match. Available to every employee.';
+
+
+--
+-- Name: client_visits(text); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.client_visits(p_client text) RETURNS TABLE(client_code text, client_name text, visit_date date, invoice_no text, location text, pet_name text, animal_code text, item text, item_group text, qty numeric, charge_incl_tax numeric, charge_excl_tax numeric, vet text)
+    LANGUAGE plpgsql STABLE
+    SET search_path TO 'greendogops', 'pg_temp'
+    AS $$
+#variable_conflict use_column
+begin
+  return query
+  select l.client_contact_code,
+         coalesce(nullif(btrim(concat_ws(' ', l.first_name, l.last_name)), ''), l.business_name),
+         l.line_date,
+         l.invoice_no,
+         l.location_label,
+         l.pet_name,
+         l.animal_code,
+         l.product_name,
+         l.product_group,
+         l.qty,
+         l.total_incl,
+         l.total_excl,
+         l.case_owner
+    from greendogops.ezyvet_invoice_line l
+   where l.client_contact_code = any (greendogops.ziggy_client_codes(p_client))
+   order by l.line_date desc, l.invoice_no, l.product_name;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION client_visits(p_client text); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.client_visits(p_client text) IS 'Ask Ziggy: every billed line (date, item, qty, charge incl/excl tax, vet, location) for ONE client, from 2025-01-02. Pass the client name or contact code as a plain quoted string: client_visits(''Jane Smith''); filter by visit_date for one visit. Raises if more than 10 clients match.';
+
+
+--
 -- Name: format_phone(text); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -2574,6 +2682,45 @@ $_$;
 
 
 --
+-- Name: patient_visits(text); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.patient_visits(p_patient text) RETURNS TABLE(animal_code text, pet_name text, species text, client_code text, client_name text, visit_date date, invoice_no text, location text, item text, item_group text, qty numeric, charge_incl_tax numeric, charge_excl_tax numeric, vet text)
+    LANGUAGE plpgsql STABLE
+    SET search_path TO 'greendogops', 'pg_temp'
+    AS $$
+#variable_conflict use_column
+begin
+  return query
+  select l.animal_code,
+         l.pet_name,
+         l.species,
+         l.client_contact_code,
+         coalesce(nullif(btrim(concat_ws(' ', l.first_name, l.last_name)), ''), l.business_name),
+         l.line_date,
+         l.invoice_no,
+         l.location_label,
+         l.product_name,
+         l.product_group,
+         l.qty,
+         l.total_incl,
+         l.total_excl,
+         l.case_owner
+    from greendogops.ezyvet_invoice_line l
+   where l.animal_code = any (greendogops.ziggy_patient_codes(p_patient))
+   order by l.line_date desc, l.invoice_no, l.product_name;
+end;
+$$;
+
+
+--
+-- Name: FUNCTION patient_visits(p_patient text); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.patient_visits(p_patient text) IS 'Ask Ziggy: every billed line for ONE patient — services, medications dispensed, dental/surgical procedures, vaccines — with date, vet and charge, from 2025-01-02. Pass the animal_code (best) or name as a plain quoted string: patient_visits(''12345''). Raises if more than 10 patients match.';
+
+
+--
 -- Name: person_after_change(); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -3854,6 +4001,160 @@ $$;
 --
 
 COMMENT ON FUNCTION greendogops.upcoming_appointment_demand(p_start date, p_end date) IS 'Booked appointments per clinic/day/report track from the latest Agenda snapshot; numerator of the upcoming-appointments Slack report.';
+
+
+--
+-- Name: ziggy_client_codes(text); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.ziggy_client_codes(p_client text) RETURNS text[]
+    LANGUAGE plpgsql STABLE
+    SET search_path TO 'greendogops', 'pg_temp'
+    AS $$
+declare
+  v text := btrim(coalesce(p_client, ''));
+  v_lower text := lower(btrim(coalesce(p_client, '')));
+  v_like text;
+  v_codes text[];
+begin
+  if length(v) < 2 then
+    raise exception 'Give a client name (at least 2 characters) or their ezyVet contact code.';
+  end if;
+
+  -- 1. An exact contact code wins.
+  select array_agg(distinct s.code) into v_codes
+    from (
+      select c.contact_code as code from greendogops.ezyvet_contact c where c.contact_code = v
+      union
+      select l.client_contact_code from greendogops.ezyvet_invoice_line l where l.client_contact_code = v
+    ) s;
+  if v_codes is not null then
+    return v_codes;
+  end if;
+
+  -- 2. Exact full name, last name or business name.
+  select array_agg(m.code) into v_codes
+    from (
+      select distinct u.code
+        from (
+          select c.contact_code as code
+            from greendogops.ezyvet_contact c
+           where lower(btrim(c.full_name)) = v_lower
+              or lower(btrim(concat_ws(' ', c.first_name, c.last_name))) = v_lower
+              or lower(btrim(c.last_name)) = v_lower
+              or lower(btrim(c.business_name)) = v_lower
+          union
+          select l.client_contact_code
+            from greendogops.ezyvet_invoice_line l
+           where lower(btrim(concat_ws(' ', l.first_name, l.last_name))) = v_lower
+              or lower(btrim(l.last_name)) = v_lower
+              or lower(btrim(l.business_name)) = v_lower
+        ) u
+       where coalesce(u.code, '') <> ''
+       limit 11
+    ) m;
+
+  -- 3. Otherwise a name fragment, with LIKE wildcards in the input neutralised.
+  if v_codes is null then
+    v_like := '%' || replace(replace(replace(v, '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    select array_agg(m.code) into v_codes
+      from (
+        select distinct u.code
+          from (
+            select c.contact_code as code
+              from greendogops.ezyvet_contact c
+             where c.full_name ilike v_like
+                or concat_ws(' ', c.first_name, c.last_name) ilike v_like
+                or c.business_name ilike v_like
+            union
+            select l.client_contact_code
+              from greendogops.ezyvet_invoice_line l
+             where concat_ws(' ', l.first_name, l.last_name) ilike v_like
+                or l.business_name ilike v_like
+          ) u
+         where coalesce(u.code, '') <> ''
+         limit 11
+      ) m;
+  end if;
+
+  if cardinality(v_codes) > 10 then
+    raise exception 'More than 10 clients match "%". Use the ezyVet contact code or the client''s full name.', v;
+  end if;
+  return coalesce(v_codes, '{}'::text[]);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION ziggy_client_codes(p_client text); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.ziggy_client_codes(p_client text) IS 'Ask Ziggy: contact codes for one client reference (exact code, else name fragment); raises when more than 10 match.';
+
+
+--
+-- Name: ziggy_patient_codes(text); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.ziggy_patient_codes(p_patient text) RETURNS text[]
+    LANGUAGE plpgsql STABLE
+    SET search_path TO 'greendogops', 'pg_temp'
+    AS $$
+declare
+  v text := btrim(coalesce(p_patient, ''));
+  v_like text;
+  v_codes text[];
+begin
+  if length(v) < 2 then
+    raise exception 'Give a patient name (at least 2 characters) or their ezyVet animal code.';
+  end if;
+
+  -- 1. Exact animal code.
+  select array_agg(distinct s.code) into v_codes
+    from (
+      select a.animal_code as code from greendogops.ezyvet_animal a where a.animal_code = v
+      union
+      select l.animal_code from greendogops.ezyvet_invoice_line l where l.animal_code = v
+    ) s;
+  if v_codes is not null then
+    return v_codes;
+  end if;
+
+  -- 2. Exact name, then 3. a name fragment.
+  select array_agg(m.code) into v_codes
+    from (
+      select distinct a.animal_code as code
+        from greendogops.ezyvet_animal a
+       where lower(btrim(a.animal_name)) = lower(v)
+         and coalesce(a.animal_code, '') <> ''
+       limit 11
+    ) m;
+
+  if v_codes is null then
+    v_like := '%' || replace(replace(replace(v, '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    select array_agg(m.code) into v_codes
+      from (
+        select distinct a.animal_code as code
+          from greendogops.ezyvet_animal a
+         where a.animal_name ilike v_like
+           and coalesce(a.animal_code, '') <> ''
+         limit 11
+      ) m;
+  end if;
+
+  if cardinality(v_codes) > 10 then
+    raise exception 'More than 10 patients match "%". Find the right one in ezyvet_animal (owner, species, breed) and pass its animal_code.', v;
+  end if;
+  return coalesce(v_codes, '{}'::text[]);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION ziggy_patient_codes(p_patient text); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.ziggy_patient_codes(p_patient text) IS 'Ask Ziggy: animal codes for one patient reference (exact code, else name fragment); raises when more than 10 match.';
 
 
 --
@@ -8059,6 +8360,36 @@ COMMENT ON COLUMN greendogops."position".close_reason IS 'filled | cancelled | o
 
 
 --
+-- Name: product_catalog; Type: VIEW; Schema: greendogops; Owner: -
+--
+
+CREATE VIEW greendogops.product_catalog AS
+ SELECT pr.product_code,
+    COALESCE(NULLIF(p.product_name, ''::text), pr.product_name) AS product_name,
+    COALESCE(NULLIF(p.product_group, ''::text), pr.product_group) AS product_group,
+    p.product_type,
+    p.clinical_type,
+    p.description,
+    pr.division,
+    pr.sell_price_excl AS retail_price_excl_tax,
+    pr.sell_price_incl AS retail_price_incl_tax,
+    p.is_active,
+    p.is_sold,
+    p.requires_prescription,
+    p.on_special,
+    p.last_invoiced_date
+   FROM (greendogops.ezyvet_product_price pr
+     LEFT JOIN greendogops.ezyvet_product p ON ((p.product_code = pr.product_code)));
+
+
+--
+-- Name: VIEW product_catalog; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON VIEW greendogops.product_catalog IS 'Ask Ziggy: every product/service with its retail price per division (hospital). No cost, markup or margin.';
+
+
+--
 -- Name: profile_transition_log; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -10267,6 +10598,37 @@ CREATE TABLE greendogops.sched_week_location (
 
 
 --
+-- Name: schedule_roster; Type: VIEW; Schema: greendogops; Owner: -
+--
+
+CREATE VIEW greendogops.schedule_roster AS
+ SELECT a.work_date,
+    l.name AS location,
+    d.name AS department,
+    r.name AS role,
+    wl.label AS shift,
+    wl.start_time,
+    wl.end_time,
+    a.person_id,
+    COALESCE(NULLIF(btrim(p.preferred_name), ''::text), NULLIF(btrim(p.full_name), ''::text), btrim(concat_ws(' '::text, p.first_name, p.last_name))) AS staff_name
+   FROM ((((((greendogops.sched_assignment a
+     JOIN greendogops.sched_week w ON ((w.id = a.week_id)))
+     LEFT JOIN greendogops.sched_week_line wl ON ((wl.id = a.line_id)))
+     LEFT JOIN greendogops.sched_department d ON ((d.id = wl.department_id)))
+     LEFT JOIN greendogops.sched_role r ON ((r.id = wl.role_id)))
+     LEFT JOIN greendogops.location l ON ((l.id = a.location_id)))
+     LEFT JOIN greendogops.person p ON ((p.id = a.person_id)))
+  WHERE ((w.status = 'published'::greendogops.schedule_status) AND (NOT w.is_template) AND (NOT COALESCE(a.removed_post_publish, false)));
+
+
+--
+-- Name: VIEW schedule_roster; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON VIEW greendogops.schedule_roster IS 'Ask Ziggy: who is scheduled where and when, published weeks only, without attendance notes.';
+
+
+--
 -- Name: sheet_sync_issue; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -10471,6 +10833,32 @@ CREATE TABLE greendogops.sms_opt_out (
 --
 
 COMMENT ON TABLE greendogops.sms_opt_out IS 'Numbers that replied STOP. Never text these until they reply START. Service role only.';
+
+
+--
+-- Name: staff_directory; Type: VIEW; Schema: greendogops; Owner: -
+--
+
+CREATE VIEW greendogops.staff_directory AS
+ SELECT p.id AS person_id,
+    COALESCE(NULLIF(btrim(p.preferred_name), ''::text), NULLIF(btrim(p.full_name), ''::text), btrim(concat_ws(' '::text, p.first_name, p.last_name))) AS name,
+    p.first_name,
+    p.last_name,
+    (p.status)::text AS status,
+    COALESCE(NULLIF(e.adp_job_title, ''::text), NULLIF(e.offer_title, ''::text)) AS job_title,
+    l.name AS home_location,
+    p.email
+   FROM ((greendogops.person p
+     LEFT JOIN greendogops.person_employment e ON ((e.person_id = p.id)))
+     LEFT JOIN greendogops.location l ON ((l.id = e.location_id)))
+  WHERE (p.status = ANY (ARRAY['employee'::greendogops.employment_status, 'contractor'::greendogops.employment_status]));
+
+
+--
+-- Name: VIEW staff_directory; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON VIEW greendogops.staff_directory IS 'Ask Ziggy: current employees and contractors — name, job title, home location, email. No DOB, home phones, notes or pay.';
 
 
 --
@@ -12997,6 +13385,13 @@ CREATE INDEX idx_ezv_animal_active ON greendogops.ezyvet_animal USING btree (is_
 
 
 --
+-- Name: idx_ezv_animal_code; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX idx_ezv_animal_code ON greendogops.ezyvet_animal USING btree (animal_code);
+
+
+--
 -- Name: idx_ezv_animal_division; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -13060,6 +13455,13 @@ CREATE INDEX idx_ezv_change_created ON greendogops.ezyvet_contact_change USING b
 
 
 --
+-- Name: idx_ezv_contact_code; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX idx_ezv_contact_code ON greendogops.ezyvet_contact USING btree (contact_code);
+
+
+--
 -- Name: idx_ezv_contact_created; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -13085,6 +13487,13 @@ CREATE INDEX idx_ezv_contact_division ON greendogops.ezyvet_contact USING btree 
 --
 
 CREATE INDEX idx_ezv_contact_group ON greendogops.ezyvet_contact USING btree (customer_group);
+
+
+--
+-- Name: idx_ezv_line_animal; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX idx_ezv_line_animal ON greendogops.ezyvet_invoice_line USING btree (animal_code);
 
 
 --
@@ -18862,6 +19271,22 @@ GRANT ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid,
 
 
 --
+-- Name: FUNCTION client_summary(p_client text); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.client_summary(p_client text) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.client_summary(p_client text) TO service_role;
+
+
+--
+-- Name: FUNCTION client_visits(p_client text); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.client_visits(p_client text) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.client_visits(p_client text) TO service_role;
+
+
+--
 -- Name: FUNCTION format_phone(raw text); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -19139,6 +19564,14 @@ GRANT ALL ON FUNCTION greendogops.normalize_student_program() TO authenticated;
 
 
 --
+-- Name: FUNCTION patient_visits(p_patient text); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.patient_visits(p_patient text) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.patient_visits(p_patient text) TO service_role;
+
+
+--
 -- Name: FUNCTION person_after_change(); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -19395,6 +19828,22 @@ GRANT ALL ON FUNCTION greendogops.undo_referral_upload(p_upload_id uuid) TO serv
 REVOKE ALL ON FUNCTION greendogops.upcoming_appointment_demand(p_start date, p_end date) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.upcoming_appointment_demand(p_start date, p_end date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.upcoming_appointment_demand(p_start date, p_end date) TO service_role;
+
+
+--
+-- Name: FUNCTION ziggy_client_codes(p_client text); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.ziggy_client_codes(p_client text) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.ziggy_client_codes(p_client text) TO service_role;
+
+
+--
+-- Name: FUNCTION ziggy_patient_codes(p_patient text); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.ziggy_patient_codes(p_patient text) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.ziggy_patient_codes(p_patient text) TO service_role;
 
 
 --
@@ -20484,6 +20933,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops."position" TO service_rol
 
 
 --
+-- Name: TABLE product_catalog; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.product_catalog TO service_role;
+
+
+--
 -- Name: TABLE profile_transition_log; Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -21141,6 +21597,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sched_week_location TO se
 
 
 --
+-- Name: TABLE schedule_roster; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.schedule_roster TO service_role;
+
+
+--
 -- Name: TABLE sheet_sync_issue; Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -21189,6 +21652,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sms_message TO service_ro
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.sms_opt_out TO service_role;
+
+
+--
+-- Name: TABLE staff_directory; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.staff_directory TO service_role;
 
 
 --

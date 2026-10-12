@@ -20,7 +20,12 @@ export interface SmartScope {
   canViewCompensation: boolean;
   /** Confidential employee files (documents, reviews, discipline, licences). */
   canViewHrRecords: boolean;
-  /** Revenue, prices, client spending and other financial figures. */
+  /**
+   * Revenue REPORTING: totals by location, period, doctor or service line, and
+   * the raw billing tables behind them. Without it a user can still look up
+   * retail prices and what ONE client or patient was charged (the
+   * literal-argument lookups below).
+   */
   canViewFinancials: boolean;
   /**
    * Deny-by-default list for the general tier: the ONLY tables, views and
@@ -28,6 +33,13 @@ export interface SmartScope {
    * into blockedTables against the live catalog by withCatalog().
    */
   allowedTables: readonly string[] | null;
+  /**
+   * Functions this user may only call with ONE quoted-string argument
+   * (`client_visits('Jane Smith')`), at most MAX_LOOKUP_CALLS per query, so a
+   * per-client lookup can never be joined across every client into a revenue
+   * report. Empty = no restriction.
+   */
+  literalArgFunctions: readonly string[];
   /** Table names the query may not touch, lower-case. */
   blockedTables: readonly string[];
   /** Column names the query may not return, lower-case. */
@@ -119,16 +131,17 @@ export const FOREIGN_SCHEMAS = [
 
 /**
  * Everything a general employee (Staff) may ask Ask Ziggy about: patients and
- * their owners' contact details, vaccinations, appointments and the schedule
- * grid, the medical boards, the calendar and planning guides — the operational
- * and clinical data every employee needs, across every location.
+ * their owners' contact details, vaccinations, appointments, the schedule and
+ * staff directory, the medical boards, the calendar, planning guides, retail
+ * prices, and what ONE client or patient was charged — across every location.
+ * What they cannot do is revenue REPORTING (totals by location, date, doctor).
  *
  * It is an ALLOW-list, and every entry must be safe to read IN FULL. Column
  * blocking cannot protect a table here: `to_jsonb(t)`, `t::text` or
  * `array_agg(t)` return a whole row without naming a single column. So
- * ezyvet_contact (revenue_spend_ytd), ezyvet_invoice_line (prices) and person
- * (private fields) stay out until purpose-built views without those columns
- * exist. smart-scope.test.ts checks every entry exists and carries no money.
+ * ezyvet_contact, ezyvet_invoice_line and person stay out; the views and
+ * bounded lookup functions from migration 0233 expose the safe parts.
+ * smart-scope.test.ts checks every entry exists and carries no revenue/cost.
  */
 export const GENERAL_ALLOWED_TABLES = [
   // Patients and clinical activity (ezyVet)
@@ -165,6 +178,14 @@ export const GENERAL_ALLOWED_TABLES = [
   "cancelled_appointments_detail",
   "upcoming_appointment_demand",
   "medical_board_coverage",
+  // Retail prices, directory and roster (0233 views)
+  "product_catalog",
+  "staff_directory",
+  "schedule_roster",
+  // One client / one patient (0233); literal argument only, see GENERAL_LOOKUP_FUNCTIONS
+  "client_summary",
+  "client_visits",
+  "patient_visits",
   // Locations, schedule grid, boards, calendar, planning
   "location",
   "sched_week",
@@ -184,6 +205,15 @@ export const GENERAL_ALLOWED_TABLES = [
   "planning_guide_slot",
   "planning_capacity_rule",
 ] as const;
+
+/**
+ * Per-client / per-patient lookups (migration 0233). Each call resolves to at
+ * most 10 clients or patients in the database; for the General tier they must
+ * also be called with a literal argument, so a query cannot feed them every
+ * client code from a join and sum the result into revenue.
+ */
+export const GENERAL_LOOKUP_FUNCTIONS = ["client_summary", "client_visits", "patient_visits"] as const;
+export const MAX_LOOKUP_CALLS = 3;
 
 /**
  * Built-in functions that read data the identifier check cannot see, for EVERY
@@ -233,6 +263,7 @@ export function smartScopeFor(role: AppRole): SmartScope {
     canViewHrRecords,
     canViewFinancials: tier !== "general",
     allowedTables: tier === "general" ? GENERAL_ALLOWED_TABLES : null,
+    literalArgFunctions: tier === "general" ? GENERAL_LOOKUP_FUNCTIONS : [],
     blockedTables: [
       ...ALWAYS_BLOCKED_TABLES,
       ...(canViewHrRecords ? [] : HR_RECORD_TABLES),
@@ -284,15 +315,24 @@ export function scopeNotice(scope: SmartScope): string {
   }
   if (!scope.canViewFinancials) {
     lines.push(
-      "This user may NOT see financial information: revenue, invoice totals, prices, client " +
-        "spending, payments, receivables or any dollar figure. Only the tables and functions in the " +
-        "schema listing below are available — patients, vaccinations, appointments, the schedule " +
-        "grid, medical boards, the calendar and planning guides. Client (owner) names and contact " +
-        "details are on ezyvet_animal (owner_* columns) and ezyvet_appointment_record.",
+      "This user may NOT run revenue reporting: no totals or rankings of revenue, sales or billing " +
+        "by location, date, period, doctor, service line or product across clients. Only the tables " +
+        "and functions in the schema listing below are available.",
     );
     lines.push(
-      "Employee names are not in the listing. Questions about the asker's OWN shifts, time off " +
-        "or PTO are answered from the \"About the person asking\" section instead of SQL.",
+      "They MAY look up individual prices and individual clients: product_catalog has the retail " +
+        "price of every product/service per division (hospital); client_summary('<client name or " +
+        "contact code>') gives one client's details, pets and spend; client_visits('<client>') and " +
+        "patient_visits('<animal_code or pet name>') list every billed item with date, vet and " +
+        "charge — filter visit_date for one visit, item_group for dental/medications. Call these " +
+        "three with ONE plain quoted string literal (never a column, subquery or cast), at most " +
+        `${MAX_LOOKUP_CALLS} calls per query. If a name matches more than 10, the function errors: ` +
+        "find the right client/patient first (ezyvet_animal has owner names and animal_code).",
+    );
+    lines.push(
+      "Employee names are in staff_directory and who works when in schedule_roster. Questions " +
+        "about the asker's OWN shifts, time off or PTO are answered from the \"About the person " +
+        "asking\" section instead of SQL.",
     );
   }
   if (!scope.canViewHrRecords) {
@@ -337,6 +377,86 @@ export function blockedIdentifier(sql: string, scope: SmartScope): string | null
   if (!scope.blockedTables.length && !scope.blockedColumns.length) return null;
   for (const name of scope.blockedTables) if (used.has(name)) return name;
   for (const name of scope.blockedColumns) if (used.has(name)) return name;
+  return null;
+}
+
+/** Index just past a '...' literal starting at `start` ('' is an escaped quote). */
+function skipLiteral(sql: string, start: number): number {
+  let i = start + 1;
+  while (i < sql.length) {
+    if (sql[i] === "'") {
+      if (sql[i + 1] === "'") {
+        i += 2;
+        continue;
+      }
+      return i + 1;
+    }
+    i += 1;
+  }
+  return sql.length;
+}
+
+function skipSpace(sql: string, i: number): number {
+  while (i < sql.length && /\s/.test(sql[i])) i += 1;
+  return i;
+}
+
+/**
+ * Why a query misuses a literal-argument lookup function, or null. Walks the
+ * SQL skipping comments and string literals; every reference to one of
+ * `scope.literalArgFunctions` must be `name('plain literal')`.
+ */
+export function lookupCallProblem(sql: string, scope: SmartScope): string | null {
+  const names = new Set(scope.literalArgFunctions);
+  if (!names.size) return null;
+  let calls = 0;
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i];
+    if (ch === "-" && sql[i + 1] === "-") {
+      const end = sql.indexOf("\n", i);
+      i = end < 0 ? n : end + 1;
+      continue;
+    }
+    if (ch === "/" && sql[i + 1] === "*") {
+      const end = sql.indexOf("*/", i + 2);
+      i = end < 0 ? n : end + 2;
+      continue;
+    }
+    if (ch === "'") {
+      i = skipLiteral(sql, i);
+      continue;
+    }
+    let ident: string | null = null;
+    if (ch === '"') {
+      const end = sql.indexOf('"', i + 1);
+      ident = sql.slice(i + 1, end < 0 ? n : end).toLowerCase();
+      i = end < 0 ? n : end + 1;
+    } else if (/[A-Za-z_]/.test(ch)) {
+      let j = i + 1;
+      while (j < n && /[A-Za-z0-9_$]/.test(sql[j])) j += 1;
+      ident = sql.slice(i, j).toLowerCase();
+      i = j;
+    } else {
+      i += 1;
+      continue;
+    }
+    if (!names.has(ident)) continue;
+
+    const usage = `${ident}('Jane Smith')`;
+    let k = skipSpace(sql, i);
+    if (sql[k] !== "(") return `${ident} can only be called as ${usage}, with one quoted name or code.`;
+    k = skipSpace(sql, k + 1);
+    if (sql[k] !== "'") return `${ident} needs one plain quoted name or code, e.g. ${usage} — not a column, subquery or expression.`;
+    k = skipSpace(sql, skipLiteral(sql, k));
+    if (sql[k] !== ")") return `${ident} takes exactly one plain quoted name or code, e.g. ${usage}.`;
+    i = k + 1;
+    calls += 1;
+    if (calls > MAX_LOOKUP_CALLS) {
+      return `At most ${MAX_LOOKUP_CALLS} client/patient lookups per question. Ask about fewer clients at a time.`;
+    }
+  }
   return null;
 }
 

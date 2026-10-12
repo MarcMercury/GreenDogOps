@@ -315,7 +315,7 @@ the RPC runs as `service_role`. Tiers (`scopeForUser`):
 | `full` | Owner, Admin, Executive | everything except the always-blocked private/security tables |
 | `hr` | Manager / HR | as `full`, minus compensation columns |
 | `basic` | Schedule/Marketing Admin, Staff granted Reporting | as `hr`, minus the confidential employee file |
-| `general` | Staff | **allow-list only** (`GENERAL_ALLOWED_TABLES`): patients, vaccinations, appointments, schedule grid, boards, calendar, planning — no revenue, prices, client spending, employee records |
+| `general` | Staff | **allow-list only** (`GENERAL_ALLOWED_TABLES`): patients, vaccinations, appointments, schedule grid and `schedule_roster`, `staff_directory`, boards, calendar, planning, retail prices (`product_catalog`), and ONE client's or patient's charges and spend — but no revenue *reporting* (totals by location, date, doctor), cost/markup, or HR records |
 
 The `general` allow-list is resolved against the live catalog (`withCatalog`),
 so a new table is invisible to Staff until added. Every allowed object must be
@@ -323,7 +323,18 @@ safe to read **in full**: `to_jsonb(t)` / `t::text` return a whole row without
 naming a column, so column blocking cannot protect a table on that list.
 Functions that run SQL from a string (`query_to_xml`, `table_to_xml`,
 `ts_stat`, `ts_rewrite`), `::regclass`, and the `pg_*` catalog are rejected for
-every tier.
+every tier. `smart_query()` runs in a read-only transaction (PostgREST does that
+for `STABLE` functions), so even a volatile function named in the SQL cannot write.
+
+**Lookup vs. reporting (General tier):** per-client and per-patient money comes
+only from the bounded functions in migration 0233 — `client_summary(text)`,
+`client_visits(text)`, `patient_visits(text)`. In the database each call
+resolves to at most 10 clients/patients (exact code, then exact name, then a
+substring) and raises otherwise; in `smart-scope.ts` (`lookupCallProblem`) the
+General tier may only call them with one quoted literal, at most three per
+query, so they can't be joined across every client into a revenue report.
+`scripts/ziggy_lookup_test.sql` tests the functions on staging with synthetic
+rows.
 
 **About the person asking:** questions about "my shifts / my PTO" are answered
 from the asker's own records, fetched by `person_id` on the server
@@ -332,8 +343,9 @@ published shifts for the next three weeks, recent time-off requests, the PTO
 balance on the roster. Pay and benefits are never included.
 
 **Clinical data:** Ziggy reports what is on record — the patient profile and
-problem list, vaccinations, appointments, standard-of-care reminders. SOAP note
-text, labs, imaging and prescriptions are not imported from ezyVet, and the
+problem list, vaccinations, appointments, standard-of-care reminders, and every
+billed item (medications dispensed, procedures) via `patient_visits`. SOAP note
+text, labs, imaging and allergy records are not imported from ezyVet, and the
 prompt tells the model to say so rather than infer them.
 
 There is a **learning loop**: every question is logged to `smart_question_log`

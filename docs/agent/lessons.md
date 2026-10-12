@@ -182,3 +182,13 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Root cause:** `smart_value_hints()` reads planner stats for tables/matviews only (`relkind in ('r','p','m')`); `report_contact_tag` is a plain view, so the model never saw a tag spelling. Any other view-only vocabulary has the same blind spot.
 - **Fix:** `smart.ts` loads `report_contact_tag_summary.tag_norm` with the cached catalog, lists it under "Common column values", and `unmatchedTagFilters()` (`smart-tags.ts`) rejects SQL whose `tag`/`tag_norm` `=`/`IN`/`<>`/`LIKE` literal matches no real tag, sending the real spellings back for the retry.
 - **Evidence:** 2026-10-12 — `smart_question_log` 1569694c… (2026-10-07) ran the bad SQL; the guessed spellings match 0 active clients vs 69 for the real ones. After the fix a live `ask_smart.mts` run used `'code *101*', 'code *501*'` and returned 31,954 = 32,023 active − 69 tagged.
+
+### `smart_query()` cannot write, even through a volatile function
+- **Question:** `greendogops` has volatile SECURITY DEFINER routines (`merge_person`, `medical_board_rollover`, `rate_limit_hit`, …) that are not in the Smart Report catalog, so the identifier guard does not block them by name. Could `select merge_person(...)` through Ask Ziggy modify data?
+- **Answer:** no. PostgREST runs `STABLE` functions in a read-only transaction. A staging probe — `POST /rest/v1/rpc/smart_query` with `select greendogops.rate_limit_hit('ziggy-readonly-probe', 5, 60)` — returned `25006 cannot execute INSERT in a read-only transaction`. Keep `smart_query` `STABLE` and called only through PostgREST; if it is ever made `VOLATILE` or called over a direct connection, this protection disappears.
+- **Evidence:** 2026-10-12, staging `yzxcuiwklrmxarzjzukr`.
+
+### Testing SQL functions on staging without leaving data behind
+- **Fix:** put inserts and assertions in one `DO` block that always ends with `raise exception 'PASS ...'`, so the whole block rolls back; any other error text names the failing check. Example: `scripts/ziggy_lookup_test.sql` (run with `SUPABASE_PROJECT_REF=yzxcuiwklrmxarzjzukr scripts/supabase-sql.sh -f ...`). Staging has no ezyVet rows, so synthetic data is the only way to exercise ezyVet functions there.
+- **Baseline seed drift:** `scripts/generate_baseline.sh` (staging by default) also rewrites `0003_config_seed.sql` from staging's config rows, which differ from production's (departments IM/AP/Exotic, `show_in_planning`). For a schema-only migration, keep `0001_schema.sql` and restore `0003_config_seed.sql`. Evidence: 2026-10-12, 0233/0234 regeneration.
+

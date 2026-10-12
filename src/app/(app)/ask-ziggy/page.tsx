@@ -12,14 +12,14 @@ export const dynamic = "force-dynamic";
 // 60s default would 504 the server action mid-answer.
 export const maxDuration = 300;
 
-/** Starter questions per data scope — General users cannot query revenue. */
+/** Starter questions per data scope — General users cannot run revenue reports. */
 const GENERAL_SUGGESTIONS = [
+  "How much is a vet exam?",
   "When am I working next?",
   "How much PTO do I have available?",
+  "Who is working at Venice tomorrow?",
   "Which patients have appointments at Venice tomorrow?",
-  "When is Bella's next vaccine due?",
   "What does our policy say about clocking in late?",
-  "How many active patients do we have by species?",
 ];
 
 const FULL_SUGGESTIONS = [
@@ -51,7 +51,7 @@ export default async function AskZiggyPage() {
 
   const scope = scopeForUser(current.appUser);
   const limits = [
-    scope.canViewFinancials ? null : "revenue, prices and client spending",
+    scope.canViewFinancials ? null : "revenue reporting (totals by location, date or doctor)",
     scope.canViewCompensation ? null : "employee pay, wages and benefits",
     scope.canViewHrRecords ? null : "confidential employee records",
   ].filter(Boolean) as string[];

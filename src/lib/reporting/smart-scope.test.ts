@@ -5,7 +5,10 @@ import { APP_ROLES, type AppRole, type AppUser } from "../auth/permissions";
 import {
   ALWAYS_BLOCKED_TABLES,
   GENERAL_ALLOWED_TABLES,
+  GENERAL_LOOKUP_FUNCTIONS,
+  MAX_LOOKUP_CALLS,
   blockedIdentifier,
+  lookupCallProblem,
   scopeForUser,
   smartScopeFor,
   withCatalog,
@@ -149,8 +152,11 @@ function baselineObject(name: string): string | null {
   return null;
 }
 
-/** Anything that reads like money. Every General-tier object must be free of it. */
-const MONEY = /\b\w*(revenue|total_incl|total_excl|price|amount|spend|cost|balance|wage|salary|payment|pay_min|pay_max|receivable|collections?)\w*\b/i;
+/**
+ * Revenue, cost or pay. Retail PRICES are fine for everyone; per-client charges
+ * are only reachable through GENERAL_LOOKUP_FUNCTIONS, which are bounded.
+ */
+const MONEY = /\b\w*(revenue|total_incl|total_excl|amount|spend|cost|markup|margin|balance|wage|salary|payment|pay_min|pay_max|receivable|collections?)\w*\b/i;
 
 describe("General tier (Staff)", () => {
   const general = smartScopeFor("staff");
@@ -179,10 +185,28 @@ describe("General tier (Staff)", () => {
     for (const name of ["ezyvet_invoice_line", "ezyvet_contact", "ezyvet_appointment", "report_location_period"]) {
       expect(baselineObject(name), name).toMatch(MONEY);
     }
+    const lookups = new Set<string>(GENERAL_LOOKUP_FUNCTIONS);
     for (const name of GENERAL_ALLOWED_TABLES) {
       const body = baselineObject(name);
       expect(body, `${name} is not in the baseline`).not.toBeNull();
+      if (lookups.has(name)) continue;
       expect(body?.match(MONEY)?.[0] ?? null, `${name} exposes money`).toBeNull();
+    }
+  });
+
+  it("only allows lookup functions that are capped per client/patient in the database", () => {
+    for (const name of GENERAL_LOOKUP_FUNCTIONS) {
+      expect(GENERAL_ALLOWED_TABLES as readonly string[]).toContain(name);
+      const body = baseline.match(
+        new RegExp(`^CREATE FUNCTION greendogops\\.${name}\\([\\s\\S]*?^\\$\\$;`, "m"),
+      )?.[0];
+      expect(body, name).toMatch(/greendogops\.ziggy_(client|patient)_codes\(p_/);
+    }
+    for (const helper of ["ziggy_client_codes", "ziggy_patient_codes"]) {
+      const body = baseline.match(
+        new RegExp(`^CREATE FUNCTION greendogops\\.${helper}\\([\\s\\S]*?^\\$\\$;`, "m"),
+      )?.[0];
+      expect(body, helper).toMatch(/cardinality\(v_codes\) > 10/);
     }
   });
 
@@ -258,5 +282,48 @@ describe("functions that read data the identifier check cannot see", () => {
   it("do not trip on ordinary column names", () => {
     const owner = smartScopeFor("owner");
     expect(blockedIdentifier("select location_key, logged_at from ezyvet_invoice_line", owner)).toBeNull();
+  });
+});
+
+describe("lookupCallProblem (General tier per-client lookups)", () => {
+  const general = smartScopeFor("staff");
+
+  it("accepts one quoted name or code per call, up to the limit", () => {
+    for (const sql of [
+      "select * from client_visits('Jane Smith') where visit_date = '2026-03-14'",
+      "select sum(charge_incl_tax) from greendogops.client_visits( 'O''Brien' )",
+      'select * from "client_summary"(\'12345\')',
+      "select * from patient_visits('640') where item_group ilike '%dental%'",
+      "select * from client_summary('a') union all select * from client_summary('b')",
+      "select 'client_visits(x)' as label -- client_visits(c.code)",
+    ]) {
+      expect(lookupCallProblem(sql, general), sql).toBeNull();
+    }
+  });
+
+  it("rejects calls that could fan out across clients", () => {
+    for (const sql of [
+      "select sum(v.charge_incl_tax) from ezyvet_animal a cross join lateral client_visits(a.owner_contact_code) v",
+      "select * from client_visits((select owner_contact_code from ezyvet_animal limit 1))",
+      "select * from client_visits('a' || 'b')",
+      "select * from client_visits('x'::text)",
+      "select * from client_visits(E'x')",
+      "select * from patient_visits('a', 'b')",
+      "select client_summary from x",
+      "select * from client_visits /* c */ ('x')",
+    ]) {
+      expect(lookupCallProblem(sql, general), sql).not.toBeNull();
+    }
+    const many = Array.from({ length: MAX_LOOKUP_CALLS + 1 }, (_, i) => `select * from client_summary('c${i}')`).join(
+      " union all ",
+    );
+    expect(lookupCallProblem(many, general)).toMatch(/At most/);
+  });
+
+  it("does not restrict roles that can already run revenue reports", () => {
+    const sql = "select sum(v.charge_incl_tax) from ezyvet_animal a cross join lateral client_visits(a.owner_contact_code) v";
+    for (const role of APP_ROLES.filter((r) => r !== "staff")) {
+      expect(lookupCallProblem(sql, smartScopeFor(role)), role).toBeNull();
+    }
   });
 });
