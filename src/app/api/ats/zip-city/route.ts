@@ -11,7 +11,7 @@ export const runtime = "nodejs";
  * GET /api/ats/zip-city?zip=91335 → { ok: true, city: "Reseda, CA" | null }
  */
 export async function GET(req: NextRequest) {
-  const current = await getCurrentUser();
+  const current = await getCurrentUser({ allowPreview: true });
   if (!current) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }

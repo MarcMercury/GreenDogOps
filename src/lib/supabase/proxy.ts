@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { PATHNAME_HEADER } from "@/lib/auth/permissions";
+import { METHOD_HEADER } from "@/lib/auth/view-as";
 import { DB_SCHEMA, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config";
 import { isPublicPath } from "./public-paths";
 
@@ -20,10 +21,13 @@ export async function updateSession(request: NextRequest) {
   // Server Components cannot read the request path, so publish it as a header
   // for (app)/layout.tsx to gate on. Always overwrite: a client could otherwise
   // spoof it to reach a module it lacks. Re-read `request.headers` each time so
-  // cookies refreshed by setAll() below are carried through.
+  // cookies refreshed by setAll() below are carried through. The method header
+  // lets the read-only "View as" guard (lib/auth/session.ts) tell page renders
+  // from Server Action POSTs.
   const forwardHeaders = () => {
     const headers = new Headers(request.headers);
     headers.set(PATHNAME_HEADER, request.nextUrl.pathname);
+    headers.set(METHOD_HEADER, request.method);
     return headers;
   };
 

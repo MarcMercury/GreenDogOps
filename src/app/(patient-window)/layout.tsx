@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getAuthState } from "@/lib/auth/session";
 import { NoAccess } from "../(app)/_components/no-access";
+import { ViewAsBanner } from "../(app)/_components/view-as-switcher";
 
 /**
  * Chromeless layout for the launched patient window. These tabs get dragged
@@ -18,5 +19,23 @@ export default async function PatientWindowLayout({
     redirect("/login/mfa");
   }
   if (state.kind === "not_gdo") return <NoAccess email={state.email} />;
-  return <div className="min-h-screen bg-slate-50">{children}</div>;
+  const viewAs = state.current.viewAs;
+  return (
+    <div className="min-h-screen bg-slate-50">
+      {/* No sidebar here, so the switch-back control must live in the page. */}
+      {viewAs ? (
+        <div className="p-3 pb-0">
+          <ViewAsBanner
+            viewAs={{
+              kind: viewAs.kind,
+              label: viewAs.label,
+              email: viewAs.kind === "user" ? state.current.email : null,
+              role: state.current.appUser.role,
+            }}
+          />
+        </div>
+      ) : null}
+      {children}
+    </div>
+  );
 }

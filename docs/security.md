@@ -59,6 +59,39 @@ back. Expected output: `RLS_MATRIX PASS`. Unit tests in
 `src/lib/auth/permissions.test.ts` and `src/lib/hr/types.test.ts` pin the
 app-side rules and the compensation column list.
 
+### "View as" (Owner access preview)
+
+Owners can preview the app as any active user, or as a role's default access,
+from **View as…** in the sidebar footer, and switch back with **Switch back to
+me**. Code: `src/lib/auth/view-as.ts` (rules, unit-tested),
+`getAuthState()` / `getRealAuthState()` in `src/lib/auth/session.ts`, and
+`POST /api/view-as`.
+
+- The `gdo_view_as` cookie (HttpOnly, 8 h) only names a target. It is honoured
+  only while the **real** signed-in user is an active Owner who has passed
+  two-step, and that is re-checked on every request. A forged cookie does
+  nothing for anyone else.
+- `getAuthState()` is the effective (previewed) state that every permission
+  check uses. `getRealAuthState()` is the signed-in person, used by two-step
+  verification and the switcher.
+- **Previews are read-only.** During a preview, `getCurrentUser` /
+  `requireUser` / `ensure*` refuse any Server Action or `/api` request
+  (detected from the proxy-stamped method and path headers), so nothing can be
+  written or sent under the previewed person's identity. Pure reads opt in with
+  `{ allowPreview: true }`. Add that only to code that never writes or
+  messages anyone.
+- Switching back is a plain form post that clears the cookie for any session,
+  whatever the previewed access. Sign-out also clears it.
+- Render-time syncs that record no actor still run while previewing (e.g.
+  opening a Medical Board seeds missing Agenda rows via `medical_board_seed`),
+  exactly as they would for the Owner. Render-time audit entries (Emp
+  Reporting's `compensation.report_viewed`) are attributed to the real Owner,
+  with `viewing_as` in the metadata.
+- **Limitation:** RLS still runs as the Owner (`auth.uid()`), so a list that
+  relies only on RLS may show rows the previewed user could not see. Menus,
+  module gates, role checks and app-side field rules are exact.
+- Start and stop are audited as `view_as.start` / `view_as.stop`.
+
 ## 2. Authentication & sessions
 
 - Supabase Auth: bcrypt password hashing, 1-hour JWTs, rotating refresh

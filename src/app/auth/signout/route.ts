@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { recordAudit } from "@/lib/auth/session";
 import { requestMeta } from "@/lib/security/rate-limit";
+import { VIEW_AS_COOKIE } from "@/lib/auth/view-as";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -20,7 +21,10 @@ export async function POST(request: NextRequest) {
     });
   }
   await supabase.auth.signOut();
-  return NextResponse.redirect(new URL("/login", request.url), {
+  const response = NextResponse.redirect(new URL("/login", request.url), {
     status: 303,
   });
+  // End any "View as" preview so it never carries into the next sign-in.
+  response.cookies.delete(VIEW_AS_COOKIE);
+  return response;
 }

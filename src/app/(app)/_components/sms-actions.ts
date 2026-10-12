@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getCurrentUser, recordAudit, type CurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, recordAudit, type CurrentUser, type SessionOptions } from "@/lib/auth/session";
 import { canTextPerson } from "@/lib/sms/access";
 import { blockReason, e164ToHouseFormat } from "@/lib/sms/rules";
 import { loadSmsTarget, loadSmsThread, sendSmsToPerson, smsEnv, type SmsThreadMessage } from "@/lib/sms/send";
@@ -29,8 +29,8 @@ export type TextsView =
 type Gate = { ok: true; current: CurrentUser } | { ok: false; error: string };
 
 /** Signed in and allowed to text this person (status is read fresh, never trusted from the client). */
-async function gate(personId: string): Promise<Gate> {
-  const current = await getCurrentUser();
+async function gate(personId: string, options?: SessionOptions): Promise<Gate> {
+  const current = await getCurrentUser(options);
   if (!current) return { ok: false, error: "You are not signed in." };
   const { data } = await createAdminClient().from("person").select("status").eq("id", personId).maybeSingle();
   if (!data) return { ok: false, error: "That person no longer exists." };
@@ -45,7 +45,7 @@ function actorName(current: CurrentUser): string {
 }
 
 export async function loadTexts(personId: string): Promise<TextsView> {
-  const g = await gate(personId);
+  const g = await gate(personId, { allowPreview: true });
   if (!g.ok) return g;
   const env = smsEnv();
   // Nothing below touches the sms_* tables until Twilio is configured.

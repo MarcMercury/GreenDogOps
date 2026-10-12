@@ -63,12 +63,14 @@ export default async function EmpReportingPage() {
   // Compensation columns are service-role only (migration 0227); the module
   // gate above is the authorization check.
   const supabase = createAdminClient();
+  // During a "View as" preview the Owner is the one actually looking.
   void recordAudit({
-    actorId: current.authId,
-    actorEmail: current.email,
+    actorId: current.viewAs?.realUser.id ?? current.authId,
+    actorEmail: current.viewAs?.realEmail ?? current.email,
     action: "compensation.report_viewed",
     entity: "emp_reporting",
     summary: "Viewed Emp Reporting (roster payroll analytics)",
+    metadata: current.viewAs ? { viewing_as: current.email } : undefined,
   });
   const [peopleRes, positionsRes] = await Promise.all([
     supabase

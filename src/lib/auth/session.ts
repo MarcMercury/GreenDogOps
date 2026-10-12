@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -11,12 +12,44 @@ import {
   canEditModule,
   canEditGeneral,
   canViewSensitiveHr,
+  PATHNAME_HEADER,
 } from "./permissions";
+import {
+  canUseViewAs,
+  isPreviewGuardedRequest,
+  METHOD_HEADER,
+  parseViewAsTarget,
+  roleViewLabel,
+  roleViewUser,
+  VIEW_AS_COOKIE,
+  VIEW_AS_READ_ONLY_MESSAGE,
+} from "./view-as";
+
+/** Set when an Owner is previewing someone else's access ("View as"). */
+export interface ViewAsInfo {
+  kind: "user" | "role";
+  /** The previewed user's name, or the role label. */
+  label: string;
+  /** The Owner who is actually signed in. */
+  realUser: AppUser;
+  realEmail: string;
+}
 
 export interface CurrentUser {
   authId: string;
   email: string;
   appUser: AppUser;
+  /** Present only during a "View as" preview; `appUser` is then the previewed access. */
+  viewAs?: ViewAsInfo | null;
+}
+
+/** Options for session helpers called from Server Actions or /api routes. */
+export interface SessionOptions {
+  /**
+   * The caller is a pure read (no writes, no external side effects), so it may
+   * run during a read-only "View as" preview with the previewed user's access.
+   */
+  allowPreview?: boolean;
 }
 
 export type AuthState =
@@ -30,11 +63,13 @@ export type AuthState =
   | { kind: "ok"; current: CurrentUser; verifiedFactorIds: string[]; aal: string | null };
 
 /**
- * Resolve the request's authentication state: no session, a session that is
- * not an active GDO user, a GDO user who still owes a two-step code (or must
- * enroll), or fully signed in. Cached per request.
+ * Resolve the request's authentication state for the person actually signed
+ * in: no session, a session that is not an active GDO user, a GDO user who
+ * still owes a two-step code (or must enroll), or fully signed in. Ignores any
+ * "View as" preview — use for the viewer's own account (two-step verification,
+ * the View-as switcher). Cached per request.
  */
-export const getAuthState = cache(async (): Promise<AuthState> => {
+export const getRealAuthState = cache(async (): Promise<AuthState> => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -81,24 +116,95 @@ export const getAuthState = cache(async (): Promise<AuthState> => {
 });
 
 /**
+ * The request's effective authentication state: the real state, except that a
+ * fully signed-in Owner with an active "View as" preview gets the previewed
+ * access as `current` (with `current.viewAs` describing the real viewer).
+ * Every permission check should use this. Cached per request.
+ */
+export const getAuthState = cache(async (): Promise<AuthState> => {
+  const state = await getRealAuthState();
+  if (state.kind !== "ok") return state;
+  const current = await applyViewAs(state.current);
+  return current === state.current ? state : { ...state, current };
+});
+
+async function applyViewAs(real: CurrentUser): Promise<CurrentUser> {
+  if (!canUseViewAs(real.appUser)) return real;
+  const target = parseViewAsTarget((await cookies()).get(VIEW_AS_COOKIE)?.value);
+  if (!target) return real;
+  const viewer = { realUser: real.appUser, realEmail: real.email };
+
+  if (target.kind === "role") {
+    return {
+      ...real,
+      appUser: roleViewUser(real.appUser, target.role),
+      viewAs: { kind: "role", label: roleViewLabel(target.role), ...viewer },
+    };
+  }
+  if (target.userId === real.appUser.id) return real;
+
+  const { data } = await createAdminClient()
+    .from("app_user")
+    .select("*")
+    .eq("id", target.userId)
+    .maybeSingle();
+  const appUser = data as AppUser | null;
+  // A deactivated or deleted target silently falls back to the real user.
+  if (!appUser || !appUser.is_active) return real;
+  return {
+    authId: appUser.id,
+    email: appUser.email,
+    appUser,
+    viewAs: { kind: "user", label: appUser.full_name || appUser.email, ...viewer },
+  };
+}
+
+/**
+ * True when a "View as" preview must refuse this request: the caller has not
+ * opted in as a pure read, and the request is a Server Action or /api call.
+ * Page renders (GET) are always allowed so the preview can be browsed.
+ */
+async function previewRefuses(
+  current: CurrentUser,
+  options: SessionOptions | undefined,
+): Promise<boolean> {
+  if (!current.viewAs || options?.allowPreview) return false;
+  const h = await headers();
+  return isPreviewGuardedRequest({
+    method: h.get(METHOD_HEADER),
+    pathname: h.get(PATHNAME_HEADER),
+  });
+}
+
+/**
  * Resolve the signed-in auth user AND their Green Dog Ops `app_user` row.
  * Returns null if there is no session, if the user is not an active GDO user
  * (auth.users is shared with EmployeeGMGDD, so a session alone is NOT
  * sufficient to access GDO), or if two-step verification is still pending.
  * Cached per request.
  */
-export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+export async function getCurrentUser(
+  options?: SessionOptions,
+): Promise<CurrentUser | null> {
   const state = await getAuthState();
-  return state.kind === "ok" ? state.current : null;
-});
+  if (state.kind !== "ok") return null;
+  if (await previewRefuses(state.current, options)) return null;
+  return state.current;
+}
 
-/** Require an active GDO user, else redirect to login (or the two-step page). */
-export async function requireUser(): Promise<CurrentUser> {
+/**
+ * Require an active GDO user, else redirect to login (or the two-step page).
+ * Throws during a read-only "View as" preview unless `allowPreview` is set.
+ */
+export async function requireUser(options?: SessionOptions): Promise<CurrentUser> {
   const state = await getAuthState();
   if (state.kind === "mfa_challenge" || state.kind === "mfa_enroll") {
     redirect("/login/mfa");
   }
   if (state.kind !== "ok") redirect("/login");
+  if (await previewRefuses(state.current, options)) {
+    throw new Error(VIEW_AS_READ_ONLY_MESSAGE);
+  }
   return state.current;
 }
 
@@ -129,14 +235,25 @@ export type EditGate =
 const NO_EDIT_MESSAGE =
   "You do not have permission to make changes here.";
 
+/** The signed-in user for an edit gate, with a clear message during a preview. */
+async function currentForEdit(): Promise<EditGate> {
+  const state = await getAuthState();
+  if (state.kind !== "ok") return { ok: false, error: "You are not signed in." };
+  if (await previewRefuses(state.current, undefined)) {
+    return { ok: false, error: VIEW_AS_READ_ONLY_MESSAGE };
+  }
+  return { ok: true, current: state.current };
+}
+
 /**
  * Gate a mutating server action by module edit permission. The failure shape
  * (`{ ok: false, error }`) is compatible with the action result types used
  * across the app, so callers can `return gate` directly on denial.
  */
 export async function ensureCanEdit(moduleKey: ModuleKey): Promise<EditGate> {
-  const current = await getCurrentUser();
-  if (!current) return { ok: false, error: "You are not signed in." };
+  const resolved = await currentForEdit();
+  if (!resolved.ok) return resolved;
+  const { current } = resolved;
   if (!canEditModule(current.appUser, moduleKey)) {
     return { ok: false, error: NO_EDIT_MESSAGE };
   }
@@ -164,8 +281,9 @@ export async function ensureCanEditSensitiveHr(): Promise<EditGate> {
  * write access to every module they can view). Staff are read-only here.
  */
 export async function ensureEditor(): Promise<EditGate> {
-  const current = await getCurrentUser();
-  if (!current) return { ok: false, error: "You are not signed in." };
+  const resolved = await currentForEdit();
+  if (!resolved.ok) return resolved;
+  const { current } = resolved;
   if (canEditGeneral(current.appUser)) {
     return { ok: true, current };
   }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getAuthState } from "@/lib/auth/session";
+import { getRealAuthState } from "@/lib/auth/session";
 import { MfaForm } from "./mfa-form";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export default async function MfaPage({
 }: {
   searchParams: Promise<{ setup?: string }>;
 }) {
-  const state = await getAuthState();
+  const state = await getRealAuthState();
   if (state.kind === "anon") redirect("/login");
   if (state.kind === "not_gdo") redirect("/");
 

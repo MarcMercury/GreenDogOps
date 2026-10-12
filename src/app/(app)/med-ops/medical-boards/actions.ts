@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, type SessionOptions } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import {
   isBooleanField,
@@ -23,8 +23,8 @@ export type ActionResult<T = undefined> =
  * who can see the module may edit it — unlike most modules, this deliberately
  * gates on access rather than canEditModule (Staff is read-only elsewhere).
  */
-async function ensureBoardUser() {
-  const current = await getCurrentUser();
+async function ensureBoardUser(options?: SessionOptions) {
+  const current = await getCurrentUser(options);
   if (!current || !canAccessModule(current.appUser, "med_boards")) return null;
   return current;
 }
@@ -132,7 +132,7 @@ export async function fetchBoardRows(
   date: string,
   boardType: BoardTypeKey,
 ): Promise<MedicalBoardRow[]> {
-  const current = await ensureBoardUser();
+  const current = await ensureBoardUser({ allowPreview: true });
   if (!current) return [];
 
   const supabase = await createClient();
@@ -171,7 +171,7 @@ export async function patchBoardCard(
 export async function fetchBoardRow(
   rowId: string,
 ): Promise<MedicalBoardRow | null> {
-  const current = await ensureBoardUser();
+  const current = await ensureBoardUser({ allowPreview: true });
   if (!current) return null;
 
   const supabase = await createClient();
@@ -188,7 +188,7 @@ export async function fetchWelcomeGuests(
   locationId: string,
   date: string,
 ): Promise<WelcomeGuest[]> {
-  const current = await ensureBoardUser();
+  const current = await ensureBoardUser({ allowPreview: true });
   if (!current) return [];
   return getWelcomeGuests(locationId, date);
 }

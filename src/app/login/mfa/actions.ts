@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { getAuthState, recordAudit } from "@/lib/auth/session";
+import { getRealAuthState, recordAudit } from "@/lib/auth/session";
 import { rateLimit, requestMeta } from "@/lib/security/rate-limit";
 
 export type EnrollStart =
@@ -14,7 +14,7 @@ const CODE_RE = /^\d{6}$/;
 
 /** Signed-in GDO user (any MFA state), or null. */
 async function signedInGdoUser() {
-  const state = await getAuthState();
+  const state = await getRealAuthState();
   if (state.kind === "anon" || state.kind === "not_gdo") return null;
   return state;
 }

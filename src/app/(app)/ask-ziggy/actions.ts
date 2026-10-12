@@ -135,8 +135,10 @@ export async function askSmartQuestion(
 
 /** The signed-in user's own recent questions, newest first. History is private. */
 export async function getSmartHistory(): Promise<SmartHistoryEntry[]> {
-  const current = await requireUser();
+  const current = await requireUser({ allowPreview: true });
   if (!canUseAskZiggy(current.appUser)) return [];
+  // History is private, so a "View as" preview never reveals someone else's.
+  if (current.viewAs?.kind === "user") return [];
   const admin = createAdminClient();
   const { data } = await admin
     .from("smart_question_log")

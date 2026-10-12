@@ -7,6 +7,7 @@ import {
   moduleForPathname,
   PATHNAME_HEADER,
 } from "@/lib/auth/permissions";
+import { canUseViewAs } from "@/lib/auth/view-as";
 import { AppShell } from "./_components/app-shell";
 import { ModuleDenied } from "./_components/module-denied";
 import { NoAccess } from "./_components/no-access";
@@ -28,8 +29,12 @@ export default async function AppLayout({
   }
   const current = state.current;
 
+  // During a "View as" preview the viewer is still the real Owner.
+  const viewer = current.viewAs?.realUser ?? current.appUser;
+  const viewerEmail = current.viewAs?.realEmail ?? current.email;
+
   // Best-effort presence tracking (does not block render).
-  void touchLastSeen(current.authId);
+  void touchLastSeen(viewer.id);
 
   // Central module read-gate. Without this the sidebar hides a module a user
   // was denied, but the URL still renders it. Routes that are not module-scoped
@@ -40,9 +45,20 @@ export default async function AppLayout({
 
   return (
     <AppShell
-      email={current.email}
-      role={current.appUser.role}
+      email={viewerEmail}
+      role={viewer.role}
       modules={accessibleModules(current.appUser)}
+      canViewAs={canUseViewAs(viewer)}
+      viewAs={
+        current.viewAs
+          ? {
+              kind: current.viewAs.kind,
+              label: current.viewAs.label,
+              email: current.viewAs.kind === "user" ? current.email : null,
+              role: current.appUser.role,
+            }
+          : null
+      }
     >
       {denied && moduleKey ? (
         <ModuleDenied moduleKey={moduleKey} role={current.appUser.role} />

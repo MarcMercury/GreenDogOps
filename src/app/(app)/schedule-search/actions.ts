@@ -13,7 +13,7 @@ export interface ScheduleSearchInput {
 export async function runScheduleSearch(
   input: ScheduleSearchInput,
 ): Promise<ShiftHit[]> {
-  await requireUser();
+  await requireUser({ allowPreview: true });
   const ids = Array.isArray(input.personIds)
     ? [...new Set(input.personIds.filter((v) => typeof v === "string" && v))]
     : [];

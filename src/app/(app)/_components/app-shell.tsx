@@ -6,6 +6,11 @@ import { usePathname } from "next/navigation";
 import { CRM_SECTIONS } from "@/lib/crm/types";
 import type { AppRole, ModuleKey } from "@/lib/auth/permissions";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
+import {
+  ViewAsBanner,
+  ViewAsSwitcher,
+  type ViewAsState,
+} from "./view-as-switcher";
 
 type NavItem = { key: ModuleKey; href: string; label: string; icon: string };
 
@@ -294,13 +299,24 @@ function UserFooter({
   email,
   role,
   collapsed,
+  canViewAs,
+  viewAs,
 }: {
   email: string | null;
   role: AppRole;
   collapsed?: boolean;
+  canViewAs?: boolean;
+  viewAs?: ViewAsState | null;
 }) {
   return (
     <div className="border-t border-slate-200/80 p-3">
+      {canViewAs || viewAs ? (
+        <ViewAsSwitcher
+          viewAs={viewAs ?? null}
+          collapsed={collapsed}
+          onExpand={() => setSidebarCollapsed(false)}
+        />
+      ) : null}
       <div
         className={`mb-2 flex items-center gap-2.5 rounded-lg px-2 py-1.5 ${
           collapsed ? "lg:justify-center lg:px-0" : ""
@@ -349,11 +365,17 @@ export function AppShell({
   email,
   role,
   modules,
+  canViewAs = false,
+  viewAs = null,
   children,
 }: {
   email: string | null;
   role: AppRole;
   modules: ModuleKey[];
+  /** The real signed-in user may preview other users' access. */
+  canViewAs?: boolean;
+  /** Set while previewing; `email`/`role` above stay the real viewer's. */
+  viewAs?: ViewAsState | null;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -479,11 +501,18 @@ export function AppShell({
           />
         </nav>
 
-        <UserFooter email={email} role={role} collapsed={collapsed} />
+        <UserFooter
+          email={email}
+          role={role}
+          collapsed={collapsed}
+          canViewAs={canViewAs}
+          viewAs={viewAs}
+        />
       </aside>
 
       {/* Main content */}
       <main className="flex-1 overflow-x-hidden px-4 pb-10 pt-[4.5rem] sm:px-6 lg:px-10 lg:pb-10 lg:pt-8">
+        {viewAs ? <ViewAsBanner viewAs={viewAs} /> : null}
         {children}
       </main>
     </div>

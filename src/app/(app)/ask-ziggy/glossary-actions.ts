@@ -31,7 +31,7 @@ async function requireGlossaryEditor() {
 }
 
 export async function getGlossaryEntries(): Promise<GlossaryEntry[]> {
-  const current = await requireUser();
+  const current = await requireUser({ allowPreview: true });
   if (!canAccessModule(current.appUser, "ask_ziggy")) return [];
   // The glossary's SQL hints name revenue tables and columns; the General
   // tier cannot query those, so it does not get the reference either.

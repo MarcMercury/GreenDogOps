@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser, requireAdmin, recordAudit } from "@/lib/auth/session";
+import { requireUser, requireAdmin, recordAudit, type SessionOptions } from "@/lib/auth/session";
 import { canEditModule, canAccessModule } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
@@ -42,8 +42,8 @@ async function requireReportingEditor() {
   return current;
 }
 
-async function requireReportingAccess() {
-  const current = await requireUser();
+async function requireReportingAccess(options?: SessionOptions) {
+  const current = await requireUser(options);
   if (!canAccessModule(current.appUser, "reporting")) {
     throw new Error("You do not have access to reporting data.");
   }
@@ -113,7 +113,7 @@ export async function getStaffBreakdown(
   year?: number,
   byCaseOwner = false,
 ): Promise<StaffBreakdown> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   if (!staffMember || typeof staffMember !== "string") {
     return { topGroups: [], topProducts: [] };
   }
@@ -157,7 +157,7 @@ export async function getAppointmentReview(
   startDate: string,
   endDate: string,
 ): Promise<{ ok: true; rows: AppointmentReviewRow[] } | { ok: false; error: string }> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
     return { ok: false, error: "Invalid date range." };
@@ -191,7 +191,7 @@ export async function getAppointmentReviewDetail(
   startDate: string,
   endDate: string,
 ): Promise<{ ok: true; rows: AppointmentReviewDetailRow[] } | { ok: false; error: string }> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRe.test(locationId) || !uuidRe.test(departmentId)) {
@@ -223,7 +223,7 @@ export async function getAppointmentReviewByType(
   startDate: string,
   endDate: string,
 ): Promise<{ ok: true; rows: AppointmentReviewTypeRow[] } | { ok: false; error: string }> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
     return { ok: false, error: "Invalid date range." };
@@ -257,7 +257,7 @@ export async function getAppointmentReviewTypeDetail(
   endDate: string,
   apptType: string,
 ): Promise<{ ok: true; rows: AppointmentReviewTypeDetailRow[] } | { ok: false; error: string }> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRe.test(locationId)) {
@@ -292,7 +292,7 @@ export async function getCancelledAppointmentsByType(
   startDate: string,
   endDate: string,
 ): Promise<{ ok: true; rows: CancelledApptTypeRow[] } | { ok: false; error: string }> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   if (!isoRe.test(startDate) || !isoRe.test(endDate)) {
     return { ok: false, error: "Invalid date range." };
@@ -325,7 +325,7 @@ export async function getCancelledAppointmentDetail(
   endDate: string,
   apptType: string,
 ): Promise<{ ok: true; rows: CancelledApptDetailRow[] } | { ok: false; error: string }> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   const isoRe = /^\d{4}-\d{2}-\d{2}$/;
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRe.test(locationId)) {
@@ -378,7 +378,7 @@ export async function deleteInvoiceImport(importId: string): Promise<ActionResul
  * stale numbers until a manual reload. Returns null if no refresh has run yet.
  */
 export async function getReportingRefreshedAt(): Promise<string | null> {
-  await requireReportingAccess();
+  await requireReportingAccess({ allowPreview: true });
   const admin = createAdminClient();
   const { data, error } = await admin
     .from("reporting_refresh_state")
