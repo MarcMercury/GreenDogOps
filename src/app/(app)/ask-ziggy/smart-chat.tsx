@@ -10,15 +10,6 @@ import {
 } from "./actions";
 import type { SmartResult, SmartRow, SmartTurn } from "@/lib/reporting/smart";
 
-const SUGGESTIONS = [
-  "What is the average age of a patient in our system?",
-  "How many clients have the last name Smith?",
-  "How much revenue did we generate in July?",
-  "Top 10 revenue-producing doctors this year",
-  "How many active patients do we have by species?",
-  "Which location had the most appointments last month?",
-];
-
 type Message =
   | { id: string; role: "user"; content: string }
   | {
@@ -124,7 +115,7 @@ function ResultTable({ result }: { result: SmartResult }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "smart-report.csv";
+    a.download = "ask-ziggy.csv";
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -309,7 +300,7 @@ function HistoryPanel({
   );
 }
 
-export function SmartChat() {
+export function SmartChat({ suggestions }: { suggestions: readonly string[] }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState(false);
@@ -396,15 +387,16 @@ export function SmartChat() {
           {!messages.length ? (
             <div className="space-y-4">
               <div className="rounded-xl bg-emerald-50/70 p-4 text-sm text-emerald-900">
-                Ask a question about anything in Green Dog Ops — patients, clients, invoices,
-                appointments, staff or the schedule. I&apos;ll query the live database and answer.
+                Hi, I&apos;m Ziggy. Ask me about patients, clients, appointments, the schedule,
+                your own shifts and time off, or company policies — I answer from live Green Dog Ops
+                data and the policy library, and I&apos;ll tell you when something isn&apos;t on record.
               </div>
               <div>
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
                   Try one of these
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {SUGGESTIONS.map((s) => (
+                  {suggestions.map((s) => (
                     <button
                       key={s}
                       type="button"
@@ -445,7 +437,7 @@ export function SmartChat() {
           {pending ? (
             <div className="flex justify-start">
               <p className="rounded-2xl rounded-bl-sm border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm text-slate-400">
-                Working on it — reading the data…
+                Ziggy is sniffing through the data…
               </p>
             </div>
           ) : null}
@@ -469,7 +461,7 @@ export function SmartChat() {
               }
             }}
             rows={1}
-            placeholder="Ask a question — e.g. how much revenue did we generate in July?"
+            placeholder="Ask Ziggy — e.g. when is Bella's next vaccine due?"
             className="max-h-40 min-h-[2.75rem] flex-1 resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100"
           />
           <button

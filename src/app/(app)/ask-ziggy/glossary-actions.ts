@@ -1,7 +1,8 @@
 "use server";
 
 import { requireUser } from "@/lib/auth/session";
-import { canUseSmartReport, canEditModule, isAdminRole } from "@/lib/auth/permissions";
+import { canAccessModule, canEditModule, isAdminRole } from "@/lib/auth/permissions";
+import { scopeForUser } from "@/lib/reporting/smart-scope";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { callTextLLM, hasLlmProvider, unwrapJson } from "@/lib/ai/llm";
 
@@ -20,8 +21,8 @@ export interface GlossaryEntry {
 /** Editing the shared glossary follows the Reporting module's edit right. */
 async function requireGlossaryEditor() {
   const current = await requireUser();
-  if (!canUseSmartReport(current.appUser)) {
-    throw new Error("You do not have access to Smart Report.");
+  if (!canAccessModule(current.appUser, "ask_ziggy")) {
+    throw new Error("You do not have access to Ask Ziggy.");
   }
   if (!canEditModule(current.appUser, "reporting") && !isAdminRole(current.appUser.role)) {
     throw new Error("You do not have permission to edit the glossary.");
@@ -31,7 +32,10 @@ async function requireGlossaryEditor() {
 
 export async function getGlossaryEntries(): Promise<GlossaryEntry[]> {
   const current = await requireUser();
-  if (!canUseSmartReport(current.appUser)) return [];
+  if (!canAccessModule(current.appUser, "ask_ziggy")) return [];
+  // The glossary's SQL hints name revenue tables and columns; the General
+  // tier cannot query those, so it does not get the reference either.
+  if (!scopeForUser(current.appUser).canViewFinancials) return [];
   const admin = createAdminClient();
   const { data } = await admin
     .from("smart_glossary")

@@ -23,6 +23,7 @@ export const MODULE_ICONS: Record<ModuleKey, string> = {
   calendar: "📅",
   med_boards: "🩺",
   resources: "📚",
+  ask_ziggy: "🐶",
   admin: "⚙️",
 };
 

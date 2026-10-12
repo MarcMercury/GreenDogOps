@@ -20,6 +20,18 @@ Work discovered but deliberately not done. Highest value first. Each entry:
   - Consider whether `person.date_of_birth` is needed at all (data minimisation).
 - **Risk:** low each.
 
+### Ask Ziggy — next phases
+- **Why:** the first increment (rename, nav, Staff `general` tier, own shifts/PTO) shipped without a migration. The rest of the owner's "unified AI" spec needs data or decisions.
+- **Scope:**
+  - **General-tier views (migration, needs production authorization):** `staff_directory` (person names, title, home location, status — no DOB/phones/notes), `client_directory` (ezyvet_contact without `revenue_spend_ytd`/`account_code`), `clinical_history` (ezyvet_invoice_line product/date/patient/case owner without `total_*`), `schedule_roster` (work date, location, person name, shift — no attendance notes). Add each to `GENERAL_ALLOWED_TABLES`. Until then Staff cannot ask "who is working tomorrow", look up clients without a pet, or see dispensed medications/dental history.
+  - **LLM vendor policy for clinical/client data:** `callTextLLM` falls through Gemini → Groq → OpenRouter → OpenAI → Anthropic. Decide which providers (paid, zero-retention tiers) may receive client PII and patient data; add a sensitivity option that restricts the chain. Owner decision; CA B&P §4857 / CCPA questions are for counsel.
+  - **Whole-row leak for the `hr` tier:** managers can read `person_employment` with compensation columns blocked, but `to_jsonb(pe)` / `pe::text` returns them anyway. Managers can see all compensation in the HR app, so impact is limited; fix by removing person_employment from the hr tier in favour of a no-pay view, or deep-scrub nested keys.
+  - **Harden `smart_query()` in the database:** mirror the TS unsafe-function guard (xml/ts_stat/regclass/pg_*) in the keyword check, alongside the `search_path` item above.
+  - **Clinical notes:** probe the ezyVet Records dashboard for a clinical-record export (note text, prescriptions, allergies). Export cap is 10,000 records.
+  - **Reach:** only ~22 of ~94 employees have logins. Either provision Staff logins or add a Slack slash command (no `*:history` scopes needed).
+  - **Links in answers:** link patients to `/ezyvet/patients` and employees to `/hr/[id]` from result rows.
+- **Risk:** medium — every item widens what the model can see; keep each behind the allow-list tests.
+
 ## P2 — Reliability
 
 ### Slack notifications — remaining work (Phase 1 linking: 0229; notification + DM pipeline: 0230)

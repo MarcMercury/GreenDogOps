@@ -7,11 +7,7 @@ import { CRM_SECTIONS } from "@/lib/crm/types";
 import type { AppRole, ModuleKey } from "@/lib/auth/permissions";
 import { ROLE_LABELS } from "@/lib/auth/permissions";
 
-// Smart Report is the one Biz Dev entry that is not gated on its module: it is
-// open to everyone above Staff (canUseSmartReport), so it gets its own nav key.
-type NavKey = ModuleKey | "smart_report";
-
-type NavItem = { key: NavKey; href: string; label: string; icon: string };
+type NavItem = { key: ModuleKey; href: string; label: string; icon: string };
 
 // Desktop sidebar collapsed preference, persisted in localStorage and read via
 // useSyncExternalStore so it stays in sync without a setState-in-effect.
@@ -52,6 +48,7 @@ const crmSection = (slug: string, key?: ModuleKey): NavItem => {
 const MODULES_TOP: NavItem[] = [
   { key: "dashboard", href: "/", label: "Dashboard", icon: "▣" },
   { key: "resources", href: "/resources", label: "Resources", icon: "📚" },
+  { key: "ask_ziggy", href: "/ask-ziggy", label: "Ask Ziggy", icon: "🐶" },
 ];
 
 /** HR, recruiting & Green Dog University. */
@@ -93,7 +90,6 @@ const MED_OPS: NavItem[] = [
 /** Business development modules, after Operations. */
 const BIZ_DEV: NavItem[] = [
   { key: "reporting", href: "/reporting", label: "Reporting", icon: "📈" },
-  { key: "smart_report", href: "/reporting/smart", label: "Smart Report", icon: "🤖" },
   { key: "emp_reporting", href: "/emp-reporting", label: "Emp Reporting", icon: "💰" },
   { key: "reporting", href: "/biz-dev", label: "Biz Dev", icon: "🧮" },
   { key: "admin", href: "/admin", label: "Admin", icon: "⚙️" },
@@ -227,7 +223,7 @@ function NavLinks({
   onNavigate,
   collapsed,
 }: {
-  allowed: Set<NavKey>;
+  allowed: Set<ModuleKey>;
   onNavigate?: () => void;
   collapsed?: boolean;
 }) {
@@ -353,13 +349,11 @@ export function AppShell({
   email,
   role,
   modules,
-  canSmartReport,
   children,
 }: {
   email: string | null;
   role: AppRole;
   modules: ModuleKey[];
-  canSmartReport: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -369,8 +363,7 @@ export function AppShell({
     getSidebarCollapsed,
     () => false,
   );
-  const allowed = new Set<NavKey>(modules);
-  if (canSmartReport) allowed.add("smart_report");
+  const allowed = new Set<ModuleKey>(modules);
 
   // Lock body scroll while the mobile drawer is open.
   useEffect(() => {

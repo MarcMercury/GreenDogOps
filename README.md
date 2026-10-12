@@ -4,7 +4,7 @@ Internal operations platform for a multi-site veterinary practice (Sherman Oaks,
 Van Nuys, Venice). One Next.js app that replaces a pile of spreadsheets and point
 solutions with a single permissioned workspace covering **HR, Recruiting (ATS),
 seven CRMs, Marketing & Events, Scheduling & Capacity, Medical Ops boards, ezyVet
-analytics, AI reporting, and an AI-searchable Resources hub**.
+analytics, an AI assistant (Ask Ziggy), and an AI-searchable Resources hub**.
 
 This README is written for engineers joining the project — it covers the stack,
 the non-obvious architectural constraints, and where things live.
@@ -156,6 +156,11 @@ from users who cannot access it.
 - **Resources** (`/resources`) — AI search across all program data *and* the
   web, a Green Dog policies wiki (`/resources/policies`, `/policies`), and a
   shared document library with PDF text extraction so uploads are searchable.
+- **Ask Ziggy** (`/ask-ziggy`) — the company AI assistant, open to every
+  employee: plain-English questions about patients, clients, appointments, the
+  schedule, company policy, and the asker's own shifts and PTO. What each user
+  can reach depends on their role (see [Ask Ziggy](#ask-ziggy-natural-language-assistant)).
+  Formerly "Smart Report" at `/reporting/smart`, which now redirects.
 
 **HR / Recruit / GDU**
 - **HR / Roster** (`/hr`) — master employee records: employment, payroll,
@@ -211,7 +216,6 @@ from users who cannot access it.
 **Biz Dev**
 - **Reporting** (`/reporting`) — appointment, revenue, doctor-production, and
   client-trend dashboards built on ezyVet invoice/contact data.
-- **Smart Report** (`/reporting/smart`) — natural-language reporting (below).
 - **Emp Reporting** (`/emp-reporting`) — payroll and compensation analytics.
 - **Biz Dev** (`/biz-dev`) — business-development planner and partner targeting.
 - **Admin** (`/admin`) — users, roles, per-user module overrides, locations,
@@ -237,9 +241,9 @@ defaults, in both directions.
 | **Staff** | Read-only everywhere except Admin and Email Templates; sees only their own compensation. On other people's HR profiles sees only General + Shift Eligibility, without personal fields (DOB, home ZIP/phones, notes, PTO, separation). |
 
 `admin`, `reporting`, and `emp_reporting` are admin-only by default and can be
-granted per user. `/reporting/smart` is an explicit exception
-(`ROUTE_MODULE_EXCEPTIONS`): it is open to everyone above Staff via
-`canUseSmartReport`, and *what data they can see* is narrowed separately.
+granted per user. `ask_ziggy` is on for every role and can be switched off per
+user; *what data Ziggy can reach* is narrowed separately by `scopeForUser`
+(below).
 
 Key helpers:
 
@@ -279,10 +283,11 @@ surfaced on both the ATS and HR History tabs.
 
 ---
 
-## Smart Report (natural-language analytics)
+## Ask Ziggy (natural-language assistant)
 
-`/reporting/smart` lets a user ask a business question in English and get an
-answer, a table, and the SQL behind it. Pipeline
+`/ask-ziggy` lets any employee ask a question in English and get an answer, a
+table, and the SQL behind it. The engine is still called "Smart Report" in code
+(`smart.ts`, `smart_query`, `smart_question_log`). Pipeline
 ([src/lib/reporting/smart.ts](src/lib/reporting/smart.ts)):
 
 1. `smart_schema()` + `smart_value_hints()` + `smart_functions()` build a catalog
@@ -301,9 +306,33 @@ answer, a table, and the SQL behind it. Pipeline
 **Per-user data scope** ([src/lib/reporting/smart-scope.ts](src/lib/reporting/smart-scope.ts))
 is enforced in three layers — the catalog is filtered before the model sees it,
 identifiers are blocked before execution, and rows are scrubbed after — because
-the RPC runs as `service_role`. Tiers: `full` (owner/admin/executive), `hr`
-(manager, no compensation columns), `basic` (everyone else; the confidential
-employee file is blocked outright).
+the RPC runs as `service_role`. Tiers (`scopeForUser`):
+
+| Tier | Who | Can reach |
+| --- | --- | --- |
+| `full` | Owner, Admin, Executive | everything except the always-blocked private/security tables |
+| `hr` | Manager / HR | as `full`, minus compensation columns |
+| `basic` | Schedule/Marketing Admin, Staff granted Reporting | as `hr`, minus the confidential employee file |
+| `general` | Staff | **allow-list only** (`GENERAL_ALLOWED_TABLES`): patients, vaccinations, appointments, schedule grid, boards, calendar, planning — no revenue, prices, client spending, employee records |
+
+The `general` allow-list is resolved against the live catalog (`withCatalog`),
+so a new table is invisible to Staff until added. Every allowed object must be
+safe to read **in full**: `to_jsonb(t)` / `t::text` return a whole row without
+naming a column, so column blocking cannot protect a table on that list.
+Functions that run SQL from a string (`query_to_xml`, `table_to_xml`,
+`ts_stat`, `ts_rewrite`), `::regclass`, and the `pg_*` catalog are rejected for
+every tier.
+
+**About the person asking:** questions about "my shifts / my PTO" are answered
+from the asker's own records, fetched by `person_id` on the server
+([src/lib/reporting/ziggy-context.ts](src/lib/reporting/ziggy-context.ts)) —
+published shifts for the next three weeks, recent time-off requests, the PTO
+balance on the roster. Pay and benefits are never included.
+
+**Clinical data:** Ziggy reports what is on record — the patient profile and
+problem list, vaccinations, appointments, standard-of-care reminders. SOAP note
+text, labs, imaging and prescriptions are not imported from ezyVet, and the
+prompt tells the model to say so rather than infer them.
 
 There is a **learning loop**: every question is logged to `smart_question_log`
 (result rows are deliberately *not* stored — history re-runs the query), an admin
@@ -401,7 +430,7 @@ All cron routes authenticate with `CRON_SECRET`; long-running ones set
 - **LLM fallback chain** ([src/lib/ai/llm.ts](src/lib/ai/llm.ts)) —
   `callTextLLM()` walks providers in order (`LLM_PROVIDER_ORDER`, default
   Gemini → Groq → OpenRouter → OpenAI → Anthropic) so one provider outage does
-  not take down parsing, search, or Smart Report. Temperature is 0 throughout.
+  not take down parsing, search, or Ask Ziggy. Temperature is 0 throughout.
 
 ---
 
@@ -487,8 +516,8 @@ Encryption is `age`, asymmetric: CI holds only the public key. **If
 shell) used to seed and maintain the database from CSV/XLSX exports — e.g.
 `import_ezyvet_invoices.py`, `import_roster.py`, `import_ats.py`,
 `import_schedule_weeks.py`, `ingest_resource_pdfs.mjs`, `enrich_vendors.py`,
-`derive_role_members.py`, and `ask_smart.mts` (run a Smart Report question
-locally with no dev server and no auth). Sample source exports live in
+`derive_role_members.py`, and `ask_smart.mts` (run an Ask Ziggy question
+locally with no dev server and no auth; `GDO_SMART_ROLE` / `GDO_ASKER_EMAIL`). Sample source exports live in
 [public](public).
 
 ---

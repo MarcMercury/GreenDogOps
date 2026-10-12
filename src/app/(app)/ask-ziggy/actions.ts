@@ -1,10 +1,11 @@
 "use server";
 
 import { requireUser } from "@/lib/auth/session";
-import { canUseSmartReport, isAdminRole } from "@/lib/auth/permissions";
+import { canAccessModule, isAdminRole, type AppUser } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { smartScopeFor } from "@/lib/reporting/smart-scope";
+import { scopeForUser } from "@/lib/reporting/smart-scope";
 import { askSmartReport, type SmartResult, type SmartTurn } from "@/lib/reporting/smart";
+import { formatAskerContext, getAskerFacts } from "@/lib/reporting/ziggy-context";
 
 const MAX_QUESTION_CHARS = 800;
 const HISTORY_LIMIT = 40;
@@ -24,11 +25,13 @@ export interface SmartAnswer extends SmartResult {
   logId: string | null;
 }
 
+const canUseAskZiggy = (user: AppUser) => canAccessModule(user, "ask_ziggy");
+
 /**
- * Answer one Smart Report question. Runs with the service-role client (the
+ * Answer one Ask Ziggy question. Runs with the service-role client (the
  * smart_query RPC is service_role-only), so the checks here are the only access
- * gate: canUseSmartReport decides who may ask at all, and smartScopeFor decides
- * which tables and columns their question is allowed to reach.
+ * gate: the ask_ziggy module decides who may ask at all, and scopeForUser
+ * decides which tables and columns their question is allowed to reach.
  *
  * Every question is logged: it is the user's private history, and an answer an
  * admin confirms becomes a worked example for future questions.
@@ -38,10 +41,10 @@ export async function askSmartQuestion(
   history: SmartTurn[] = [],
 ): Promise<SmartAnswer> {
   const current = await requireUser();
-  if (!canUseSmartReport(current.appUser)) {
-    throw new Error("You do not have access to Smart Report.");
+  if (!canUseAskZiggy(current.appUser)) {
+    throw new Error("You do not have access to Ask Ziggy.");
   }
-  const scope = smartScopeFor(current.appUser.role);
+  const scope = scopeForUser(current.appUser);
 
   const q = typeof question === "string" ? question.trim().slice(0, MAX_QUESTION_CHARS) : "";
   const turns: SmartTurn[] = (Array.isArray(history) ? history : [])
@@ -53,7 +56,12 @@ export async function askSmartQuestion(
   const startedAt = Date.now();
   let result: SmartResult;
   try {
-    result = await askSmartReport(admin, q, scope, turns);
+    // The asker's own shifts/PTO are fetched by their person_id here, never
+    // through the model's SQL. A failure only costs the personal answers.
+    const asker = await getAskerFacts(admin, current.appUser, current.email)
+      .then(formatAskerContext)
+      .catch(() => null);
+    result = await askSmartReport(admin, q, scope, turns, asker);
   } catch (e) {
     result = {
       ok: false,
@@ -99,7 +107,7 @@ export async function askSmartQuestion(
 /** The signed-in user's own recent questions, newest first. History is private. */
 export async function getSmartHistory(): Promise<SmartHistoryEntry[]> {
   const current = await requireUser();
-  if (!canUseSmartReport(current.appUser)) return [];
+  if (!canUseAskZiggy(current.appUser)) return [];
   const admin = createAdminClient();
   const { data } = await admin
     .from("smart_question_log")
@@ -121,7 +129,7 @@ export async function rateSmartAnswer(
   note?: string,
 ): Promise<{ ok: boolean; verified: boolean }> {
   const current = await requireUser();
-  if (!canUseSmartReport(current.appUser)) return { ok: false, verified: false };
+  if (!canUseAskZiggy(current.appUser)) return { ok: false, verified: false };
   if (rating !== 1 && rating !== -1) return { ok: false, verified: false };
 
   const admin = createAdminClient();

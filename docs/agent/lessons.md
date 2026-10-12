@@ -169,3 +169,9 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Root cause:** `src/app/texts/actions.ts` (`"use server"`) also had `export const OPT_IN_SOURCE`. Next allows only async function exports there; with any other export Turbopack drops the module's exports entirely. Editor diagnostics and vitest don't catch it — only `next build` does.
 - **Fix:** keep constants non-exported or in a separate module. `src/lib/shared/use-server-exports.test.ts` now fails on `export const/let/var/class/enum/function` (non-async) in any `"use server"` file.
 - **Evidence:** 2026-10-12, `8e7b35a` failed `BUILD_UTILS_SPAWN_1`; production stayed on the previous READY deployment.
+
+### Smart Report / Ask Ziggy: SQL can hide inside string literals
+- **Problem:** both guards (`blockedIdentifier` in `smart-scope.ts` and `smart_query()`'s keyword check) strip string literals before matching, so `query_to_xml('select * from person_employment', true, false, '')`, `table_to_xml('person_employment'::regclass, ...)` and `ts_stat('select ...')` named a blocked table only inside a literal and passed both checks — for every tier.
+- **Fix:** `unsafeFunction()` in `smart-scope.ts` rejects `*_to_xml*`, `ts_stat`, `ts_rewrite`, `reg*` casts / `to_reg*`, `pg_*` and `lo_*` identifiers for every tier (still to mirror in the database — see improvements.md). Separately: column blocking never protects a table, because `to_jsonb(t)` and `t::text` return whole rows — anything on the General allow-list must be safe in full.
+- **Evidence:** 2026-10-12 — unit tests in `smart-scope.test.ts`; live run as the `general` tier refused the injection prompt and revenue questions while the owner tier still answered revenue.
+

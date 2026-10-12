@@ -1,19 +1,18 @@
-import { isAdminRole, type AppRole } from "../auth/permissions";
+import { canAccessModule, isAdminRole, type AppRole, type AppUser } from "../auth/permissions";
 
 // ---------------------------------------------------------------------------
-// Smart Report data scope.
+// Ask Ziggy data scope (the engine is still called "Smart Report" in code).
 //
-// The Smart Report runs the model's SQL through greendogops.smart_query(),
-// which is a SERVICE-ROLE function: it bypasses RLS and can read every table in
-// the schema. Now that the feature is open to everyone above Staff, the caller's
-// role has to be turned into an explicit deny-list, applied in three places
-// (see smart.ts):
+// Ask Ziggy runs the model's SQL through greendogops.smart_query(), which is a
+// SERVICE-ROLE function: it bypasses RLS and can read every table in the
+// schema. It is open to every employee, so the caller's role has to be turned
+// into an explicit deny-list, applied in three places (see smart.ts):
 //   1. the schema catalog handed to the model omits what it may not read,
 //   2. the generated SQL is rejected if it names a blocked table/column,
 //   3. blocked keys are stripped from the returned rows (catches `select *`).
 // ---------------------------------------------------------------------------
 
-export type SmartTier = "full" | "hr" | "basic";
+export type SmartTier = "full" | "hr" | "basic" | "general";
 
 export interface SmartScope {
   tier: SmartTier;
@@ -21,6 +20,14 @@ export interface SmartScope {
   canViewCompensation: boolean;
   /** Confidential employee files (documents, reviews, discipline, licences). */
   canViewHrRecords: boolean;
+  /** Revenue, prices, client spending and other financial figures. */
+  canViewFinancials: boolean;
+  /**
+   * Deny-by-default list for the general tier: the ONLY tables, views and
+   * functions the query may use. null means "everything not blocked". Turned
+   * into blockedTables against the live catalog by withCatalog().
+   */
+  allowedTables: readonly string[] | null;
   /** Table names the query may not touch, lower-case. */
   blockedTables: readonly string[];
   /** Column names the query may not return, lower-case. */
@@ -111,6 +118,97 @@ export const FOREIGN_SCHEMAS = [
 ] as const;
 
 /**
+ * Everything a general employee (Staff) may ask Ask Ziggy about: patients and
+ * their owners' contact details, vaccinations, appointments and the schedule
+ * grid, the medical boards, the calendar and planning guides — the operational
+ * and clinical data every employee needs, across every location.
+ *
+ * It is an ALLOW-list, and every entry must be safe to read IN FULL. Column
+ * blocking cannot protect a table here: `to_jsonb(t)`, `t::text` or
+ * `array_agg(t)` return a whole row without naming a single column. So
+ * ezyvet_contact (revenue_spend_ytd), ezyvet_invoice_line (prices) and person
+ * (private fields) stay out until purpose-built views without those columns
+ * exist. smart-scope.test.ts checks every entry exists and carries no money.
+ */
+export const GENERAL_ALLOWED_TABLES = [
+  // Patients and clinical activity (ezyVet)
+  "ezyvet_animal",
+  "ezyvet_vaccination",
+  "ezyvet_clinical_note",
+  "ezyvet_soc_overdue",
+  "ezyvet_tag",
+  "ezyvet_record_tag",
+  // Appointments
+  "ezyvet_appointment_record",
+  "ezyvet_appointment_status",
+  "ezyvet_agenda_appt_snapshot",
+  "ezyvet_agenda_snapshot",
+  "ezyvet_agenda_count",
+  "ezyvet_agenda_dept_map",
+  "ezyvet_appt_type_dept_map",
+  "ezyvet_cancelled_appointment",
+  "report_appointment_detail",
+  "report_appointment_type_volume",
+  "report_appointment_type_by_species",
+  "report_appointment_flow",
+  "report_animal_summary",
+  "report_animals_by_species",
+  "report_soc_overdue_current",
+  "report_clinical_note_backlog",
+  // Appointment functions (counts only, no money)
+  "appointment_review",
+  "appointment_review_by_type",
+  "appointment_review_detail",
+  "appointment_review_type_detail",
+  "appt_type_observed_counts",
+  "cancelled_appointments_by_type",
+  "cancelled_appointments_detail",
+  "upcoming_appointment_demand",
+  "medical_board_coverage",
+  // Locations, schedule grid, boards, calendar, planning
+  "location",
+  "sched_week",
+  "sched_week_line",
+  "sched_week_location",
+  "sched_shift_template",
+  "sched_role",
+  "sched_department",
+  "sched_closure",
+  "sched_event",
+  "medical_board_type",
+  "medical_board_day",
+  "medical_board_row",
+  "calendar_event",
+  "planning_guide",
+  "planning_guide_column",
+  "planning_guide_slot",
+  "planning_capacity_rule",
+] as const;
+
+/**
+ * Built-in functions that read data the identifier check cannot see, for EVERY
+ * tier. query_to_xml / ts_stat / ts_rewrite execute SQL passed as a string
+ * literal — and literals are stripped before identifiers are matched — so
+ * `query_to_xml('select * from person_employment', ...)` would walk straight
+ * past the table block. table_to_xml and ::regclass name a table as a string.
+ * The pg_ catalog (pg_stat_activity, pg_proc, ...) and large objects are never
+ * a reporting answer.
+ */
+function unsafeFunction(identifier: string): boolean {
+  return (
+    identifier.startsWith("pg_") ||
+    identifier.startsWith("lo_") ||
+    identifier.includes("_to_xml") ||
+    /^(to_)?reg(class|proc|procedure|oper|operator|type|namespace|role|collation|config|dictionary)$/.test(
+      identifier,
+    ) ||
+    identifier === "ts_stat" ||
+    identifier === "ts_rewrite" ||
+    identifier.startsWith("dblink")
+  );
+}
+
+/**
  * Compensation is deliberately gated on Owner/Admin/Executive rather than
  * `canViewAllCompensation` (which also covers Manager/HR): the Smart Report can
  * aggregate everyone's pay in one question, so it is held to a tighter bar than
@@ -122,21 +220,51 @@ export function smartScopeFor(role: AppRole): SmartScope {
       ? "full"
       : role === "manager"
         ? "hr"
-        : "basic";
+        : role === "staff"
+          ? "general"
+          : "basic";
 
   const canViewCompensation = tier === "full";
-  const canViewHrRecords = tier !== "basic";
+  const canViewHrRecords = tier === "full" || tier === "hr";
 
   return {
     tier,
     canViewCompensation,
     canViewHrRecords,
+    canViewFinancials: tier !== "general",
+    allowedTables: tier === "general" ? GENERAL_ALLOWED_TABLES : null,
     blockedTables: [
       ...ALWAYS_BLOCKED_TABLES,
       ...(canViewHrRecords ? [] : HR_RECORD_TABLES),
     ],
     blockedColumns: canViewCompensation ? [] : [...COMPENSATION_COLUMNS],
   };
+}
+
+/**
+ * The scope for a signed-in user. A Staff member who has been granted the
+ * Reporting module already sees revenue on the Reporting pages, so Ask Ziggy
+ * gives them the same "basic" scope as the other non-HR roles.
+ */
+export function scopeForUser(user: AppUser): SmartScope {
+  if (user.role === "staff" && canAccessModule(user, "reporting")) {
+    return smartScopeFor("schedule_admin");
+  }
+  return smartScopeFor(user.role);
+}
+
+/**
+ * Resolve an allow-list scope against the live catalog: every table, view and
+ * function the database exposes that is NOT allowed becomes blocked, so the
+ * three existing layers (catalog filter, identifier check, row scrub) enforce
+ * it without knowing about allow-lists. A new table is therefore invisible to
+ * the general tier until someone adds it to GENERAL_ALLOWED_TABLES.
+ */
+export function withCatalog(scope: SmartScope, catalogNames: readonly string[]): SmartScope {
+  if (!scope.allowedTables) return scope;
+  const allowed = new Set(scope.allowedTables.map((n) => n.toLowerCase()));
+  const extra = catalogNames.map((n) => n.toLowerCase()).filter((n) => !allowed.has(n));
+  return { ...scope, blockedTables: [...new Set([...scope.blockedTables, ...extra])] };
 }
 
 /** Sentence appended to the model's system prompt so it stops asking. */
@@ -154,6 +282,19 @@ export function scopeNotice(scope: SmartScope): string {
         "a document.",
     );
   }
+  if (!scope.canViewFinancials) {
+    lines.push(
+      "This user may NOT see financial information: revenue, invoice totals, prices, client " +
+        "spending, payments, receivables or any dollar figure. Only the tables and functions in the " +
+        "schema listing below are available — patients, vaccinations, appointments, the schedule " +
+        "grid, medical boards, the calendar and planning guides. Client (owner) names and contact " +
+        "details are on ezyvet_animal (owner_* columns) and ezyvet_appointment_record.",
+    );
+    lines.push(
+      "Employee names are not in the listing. Questions about the asker's OWN shifts, time off " +
+        "or PTO are answered from the \"About the person asking\" section instead of SQL.",
+    );
+  }
   if (!scope.canViewHrRecords) {
     lines.push(
       "This user may NOT see confidential employee records (employment terms, documents, " +
@@ -164,7 +305,7 @@ export function scopeNotice(scope: SmartScope): string {
   if (!lines.length) return "";
   return `\nAccess restrictions for the person asking (these tables/columns are NOT in the schema listing below — do not invent them):\n${lines
     .map((l) => `- ${l}`)
-    .join("\n")}\nIf the question needs data they cannot see, set "sql" to null and say so in "answer".\n`;
+    .join("\n")}\nIf the question needs data they cannot see, set "sql" to null, "source" to "restricted", and say in "answer", in plain words without mentioning SQL, queries or table names, that the information is not available at their access level.\n`;
 }
 
 /** Strip SQL comments and string literals so identifier matching can't be fooled. */
@@ -191,8 +332,9 @@ export function blockedIdentifier(sql: string, scope: SmartScope): string | null
   for (const schema of FOREIGN_SCHEMAS) {
     if (new RegExp(`(^|[^a-z0-9_$])${schema}\\s*\\.`).test(code)) return `${schema} schema`;
   }
-  if (!scope.blockedTables.length && !scope.blockedColumns.length) return null;
   const used = sqlIdentifiers(sql);
+  for (const name of used) if (unsafeFunction(name)) return name;
+  if (!scope.blockedTables.length && !scope.blockedColumns.length) return null;
   for (const name of scope.blockedTables) if (used.has(name)) return name;
   for (const name of scope.blockedColumns) if (used.has(name)) return name;
   return null;

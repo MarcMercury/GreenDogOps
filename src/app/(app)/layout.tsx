@@ -4,7 +4,6 @@ import { getAuthState, touchLastSeen } from "@/lib/auth/session";
 import {
   accessibleModules,
   canAccessModule,
-  canUseSmartReport,
   moduleForPathname,
   PATHNAME_HEADER,
 } from "@/lib/auth/permissions";
@@ -44,7 +43,6 @@ export default async function AppLayout({
       email={current.email}
       role={current.appUser.role}
       modules={accessibleModules(current.appUser)}
-      canSmartReport={canUseSmartReport(current.appUser)}
     >
       {denied && moduleKey ? (
         <ModuleDenied moduleKey={moduleKey} role={current.appUser.role} />

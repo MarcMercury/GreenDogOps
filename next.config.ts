@@ -32,6 +32,10 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "25mb",
     },
   },
+  async redirects() {
+    // Smart Report was renamed Ask Ziggy and moved out of Reporting.
+    return [{ source: "/reporting/smart", destination: "/ask-ziggy", permanent: true }];
+  },
   async headers() {
     return [
       { source: "/:path*", headers: SECURITY_HEADERS },

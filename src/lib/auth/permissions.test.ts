@@ -7,6 +7,7 @@ import {
   canViewSensitiveHr,
   hasRestrictedHrView,
   isCandidateStatus,
+  moduleForPathname,
   personDocumentAccess,
   seesPrivateHrFields,
   type AppRole,
@@ -93,6 +94,24 @@ describe("module defaults mirrored in SQL", () => {
     expect(canEditModule(user("marketing_admin"), "schedule")).toBe(false);
     expect(canEditModule(user("marketing_admin"), "ats")).toBe(true);
     expect(canEditModule(user("schedule_admin"), "hr")).toBe(true);
+  });
+});
+
+describe("Ask Ziggy", () => {
+  it("is open to every active role by default, Staff included", () => {
+    for (const role of APP_ROLES) {
+      expect(canAccessModule(user(role), "ask_ziggy"), role).toBe(true);
+    }
+  });
+  it("can be switched off per user and is closed to inactive users", () => {
+    expect(canAccessModule(user("manager", "me", { ask_ziggy: false }), "ask_ziggy")).toBe(false);
+    expect(canAccessModule({ ...user("owner"), is_active: false }, "ask_ziggy")).toBe(false);
+  });
+  it("gates /ask-ziggy on its own module, not on Reporting", () => {
+    expect(moduleForPathname("/ask-ziggy")).toBe("ask_ziggy");
+    expect(moduleForPathname("/ask-ziggy/anything")).toBe("ask_ziggy");
+    // The old URL now belongs to Reporting (next.config redirects it first).
+    expect(moduleForPathname("/reporting/smart")).toBe("reporting");
   });
 });
 

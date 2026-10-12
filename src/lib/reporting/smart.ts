@@ -8,13 +8,15 @@ import {
   blockedIdentifier,
   scopeNotice,
   scrubRows,
+  withCatalog,
   type SmartScope,
 } from "./smart-scope";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
 // ---------------------------------------------------------------------------
-// Smart Report — ask a plain-English question, get an answer from live data.
+// Ask Ziggy (formerly "Smart Report") — ask a plain-English question, get an
+// answer from live data, the policy library, or the asker's own records.
 //
 // Pipeline: schema catalog -> LLM writes ONE read-only SELECT -> the
 // greendogops.smart_query() RPC runs it (service_role only, STABLE, keyword
@@ -117,26 +119,17 @@ assumption you would make from the column names alone:\n${entries
 /**
  * The closest questions an admin has confirmed were answered correctly, with
  * the SQL that answered them. This is how the report improves with use: a
- * verified answer becomes guidance for the next similar question.
- *
- * Examples are filtered through the caller's scope — a verified query that
- * touches a column this user may not read would otherwise leak the column name
- * and tempt a query the guard then rejects.
+ * verified answer becomes guidance for the next similar question. The caller
+ * filters them through the user's resolved scope (askSmartReport).
  */
-async function getExamples(
-  admin: AdminClient,
-  question: string,
-  scope: SmartScope,
-): Promise<SmartExample[]> {
+async function getExamples(admin: AdminClient, question: string): Promise<SmartExample[]> {
   const { data, error } = await admin.rpc("smart_examples", {
     p_question: question,
     p_limit: EXAMPLE_LIMIT,
   });
   // Examples are a bonus — never fail the report over them.
   if (error) return [];
-  return ((data ?? []) as SmartExample[]).filter(
-    (e) => e.sql && !blockedIdentifier(e.sql, scope),
-  );
+  return (data ?? []) as SmartExample[];
 }
 
 function exampleBlock(examples: SmartExample[]): string {
@@ -219,8 +212,8 @@ function rowLabel(rows: number | null): string {
  */
 async function getSchemaCatalog(
   admin: AdminClient,
-  scope: SmartScope,
-): Promise<{ schema: string; values: string; functions: string }> {
+  requested: SmartScope,
+): Promise<{ schema: string; values: string; functions: string; scope: SmartScope }> {
   if (!catalogCache || Date.now() - catalogCache.at >= SCHEMA_TTL_MS) {
     const [{ data, error }, hints, fns] = await Promise.all([
       admin.rpc("smart_schema"),
@@ -237,6 +230,13 @@ async function getSchemaCatalog(
     };
   }
 
+  // An allow-list scope (general tier) is resolved against the live catalog,
+  // so anything not explicitly allowed — including a table added next week —
+  // is blocked by name in every later check.
+  const scope = withCatalog(requested, [
+    ...catalogCache.tables.map((t) => t.name),
+    ...catalogCache.functions.map((f) => f.name),
+  ]);
   const blockedTables = new Set(scope.blockedTables);
   const blockedColumns = new Set(scope.blockedColumns);
 
@@ -261,6 +261,7 @@ async function getSchemaCatalog(
     .join("\n");
 
   const functions = catalogCache.functions
+    .filter((f) => !blockedTables.has(f.name.toLowerCase()))
     .map(
       (f) =>
         `${f.name}(${f.args}) -> ${f.returns.replace(/^TABLE/, "")}${
@@ -269,7 +270,7 @@ async function getSchemaCatalog(
     )
     .join("\n");
 
-  return { schema, values, functions };
+  return { schema, values, functions, scope };
 }
 
 const DOMAIN_NOTES = `Domain notes (Green Dog Veterinary — three Los Angeles hospitals):
@@ -707,6 +708,19 @@ const SQL_RULES = `Rules for the SQL:
   before answering.
 - Only use tables and columns that appear in the schema listing below.`;
 
+const CLINICAL_NOTES = `Patient and clinical questions:
+- Patients are matched by name, so several can share one ("Bella"). When a name matches more than
+  one patient, return them all with animal_code, species, breed and owner name so the user can say
+  which one they mean — never silently pick one. Prefer animal_code when the user gives it.
+- What IS on record: the patient profile (ezyvet_animal: species, breed, sex, date_of_birth,
+  weight, master_problems = the problem list, animal_notes, caution_status, microchip, last_visit,
+  next_appointment, vaccination dates), vaccinations (ezyvet_vaccination), appointments
+  (ezyvet_appointment_record, agenda snapshots), standard-of-care reminders (ezyvet_soc_overdue)
+  and which consults have an approved clinical record (ezyvet_clinical_note — metadata only).
+- What is NOT in Green Dog Ops: SOAP note text, exam findings, lab results, imaging reports,
+  prescriptions and allergy records. If the question needs them, say they are not imported yet and
+  that the full record is in ezyVet. Never infer a diagnosis, medication, allergy or result.`;
+
 function planSystemPrompt(
   schema: string,
   values: string,
@@ -716,15 +730,18 @@ function planSystemPrompt(
   examples: string,
   glossary: string,
   restrictions: string,
+  asker: string,
 ): string {
-  return `You are the Smart Report analyst for Green Dog Ops, a veterinary practice management app.
+  return `You are Ziggy, the assistant inside Green Dog Ops, a veterinary practice management app.
 You answer questions by writing ONE read-only PostgreSQL query against the app's database.
-You can see the ENTIRE database below — every table, view and materialised view the app has,
-with its row count. Use whichever one answers the question, not just the obvious tables.
+The schema below lists every table, view and materialised view this user may query, with its
+row count. Use whichever one answers the question, not just the obvious tables.
 
 Today is ${today}.
-
+${asker}
 ${DOMAIN_NOTES}
+
+${CLINICAL_NOTES}
 
 ${EXTRA_REPORT_NOTES}
 
@@ -740,7 +757,7 @@ ${passages}`
     : ""
 }
 Reply with a single JSON object, no prose, using exactly these keys:
-{"sql": "<the SELECT statement, or null>", "note": "<one short sentence on any assumption you made, or null>", "answer": "<only when no query is needed or the question cannot be answered from this schema, otherwise null>"}
+{"sql": "<the SELECT statement, or null>", "note": "<one short sentence on any assumption you made, or null>", "answer": "<only when no query is needed or the question cannot be answered from this schema, otherwise null>", "source": "<'data' when you wrote SQL, 'policy' when answered from the policy excerpts, 'personal' when answered from the About-the-person-asking section, 'restricted' when the question needs data the access restrictions above say this user may not see, otherwise null>"}
 
 Database schema (name [kind, approx rows](column type, ...)):
 ${schema}
@@ -758,10 +775,14 @@ so prefer it over rebuilding the logic:\n${functions}\n`
 }`;
 }
 
-const ANSWER_SYSTEM_PROMPT = `You are the Smart Report analyst for Green Dog Ops, a veterinary practice.
+const ANSWER_SYSTEM_PROMPT = `You are Ziggy, the assistant inside Green Dog Ops, a veterinary practice.
 You are given a user's question, the SQL that was run, and the rows it returned.
 Answer the question directly in plain English, leading with the number or fact asked for.
 Use the data only — never invent figures. Format money as $1,234.56 and round sensibly.
+Say which record and date each fact comes from when it matters (e.g. "last visit 2026-03-14").
+State what the data shows; if you add a likely explanation, label it as a possibility.
+For patients, report what is documented — never offer a diagnosis, prognosis or treatment advice.
+If several patients share the name asked about, list them and ask which one is meant.
 If several rows came back, summarise the highlights in a short markdown list (max 8 bullets);
 the full table is shown to the user separately, so do not repeat every row.
 If the result is empty or every value is NULL, say the query matched nothing and name the most
@@ -770,7 +791,9 @@ by ezyVet). Do not state a figure of zero as if it were a finding.
 Keep it under 120 words.
 Reply with plain text, no JSON and no code fences.`;
 
-function parsePlan(raw: string): { sql: string | null; note: string | null; answer: string | null } {
+type Plan = { sql: string | null; note: string | null; answer: string | null; source: string | null };
+
+function parsePlan(raw: string): Plan {
   const text = unwrapJson(raw);
   try {
     const obj = JSON.parse(text) as Record<string, unknown>;
@@ -780,14 +803,14 @@ function parsePlan(raw: string): { sql: string | null; note: string | null; answ
       const s = v.trim();
       return s && s.toLowerCase() !== "null" ? s : null;
     };
-    return { sql: str("sql"), note: str("note"), answer: str("answer") };
+    return { sql: str("sql"), note: str("note"), answer: str("answer"), source: str("source") };
   } catch {
     // Some models answer with a bare SQL statement instead of JSON.
-    if (/^\s*(with|select)\s/i.test(text)) return { sql: text.trim(), note: null, answer: null };
+    if (/^\s*(with|select)\s/i.test(text)) return { sql: text.trim(), note: null, answer: null, source: null };
     // A reply cut off by the token limit is still usable if the query survived.
     const salvaged = salvageSql(text);
-    if (salvaged) return { sql: salvaged, note: null, answer: null };
-    return { sql: null, note: null, answer: text.trim() || null };
+    if (salvaged) return { sql: salvaged, note: null, answer: null, source: null };
+    return { sql: null, note: null, answer: text.trim() || null, source: null };
   }
 }
 
@@ -861,17 +884,32 @@ function historyBlock(history: SmartTurn[]): string {
     .join("\n")}\n\n`;
 }
 
+function isRestrictedScope(scope: SmartScope): boolean {
+  return !scope.canViewFinancials || !scope.canViewCompensation || !scope.canViewHrRecords;
+}
+
+function askerBlock(asker: string | null): string {
+  if (!asker) return "";
+  return `\nAbout the person asking — their OWN records, already fetched for them. Answer questions
+about "my" / "I" (their shifts, time off, PTO, hire date, role) from this section with "sql" null and
+"source" "personal". It is the ONLY personal information about them you have; never query other
+employees' records to answer a question about the asker:\n${asker}\n`;
+}
+
 /**
  * Answer one question. `admin` must be a service-role client — the smart_query
  * RPC is not callable by the browser. `scope` is what the ASKING USER is
  * allowed to see: smart_query bypasses RLS, so it is the only thing keeping
- * salaries and confidential employee records out of the answer.
+ * salaries, revenue and confidential employee records out of the answer.
+ * `asker` is the caller's own records (see ziggy-context.ts), fetched by
+ * person_id on the server — never by the model's SQL.
  */
 export async function askSmartReport(
   admin: AdminClient,
   question: string,
-  scope: SmartScope,
+  requestedScope: SmartScope,
   history: SmartTurn[] = [],
+  asker: string | null = null,
 ): Promise<SmartResult> {
   const empty: Omit<SmartResult, "answer" | "ok"> = {
     sql: null,
@@ -889,17 +927,20 @@ export async function askSmartReport(
     return {
       ok: false,
       answer:
-        "Smart Report needs an AI provider. Ask an administrator to set GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY.",
+        "Ask Ziggy needs an AI provider. Ask an administrator to set GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY.",
       ...empty,
     };
   }
 
-  const [{ schema, values, functions }, passages, examples, glossary] = await Promise.all([
-    getSchemaCatalog(admin, scope),
+  const [{ schema, values, functions, scope }, passages, rawExamples, glossary] = await Promise.all([
+    getSchemaCatalog(admin, requestedScope),
     getPolicyPassages(admin, q),
-    getExamples(admin, q, scope),
+    getExamples(admin, q),
     getGlossary(admin, q),
   ]);
+  // A verified query that touches something this user may not read would leak
+  // the name and tempt a query the guard then rejects.
+  const examples = rawExamples.filter((e) => e.sql && !blockedIdentifier(e.sql, scope));
   const today = new Date().toISOString().slice(0, 10);
   const system = planSystemPrompt(
     schema,
@@ -910,6 +951,7 @@ export async function askSmartReport(
     exampleBlock(examples),
     glossaryBlock(glossary),
     scopeNotice(scope),
+    askerBlock(asker),
   );
 
   const attempts: SmartAttempt[] = [];
@@ -940,6 +982,22 @@ export async function askSmartReport(
     const parsed = parsePlan(plan.content);
     if (!parsed.sql) {
       const refused = !!parsed.answer && isRefusal(parsed.answer);
+      // Data this user may not see: say so, rather than letting the refusal
+      // retry below push the model into a workaround query.
+      if (parsed.answer && parsed.source === "restricted" && isRestrictedScope(scope)) {
+        return { ok: true, answer: parsed.answer, ...empty, provider, attempts };
+      }
+      // A question about the asker's own shifts/PTO is answered from the
+      // server-fetched personal section, not SQL.
+      if (parsed.answer && asker && parsed.source === "personal") {
+        return {
+          ok: true,
+          answer: `${parsed.answer}\n\n_From your own schedule and HR records in Green Dog Ops._`,
+          ...empty,
+          provider,
+          attempts,
+        };
+      }
       // A policy question is answered from the retrieved documents, not SQL.
       if (parsed.answer && passages.length && !refused) {
         return {
