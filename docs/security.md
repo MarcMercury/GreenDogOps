@@ -264,12 +264,31 @@ These need account-owner access and cannot be done from the codebase:
       but is not enforced, because enforcing it would sign out the always-on
       clinic board displays (patient window / medical boards) daily.
 
-## 12. Timekeeping (not built yet) — requirements
+## 12. Timekeeping — requirements and what is built
 
-When the time clock is built it must: store every punch append-only with the
-immutable employee id; record corrections as separate rows (original, new,
-who, when, why); lock pay periods after the ADP export and flag any later
-change; keep an export history (period, timestamp, user, employees, hours, file
-hash, version); authenticate every punch individually (no shared logins; a
-kiosk mode limited to clock in/out/meal and today's punches); and store "location
-verified: <clinic>" rather than GPS history.
+Requirements: store every punch append-only with the immutable employee id;
+record corrections as separate rows (original, new, who, when, why); lock pay
+periods after the ADP export and flag any later change; keep an export history
+(period, timestamp, user, employees, hours, file hash, version); authenticate
+every punch individually (no shared logins; a kiosk mode limited to clock
+in/out/meal and today's punches).
+
+Built in `0240` (My Time, `/me`):
+
+| Requirement | How |
+| --- | --- |
+| Append-only punches | `time_punch` has triggers that block UPDATE/DELETE/TRUNCATE for every role, the service role included. Its only writer is `record_time_punch()` (service role only): per-person advisory lock, state check, double-tap idempotency (same punch within 60 s), server `clock_timestamp()`. The device clock is stored as `client_time` for reference only. |
+| Per-punch authentication | Each punch is a Server Action by the signed-in user, acting only on their own `app_user.person_id`; refused during a View-as preview; rate-limited. No shared logins, no kiosk yet. |
+| Corrections as separate rows | `time_correction_request` (employee asks, with reason). Approval (item 5) records an adjustment and never edits a punch. |
+| Location captured only at the punch | GPS + accuracy (if the browser allows), IP and user agent are stored on the punch row; nothing is collected between punches. `location_check` stays `not_checked` until clinic geofences/networks exist (items 5–6). |
+| Privacy notice | Shown and acknowledged (`time_clock_notice_ack`, versioned) before the first punch; always at `/me/privacy`. |
+| Access | All three tables are service-role only and always blocked in Ask Ziggy. Employees see only their own punches; approver views come with item 5. |
+| Retention | 4 years after the pay period ends (D10). Nothing deletes punches. |
+
+Open decision: an earlier note here asked to store "location verified:
+<clinic>" rather than GPS. The go-live plan (§F) keeps the raw GPS/IP of each
+punch so a reviewer can see why it passed or failed; that is what `0240` does.
+If raw coordinates should be dropped once the check result is stored, add it
+with the geofence check (item 5).
+
+Not built yet: pay-period lock, export history and the ADP file (Gate 2).

@@ -107,8 +107,10 @@ describe("Staff navigation", () => {
   // Referral CRM, Rescue/Shelter CRM, Non-Med Partners, and all of Med Ops
   // (Medical Boards, Board Archive, Vendors & Supplies, ezyVet).
   // crm_business is the old /crm/business URL that redirects to Non-Med Partners.
+  // my_time is the self-service time clock / schedule / timecard (/me).
   const STAFF = [
     "dashboard",
+    "my_time",
     "resources",
     "ask_ziggy",
     "hr",
@@ -158,6 +160,18 @@ describe("Staff navigation", () => {
       expect(canAccessModule(user(role), "schedule"), role).toBe(true);
       expect(canAccessModule(user(role), "crm_student"), role).toBe(true);
     }
+  });
+});
+
+describe("My Time (self-service time clock)", () => {
+  it("is open to every active role, Staff included, and lives at /me", () => {
+    for (const role of APP_ROLES) {
+      expect(canAccessModule(user(role), "my_time"), role).toBe(true);
+    }
+    expect(canAccessModule({ ...user("staff"), is_active: false }, "my_time")).toBe(false);
+    expect(moduleForPathname("/me")).toBe("my_time");
+    expect(moduleForPathname("/me/timecard")).toBe("my_time");
+    expect(moduleForPathname("/media")).toBeNull();
   });
 });
 

@@ -69,6 +69,7 @@ export type ModuleKey =
   | "med_boards"
   | "resources"
   | "ask_ziggy"
+  | "my_time"
   | "admin";
 
 export interface ModuleDef {
@@ -100,6 +101,7 @@ export const MODULES: ModuleDef[] = [
   { key: "med_boards", label: "Medical Boards", href: "/med-ops/medical-boards" },
   { key: "resources", label: "Resources", href: "/resources" },
   { key: "ask_ziggy", label: "Ask Ziggy", href: "/ask-ziggy" },
+  { key: "my_time", label: "My Time", href: "/me" },
   { key: "admin", label: "Admin", href: "/admin" },
 ];
 
@@ -128,10 +130,11 @@ const NON_ADMIN_MODULES = ALL_MODULES.filter(
 // can open their own profile but no one else's (canOpenHrProfile). "Med Ops"
 // is every page in that sidebar section (boards, archive, Vendors & Supplies,
 // ezyVet). crm_business is only the old /crm/business URL, which redirects to
-// Non-Med Partners. The self-service schedule / PTO / time-clock pages are
-// added here when they ship (docs/agent/improvements.md).
+// Non-Med Partners. "my_time" is the self-service portal (/me): own clock,
+// schedule and timecard.
 const STAFF_MODULES: ModuleKey[] = [
   "dashboard",
+  "my_time",
   "resources",
   "ask_ziggy",
   "hr",
@@ -360,6 +363,7 @@ const ROUTE_MODULES: ReadonlyArray<readonly [string, ModuleKey]> = [
   ["/ezyvet", "ezyvet"],
   ["/hr", "hr"],
   ["/marketing", "marketing"],
+  ["/me", "my_time"],
   ["/med-ops", "med_boards"],
   ["/planning", "planning"],
   ["/policies", "resources"],

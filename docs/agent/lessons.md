@@ -14,6 +14,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Tooling & environment
 
+### Two agent sessions at once: memory runs out and `generate_baseline.sh` runs collide
+- **Problem:** 2026-10-13: scoped `tsc` and `eslint` were killed (exit 143) and a baseline regeneration was cut off, leaving `supabase/baseline/0001_schema.sql` at 15 lines; another session's `generate_baseline.sh` then rewrote both baseline files (including `0003` seed drift) while this session's tests were reading them.
+- **Root cause:** a second VS Code server + agent started at 19:50 (`free -m`: ~850 MB available of 8 GB). The baseline script writes its output files in place.
+- **Fix:** check `ps aux | grep generate_baseline` before regenerating, never kill another session's run, wait for it, then `wc -l` the baseline before running tests. If it is truncated, `git checkout -- supabase/baseline/` and regenerate. When `tsc` cannot run, use the `problems` tool on every file touching a changed exhaustive type (e.g. `Record<ModuleKey, …>` in `module-icons.ts`) and rely on the Vercel build.
+
 ### Vitest does not resolve the `@/` alias — pure modules under test need relative imports
 - **Problem:** new tests failed with `Cannot find package '@/lib/worklist/dates'` / `'@/lib/auth/permissions'`.
 - **Root cause:** there is no vitest config with the tsconfig `paths` alias, so a runtime (value) `import … from "@/…"` can't be resolved. `import type` from `@/…` is erased and works.
@@ -113,6 +118,13 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - `npx vitest run` with no config file: 14 files / 186 tests, ~9s, all passing on 2026-10-08 (`eddc044` + uncommitted ATS work). Tests are pure-logic `*.test.ts` files beside their modules in `src/lib/**`.
 
 ## Database
+
+### `now()` inside a locking function is the transaction start, not the moment the lock is acquired
+- **Problem:** in `record_time_punch()` (0240), a staging probe of four punches in one transaction stored them all at the same instant, and a call that waited on the per-person advisory lock could be stamped earlier than the punch it waited for — so "last punch" ordering and the double-tap check were unreliable.
+- **Root cause:** `now()` is fixed at transaction start. `clock_timestamp()` is the real time.
+- **Fix:** take the advisory lock first, then `v_now := clock_timestamp()`.
+- **Prevent:** any function that orders, deduplicates or rate-limits by time after taking a lock uses `clock_timestamp()` after the lock.
+- **Evidence:** 2026-10-13 staging probe: sequence `clock_in>lunch_start>lunch_end>clock_out` only came back in order after the change.
 
 ### `SECURITY DEFINER` functions granted to `authenticated` bypass the whole RLS floor
 - **Problem:** 28 definer functions (appointment review, Med Ops board seed/patch, referral upload undo, refresh helpers) were callable through `/rest/v1/rpc/*` by any signed-in Supabase user, including EmployeeGMGDD-only logins, with no `is_gdo_user()` check. `rls_audit()` returned 0 rows.

@@ -128,6 +128,11 @@ export const ALWAYS_BLOCKED_TABLES = [
   "person_recruiting_score_backup_0225",
   // Full snapshots of every policy version, including restricted ones.
   "resource_document_version",
+  // Time clock (0240): punches carry IP, device and GPS; payroll data. A
+  // location-free hours view can be allowed later (Time & Attendance, item 16).
+  "time_punch",
+  "time_correction_request",
+  "time_clock_notice_ack",
 ] as const;
 
 /**

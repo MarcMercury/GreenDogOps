@@ -52,6 +52,7 @@ const crmSection = (slug: string, key?: ModuleKey): NavItem => {
 /** Top-level modules of Green Dog Ops. */
 const MODULES_TOP: NavItem[] = [
   { key: "dashboard", href: "/", label: "Dashboard", icon: "▣" },
+  { key: "my_time", href: "/me", label: "My Time", icon: "⏱️" },
   { key: "resources", href: "/resources", label: "Resources", icon: "📚" },
   { key: "ask_ziggy", href: "/ask-ziggy", label: "Ask Ziggy", icon: "🐶" },
 ];

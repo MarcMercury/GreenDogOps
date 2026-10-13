@@ -159,6 +159,12 @@ from users who cannot access it.
   - **Slack** — their Slack link status and what Ops has sent them in Slack.
     Ops does not read Slack messages; summaries need a later per-user consent.
   - **Your activity** — their own audit-log entries.
+- **My Time** (`/me`) — every employee's own time clock (clock in, lunch,
+  clock out, from their phone or computer), published schedule, timecard by
+  pay period, correction requests and the time-clock privacy notice. Open to
+  every role (Staff included), always scoped to the signed-in person. Punches
+  are append-only (`time_punch`, migration `0240`) and written only by
+  `record_time_punch()`; see docs/security.md §12.
 - **Resources** (`/resources`) — the library of company policies, protocols and
   documents, grouped by category. Policies are **native Ops documents**
   (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),

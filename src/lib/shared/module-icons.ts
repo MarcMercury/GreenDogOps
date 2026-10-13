@@ -24,6 +24,7 @@ export const MODULE_ICONS: Record<ModuleKey, string> = {
   med_boards: "🩺",
   resources: "📚",
   ask_ziggy: "🐶",
+  my_time: "⏱️",
   admin: "⚙️",
 };
 

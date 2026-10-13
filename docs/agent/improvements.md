@@ -10,10 +10,10 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:** create the `app_user` (role per owner decision) in `ensureAuthUserForPerson` and the daily roster sync; invites stay a separate, explicit step (Gate 1 item 2).
 - **Risk:** low.
 
-### Staff self-service: own schedule, PTO requests, time clock
-- **Why:** the owner wants Staff to reach their own schedule, clock in/out, and request PTO once those exist in Ops. Today Staff have no Scheduling/Calendar module, every time-off write requires HR edit (`saveTimeOff` → `ensureCanEdit("hr")`), and there is no punch data at all.
-- **Scope:** own-only pages (e.g. `/me`) — schedule, time off, clock. Staff are read-only in the database (0239), so these are Server Actions that write with the service role and only ever act on `appUser.person_id`; the time clock per `docs/security.md` (append-only punches, per-punch auth). Do **not** reopen the `schedule` module to Staff for this — it exposes everyone's grid.
-- **Risk:** medium (new write paths for the lowest role; time-clock records are legally retained).
+### Staff self-service: PTO requests (My Time is live for clock, schedule, timecard)
+- **Why:** `/me` (0240) covers clock in/out, the published schedule, the timecard and correction requests. PTO self-service is still HR-only (`saveTimeOff` → `ensureCanEdit("hr")`).
+- **Scope:** a PTO tab in `/me` (Gate 2 item 23): Server Action writing `person_time_off` with the service role for `appUser.person_id` only. Do **not** reopen the `schedule` module to Staff — it exposes everyone's grid.
+- **Risk:** medium (new write path; PTO is the CA sick-leave vehicle).
 
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.
