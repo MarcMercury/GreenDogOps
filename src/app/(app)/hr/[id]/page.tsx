@@ -42,6 +42,7 @@ import { canTextPerson } from "@/lib/sms/access";
 import { EmployeeProfile, type LinkedAccount, type SlackChipInfo } from "./employee-profile";
 import { getSlackLinkForPerson } from "@/lib/slack/link-sync";
 import { loadPersonPolicyStatus } from "@/lib/resources/server";
+import { loadPersonAcknowledgements } from "@/lib/hr/acknowledgements-server";
 
 export const dynamic = "force-dynamic";
 
@@ -318,6 +319,20 @@ export default async function EmployeeDetailPage({
     ? null
     : await loadPersonPolicyStatus(createAdminClient(), id).catch(() => null);
 
+  // Text opt-in and time-clock notice, recorded by the employee. Same gate as
+  // the Onboarding tab; texting data also needs canTextPerson (or own record).
+  const canText = canTextPerson(current.appUser, row.status);
+  const acknowledgements = isScheduleAdmin
+    ? null
+    : await loadPersonAcknowledgements(
+        adminClient,
+        { id, phone_mobile: (data as { phone_mobile: string | null }).phone_mobile },
+        { includeSms: canText || current.appUser.person_id === id },
+      ).catch((e: unknown) => {
+        console.error("HR profile: acknowledgements", e instanceof Error ? e.message : e);
+        return null;
+      });
+
   return (
     <div className="mx-auto max-w-4xl">
       <Link
@@ -363,7 +378,8 @@ export default async function EmployeeDetailPage({
         isAdmin={isAdmin}
         isScheduleAdmin={isScheduleAdmin}
         canEditSchedule={canEditSchedule}
-        canText={current ? canTextPerson(current.appUser, row.status) : false}
+        canText={canText}
+        acknowledgements={acknowledgements}
         locations={locations}
       />
     </div>

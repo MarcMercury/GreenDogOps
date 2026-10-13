@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useActionState } from "react";
 import type { PersonPolicyStatus } from "@/lib/resources/server";
+import type { AcknowledgementRow } from "@/lib/hr/acknowledgements";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import type {
@@ -155,6 +156,7 @@ export function EmployeeProfile({
   canEdit,
   canEditSchedule,
   canText = false,
+  acknowledgements = null,
   isAdmin = false,
   isScheduleAdmin = false,
   locations,
@@ -184,6 +186,8 @@ export function EmployeeProfile({
   canEditSchedule: boolean;
   /** May read and send texts for this person (canTextPerson). */
   canText?: boolean;
+  /** Text opt-in and time-clock notice, recorded by the employee; null when not loaded. */
+  acknowledgements?: AcknowledgementRow[] | null;
   isAdmin?: boolean;
   isScheduleAdmin?: boolean;
   locations: LocationOption[];
@@ -240,6 +244,7 @@ export function EmployeeProfile({
               compliance,
               licenses,
               account,
+              acknowledgements,
             }}
           />
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">
@@ -301,6 +306,7 @@ export function EmployeeProfile({
           items={onboarding}
           compliance={compliance}
           licenses={licenses}
+          acknowledgements={acknowledgements}
           canEdit={canEdit}
         />
       )}
@@ -1779,17 +1785,71 @@ function buildOnboardingState(items: PersonOnboardingItem[]): OnboardingState {
   return state;
 }
 
+function AcknowledgementsSection({ rows }: { rows: AcknowledgementRow[] | null }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        Employee acknowledgements
+      </h2>
+      <p className="mb-2 mt-0.5 text-xs text-slate-400">
+        Recorded by the employee with the date and time they clicked. Read-only;
+        not part of the checklist progress.
+      </p>
+      {rows === null ? (
+        <p className="text-sm text-slate-500">Could not load acknowledgements.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {rows.map((r) => (
+            <li
+              key={r.key}
+              className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2"
+            >
+              <div className="flex min-w-0 basis-full items-center gap-2 lg:basis-64">
+                {r.state === "done" ? (
+                  <span className="text-emerald-600">✓</span>
+                ) : r.state === "attention" ? (
+                  <span className="text-amber-500">!</span>
+                ) : (
+                  <span className="text-slate-300">○</span>
+                )}
+                <span className="truncate text-sm font-medium text-slate-800" title={r.label}>
+                  {r.label}
+                </span>
+              </div>
+              <span
+                className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  r.state === "done"
+                    ? "bg-emerald-50 text-emerald-700"
+                    : r.state === "attention"
+                      ? "bg-amber-50 text-amber-700"
+                      : "bg-slate-100 text-slate-500"
+                }`}
+              >
+                {r.status}
+              </span>
+              {r.at && <span className="text-sm text-slate-700">{r.at}</span>}
+              {r.detail && <span className="text-xs text-slate-400">{r.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function OnboardingPanel({
   personId,
   items,
   compliance,
   licenses,
+  acknowledgements,
   canEdit,
 }: {
   personId: string;
   items: PersonOnboardingItem[];
   compliance: PersonComplianceEntry[];
   licenses: PersonLicense[];
+  acknowledgements: AcknowledgementRow[] | null;
   canEdit: boolean;
 }) {
   const initial = useMemo(() => buildOnboardingState(items), [items]);
@@ -1859,6 +1919,8 @@ function OnboardingPanel({
           />
         </div>
       </div>
+
+      <AcknowledgementsSection rows={acknowledgements} />
 
       {ONBOARDING_GROUPS.map((group) => (
         <section

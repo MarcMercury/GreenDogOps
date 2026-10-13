@@ -28,6 +28,7 @@ import {
 } from "@/lib/hr/types";
 import { DAY_SHORT } from "@/lib/schedule/types";
 import { ONBOARDING_GROUPS } from "@/lib/hr/onboarding";
+import type { AcknowledgementRow } from "@/lib/hr/acknowledgements";
 import type {
   PersonAttendanceSummary,
   PersonScheduleSettings,
@@ -52,6 +53,8 @@ export interface EmployeeSummaryData {
   compliance: PersonComplianceEntry[];
   licenses: PersonLicense[];
   account: { role: AppRole; is_active: boolean } | null;
+  /** Text opt-in and time-clock notice; null/absent when not loaded. */
+  acknowledgements?: AcknowledgementRow[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +189,7 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
     compliance,
     licenses,
     account,
+    acknowledgements = null,
   } = data;
 
   const emp = row.person_employment;
@@ -420,6 +424,17 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
     }),
   ).join("");
   const onboardingBody = `<table><thead><tr><th>Group</th><th>Item</th><th>Status</th></tr></thead><tbody>${onboardingRows}</tbody></table>`;
+  const acknowledgementsBody =
+    acknowledgements && acknowledgements.length > 0
+      ? `<table><thead><tr><th>Acknowledgement</th><th>Status</th><th>Date &amp; time</th><th>Details</th></tr></thead><tbody>${acknowledgements
+          .map(
+            (a) =>
+              `<tr><td>${esc(a.label)}</td><td>${esc(a.status)}</td><td>${esc(
+                a.at ?? "—",
+              )}</td><td>${esc(a.detail ?? "")}</td></tr>`,
+          )
+          .join("")}</tbody></table>`
+      : "";
 
   // --- Compliance --------------------------------------------------------
   const complianceBody =
@@ -493,7 +508,10 @@ function buildSummaryHtml(data: EmployeeSummaryData): string {
     section("Performance Reviews", reviewsBody),
     section("Disciplinary Actions", disciplinaryBody),
     section("Licenses & Credentials", licensesBody),
-    section("Onboarding Checklist", onboardingBody),
+    section(
+      "Onboarding Checklist",
+      `${onboardingBody}${acknowledgementsBody ? `<h3>Employee acknowledgements</h3>${acknowledgementsBody}` : ""}`,
+    ),
     section("Annual Compliance", complianceBody),
     section("Assets", assetsBody),
     section("Documents", documentsBody),
