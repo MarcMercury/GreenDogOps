@@ -200,7 +200,7 @@ const DEFINITIONS: EventDefinition[] = [
     group: "Scheduling",
     label: "Missed shift recorded",
     description:
-      "A scheduled shift is marked No-show. Goes to managers at that location. (Ops has no time clock yet, so missed clock-ins can't be detected automatically.)",
+      "A scheduled shift is marked No-show. Goes to managers at that location. (Automatic detection from time-clock punches comes with the attendance evaluator.)",
     module: "schedule",
     sensitivity: "module",
     allowChannel: true,
@@ -217,6 +217,164 @@ const DEFINITIONS: EventDefinition[] = [
       href: scheduleHref(p),
       linkLabel: "Open the schedule",
     }),
+  },
+
+  // ------------------------------------------------------------------ Time clock
+  {
+    type: "timeclock.offsite_pending",
+    group: "Time clock",
+    label: "Off-site punch to approve",
+    description:
+      "An employee clocked in or out away from a clinic and chose “Working off-site” with a note. It counts once an approver approves it at Scheduling ▸ Time Clock.",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: true,
+    escalatable: true,
+    severity: "action",
+    // Batched into a digest: until a clinic's static IP is entered, desktop
+    // punches there look off-site, and approvers shouldn't get one DM each.
+    defaults: rule({ audience: { roles: ["manager"] }, batchMinutes: 30 }),
+    messageKey: (id) => (id ? `timepunch:${id}` : null),
+    render: (p, ctx) => ({
+      emoji: "📍",
+      title: `Off-site punch to approve: ${str(p, "personName")}`,
+      fields: [
+        { label: "Punch", value: [str(p, "punchLabel"), str(p, "when")].filter(Boolean).join(" · ") },
+        { label: "Scheduled at", value: str(p, "locationName") },
+        // The employee's note can be personal; keep it out of channel posts.
+        { label: "Note", value: ctx.isChannel ? "" : clip(str(p, "note"), 300) },
+      ].filter((f) => f.value),
+      href: "/schedule/time-clock",
+      linkLabel: "Review in Ops",
+    }),
+  },
+  {
+    type: "timeclock.punch_reviewed",
+    group: "Time clock",
+    label: "Off-site punch approved or rejected",
+    description: "Tells the employee what happened to their off-site punch.",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: false,
+    severity: "info",
+    defaults: rule({ audience: { subjects: true } }),
+    render: (p, ctx) => {
+      const approved = str(p, "decision") === "approved";
+      const what = [str(p, "punchLabel").toLowerCase(), str(p, "when")].filter(Boolean).join(" ");
+      return {
+        emoji: approved ? "✅" : "❌",
+        title: ctx.isSubject
+          ? `Your off-site ${what} was ${approved ? "approved" : "not approved"}`
+          : `Off-site punch ${approved ? "approved" : "rejected"}: ${str(p, "personName")}`,
+        body: [
+          approved ? null : "It no longer counts on your timecard. If you did work, ask your manager to add the correct punch.",
+          str(p, "note") ? `Note: ${clip(str(p, "note"), 300)}` : null,
+        ]
+          .filter(Boolean)
+          .join(" ") || null,
+        href: "/me/timecard",
+        linkLabel: "View my timecard",
+      };
+    },
+  },
+  {
+    type: "timeclock.correction_requested",
+    group: "Time clock",
+    label: "Time correction requested",
+    description: "An employee asked to fix a missing or wrong punch.",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: true,
+    escalatable: true,
+    severity: "action",
+    defaults: rule({ audience: { roles: ["manager"] }, batchMinutes: 30 }),
+    messageKey: (id) => (id ? `timecorr:${id}` : null),
+    render: (p, ctx) => ({
+      emoji: "🕒",
+      title: `Time correction requested: ${str(p, "personName")}`,
+      fields: [
+        { label: "Day", value: str(p, "dateLabel") },
+        { label: "Request", value: str(p, "request") },
+        { label: "Reason", value: ctx.isChannel ? "" : clip(str(p, "reason"), 300) },
+      ].filter((f) => f.value),
+      href: "/schedule/time-clock",
+      linkLabel: "Review in Ops",
+    }),
+  },
+  {
+    type: "timeclock.correction_decided",
+    group: "Time clock",
+    label: "Time correction approved or denied",
+    description: "Tells the employee the outcome of their correction request.",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: false,
+    severity: "info",
+    defaults: rule({ audience: { subjects: true } }),
+    render: (p, ctx) => {
+      const approved = str(p, "decision") === "approved";
+      return {
+        emoji: approved ? "✅" : "❌",
+        title: ctx.isSubject
+          ? `Your time correction for ${str(p, "dateLabel")} was ${approved ? "approved" : "denied"}`
+          : `Time correction ${approved ? "approved" : "denied"}: ${str(p, "personName")} · ${str(p, "dateLabel")}`,
+        body: str(p, "note") ? `Note: ${clip(str(p, "note"), 300)}` : null,
+        href: "/me/timecard",
+        linkLabel: "View my timecard",
+      };
+    },
+  },
+  {
+    type: "timeclock.punch_added",
+    group: "Time clock",
+    label: "Punch added by a manager",
+    description: "Tells the employee a manager added a punch to their timecard (e.g. a missing clock-out).",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: false,
+    severity: "info",
+    defaults: rule({ audience: { subjects: true } }),
+    render: (p, ctx) => ({
+      emoji: "✏️",
+      title: ctx.isSubject
+        ? `A ${str(p, "punchLabel").toLowerCase()} at ${str(p, "when")} was added to your timecard`
+        : `Punch added for ${str(p, "personName")}: ${str(p, "punchLabel")} at ${str(p, "when")}`,
+      body: str(p, "reason") ? `Reason: ${clip(str(p, "reason"), 300)}` : null,
+      href: "/me/timecard",
+      linkLabel: "View my timecard",
+    }),
+  },
+  {
+    type: "timeclock.missing_clock_out",
+    group: "Time clock",
+    label: "Missing clock-out",
+    description:
+      "Someone is still clocked in an hour after their shift ended (or 12 hours after clocking in, with no shift). Sent once per shift.",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: true,
+    severity: "warning",
+    defaults: rule({ audience: { subjects: true, roles: ["manager"], sameLocation: true } }),
+    render: (p, ctx) =>
+      ctx.isSubject
+        ? {
+            emoji: "⏰",
+            title: `You're still clocked in from ${str(p, "clockInLabel")}`,
+            body: "If you've finished, clock out in My Time now. If you forgot earlier, request a correction with the time you left.",
+            href: "/me",
+            linkLabel: "Open My Time",
+          }
+        : {
+            emoji: "⏰",
+            title: `Missing clock-out: ${str(p, "personName")}`,
+            fields: [
+              { label: "Clocked in", value: str(p, "clockInLabel") },
+              { label: "Shift", value: str(p, "shift") },
+              { label: "Location", value: str(p, "locationName") },
+            ].filter((f) => f.value),
+            href: "/schedule/time-clock",
+            linkLabel: "Open the time clock queue",
+          },
   },
 
   // ------------------------------------------------------------------ Time off

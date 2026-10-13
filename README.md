@@ -170,7 +170,9 @@ from users who cannot access it.
   (Owner, Admin, Executive, HR / Manager) work the queues at **Scheduling ▸
   Time Clock** (`/schedule/time-clock`): off-site punches, correction
   requests and missing punches; changes are recorded as adjustments, never
-  edits. Pending items also show on approvers' Dashboard.
+  edits. Pending items also show on approvers' Dashboard, and the notification
+  engine sends them (and the employee's outcomes, and missing clock-outs) as
+  Slack DMs / in-app notices — group "Time clock" in Admin ▸ Notifications.
 - **Resources** (`/resources`) — the library of company policies, protocols and
   documents, grouped by category. Policies are **native Ops documents**
   (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),

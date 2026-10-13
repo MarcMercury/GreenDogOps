@@ -7,6 +7,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit, requestMeta } from "@/lib/security/rate-limit";
 import { addDays, isIsoDate, todayInWorkTz } from "@/lib/worklist/dates";
 import { localToInstant } from "@/lib/timeclock/local-time";
+import { runInBackground } from "@/lib/notify/emit";
+import {
+  notifyCorrectionRequested,
+  notifyCorrectionWithdrawn,
+  notifyOffsitePunch,
+} from "@/lib/notify/events/timeclock";
 import { TIME_CLOCK_NOTICE_VERSION } from "@/lib/timeclock/notice";
 import { evaluateLocation, type LocationCheck } from "@/lib/timeclock/location-check";
 import {
@@ -180,10 +186,15 @@ export async function recordPunch(input: PunchInput): Promise<PunchResult> {
     ok: boolean;
     error?: string;
     duplicate?: boolean;
+    punch_id?: string;
     punched_at?: string;
     needs_approval?: boolean;
   };
   if (!result.ok) return { ok: false, error: PUNCH_ERRORS[result.error ?? ""] ?? "The punch was not accepted." };
+  if (result.needs_approval && !result.duplicate && result.punch_id) {
+    const punchId = result.punch_id;
+    runInBackground(() => notifyOffsitePunch(punchId, gate.appUserId));
+  }
 
   revalidatePath("/me");
   revalidatePath("/me/timecard");
@@ -259,16 +270,22 @@ export async function requestTimeCorrection(formData: FormData): Promise<TimeAct
     requestedTime = instant.toISOString();
   }
 
-  const { error } = await createAdminClient().from("time_correction_request").insert({
-    person_id: gate.person.id,
-    work_date: workDate,
-    kind,
-    punch_type: punchType,
-    requested_time: requestedTime,
-    reason,
-    created_by: gate.appUserId,
-  });
+  const { data: created, error } = await createAdminClient()
+    .from("time_correction_request")
+    .insert({
+      person_id: gate.person.id,
+      work_date: workDate,
+      kind,
+      punch_type: punchType,
+      requested_time: requestedTime,
+      reason,
+      created_by: gate.appUserId,
+    })
+    .select("id")
+    .single();
   if (error) return { ok: false, error: `Could not send the request: ${error.message}` };
+  const requestId = created.id as string;
+  runInBackground(() => notifyCorrectionRequested(requestId, gate.appUserId));
   revalidatePath("/me/timecard");
   return { ok: true, message: "Request sent. A manager will review it." };
 }
@@ -286,6 +303,7 @@ export async function cancelTimeCorrection(id: string): Promise<TimeActionResult
     .select("id");
   if (error) return { ok: false, error: `Could not cancel: ${error.message}` };
   if (!data?.length) return { ok: false, error: "Only your own pending requests can be cancelled." };
+  runInBackground(() => notifyCorrectionWithdrawn(id));
   revalidatePath("/me/timecard");
   return { ok: true, message: "Request cancelled." };
 }

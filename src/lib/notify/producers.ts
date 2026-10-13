@@ -8,16 +8,23 @@ import "server-only";
 //                     the rule's escalation roles once.
 //   event reminders   marketing events starting tomorrow → their staff, once,
 //                     from 10am Pacific.
+//   missing clock-out someone still clocked in an hour after their shift
+//                     ended (12 h with no shift) → them + clinic managers,
+//                     once per clock-in.
 //
 // Both are idempotent (escalated_at / dedupe keys), so overlapping runs are safe.
 // ---------------------------------------------------------------------------
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { addDays, todayInWorkTz, WORK_TZ } from "@/lib/worklist/dates";
+import { addDays, shortDateLabel, todayInWorkTz, WORK_TZ } from "@/lib/worklist/dates";
 import { createEvent, loadRule, processEvent, type NotificationEventRow } from "./engine";
 import { EVENT_REGISTRY } from "./registry";
 import { MARKETING_EVENT_COLUMNS, isCanceled, marketingPayload, staffIds, type MarketingEventRow } from "./events/marketing-rules";
 import { personDisplayName } from "./directory";
+import { fetchAllRows } from "@/lib/supabase/paginate";
+import { formatClockTime } from "@/lib/timeclock/local-time";
+import { isClockOutOverdue, MISSING_CLOCK_OUT_MAX_AGE_DAYS } from "@/lib/timeclock/missing";
+import { formatShiftTime } from "@/lib/timeclock/shift-match";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -25,6 +32,22 @@ type Admin = ReturnType<typeof createAdminClient>;
 const STILL_OPEN: Record<string, (admin: Admin, subjectIds: string[]) => Promise<Set<string>>> = {
   "pto.requested": async (admin, ids) => {
     const { data } = await admin.from("person_time_off").select("id").in("id", ids).eq("status", "requested");
+    return new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
+  },
+  // Off-site punch with no decision and not voided by a correction.
+  "timeclock.offsite_pending": async (admin, ids) => {
+    const [reviews, voids] = await Promise.all([
+      admin.from("time_punch_review").select("punch_id").in("punch_id", ids),
+      admin.from("time_punch_adjustment").select("voids_punch_id").in("voids_punch_id", ids),
+    ]);
+    const done = new Set([
+      ...((reviews.data ?? []) as { punch_id: string }[]).map((r) => r.punch_id),
+      ...((voids.data ?? []) as { voids_punch_id: string }[]).map((r) => r.voids_punch_id),
+    ]);
+    return new Set(ids.filter((id) => !done.has(id)));
+  },
+  "timeclock.correction_requested": async (admin, ids) => {
+    const { data } = await admin.from("time_correction_request").select("id").in("id", ids).eq("status", "pending");
     return new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
   },
 };
@@ -40,6 +63,88 @@ export async function runProducers(now = new Date()): Promise<number> {
     produced += await produceEventReminders(now);
   } catch (err) {
     console.error("[notify] event reminders:", err instanceof Error ? err.message : err);
+  }
+  try {
+    produced += await produceMissingClockOuts(now);
+  } catch (err) {
+    console.error("[notify] missing clock-outs:", err instanceof Error ? err.message : err);
+  }
+  return produced;
+}
+
+async function produceMissingClockOuts(now: Date): Promise<number> {
+  const def = EVENT_REGISTRY.get("timeclock.missing_clock_out");
+  if (!def) return 0;
+  const { rule } = await loadRule(def);
+  if (!rule.enabled) return 0;
+
+  const admin = createAdminClient();
+  const since = new Date(now.getTime() - (MISSING_CLOCK_OUT_MAX_AGE_DAYS + 1) * 86_400_000).toISOString();
+  const { data: raw, error } = await fetchAllRows<{ person_id: string; punch_type: string; punched_at: string }>((a, b) =>
+    admin.from("time_punch").select("person_id, punch_type, punched_at").gte("punched_at", since).order("id").range(a, b),
+  );
+  if (error) throw new Error(error.message);
+
+  // Cheap pre-filter on raw punches: people whose latest punch isn't a clock-out.
+  const latest = new Map<string, { punch_type: string; punched_at: string }>();
+  for (const p of raw) {
+    const cur = latest.get(p.person_id);
+    if (!cur || p.punched_at > cur.punched_at) latest.set(p.person_id, p);
+  }
+  const candidates = [...latest.entries()].filter(([, p]) => p.punch_type !== "clock_out").map(([id]) => id);
+
+  let produced = 0;
+  for (const personId of candidates) {
+    // Effective punches (approver adds/voids applied) decide whether it's still open.
+    const { data: eff } = await admin
+      .rpc("time_effective_punches", { p_person_id: personId })
+      .gte("punched_at", since)
+      .order("punched_at", { ascending: false })
+      .limit(20);
+    const rows = (eff ?? []) as { id: string; punch_type: string; punched_at: string; work_date: string; location_id: string | null; assignment_id: string | null }[];
+    if (!rows.length || rows[0].punch_type === "clock_out") continue;
+    const clockIn = rows.find((r) => r.punch_type === "clock_in");
+    if (!clockIn) continue;
+
+    let shiftStart: string | null = null;
+    let shiftEnd: string | null = null;
+    if (clockIn.assignment_id) {
+      const { data: asg } = await admin
+        .from("sched_assignment")
+        .select("sched_week_line(start_time, end_time)")
+        .eq("id", clockIn.assignment_id)
+        .maybeSingle();
+      const line = (asg as { sched_week_line: { start_time: string | null; end_time: string | null } | null } | null)?.sched_week_line;
+      shiftStart = line?.start_time ?? null;
+      shiftEnd = line?.end_time ?? null;
+    }
+    if (!isClockOutOverdue({ clockInAt: clockIn.punched_at, workDate: clockIn.work_date, shiftStart, shiftEnd }, now, WORK_TZ)) continue;
+
+    const [{ data: person }, { data: loc }] = await Promise.all([
+      admin.from("person").select("full_name, first_name, last_name, preferred_name").eq("id", personId).maybeSingle(),
+      clockIn.location_id
+        ? admin.from("location").select("name, display_name").eq("id", clockIn.location_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+    const l = loc as { name: string; display_name: string | null } | null;
+    const created = await createEvent({
+      type: "timeclock.missing_clock_out",
+      subjectType: "time_punch",
+      subjectId: clockIn.id,
+      subjectPersonIds: [personId],
+      locationId: clockIn.location_id,
+      payload: {
+        personName: person ? personDisplayName(person as Parameters<typeof personDisplayName>[0]) : "An employee",
+        clockInLabel: `${shortDateLabel(clockIn.work_date)} · ${formatClockTime(clockIn.punched_at, WORK_TZ)}`,
+        shift: shiftStart ? `${formatShiftTime(shiftStart)}${shiftEnd ? ` – ${formatShiftTime(shiftEnd)}` : ""}` : "",
+        locationName: l ? l.display_name || l.name : "",
+      },
+      dedupeKey: `timeclock.missing_clock_out:${clockIn.id}`,
+    });
+    if (created.ok && !created.duplicate) {
+      await processEvent(created.id);
+      produced++;
+    }
   }
   return produced;
 }

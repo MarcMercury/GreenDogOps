@@ -8,6 +8,8 @@ import { addDays, isIsoDate, todayInWorkTz } from "@/lib/worklist/dates";
 import { localToInstant } from "@/lib/timeclock/local-time";
 import { TIME_CLOCK_TZ } from "@/lib/timeclock/server";
 import { isPunchType, PUNCH_LABELS } from "@/lib/timeclock/state";
+import { runInBackground } from "@/lib/notify/emit";
+import { notifyCorrectionDecided, notifyPunchAdded, notifyPunchReviewed } from "@/lib/notify/events/timeclock";
 
 // Approver actions (go-live plan D9: Owner, Admin, Executive, HR / Manager).
 // The database functions are atomic and idempotent; this layer checks the
@@ -45,6 +47,8 @@ function notOwnTime(current: CurrentUser, personId: string): ApproverResult | nu
     ? { ok: false, error: "You can't approve or change your own time. Ask another approver." }
     : null;
 }
+
+const reviewerName = (current: CurrentUser) => current.appUser.full_name || current.email;
 
 function refresh() {
   revalidatePath("/schedule/time-clock");
@@ -88,6 +92,15 @@ export async function reviewOffsitePunch(
     summary: decision === "approved" ? "Approved an off-site punch" : "Rejected an off-site punch (voided)",
     metadata: { person_id: punch.person_id, note: note || null },
   });
+  runInBackground(() =>
+    notifyPunchReviewed({
+      punchId,
+      decision,
+      note: note?.trim() || null,
+      reviewerName: reviewerName(gate.current),
+      actorUserId: gate.current.appUser.id,
+    }),
+  );
   refresh();
   return { ok: true, message: decision === "approved" ? "Approved." : "Rejected — the punch no longer counts." };
 }
@@ -148,6 +161,15 @@ export async function decideCorrection(
       replace_adjustment_id: replaceAdjustmentId,
     },
   });
+  runInBackground(() =>
+    notifyCorrectionDecided({
+      requestId,
+      decision,
+      note: note?.trim() || null,
+      reviewerName: reviewerName(gate.current),
+      actorUserId: gate.current.appUser.id,
+    }),
+  );
   refresh();
   return { ok: true, message: decision === "approved" ? "Approved — the timecard is updated." : "Denied." };
 }
@@ -203,6 +225,8 @@ export async function addMissingPunch(formData: FormData): Promise<ApproverResul
     summary: `Added a missing ${PUNCH_LABELS[punchType].toLowerCase()} punch`,
     metadata: { person_id: personId, work_date: workDate, punched_at: instant.toISOString(), reason },
   });
+  const adjustmentId = row.id as string;
+  runInBackground(() => notifyPunchAdded(adjustmentId, gate.current.appUser.id));
   refresh();
   return { ok: true, message: `${PUNCH_LABELS[punchType]} added.` };
 }
