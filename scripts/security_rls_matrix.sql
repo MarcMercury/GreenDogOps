@@ -24,6 +24,7 @@ declare
   failures  text[] := '{}';
   hr_full   boolean;
   cand_edit boolean;
+  cand_read boolean;
   -- Resource documents (0235)
   v_doc_public uuid;
   v_doc_staff  uuid;
@@ -70,6 +71,8 @@ begin
     values (v_other);
   insert into greendogops.person_document (person_id, title, storage_path)
     values (v_self, 'rls', 'rls/self'), (v_other, 'rls', 'rls/other'), (v_cand, 'rls', 'rls/cand');
+  insert into greendogops.profile_transition_log (person_id, event_type, detail)
+    values (v_cand, 'rls-test', 'rls candidate history');
   insert into greendogops.person_employment (person_id, current_rate, hire_date)
     values (v_other, 99, '2020-01-01'), (v_self, 55, '2021-01-01')
     on conflict (person_id) do update set current_rate = excluded.current_rate;
@@ -88,6 +91,8 @@ begin
     execute format('update greendogops.app_user set role = %L where id = %L', v_role, v_uid);
     hr_full := v_role in ('owner', 'admin', 'executive', 'manager');
     cand_edit := v_role <> 'staff';
+    -- Staff have no Recruiting module by default (0237).
+    cand_read := v_role <> 'staff';
     row_res := '{}'::jsonb;
 
     execute 'set local role authenticated';
@@ -110,7 +115,11 @@ begin
 
     select count(*) into v_n from greendogops.person_document where person_id = v_cand and storage_path = 'rls/cand';
     row_res := row_res || jsonb_build_object('read_candidate_doc', v_n);
-    if v_n <> 1 then failures := failures || format('%s read_candidate_doc=%s', v_role, v_n); end if;
+    if (v_n > 0) <> cand_read then failures := failures || format('%s read_candidate_doc=%s', v_role, v_n); end if;
+
+    select count(*) into v_n from greendogops.profile_transition_log where person_id = v_cand and event_type = 'rls-test';
+    row_res := row_res || jsonb_build_object('read_candidate_history', v_n);
+    if (v_n > 0) <> cand_read then failures := failures || format('%s read_candidate_history=%s', v_role, v_n); end if;
 
     -- Compensation is never readable through the API role.
     begin
@@ -243,6 +252,23 @@ begin
   select count(*) into v_n from greendogops.person_document where person_id = v_cand and storage_path = 'rls/cand';
   r := r || jsonb_build_object('staff_ats_off_read_candidate_doc', v_n);
   if v_n <> 0 then failures := failures || 'staff with ats=false still reads candidate docs'::text; end if;
+
+  execute 'reset role';
+  update greendogops.app_user set role = 'staff', module_access = '{"ats": true}'::jsonb where id = v_uid;
+  execute 'set local role authenticated';
+  select count(*) into v_n from greendogops.person_document where person_id = v_cand and storage_path = 'rls/cand';
+  r := r || jsonb_build_object('staff_ats_on_read_candidate_doc', v_n);
+  if v_n <> 1 then failures := failures || 'staff with ats=true cannot read candidate docs'::text; end if;
+  select count(*) into v_n from greendogops.profile_transition_log where person_id = v_cand and event_type = 'rls-test';
+  r := r || jsonb_build_object('staff_ats_on_read_candidate_history', v_n);
+  if v_n <> 1 then failures := failures || 'staff with ats=true cannot read candidate history'::text; end if;
+
+  execute 'reset role';
+  update greendogops.app_user set role = 'schedule_admin', module_access = '{"ats": false}'::jsonb where id = v_uid;
+  execute 'set local role authenticated';
+  select count(*) into v_n from greendogops.person_document where person_id = v_cand and storage_path = 'rls/cand';
+  r := r || jsonb_build_object('sched_admin_ats_off_read_candidate_doc', v_n);
+  if v_n <> 0 then failures := failures || 'schedule_admin with ats=false still reads candidate docs'::text; end if;
 
   execute 'reset role';
   update greendogops.app_user set role = 'manager', module_access = '{"hr": false}'::jsonb where id = v_uid;

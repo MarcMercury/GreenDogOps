@@ -5,9 +5,9 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P1 — Safety net
 
-### Mirror Staff's Recruiting default in the `ats_read` RLS predicate
-- **Why:** since 2026-10-13 Staff have no `ats` module by default (`STAFF_MODULES`), but `ats_read` in migration `0227` treats Recruiting as on unless `module_access.ats = false`. A Staff user calling PostgREST directly with their own token can still read candidates' `person_document` rows and `profile_transition_log`. The app itself no longer shows them (`personDocumentAccess` follows `canAccessModule`).
-- **Scope:** new migration redefining the `hr_file_read` policies on `person_document` and `profile_transition_log` with `ats_read` = override if set, else `role <> 'staff'`; regenerate the baseline; run `scripts/security_rls_matrix.sql` on staging; `rls_audit()` zero rows. Production DDL — needs the owner's authorization.
+### Apply 0237 (Staff Recruiting default in `ats_read`) to production
+- **Why:** written and verified on staging 2026-10-13 (RLS matrix FAIL before → PASS after, `rls_audit()` 0 rows, local `verify_baseline.sh` OK). Until it runs on production, a Staff user calling PostgREST directly can still read candidates' `person_document` rows and `profile_transition_log`; the app already hides them.
+- **Scope:** `scripts/supabase-sql.sh -f supabase/migrations/0237_staff_recruiting_default.sql` on production, then `rls_audit()` = 0 rows and compare the two `hr_file_read` policy md5s with staging. Needs the owner's authorization. Remove this entry when done.
 - **Risk:** low (tightening only; 5 active Staff, none with overrides as of 2026-10-13).
 
 ### Staff self-service: own schedule, PTO requests, time clock

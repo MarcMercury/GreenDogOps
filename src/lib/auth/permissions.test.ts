@@ -72,10 +72,9 @@ describe("seesPrivateHrFields", () => {
   });
 });
 
-// The RLS predicates in migration 0227 (hr_edit / ats_read / ats_edit)
-// copy these defaults; this pins them so a change here is noticed there.
-// Known gap: ats_read still defaults Recruiting to on for Staff
-// (docs/agent/improvements.md).
+// The RLS predicates in migrations 0227 (hr_edit / ats_edit) and 0237
+// (ats_read) copy these defaults; this pins them so a change here is noticed
+// there. scripts/security_rls_matrix.sql checks the SQL side on staging.
 describe("module defaults mirrored in SQL", () => {
   it("keeps admin-only modules admin-only", () => {
     for (const key of ["admin", "reporting", "emp_reporting"] as const) {

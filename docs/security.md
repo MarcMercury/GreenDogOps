@@ -27,7 +27,7 @@ hiding UI.
 | Data | Who can read through the API role | Who can write |
 | --- | --- | --- |
 | Reviews, disciplinary actions, assets, onboarding, compliance, licenses | HR roles (owner, admin, executive, manager) — or the employee's own record | HR roles with HR edit rights |
-| Employee documents, stage history | Same; candidates (`prospect`/`applicant`) also visible to anyone with Recruiting access | HR roles; Recruiting editors for candidates |
+| Employee documents, stage history | Same; candidates (`prospect`/`applicant`) also visible to anyone with Recruiting access (not Staff unless granted — `0237`) | HR roles; Recruiting editors for candidates |
 | Compensation columns on `person_employment` | **Nobody** — service role only, after `canViewAllCompensation` or own-record check | Same |
 | `audit_log` | Nobody — service role only (Admin → Audit) | Append-only; UPDATE/DELETE/TRUNCATE blocked by trigger |
 
@@ -37,10 +37,10 @@ App-level behaviour that matches it:
   (`canOpenHrProfile`); their own profile is unchanged. Should a Staff user be
   given another profile view, it still shows only General + Shift Eligibility,
   without personal fields (DOB, home ZIP/phones, notes, PTO, separation details).
-- Staff have no Recruiting access by default, so the app no longer shows them
-  candidates' documents or stage history. The `ats_read` RLS predicate in
-  `0227` still treats Recruiting as on unless overridden, so the API floor is
-  looser than the app for Staff here (see `docs/agent/improvements.md`).
+- Staff have no Recruiting access by default, so neither the app nor the API
+  shows them candidates' documents or stage history: migration `0237` makes
+  the `ats_read` predicate default to "role is not Staff" when no per-user
+  `ats` override is set (it defaulted to on in `0227`).
 - Schedule/Marketing Admins keep the restricted profile view they already had;
   the hidden datasets are no longer sent to the browser at all.
 - HR-file mutations require an HR role (`ensureCanEditSensitiveHr`).

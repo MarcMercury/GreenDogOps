@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Green Dog Ops — baseline schema for the greendogops schema
--- Generated 2026-10-12 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
+-- Generated 2026-10-13 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
 -- ----------------------------------------------------------------------------
 -- A single, internally consistent snapshot: every table, view, materialised
 -- view, function, trigger, enum, index, grant, revoke and RLS policy.
@@ -18941,7 +18941,7 @@ CREATE POLICY hr_file_read ON greendogops.person_document FOR SELECT TO authenti
   WHERE ((u.id = auth.uid()) AND u.is_active AND
         CASE
             WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
-            ELSE true
+            ELSE ((u.role)::text <> 'staff'::text)
         END)))))));
 
 
@@ -18993,7 +18993,7 @@ CREATE POLICY hr_file_read ON greendogops.profile_transition_log FOR SELECT TO a
   WHERE ((u.id = auth.uid()) AND u.is_active AND
         CASE
             WHEN (jsonb_typeof((u.module_access -> 'ats'::text)) = 'boolean'::text) THEN ((u.module_access ->> 'ats'::text))::boolean
-            ELSE true
+            ELSE ((u.role)::text <> 'staff'::text)
         END)))))));
 
 
