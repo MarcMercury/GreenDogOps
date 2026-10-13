@@ -33,6 +33,7 @@ export const TRANSITION_EVENT_LABELS: Record<string, string> = {
   score_change: "Score changed",
   rejected: "Rejected",
   rejection_undone: "Rejection undone",
+  merged_duplicate: "Duplicate record merged",
 };
 
 export const STAGE_LABELS: Record<string, string> = {

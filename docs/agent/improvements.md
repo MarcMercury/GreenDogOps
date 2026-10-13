@@ -47,8 +47,13 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
-### 41 ATS applicants sit at stage "Hired" without being hired
-- **Why:** the stage dropdown offers "Hired", but only **Hire → Employee** (`hireCandidate`) flips `person.status`, so those people stay in the ATS and never reach HR. On 2026-10-13, 41 `status = 'applicant'` people had `stage = 'Hired'`, all from the 2026-06-16 legacy import (sources: OLD MVS grid 14, Indeed 11, Personal Referral 8, none 6, GD Website 2); none matched a roster person by email or name.
+### Applicant intake creates a second person for someone already on the roster
+- **Why:** `findRecentDuplicate` in `src/lib/ats/applicant-intake.ts` only matches `status = 'applicant'`, so an employee or former employee who applies (or is re-imported) becomes a duplicate ATS candidate. 2026-10-13: 14 such duplicates were merged with `scripts/merge_ats_roster_duplicates.sql` (incl. one Indeed application that arrived the same day for an employee hired 09-22). The Indeed CSV importer already matches roster people (`update_roster`); the Gmail/website path does not.
+- **Scope:** in intake, when the email (or, with no email, the exact full name **and** the Indeed relay/job) matches an employee/former, attach the application to that person (`application_history` + notes) instead of creating an applicant — owner decision on whether a former employee reapplying should re-enter the ATS as a rehire. Until then, run the script's FIND query periodically.
+- **Risk:** medium — name-only matches can be a different person with a common name.
+
+### 35 ATS applicants sit at stage "Hired" without being hired
+- **Why:** the stage dropdown offers "Hired", but only **Hire → Employee** (`hireCandidate`) flips `person.status`, so those people stay in the ATS and never reach HR. 2026-10-13: 41 such applicants, all from the 2026-06-16 legacy import; 6 turned out to be roster duplicates (matched by phone) and were merged the same day, leaving 35 with no roster match by email, phone or name.
 - **Scope:** owner decision per person (hire → creates a login, mark former, or re-stage) — production data change, needs authorization. Then either drop "Hired" from the hand-picked stage options or have picking it prompt for Hire → Employee.
 - **Risk:** low for the UI guard; the cleanup touches production records.
 

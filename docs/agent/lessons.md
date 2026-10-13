@@ -14,6 +14,17 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Tooling & environment
 
+### Merging two `person` rows: re-point by foreign key, and mind the email trigger
+- **Problem:** the same human existed twice (an ATS applicant and a roster employee); 36 tables reference `person`, several 1:1.
+- **Fix:** `scripts/merge_ats_roster_duplicates.sql` — one `DO` block that discovers the FKs to `person` from `pg_constraint`, re-points the many-side rows, merges `person_recruiting` field by field, fills blanks on the survivor, logs `merged_duplicate`, deletes the applicant. It refuses pairs that aren't applicant → employee/former or where the applicant has roster-only 1:1 rows.
+- **Gotchas (verified):** `person_after_change` copies `person.email` onto `app_user.email`, so never fill an email on someone with a login; `time_punch*` are append-only (row triggers), so only `UPDATE` tables that actually hold rows; `person_recruiting.application_history` is NOT NULL and `application` defaults to `{}` (treat `{}` as blank); in PL/pgSQL `text[] || 'literal'` fails with "malformed array literal" — use `array_append`. Storage objects stay under the old person-id prefix, which is fine (read only via signed URLs).
+- **Prevent:** back up first (full JSON of the applicant and every child row), rehearse on staging with synthetic rows, then re-run the FIND query (expect 0).
+- **Evidence:** 2026-10-13 — staging rehearsal incl. a forced failure on pair 2 that rolled back pair 1; production: 14 applicants merged into 12 roster people, 0 orphans, 0 remaining matches.
+
+### `scripts/supabase-sql.sh` runs a multi-statement payload as one transaction
+- **Fact:** a batch of statements sent in one `-q`/`-f` call commits or rolls back together — a NOT NULL failure in the third `insert` left none of the earlier inserts behind.
+- **Evidence:** 2026-10-13 on staging (`yzxcuiwklrmxarzjzukr`).
+
 ### Two agent sessions at once: memory runs out and `generate_baseline.sh` runs collide
 - **Problem:** 2026-10-13: scoped `tsc` and `eslint` were killed (exit 143) and a baseline regeneration was cut off, leaving `supabase/baseline/0001_schema.sql` at 15 lines; another session's `generate_baseline.sh` then rewrote both baseline files (including `0003` seed drift) while this session's tests were reading them.
 - **Root cause:** a second VS Code server + agent started at 19:50 (`free -m`: ~850 MB available of 8 GB). The baseline script writes its output files in place.
