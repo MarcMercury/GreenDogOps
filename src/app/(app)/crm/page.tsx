@@ -12,6 +12,7 @@ import {
   type ContactType,
 } from "@/lib/crm/types";
 import { PageHeader } from "../_components/ui";
+import { isPromotedStudent } from "@/lib/crm/promotion";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function CrmHubPage() {
 
   const [orgRes, contactRes] = await Promise.all([
     supabase.from("crm_organization").select("org_type, subtype, category"),
-    supabase.from("crm_contact").select("contact_type"),
+    supabase.from("crm_contact").select("contact_type, promoted_person_id"),
   ]);
 
   const influencerRes = await supabase
@@ -61,7 +62,9 @@ export default async function CrmHubPage() {
     orgCounts[o.org_type] = (orgCounts[o.org_type] ?? 0) + 1;
   }
   const contactCounts: Record<string, number> = {};
-  for (const c of (contactRes.data ?? []) as { contact_type: ContactType }[]) {
+  for (const c of (contactRes.data ?? []) as { contact_type: ContactType; promoted_person_id: string | null }[]) {
+    // Promoted students have moved to Recruiting and are off the Student CRM list.
+    if (c.contact_type === "student" && isPromotedStudent(c)) continue;
     contactCounts[c.contact_type] = (contactCounts[c.contact_type] ?? 0) + 1;
   }
 

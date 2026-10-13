@@ -33,11 +33,17 @@ there, or that need a sharper statement for agents.
 | Who may act from a Slack button | `authorizeAction()` (`src/lib/notify/interaction-rules.ts`) + the same write path Ops uses (e.g. only a still-`requested` PTO row changes) | apply a Slack action without mapping the Slack id to a connected, active person and login |
 | Who may view a Resources document, and who it is for | `canViewDocument` / `isDocumentRecipient` (`src/lib/resources/access.ts`), mirrored by the `resource_document_read` policy and `search_resource_content()` in 0235 | filter documents with only one side, or list documents through the service role without `canViewDocument` (the library and doc pages do) |
 | That an employee acknowledged a policy | `resource_document_signature` (one row per user per version, tied to an immutable `resource_document_version`) | copy it into `person_document`, or let a signed document be deleted (archive it) |
+| Which list a person is on (Student CRM → ATS → HR) | Student CRM hides `crm_contact` rows with `promoted_person_id` (`isPromotedStudent`, `src/lib/crm/promotion.ts`); the ATS lists only `person.status = 'applicant'`; HR lists employees. The source record is kept and linked, never deleted | delete the student/candidate record on promotion, or show promoted/hired people on the earlier list |
 | A converted policy's content | the native row in Ops (`content_json`); Google Docs are no longer the source | re-run `ingest_google_docs.mjs` expecting it to refresh them (it now skips native rows) |
 
 ## Decisions log
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
+
+### 2026-10-13 — Promotions move people between lists and carry their data
+- **Context:** owner expectation: a student promoted to Recruiting leaves the Student CRM, a hired candidate leaves the ATS, and everything known about them follows. The ATS already listed only applicants, but the Student CRM still listed promoted students and a hire left the HR job title/clinic blank.
+- **Decision:** the Student CRM list and hub count skip promoted students (the record stays, reachable from the ATS/HR profile; the Promoted stat still counts them). Student → ATS mapping lives in `studentToApplicant` (`src/lib/crm/promotion.ts`): contact details, application date, education (degree/school/grad year) and every program fact the ATS has no column for in `status_notes`. ATS → HR seeding lives in `employmentSeedOnHire` (`src/lib/ats/hire.ts`): hire date, job, offer title (linked job, else applied-for title — never a student's program name) and home + preferred clinic matched from the job location; HR-entered values always win. The link/status writes that move someone now throw instead of failing silently.
+- **Consequences:** pinned by `src/lib/crm/promotion.test.ts` and `src/lib/ats/hire.test.ts`. Setting the ATS stage to "Hired" by hand does **not** move anyone — see improvements.md.
 
 ### 2026-10-13 — My Time: self-service time clock, schedule and timecard (migration 0240)
 - **Context:** Gate 1 items 4–5. Ops becomes the payroll time clock; every employee (Staff) punches from their own device. Staff are read-only in the database (0239).

@@ -199,9 +199,11 @@ from users who cannot access it.
   in-person interview or shadow is scheduled.
   Resumes and PDF candidate lists are parsed with an LLM; a Gmail poller and an
   Indeed export feed candidates in. Hiring promotes the record into HR with a
-  single status change.
+  single status change (it leaves the ATS; job, title, clinic and hire date are
+  filled in on the employment record).
 - **Student CRM** (`/crm/student`) — students, externs, and GDU participants;
-  promotable into the ATS, with documents migrated along with the profile.
+  promotable into the ATS, with their details and documents carried over.
+  Promoted students leave the Student CRM list (the record stays linked).
 
 **Marketing**
 - **Marketing Mgmt** (`/marketing`) — campaigns, assets, resource passwords.

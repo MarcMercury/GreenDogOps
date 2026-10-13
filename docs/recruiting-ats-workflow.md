@@ -242,7 +242,7 @@ The interviewer owns the candidate until they hand them off or the process ends.
    `New Lead → Contacted → Phone Screen → Interview → Shadow Day → Offer → Hired`
    Closing stages: **Hold for Future · No Response · Passed · Declined**
 4. **Set follow-ups.** Use **Tasks** and **Follow-up date** for next steps, and log calls/texts/emails in **Activity**.
-5. **Hire.** When the offer is accepted, a manager clicks **Hire → Employee**. This sets the stage to **Hired**, moves the candidate to the HR roster with their job, and posts 🎉 in their Slack thread. If this hire fills the job's last opening, you're asked whether to close the job as **Filled**.
+5. **Hire.** When the offer is accepted, a manager clicks **Hire → Employee**. This sets the stage to **Hired**, moves the candidate off the ATS and onto the HR roster — their job, job title, clinic and hire date are filled in (anything HR already entered is kept) — and posts 🎉 in their Slack thread. If this hire fills the job's last opening, you're asked whether to close the job as **Filled**.
 
 **Changing a candidate's job:** Use the **Job** dropdown in the All Candidates list or at the top of the candidate profile. Only open jobs are offered. Every change is recorded on the **History** tab and posted in the candidate's Slack thread.
 

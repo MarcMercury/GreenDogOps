@@ -13,8 +13,9 @@ export function PromoteToRecruiting({ contactId }: { contactId: string }) {
           Move into the Recruiting CRM
         </p>
         <p className="text-xs text-blue-700">
-          Creates a candidate record from this student. Their details carry over
-          and this student record stays linked.
+          Creates a candidate record from this student. Their details and
+          documents carry over, and they move off the Student CRM list (this
+          record stays linked).
         </p>
       </div>
       <button

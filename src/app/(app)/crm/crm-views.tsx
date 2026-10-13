@@ -499,6 +499,7 @@ export function ContactListView({
   variant,
   addHref,
   canEdit = false,
+  promotedCount,
 }: {
   contacts: CrmContact[];
   title: string;
@@ -507,6 +508,8 @@ export function ContactListView({
   variant: "student" | "ce";
   addHref?: string;
   canEdit?: boolean;
+  /** Contacts already promoted off this list (counted, not shown). */
+  promotedCount?: number;
 }) {
   const router = useRouter();
   const [importing, setImporting] = useState(false);
@@ -676,7 +679,7 @@ export function ContactListView({
   const stats: Stat[] = useMemo(() => {
     const total = contacts.length;
     const active = contacts.filter((c) => (c.status ?? "").toLowerCase() === "active").length;
-    const promoted = contacts.filter((c) => c.promoted_person_id).length;
+    const promoted = promotedCount ?? contacts.filter((c) => c.promoted_person_id).length;
     if (variant === "student") {
       const eligible = contacts.filter((c) => c.eligible_for_employment).length;
       const programs = new Set(contacts.map((c) => c.program_name).filter(Boolean)).size;
@@ -701,7 +704,7 @@ export function ContactListView({
       { label: "Lead Sources", value: String(leadSources), tone: "text-amber-600" },
       { label: "Promoted", value: String(promoted), tone: "text-violet-700" },
     ];
-  }, [contacts, variant]);
+  }, [contacts, variant, promotedCount]);
 
   return (
     <div className={`mx-auto ${variant === "student" ? "max-w-none" : "max-w-7xl"}`}>

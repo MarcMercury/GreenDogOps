@@ -3,6 +3,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import type { CrmContact } from "@/lib/crm/types";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditGeneral } from "@/lib/auth/permissions";
+import { isPromotedStudent } from "@/lib/crm/promotion";
 import { ContactListView } from "../crm-views";
 
 export const dynamic = "force-dynamic";
@@ -31,9 +32,15 @@ export default async function StudentCrmPage() {
     );
   }
 
+  // Promoted students have moved to Recruiting; their CRM record stays as
+  // history (reachable from the ATS/HR profile) but leaves this list.
+  const all = (data ?? []) as CrmContact[];
+  const students = all.filter((c) => !isPromotedStudent(c));
+
   return (
     <ContactListView
-      contacts={(data ?? []) as CrmContact[]}
+      contacts={students}
+      promotedCount={all.length - students.length}
       title="Student CRM"
       description="Students, externs, and program participants"
       icon="🎓"

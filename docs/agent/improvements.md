@@ -47,6 +47,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
+### 41 ATS applicants sit at stage "Hired" without being hired
+- **Why:** the stage dropdown offers "Hired", but only **Hire → Employee** (`hireCandidate`) flips `person.status`, so those people stay in the ATS and never reach HR. On 2026-10-13, 41 `status = 'applicant'` people had `stage = 'Hired'`, all from the 2026-06-16 legacy import (sources: OLD MVS grid 14, Indeed 11, Personal Referral 8, none 6, GD Website 2); none matched a roster person by email or name.
+- **Scope:** owner decision per person (hire → creates a login, mark former, or re-stage) — production data change, needs authorization. Then either drop "Hired" from the hand-picked stage options or have picking it prompt for Hire → Employee.
+- **Risk:** low for the UI guard; the cleanup touches production records.
+
 ### Slack notifications — remaining work (0229 linking, 0230 DM pipeline, 0236 notification engine)
 - **Done in 0236:** person-keyed recipients (employees without a login get DMs), the event registry + rules engine (`src/lib/notify/registry.ts`, `engine.ts`), role/editor/department/person/location routing with permission checks at fan-out and again at send time, channel posts, batching/coalescing, escalation, Block Kit cards with Approve/Deny/Acknowledge/Mark complete (`/api/slack/interactions`), card updates in place, Admin ▸ Notifications (rules, preview, test, delivery log, Slack action log), and events for schedule published / shift changed / coverage / missed shift / PTO requested–decided–modified / marketing created–updated–staffed–canceled–reminder.
 - **Still to do:**

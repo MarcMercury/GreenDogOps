@@ -45,6 +45,13 @@ import {
 } from "@/lib/ats/types";
 import { jobRecruitingFields, matchOpenJob } from "@/lib/ats/jobs";
 import { cleanScore } from "@/lib/ats/rejections";
+import {
+  employmentSeedOnHire,
+  type ClinicLocation,
+  type EmploymentOnFile,
+  type HireJob,
+  type RecruitingOnHire,
+} from "@/lib/ats/hire";
 import { buildInterviewSummary } from "@/lib/ats/slack-summary";
 import {
   normalizeJobLocation,
@@ -927,35 +934,52 @@ export async function hireCandidate(personId: string, closeJob = false): Promise
     .maybeSingle();
   const fromStage = (before as { status?: string } | null)?.status ?? null;
 
-  await supabase
+  // The status flip is what moves them off the ATS list and onto the roster.
+  const { error: statusErr } = await supabase
     .from("person")
     .update({ status: "employee", status_changed_at: new Date().toISOString() })
     .eq("id", personId);
-  // Seed the employment row and stamp a hire date if one isn't set yet.
+  if (statusErr) {
+    throw new Error(`Could not hire the candidate: ${statusErr.message}`);
+  }
+  // Seed the employment row from the recruiting record: hire date, the job they
+  // were recruited for, its title and clinic. HR-entered values always win.
   const today = new Date().toISOString().slice(0, 10);
-  // The position they were recruited for carries over unless HR already set one.
-  const [{ data: emp }, { data: recRow }] = await Promise.all([
+  const [{ data: emp }, { data: recRow }, { data: locRows }] = await Promise.all([
     supabase
       .from("person_employment")
-      .select("hire_date, position_id")
+      .select("hire_date, position_id, offer_title, location_id, preferred_location_id")
       .eq("person_id", personId)
       .maybeSingle(),
     supabase
       .from("person_recruiting")
-      .select("target_position_id, stage")
+      .select("pipeline, target_position_id, target_title, job_location, stage")
       .eq("person_id", personId)
       .maybeSingle(),
+    supabase.from("location").select("id, name, display_name").eq("is_active", true),
   ]);
-  const existing = emp as { hire_date?: string | null; position_id?: string | null } | null;
-  const recruiting = recRow as { target_position_id?: string | null; stage?: string | null } | null;
-  await supabase.from("person_employment").upsert(
-    {
-      person_id: personId,
-      hire_date: existing?.hire_date ?? today,
-      position_id: existing?.position_id ?? recruiting?.target_position_id ?? null,
-    },
+  const recruiting = recRow as (RecruitingOnHire & { stage?: string | null }) | null;
+  const { data: jobRow } = recruiting?.target_position_id
+    ? await supabase
+        .from("position")
+        .select("title, location")
+        .eq("id", recruiting.target_position_id)
+        .maybeSingle()
+    : { data: null };
+  const { error: empErr } = await supabase.from("person_employment").upsert(
+    employmentSeedOnHire({
+      personId,
+      today,
+      existing: emp as EmploymentOnFile | null,
+      recruiting,
+      job: jobRow as HireJob | null,
+      locations: (locRows ?? []) as ClinicLocation[],
+    }),
     { onConflict: "person_id" },
   );
+  if (empErr) {
+    throw new Error(`Hired the candidate but could not fill in their employment record: ${empErr.message}`);
+  }
 
   // ATS graduation to roster should create an auth login when eligible.
   await ensureAuthUserForPerson(personId);

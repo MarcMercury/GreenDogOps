@@ -17,6 +17,11 @@ import {
   type ContactType,
 } from "@/lib/crm/types";
 import { formatPhoneNumber } from "@/lib/shared/phone";
+import {
+  PROMOTABLE_STUDENT_COLUMNS,
+  studentToApplicant,
+  type PromotableStudent,
+} from "@/lib/crm/promotion";
 
 function str(v: FormDataEntryValue | null): string | null {
   if (v == null) return null;
@@ -1116,16 +1121,9 @@ export async function promoteStudentToRecruiting(
 
   const { data: contact, error: loadErr } = await supabase
     .from("crm_contact")
-    .select(
-      `id, contact_type, first_name, last_name, full_name, email, phone,
-       status, organization, program_type, program_name, cohort, school,
-       location, mentor, coordinator, start_date, end_date, hours_completed,
-       hours_required, eligible_for_employment, opportunity_type, lead_source,
-       supervising_dvm, weekday_schedule, doc_recommendation, hire_interest,
-       grad_year, stipend, notes, promoted_person_id`,
-    )
+    .select(PROMOTABLE_STUDENT_COLUMNS)
     .eq("id", contactId)
-    .maybeSingle();
+    .maybeSingle<PromotableStudent & { promoted_person_id: string | null }>();
 
   if (loadErr || !contact) {
     redirect(`/crm/contact/${contactId}`);
@@ -1136,25 +1134,12 @@ export async function promoteStudentToRecruiting(
     redirect(`/ats/${contact.promoted_person_id}`);
   }
 
-  const fullName =
-    contact.full_name ||
-    [contact.first_name, contact.last_name].filter(Boolean).join(" ") ||
-    null;
+  const seed = studentToApplicant(contact, new Date().toISOString().slice(0, 10));
 
   // Create the unified person as an applicant, linked back to the student.
   const { data: person, error: personErr } = await supabase
     .from("person")
-    .insert({
-      status: "applicant",
-      first_name: contact.first_name,
-      last_name: contact.last_name,
-      full_name: fullName,
-      email: contact.email,
-      phone_mobile: formatPhoneNumber(contact.phone),
-      notes: contact.notes,
-      opportunity_type: contact.opportunity_type,
-      source_contact_id: contact.id,
-    })
+    .insert(seed.person)
     .select("id")
     .single();
 
@@ -1162,44 +1147,25 @@ export async function promoteStudentToRecruiting(
     redirect(`/crm/contact/${contactId}`);
   }
 
-  // Capture the student's program details in the recruiting record.
-  const statusLines = [
-    contact.school ? `School: ${contact.school}` : null,
-    contact.program_name ? `Program: ${contact.program_name}` : null,
-    contact.cohort ? `Cohort: ${contact.cohort}` : null,
-    contact.grad_year ? `Grad year: ${contact.grad_year}` : null,
-    contact.supervising_dvm ? `DVM: ${contact.supervising_dvm}` : null,
-    contact.weekday_schedule ? `Schedule: ${contact.weekday_schedule}` : null,
-    contact.doc_recommendation ? `Doc rec: ${contact.doc_recommendation}` : null,
-    contact.hire_interest ? `Hire interest: ${contact.hire_interest}` : null,
-    contact.stipend ? `Stipend: ${contact.stipend}` : null,
-    contact.hours_completed != null || contact.hours_required != null
-      ? `Hours: ${contact.hours_completed ?? "?"}/${contact.hours_required ?? "?"}`
-      : null,
-    contact.eligible_for_employment ? "Eligible for employment" : null,
-  ].filter(Boolean);
-
-  await supabase.from("person_recruiting").upsert(
-    {
-      person_id: person.id,
-      pipeline: "Students",
-      stage: "New Lead",
-      source: contact.lead_source ?? "Student CRM",
-      target_title: contact.program_name,
-      status_notes:
-        statusLines.length > 0 ? `From Student CRM — ${statusLines.join(" · ")}` : "Promoted from Student CRM",
-      notes: contact.notes,
-    },
-    { onConflict: "person_id" },
-  );
-
-  await supabase
+  // Link first: it is what moves the student off the Student CRM list and makes
+  // re-promoting idempotent, so a failure must not pass silently.
+  const { error: linkErr } = await supabase
     .from("crm_contact")
     .update({
       promoted_person_id: person.id,
       promoted_at: new Date().toISOString(),
     })
     .eq("id", contact.id);
+  if (linkErr) {
+    throw new Error(`Created candidate ${person.id} but could not link the student record: ${linkErr.message}`);
+  }
+
+  const { error: recErr } = await supabase
+    .from("person_recruiting")
+    .upsert({ person_id: person.id, ...seed.recruiting }, { onConflict: "person_id" });
+  if (recErr) {
+    throw new Error(`Promoted the student (candidate ${person.id}) but could not fill in their recruiting record: ${recErr.message}`);
+  }
 
   // Copy the student's uploaded documents onto the new person so they travel
   // with the profile into the ATS (and then the Roster once hired). Files move
