@@ -175,6 +175,12 @@ from users who cannot access it.
   edits. Pending items also show on approvers' Dashboard, and the notification
   engine sends them (and the employee's outcomes, and missing clock-outs) as
   Slack DMs / in-app notices — group "Time clock" in Admin ▸ Notifications.
+  **Scheduling ▸ Time & Attendance** (`/schedule/time-attendance`) grades each
+  published shift live from punches (on time / late / missed / left early …,
+  per clinic, with the punch-match rate). From the date set in Admin ▸
+  Settings ▸ Time clock ("Use time-clock attendance from", blank = off) the
+  grades also count for unmarked shifts in reliability and the grid, and
+  missed / late alerts are sent; a manager's mark always wins.
 - **Resources** (`/resources`) — the library of company policies, protocols and
   documents, grouped by category. Policies are **native Ops documents**
   (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),

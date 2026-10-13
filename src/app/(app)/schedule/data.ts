@@ -32,6 +32,8 @@ import type {
   ApptReportTrack,
 } from "@/lib/schedule/types";
 import type { GuideWithCapacity } from "@/lib/planning/resolve";
+import { systemAttendance } from "@/lib/timeclock/attendance-server";
+import { addDays, todayInWorkTz } from "@/lib/worklist/dates";
 import type { PlanningGuide, PlanningCapacityRule } from "@/lib/planning/types";
 
 const PERSON_COLS =
@@ -311,6 +313,22 @@ export interface WeekData {
   closures: SchedClosure[];
   events: SchedEvent[];
   assignments: SchedAssignment[];
+  /** Time-clock grades for unmarked shifts, by assignment id (empty until attendance goes live). */
+  systemAttendance?: Record<string, AttendanceStatus>;
+}
+
+/** Time-clock grades never break a page: on failure, fall back to manual marks only. */
+async function safeSystemAttendance(
+  from: string,
+  to: string,
+  opts: { personIds?: string[] } = {},
+): Promise<Record<string, AttendanceStatus>> {
+  try {
+    return await systemAttendance(from, to, { ...opts, today: todayInWorkTz() });
+  } catch (e) {
+    console.error("[attendance] time-clock grades unavailable:", e instanceof Error ? e.message : e);
+    return {};
+  }
 }
 
 /** Full grid payload for a week that has already been loaded.
@@ -337,6 +355,11 @@ export async function getWeekDataFor(week: SchedWeek): Promise<WeekData> {
     supabase.from("sched_assignment").select("*").eq("week_id", week.id),
   ]);
 
+  const graded =
+    week.status === "published" && !week.is_template
+      ? await safeSystemAttendance(week.week_start, addDays(week.week_start, 6))
+      : {};
+
   return {
     week,
     lines: (lineRes.data ?? []) as SchedWeekLine[],
@@ -344,6 +367,7 @@ export async function getWeekDataFor(week: SchedWeek): Promise<WeekData> {
     closures: (closeRes.data ?? []) as SchedClosure[],
     events: (eventRes.data ?? []) as SchedEvent[],
     assignments: (asgRes.data ?? []) as SchedAssignment[],
+    systemAttendance: graded,
   };
 }
 
@@ -424,6 +448,8 @@ async function fetchAllAssignmentsForWeeks(
 export async function getAttendanceData(): Promise<{
   rows: AttendanceRow[];
   people: SchedPerson[];
+  /** Time-clock grades for unmarked shifts, by assignment id. */
+  system: Record<string, AttendanceStatus>;
 }> {
   const supabase = await createClient();
   const [weekRes, peopleRes] = await Promise.all([
@@ -462,7 +488,8 @@ export async function getAttendanceData(): Promise<{
     };
   });
 
-  return { rows, people };
+  const system = await safeSystemAttendance("1970-01-01", todayInWorkTz());
+  return { rows, people, system };
 }
 
 function emptyTally(): ReliabilityTally {
@@ -519,6 +546,7 @@ export async function getPersonAttendance(
 
   const weekById = new Map(weeks.map((w) => [w.id, w]));
   const locById = new Map(locs.map((l) => [l.id, l]));
+  const system = await safeSystemAttendance("1970-01-01", todayInWorkTz(), { personIds: [personId] });
 
   const tally = emptyTally();
   const records: PersonAttendanceRecord[] = [];
@@ -526,7 +554,7 @@ export async function getPersonAttendance(
   for (const a of asgRes.data as SchedAssignment[]) {
     const week = weekById.get(a.week_id);
     const published = week?.status === "published";
-    const status = effectiveAttendance(a, published) as AttendanceStatus;
+    const status = effectiveAttendance(a, published, undefined, system[a.id]) as AttendanceStatus;
     tally[status] += 1;
     if (status !== "scheduled") tally.total += 1;
 

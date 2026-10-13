@@ -224,7 +224,7 @@ const DEFINITIONS: EventDefinition[] = [
     group: "Scheduling",
     label: "Missed shift recorded",
     description:
-      "A scheduled shift is marked No-show. Goes to managers at that location. (Automatic detection from time-clock punches comes with the attendance evaluator.)",
+      "A scheduled shift is marked No-show, or (once time-clock attendance is on) nobody clocked in within the missed window. Goes to managers at that location.",
     module: "schedule",
     sensitivity: "module",
     allowChannel: true,
@@ -399,6 +399,30 @@ const DEFINITIONS: EventDefinition[] = [
             href: "/schedule/time-clock",
             linkLabel: "Open the time clock queue",
           },
+  },
+
+  {
+    type: "attendance.late",
+    group: "Scheduling",
+    label: "Late clock-in",
+    description:
+      "Someone clocked in after the late threshold (time-clock attendance must be on). Goes to managers at that location; batched.",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: true,
+    severity: "info",
+    defaults: rule({ audience: { roles: ["manager"], sameLocation: true }, batchMinutes: 30 }),
+    render: (p) => ({
+      emoji: "🕘",
+      title: `${str(p, "personName")} clocked in ${str(p, "minutesLate")} min late · ${str(p, "dateLabel")}`,
+      fields: [
+        { label: "Shift", value: str(p, "shift") },
+        { label: "Clocked in", value: str(p, "clockIn") },
+        { label: "Location", value: str(p, "locationName") },
+      ].filter((f) => f.value),
+      href: "/schedule/time-attendance",
+      linkLabel: "Open Time & Attendance",
+    }),
   },
 
   // ------------------------------------------------------------------ Time off

@@ -151,6 +151,8 @@ export function ScheduleGrid({
   const router = useRouter();
   const [, start] = useTransition();
   const { week, lines, weekLocations, closures, events, assignments } = weekData;
+  // Time-clock grades for unmarked shifts (empty until attendance goes live).
+  const systemAttendance = weekData.systemAttendance ?? {};
   const isPublished = week.status === "published";
   // Locations available + which are toggled on.
   const planLocationIds = useMemo(
@@ -869,6 +871,7 @@ export function ScheduleGrid({
                               conflictReasons={conflictReasons}
                               weekTimeOff={weekTimeOff}
                               isPublished={isPublished}
+                              systemAttendance={systemAttendance}
                               canEdit={canEdit}
                               onAdd={() =>
                                 setPicker({
@@ -1076,6 +1079,7 @@ export function ScheduleGrid({
       {attMenu && (
         <AttendanceMenu
           assignment={assignments.find((a) => a.id === attMenu)!}
+          systemStatus={systemAttendance[attMenu]}
           person={personById.get(
             assignments.find((a) => a.id === attMenu)!.person_id,
           )}
@@ -1689,6 +1693,7 @@ function Cell({
   conflictReasons,
   weekTimeOff,
   isPublished,
+  systemAttendance,
   canEdit,
   onAdd,
   onRemove,
@@ -1704,6 +1709,7 @@ function Cell({
   conflictReasons: Map<string, string[]>;
   weekTimeOff: WeekTimeOff;
   isPublished: boolean;
+  systemAttendance: Record<string, AttendanceStatus>;
   canEdit: boolean;
   onAdd: () => void;
   onRemove: (id: string) => void;
@@ -1766,7 +1772,7 @@ function Cell({
       <div className="flex min-h-[34px] flex-col gap-0.5 p-1">
         {visible.map((a) => {
           const p = personById.get(a.person_id);
-          const att = effectiveAttendance(a, isPublished);
+          const att = effectiveAttendance(a, isPublished, undefined, systemAttendance[a.id]);
           const marked = att !== "scheduled";
           const conflicts = conflictReasons.get(a.id);
           const hasConflict = !!conflicts?.length;
@@ -2256,11 +2262,14 @@ function EligiblePicker({
 
 function AttendanceMenu({
   assignment,
+  systemStatus,
   person,
   onClose,
   onMark,
 }: {
   assignment: SchedAssignment;
+  /** Time-clock grade when attendance is live and the shift is unmarked. */
+  systemStatus?: AttendanceStatus;
   person: SchedPerson | undefined;
   onClose: () => void;
   onMark: (status: AttendanceStatus, note: string | null) => void;
@@ -2277,8 +2286,11 @@ function AttendanceMenu({
             <p className="text-xs text-slate-500">
               Current:{" "}
               <span className="font-medium">
-                {ATTENDANCE_LABELS[effectiveAttendance(assignment, true)]}
+                {ATTENDANCE_LABELS[effectiveAttendance(assignment, true, undefined, systemStatus)]}
               </span>
+              {systemStatus && assignment.attendance_status === "scheduled" ? (
+                <span className="text-slate-400"> · from the time clock</span>
+              ) : null}
             </p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">

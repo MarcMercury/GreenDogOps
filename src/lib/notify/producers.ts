@@ -10,6 +10,10 @@ import "server-only";
 //                     from 10am Pacific.
 //   unpublished week  from 10am Pacific: the current week, or (from Thursday)
 //                     next week, isn't published → schedulers, once a day.
+//   attendance        once time-clock attendance is on (Admin ▸ Settings):
+//                     a shift with no clock-in by the missed window →
+//                     attendance.missed_shift; a late clock-in → attendance.late.
+//                     Unmarked shifts only; once per shift.
 //   missing clock-out someone still clocked in an hour after their shift
 //                     ended (12 h with no shift) → them + clinic managers,
 //                     once per clock-in.
@@ -29,6 +33,8 @@ import { isClockOutOverdue, MISSING_CLOCK_OUT_MAX_AGE_DAYS } from "@/lib/timeclo
 import { formatShiftTime } from "@/lib/timeclock/shift-match";
 import { publishUrgency, PUBLISH_REMINDER_HOUR, weeksNeedingReminder } from "@/lib/schedule/publish";
 import { SCHEDULE_STATUS_LABELS, type ScheduleStatus } from "@/lib/schedule/types";
+import { attendanceLiveFor } from "@/lib/timeclock/attendance";
+import { getAttendanceSettings, gradeRange } from "@/lib/timeclock/attendance-server";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -74,6 +80,11 @@ export async function runProducers(now = new Date()): Promise<number> {
     console.error("[notify] unpublished reminders:", err instanceof Error ? err.message : err);
   }
   try {
+    produced += await produceAttendanceAlerts(now);
+  } catch (err) {
+    console.error("[notify] attendance alerts:", err instanceof Error ? err.message : err);
+  }
+  try {
     produced += await produceMissingClockOuts(now);
   } catch (err) {
     console.error("[notify] missing clock-outs:", err instanceof Error ? err.message : err);
@@ -117,6 +128,66 @@ async function produceUnpublishedReminders(now: Date): Promise<number> {
     if (created.ok && !created.duplicate) {
       await processEvent(created.id);
       produced++;
+    }
+  }
+  return produced;
+}
+
+async function produceAttendanceAlerts(now: Date): Promise<number> {
+  const settings = await getAttendanceSettings();
+  if (!settings.liveFrom) return 0;
+  const today = todayInWorkTz(now);
+  const from = addDays(today, -1);
+  if (today < settings.liveFrom) return 0;
+  const { graded } = await gradeRange(from < settings.liveFrom ? settings.liveFrom : from, today, { now, settings });
+
+  let produced = 0;
+  const emit = async (input: Parameters<typeof createEvent>[0]) => {
+    const created = await createEvent(input);
+    if (created.ok && !created.duplicate) {
+      await processEvent(created.id);
+      produced++;
+    }
+  };
+  for (const g of graded) {
+    const s = g.shift;
+    if (s.manual_status !== "scheduled" || !attendanceLiveFor(s.work_date, settings.liveFrom)) continue;
+    const shift = s.start_time ? `${formatShiftTime(s.start_time)}${s.end_time ? ` – ${formatShiftTime(s.end_time)}` : ""}` : "";
+    if (g.state === "missed") {
+      // Same key as a manager marking No-show, so the alert never goes twice.
+      await emit({
+        type: "attendance.missed_shift",
+        subjectType: "sched_assignment",
+        subjectId: s.assignment_id,
+        subjectPersonIds: [s.person_id],
+        locationId: s.location_id,
+        payload: {
+          weekId: s.week_id,
+          personName: s.person_name,
+          statusLabel: "Missed (no clock-in)",
+          dateLabel: shortDateLabel(s.work_date),
+          locationName: s.location_name,
+          note: shift ? `Shift ${shift}` : "",
+        },
+        dedupeKey: `attendance.missed_shift:${s.assignment_id}`,
+      });
+    } else if (g.lateLevel && g.session?.clock_in && g.lateMinutes !== null) {
+      await emit({
+        type: "attendance.late",
+        subjectType: "sched_assignment",
+        subjectId: s.assignment_id,
+        subjectPersonIds: [s.person_id],
+        locationId: s.location_id,
+        payload: {
+          personName: s.person_name,
+          minutesLate: String(g.lateMinutes),
+          dateLabel: shortDateLabel(s.work_date),
+          shift,
+          clockIn: formatClockTime(g.session.clock_in, WORK_TZ),
+          locationName: s.location_name,
+        },
+        dedupeKey: `attendance.late:${s.assignment_id}`,
+      });
     }
   }
   return produced;

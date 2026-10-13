@@ -76,7 +76,7 @@ export async function resolveSelf(appUser: AppUser): Promise<SelfResolution> {
 }
 
 const RAW_PUNCH_COLUMNS =
-  "id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check, needs_approval";
+  "id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check, needs_approval, assignment_id";
 const ADJUSTMENT_COLUMNS =
   "id, action, punch_type, punched_at, work_date, voids_punch_id, voids_adjustment_id, reason, created_at";
 

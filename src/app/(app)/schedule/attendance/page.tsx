@@ -26,7 +26,7 @@ function emptyTally(): ReliabilityTally {
 }
 
 export default async function AttendancePage() {
-  const { rows } = await getAttendanceData();
+  const { rows, system } = await getAttendanceData();
 
   // Roll up per employee.
   const byPerson = new Map<string, EmployeeAttendance>();
@@ -45,6 +45,8 @@ export default async function AttendancePage() {
     const status = effectiveAttendance(
       row.assignment,
       row.published,
+      undefined,
+      system[row.assignment.id],
     ) as AttendanceStatus;
     entry.tally[status] += 1;
     if (status !== "scheduled") entry.tally.total += 1;
@@ -65,7 +67,7 @@ export default async function AttendancePage() {
       <PageHeader
         eyebrow="Scheduling"
         title="Attendance & Reliability"
-        description="Reliability is rolled up from attendance marked on published schedules, including auto-absences."
+        description="Reliability is rolled up from attendance on published schedules: manager marks (including auto-absences), and — once time-clock attendance is turned on in Admin ▸ Settings — the time clock for unmarked shifts."
       />
       <AttendanceTable employees={employees} />
     </div>

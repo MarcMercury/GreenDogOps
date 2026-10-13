@@ -71,6 +71,14 @@ export const SAMPLE_PAYLOADS: Record<string, Record<string, unknown>> = {
     shift: "8:00 AM – 5:00 PM",
     locationName: "Venice",
   },
+  "attendance.late": {
+    personName: "Jane Smith",
+    minutesLate: "12",
+    dateLabel: "Tue, Oct 20",
+    shift: "8:00 AM – 5:00 PM",
+    clockIn: "8:12 AM",
+    locationName: "Venice",
+  },
   "pto.requested": {
     personName: "Jane Smith",
     dates: "Thu, Nov 12 – Sat, Nov 14",

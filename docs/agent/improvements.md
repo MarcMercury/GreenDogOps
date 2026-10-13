@@ -47,6 +47,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
+### Reliability v2 and attendance overrides from Time & Attendance
+- **Why:** automatic attendance (item 16) maps grades onto the existing statuses and the old weight table (late = 0.6 regardless of minutes). The plan's v2 deducts by severity (late 1–10 min = −1 … no-call/no-show = −15, reduced when excused) over a rolling window. Managers also override only from the grid's attendance menu, not from the dashboard row.
+- **Scope:** a pure `reliabilityV2(grades, window)` with tests, used by the attendance page and HR profile once `timeclock.attendance_from` is set; an "Excuse / mark" action on Time & Attendance rows that writes the same `markAttendance` path.
+- **Risk:** medium (changes everyone's score — agree the deductions with HR first).
+
 ### Time clock: scheduled clinic health check with alerts
 - **Why:** Admin ▸ Locations shows each clinic's health (no network match in 24 h with punches → IP changed; off-site spike), but only when someone opens the page. An ISP IP change would silently send a clinic's punches to off-site approval.
 - **Scope:** a daily cron (agent + `agent_run`, `cron-run.ts`) that runs `clinicHealth` for every clinic and emits a notification event (e.g. `timeclock.clinic_health`) to Owners/Admins when a clinic turns amber/red. Reuse `getTimeClockAdminData`.

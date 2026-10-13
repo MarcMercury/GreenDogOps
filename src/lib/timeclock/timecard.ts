@@ -178,6 +178,8 @@ export function decimalHours(msValue: number): string {
 export interface RawPunch extends Punch {
   location_check: string;
   needs_approval: boolean;
+  /** The shift the clock-in was matched to (later punches inherit it). */
+  assignment_id?: string | null;
 }
 
 export interface PunchAdjustment {
@@ -207,6 +209,7 @@ export interface EffectivePunch extends Punch {
   location_check: string;
   /** Why an approver added it. */
   reason: string | null;
+  assignment_id: string | null;
 }
 
 /**
@@ -236,6 +239,7 @@ export function effectivePunches(
       approval: !p.needs_approval ? "none" : decided.get(p.id) === "approved" ? "approved" : "pending",
       location_check: p.location_check,
       reason: null,
+      assignment_id: p.assignment_id ?? null,
     }));
   const fromAdds: EffectivePunch[] = adjustments
     .filter((a) => a.action === "add" && a.punch_type && a.punched_at && !voidedAdds.has(a.id))
@@ -250,6 +254,7 @@ export function effectivePunches(
       approval: "none",
       location_check: "not_checked",
       reason: a.reason,
+      assignment_id: null,
     }));
   return [...fromPunches, ...fromAdds].sort((a, b) => ms(a.punched_at) - ms(b.punched_at));
 }
