@@ -1,6 +1,6 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { getAuthState, touchLastSeen } from "@/lib/auth/session";
+import { getAuthState, SELF_SERVICE_HOME, touchLastSeen } from "@/lib/auth/session";
 import {
   accessibleModules,
   canAccessModule,
@@ -27,6 +27,8 @@ export default async function AppLayout({
     // Signed in but not a GDO user (auth.users is shared with EmployeeGMGDD).
     return <NoAccess email={state.email} />;
   }
+  // Employees use the self-service portal only.
+  if (state.kind === "self_service") redirect(SELF_SERVICE_HOME);
   const current = state.current;
 
   // During a "View as" preview the viewer is still the real Owner.

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser, type SessionOptions } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import {
@@ -116,8 +117,8 @@ export async function syncBoardFromAgenda(
   const current = await ensureBoardUser();
   if (!current) return { ok: false, error: "Not authorized." };
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("medical_board_seed", {
+  // SECURITY DEFINER: service role only (0238), gated by ensureBoardUser.
+  const { data, error } = await createAdminClient().rpc("medical_board_seed", {
     p_location: locationId,
     p_date: date,
     p_board_type: boardType,
@@ -157,8 +158,8 @@ export async function patchBoardCard(
   const current = await ensureBoardUser();
   if (!current) return { ok: false, error: "Not authorized." };
 
-  const supabase = await createClient();
-  const { error } = await supabase.rpc("medical_board_patch_card", {
+  // SECURITY DEFINER: service role only (0238), gated by ensureBoardUser.
+  const { error } = await createAdminClient().rpc("medical_board_patch_card", {
     p_row: rowId,
     p_patch: patch,
     p_actor: current.email,

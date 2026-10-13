@@ -50,6 +50,21 @@ App-level behaviour that matches it:
   list/upload/delete) applies `personDocumentAccess()` — the same rule as the
   `person_document` RLS policy — because the service role bypasses RLS.
 
+### Employee (self-service) logins (migration `0238`)
+
+Every active employee gets a login for the self-service portal only. The
+boundary is enforced at both layers:
+
+| Layer | Rule |
+| --- | --- |
+| Postgres | `is_gdo_user()` is false for `role = 'employee'`, so every table policy refuses them; only `app_user_read_self` applies (their own row). No `SECURITY DEFINER` function is executable by `authenticated` (`rls_audit()` reports any that are). |
+| App session | `getRealAuthState()` returns `self_service`, not `ok`. `requireUser` redirects to `/me`; `getCurrentUser` returns null; the edit gates refuse. Both layouts redirect to `/me`, which lives outside the `(app)` group so it cannot loop. |
+| Permissions | `canAccessModule` ignores per-user overrides for Employees (no modules); own-record-only like Staff elsewhere; Ask Ziggy `general` tier; not previewable with View as. |
+
+Self-service pages and actions must load and write with the service role and
+act only on `current.appUser.person_id`. The RLS matrix probes all of the
+above (`employee_*` keys).
+
 ### Testing the boundary ("Can Employee A see Employee B?")
 
 Run on **staging** after any change to roles, RLS or HR tables:

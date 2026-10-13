@@ -59,7 +59,8 @@ CREATE TYPE greendogops.app_role AS ENUM (
     'viewer',
     'schedule_admin',
     'executive',
-    'marketing_admin'
+    'marketing_admin',
+    'employee'
 );
 
 
@@ -1497,6 +1498,7 @@ CREATE FUNCTION greendogops.is_gdo_user() RETURNS boolean
     from greendogops.app_user
     where id = auth.uid()
       and is_active
+      and role::text <> 'employee'
   )
   and (
     coalesce(auth.jwt() ->> 'aal', 'aal1') = 'aal2'
@@ -1514,7 +1516,7 @@ $$;
 -- Name: FUNCTION is_gdo_user(); Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON FUNCTION greendogops.is_gdo_user() IS 'True when the current JWT belongs to an active greendogops.app_user. auth.users is shared with EmployeeGMGDD, so a session alone is NOT sufficient.';
+COMMENT ON FUNCTION greendogops.is_gdo_user() IS 'True when the current JWT belongs to an active greendogops.app_user whose role is not employee (and who has passed two-step verification if enrolled). auth.users is shared with EmployeeGMGDD, so a session alone is NOT sufficient. Employee (self-service) logins are served only through service-role Server Actions.';
 
 
 --
@@ -3525,6 +3527,23 @@ CREATE FUNCTION greendogops.rls_audit() RETURNS TABLE(object_name text, object_k
 
   union all
 
+  -- 0238: a SECURITY DEFINER function bypasses RLS, so `authenticated` (which
+  -- includes EmployeeGMGDD and employee logins) must not call one directly.
+  -- The two policy helpers are the only exceptions.
+  select format('%I(%s)', p.proname, pg_get_function_identity_arguments(p.oid)),
+         'function',
+         'SECURITY DEFINER executable by authenticated'
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'greendogops'
+    and p.prokind in ('f', 'p')
+    and p.prosecdef
+    and p.prorettype not in ('trigger'::regtype, 'event_trigger'::regtype)
+    and p.proname not in ('is_gdo_user', 'is_gdo_admin')
+    and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+
+  union all
+
   select format('%I(%s)', p.proname, pg_get_function_identity_arguments(p.oid)),
          'function',
          'search_path not pinned'
@@ -3542,7 +3561,7 @@ $$;
 -- Name: FUNCTION rls_audit(); Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON FUNCTION greendogops.rls_audit() IS 'Returns every greendogops object still reachable by anon/authenticated without RLS. Expect zero rows.';
+COMMENT ON FUNCTION greendogops.rls_audit() IS 'Returns every greendogops object still reachable by anon/authenticated without RLS (including SECURITY DEFINER functions authenticated can call). Expect zero rows.';
 
 
 --
@@ -10612,7 +10631,7 @@ CREATE TABLE greendogops.resource_document (
     CONSTRAINT resource_document_content_json_object CHECK (((content_json IS NULL) OR (jsonb_typeof(content_json) = 'object'::text))),
     CONSTRAINT resource_document_has_target CHECK (((storage_path IS NOT NULL) OR (source_url IS NOT NULL) OR (content_json IS NOT NULL))),
     CONSTRAINT resource_document_signature_baseline CHECK (((NOT require_signature) OR ((signature_from_version IS NOT NULL) AND ((signature_from_version >= 1) AND (signature_from_version <= GREATEST(current_version, 1)))))),
-    CONSTRAINT resource_document_visible_roles_valid CHECK (((visible_roles IS NULL) OR (visible_roles <@ ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text, 'schedule_admin'::text, 'marketing_admin'::text, 'staff'::text])))
+    CONSTRAINT resource_document_visible_roles_valid CHECK (((visible_roles IS NULL) OR (visible_roles <@ ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text, 'schedule_admin'::text, 'marketing_admin'::text, 'staff'::text, 'employee'::text])))
 );
 
 
@@ -19892,7 +19911,6 @@ GRANT ALL ON FUNCTION greendogops.agent_run_rollup() TO service_role;
 
 REVOKE ALL ON FUNCTION greendogops.apply_sheet_dvm_assignments(payload jsonb) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.apply_sheet_dvm_assignments(payload jsonb) TO service_role;
-GRANT ALL ON FUNCTION greendogops.apply_sheet_dvm_assignments(payload jsonb) TO authenticated;
 
 
 --
@@ -19901,7 +19919,6 @@ GRANT ALL ON FUNCTION greendogops.apply_sheet_dvm_assignments(payload jsonb) TO 
 
 REVOKE ALL ON FUNCTION greendogops.apply_student_grid(payload jsonb) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.apply_student_grid(payload jsonb) TO service_role;
-GRANT ALL ON FUNCTION greendogops.apply_student_grid(payload jsonb) TO authenticated;
 
 
 --
@@ -19909,7 +19926,6 @@ GRANT ALL ON FUNCTION greendogops.apply_student_grid(payload jsonb) TO authentic
 --
 
 REVOKE ALL ON FUNCTION greendogops.appointment_review(p_start date, p_end date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.appointment_review(p_start date, p_end date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.appointment_review(p_start date, p_end date) TO service_role;
 
 
@@ -19918,7 +19934,6 @@ GRANT ALL ON FUNCTION greendogops.appointment_review(p_start date, p_end date) T
 --
 
 REVOKE ALL ON FUNCTION greendogops.appointment_review_by_type(p_start date, p_end date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.appointment_review_by_type(p_start date, p_end date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.appointment_review_by_type(p_start date, p_end date) TO service_role;
 
 
@@ -19927,7 +19942,6 @@ GRANT ALL ON FUNCTION greendogops.appointment_review_by_type(p_start date, p_end
 --
 
 REVOKE ALL ON FUNCTION greendogops.appointment_review_detail(p_location uuid, p_department uuid, p_start date, p_end date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.appointment_review_detail(p_location uuid, p_department uuid, p_start date, p_end date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.appointment_review_detail(p_location uuid, p_department uuid, p_start date, p_end date) TO service_role;
 
 
@@ -19936,7 +19950,6 @@ GRANT ALL ON FUNCTION greendogops.appointment_review_detail(p_location uuid, p_d
 --
 
 REVOKE ALL ON FUNCTION greendogops.appointment_review_type_detail(p_location uuid, p_start date, p_end date, p_type text) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.appointment_review_type_detail(p_location uuid, p_start date, p_end date, p_type text) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.appointment_review_type_detail(p_location uuid, p_start date, p_end date, p_type text) TO service_role;
 
 
@@ -19945,7 +19958,6 @@ GRANT ALL ON FUNCTION greendogops.appointment_review_type_detail(p_location uuid
 --
 
 REVOKE ALL ON FUNCTION greendogops.appt_type_observed_counts() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.appt_type_observed_counts() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.appt_type_observed_counts() TO service_role;
 
 
@@ -19962,7 +19974,6 @@ GRANT ALL ON FUNCTION greendogops.audit_log_append_only() TO service_role;
 --
 
 REVOKE ALL ON FUNCTION greendogops.bizdev_appt_type_daily_avg() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.bizdev_appt_type_daily_avg() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.bizdev_appt_type_daily_avg() TO service_role;
 
 
@@ -19971,7 +19982,6 @@ GRANT ALL ON FUNCTION greendogops.bizdev_appt_type_daily_avg() TO service_role;
 --
 
 REVOKE ALL ON FUNCTION greendogops.bizdev_appt_type_value() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.bizdev_appt_type_value() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.bizdev_appt_type_value() TO service_role;
 
 
@@ -19980,7 +19990,6 @@ GRANT ALL ON FUNCTION greendogops.bizdev_appt_type_value() TO service_role;
 --
 
 REVOKE ALL ON FUNCTION greendogops.bizdev_hour_demand() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.bizdev_hour_demand() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.bizdev_hour_demand() TO service_role;
 
 
@@ -19989,7 +19998,6 @@ GRANT ALL ON FUNCTION greendogops.bizdev_hour_demand() TO service_role;
 --
 
 REVOKE ALL ON FUNCTION greendogops.bizdev_refresh_metrics() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.bizdev_refresh_metrics() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.bizdev_refresh_metrics() TO service_role;
 
 
@@ -19998,7 +20006,6 @@ GRANT ALL ON FUNCTION greendogops.bizdev_refresh_metrics() TO service_role;
 --
 
 REVOKE ALL ON FUNCTION greendogops.bizdev_weekday_factor() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.bizdev_weekday_factor() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.bizdev_weekday_factor() TO service_role;
 
 
@@ -20015,7 +20022,6 @@ GRANT ALL ON FUNCTION greendogops.book_interview_slot(p_invite_id uuid, p_date d
 --
 
 REVOKE ALL ON FUNCTION greendogops.cancelled_appointments_by_type(p_start date, p_end date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.cancelled_appointments_by_type(p_start date, p_end date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.cancelled_appointments_by_type(p_start date, p_end date) TO service_role;
 
 
@@ -20024,7 +20030,6 @@ GRANT ALL ON FUNCTION greendogops.cancelled_appointments_by_type(p_start date, p
 --
 
 REVOKE ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_start date, p_end date, p_type text) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_start date, p_end date, p_type text) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.cancelled_appointments_detail(p_location uuid, p_start date, p_end date, p_type text) TO service_role;
 
 
@@ -20175,7 +20180,6 @@ GRANT ALL ON FUNCTION greendogops.med_species_short(p text) TO authenticated;
 --
 
 REVOKE ALL ON FUNCTION greendogops.medical_board_coverage(p_date date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.medical_board_coverage(p_date date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.medical_board_coverage(p_date date) TO service_role;
 
 
@@ -20185,7 +20189,6 @@ GRANT ALL ON FUNCTION greendogops.medical_board_coverage(p_date date) TO service
 
 REVOKE ALL ON FUNCTION greendogops.medical_board_fill_staff(p_date date) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.medical_board_fill_staff(p_date date) TO service_role;
-GRANT ALL ON FUNCTION greendogops.medical_board_fill_staff(p_date date) TO authenticated;
 
 
 --
@@ -20193,7 +20196,6 @@ GRANT ALL ON FUNCTION greendogops.medical_board_fill_staff(p_date date) TO authe
 --
 
 REVOKE ALL ON FUNCTION greendogops.medical_board_patch_card(p_row uuid, p_patch jsonb, p_actor text) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.medical_board_patch_card(p_row uuid, p_patch jsonb, p_actor text) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.medical_board_patch_card(p_row uuid, p_patch jsonb, p_actor text) TO service_role;
 
 
@@ -20202,7 +20204,6 @@ GRANT ALL ON FUNCTION greendogops.medical_board_patch_card(p_row uuid, p_patch j
 --
 
 REVOKE ALL ON FUNCTION greendogops.medical_board_register_missing_types() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.medical_board_register_missing_types() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.medical_board_register_missing_types() TO service_role;
 
 
@@ -20211,7 +20212,6 @@ GRANT ALL ON FUNCTION greendogops.medical_board_register_missing_types() TO serv
 --
 
 REVOKE ALL ON FUNCTION greendogops.medical_board_rollover(p_today date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.medical_board_rollover(p_today date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.medical_board_rollover(p_today date) TO service_role;
 
 
@@ -20238,7 +20238,6 @@ GRANT ALL ON FUNCTION greendogops.medical_board_row_set_key() TO authenticated;
 --
 
 REVOKE ALL ON FUNCTION greendogops.medical_board_seed(p_location uuid, p_date date, p_board_type text) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.medical_board_seed(p_location uuid, p_date date, p_board_type text) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.medical_board_seed(p_location uuid, p_date date, p_board_type text) TO service_role;
 
 
@@ -20352,7 +20351,6 @@ GRANT ALL ON FUNCTION greendogops.person_before_change() TO authenticated;
 --
 
 REVOKE ALL ON FUNCTION greendogops.process_reporting_refresh() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.process_reporting_refresh() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.process_reporting_refresh() TO service_role;
 
 
@@ -20386,7 +20384,6 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.referral_partners TO serv
 --
 
 REVOKE ALL ON FUNCTION greendogops.recalculate_partner_metrics() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.recalculate_partner_metrics() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.recalculate_partner_metrics() TO service_role;
 
 
@@ -20395,7 +20392,6 @@ GRANT ALL ON FUNCTION greendogops.recalculate_partner_metrics() TO service_role;
 --
 
 REVOKE ALL ON FUNCTION greendogops.recompute_referral_partner_totals() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.recompute_referral_partner_totals() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.recompute_referral_partner_totals() TO service_role;
 
 
@@ -20412,7 +20408,6 @@ GRANT ALL ON FUNCTION greendogops.record_qr_scan(p_token text) TO service_role;
 --
 
 REVOKE ALL ON FUNCTION greendogops.refresh_ezyvet_reporting() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.refresh_ezyvet_reporting() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.refresh_ezyvet_reporting() TO service_role;
 
 
@@ -20449,7 +20444,6 @@ GRANT ALL ON FUNCTION greendogops.register_referral_qr_code() TO authenticated;
 
 REVOKE ALL ON FUNCTION greendogops.report_location_daily(p_start date, p_end date) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.report_location_daily(p_start date, p_end date) TO service_role;
-GRANT ALL ON FUNCTION greendogops.report_location_daily(p_start date, p_end date) TO authenticated;
 
 
 --
@@ -20457,7 +20451,6 @@ GRANT ALL ON FUNCTION greendogops.report_location_daily(p_start date, p_end date
 --
 
 REVOKE ALL ON FUNCTION greendogops.report_location_period(p_start date, p_end date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.report_location_period(p_start date, p_end date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.report_location_period(p_start date, p_end date) TO service_role;
 
 
@@ -20466,7 +20459,6 @@ GRANT ALL ON FUNCTION greendogops.report_location_period(p_start date, p_end dat
 --
 
 REVOKE ALL ON FUNCTION greendogops.request_reporting_refresh() FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.request_reporting_refresh() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.request_reporting_refresh() TO service_role;
 
 
@@ -20575,7 +20567,6 @@ GRANT ALL ON FUNCTION greendogops.trg_request_reporting_refresh() TO authenticat
 --
 
 REVOKE ALL ON FUNCTION greendogops.undo_referral_upload(p_upload_id uuid) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.undo_referral_upload(p_upload_id uuid) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.undo_referral_upload(p_upload_id uuid) TO service_role;
 
 
@@ -20584,7 +20575,6 @@ GRANT ALL ON FUNCTION greendogops.undo_referral_upload(p_upload_id uuid) TO serv
 --
 
 REVOKE ALL ON FUNCTION greendogops.upcoming_appointment_demand(p_start date, p_end date) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.upcoming_appointment_demand(p_start date, p_end date) TO authenticated;
 GRANT ALL ON FUNCTION greendogops.upcoming_appointment_demand(p_start date, p_end date) TO service_role;
 
 

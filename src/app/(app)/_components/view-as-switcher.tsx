@@ -23,6 +23,7 @@ const ROLE_CHIP: Record<AppRole, string> = {
   schedule_admin: "bg-violet-50 text-violet-700",
   marketing_admin: "bg-pink-50 text-pink-700",
   staff: "bg-slate-100 text-slate-600",
+  employee: "bg-amber-50 text-amber-700",
 };
 
 function RoleChip({ role }: { role: AppRole }) {

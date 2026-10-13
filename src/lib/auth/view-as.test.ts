@@ -59,6 +59,7 @@ describe("parseViewAsTarget", () => {
       `user:${UUID}x`,
       "role:superuser",
       "role:owner",
+      "role:employee",
       "group:staff",
     ]) {
       expect(parseViewAsTarget(bad)).toBeNull();

@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { requireUser, requireAdmin, recordAudit, type SessionOptions } from "@/lib/auth/session";
 import { canEditModule, canAccessModule } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createClient } from "@/lib/supabase/server";
 import { buildReportingDigest } from "@/lib/reporting/digest";
 import { buildUpcomingApptsReport } from "@/lib/reporting/upcoming";
 import { postSlackMessage } from "@/lib/slack/client";
@@ -171,8 +170,8 @@ export async function getAppointmentReview(
   if (spanDays > 92) {
     return { ok: false, error: "Please choose a range of 92 days or fewer." };
   }
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("appointment_review", {
+  // SECURITY DEFINER report: service role only (0238), gated above.
+  const { data, error } = await createAdminClient().rpc("appointment_review", {
     p_start: start,
     p_end: end,
   });
@@ -203,8 +202,8 @@ export async function getAppointmentReviewDetail(
   let start = startDate;
   let end = endDate;
   if (start > end) [start, end] = [end, start];
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("appointment_review_detail", {
+  // SECURITY DEFINER report: service role only (0238), gated above.
+  const { data, error } = await createAdminClient().rpc("appointment_review_detail", {
     p_location: locationId,
     p_department: departmentId,
     p_start: start,
@@ -237,8 +236,8 @@ export async function getAppointmentReviewByType(
   if (spanDays > 92) {
     return { ok: false, error: "Please choose a range of 92 days or fewer." };
   }
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("appointment_review_by_type", {
+  // SECURITY DEFINER report: service role only (0238), gated above.
+  const { data, error } = await createAdminClient().rpc("appointment_review_by_type", {
     p_start: start,
     p_end: end,
   });
@@ -272,8 +271,8 @@ export async function getAppointmentReviewTypeDetail(
   let start = startDate;
   let end = endDate;
   if (start > end) [start, end] = [end, start];
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("appointment_review_type_detail", {
+  // SECURITY DEFINER report: service role only (0238), gated above.
+  const { data, error } = await createAdminClient().rpc("appointment_review_type_detail", {
     p_location: locationId,
     p_start: start,
     p_end: end,
@@ -306,8 +305,8 @@ export async function getCancelledAppointmentsByType(
   if (spanDays > 92) {
     return { ok: false, error: "Please choose a range of 92 days or fewer." };
   }
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("cancelled_appointments_by_type", {
+  // SECURITY DEFINER report: service role only (0238), gated above.
+  const { data, error } = await createAdminClient().rpc("cancelled_appointments_by_type", {
     p_start: start,
     p_end: end,
   });
@@ -340,8 +339,8 @@ export async function getCancelledAppointmentDetail(
   let start = startDate;
   let end = endDate;
   if (start > end) [start, end] = [end, start];
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("cancelled_appointments_detail", {
+  // SECURITY DEFINER report: service role only (0238), gated above.
+  const { data, error } = await createAdminClient().rpc("cancelled_appointments_detail", {
     p_location: locationId,
     p_start: start,
     p_end: end,

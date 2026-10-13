@@ -86,7 +86,11 @@ Everything else is still gated in server code (`canAccessModule` /
   PUBLIC/anon on all routines because `SECURITY DEFINER` functions run as the
   owner and never consult RLS. A browser-callable `smart_query` would leak
   salaries to any logged-in user. (Role checks inside policies are inline
-  subqueries on `app_user`, not helper RPCs.)
+  subqueries on `app_user`, not helper RPCs.) `0238` revoked the 28 remaining
+  legacy `authenticated` grants on definer functions (reporting, Med Ops
+  boards, referral uploads); the app calls them with the service role after
+  its own module check. Only the policy helpers `is_gdo_user()` /
+  `is_gdo_admin()` stay callable, and `rls_audit()` flags anything else.
 - The service-role key bypasses RLS entirely — server-only, never in a
   `NEXT_PUBLIC_*` variable.
 - Views and materialized views **cannot** enforce RLS, so all of them are
@@ -240,7 +244,7 @@ from users who cannot access it.
 All of it is defined in [src/lib/auth/permissions.ts](src/lib/auth/permissions.ts).
 Because `auth.users` is shared with the other app, **`app_user` is the Green Dog
 Ops allow-list**. Per-user `module_access` overrides always win over role
-defaults, in both directions.
+defaults, in both directions — except for Employees, whose access is fixed.
 
 | Role | Access |
 | --- | --- |
@@ -251,6 +255,7 @@ defaults, in both directions.
 | **Schedule Admin** | Edits every module they can see; no Admin panel, no all-compensation view. |
 | **Marketing Admin** | Same pages as Schedule Admin, but the Operations section (Calendar, Scheduling, Planning) is view-only. |
 | **Staff** | Read-only, and only these modules: Dashboard, Resources, Ask Ziggy, HR / Roster (grid only — they can open their own profile but no one else's), Referral CRM, Rescue/Shelter CRM, Non-Med Partners, and all of Med Ops (Medical Boards, Board Archive, Vendors & Supplies, ezyVet). No Recruiting, Student/CE/Influencer CRMs, Marketing, Calendar, Scheduling or Planning. Sees only their own compensation. |
+| **Employee** | Self-service only (`/me`: own time clock, schedule, timecard, PTO). No Ops module, whatever `module_access` says. The database does not treat them as GDO users (`is_gdo_user()` is false, `0238`), so their token reads nothing but their own `app_user` row; the session state is `self_service`, which every `requireUser` / `getCurrentUser` / edit gate refuses. Self-service code reads and writes with the service role, scoped to the caller's own `person_id`. Not previewable with View as. |
 
 `admin`, `reporting`, and `emp_reporting` are admin-only by default and can be
 granted per user. Staff's modules are an explicit allow-list (`STAFF_MODULES`),
@@ -328,7 +333,7 @@ the RPC runs as `service_role`. Tiers (`scopeForUser`):
 | `full` | Owner, Admin, Executive | everything except the always-blocked private/security tables |
 | `hr` | Manager / HR | as `full`, minus compensation columns |
 | `basic` | Schedule/Marketing Admin, Staff granted Reporting | as `hr`, minus the confidential employee file |
-| `general` | Staff | **allow-list only** (`GENERAL_ALLOWED_TABLES`): patients, vaccinations, appointments, schedule grid and `schedule_roster`, `staff_directory`, boards, calendar, planning, retail prices (`product_catalog`), and ONE client's or patient's charges and spend — but no revenue *reporting* (totals by location, date, doctor), cost/markup, or HR records |
+| `general` | Staff (and Employee, who cannot reach Ask Ziggy) | **allow-list only** (`GENERAL_ALLOWED_TABLES`): patients, vaccinations, appointments, schedule grid and `schedule_roster`, `staff_directory`, boards, calendar, planning, retail prices (`product_catalog`), and ONE client's or patient's charges and spend — but no revenue *reporting* (totals by location, date, doctor), cost/markup, or HR records |
 
 The `general` allow-list is resolved against the live catalog (`withCatalog`),
 so a new table is invisible to Staff until added. Every allowed object must be

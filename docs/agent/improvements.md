@@ -7,8 +7,9 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ### Staff self-service: own schedule, PTO requests, time clock
 - **Why:** the owner wants Staff to reach their own schedule, clock in/out, and request PTO once those exist in Ops. Today Staff have no Scheduling/Calendar module, every time-off write requires HR edit (`saveTimeOff` → `ensureCanEdit("hr")`), and there is no punch data at all.
-- **Scope:** own-only pages (e.g. `/me/schedule`, `/me/time-off`, `/me/clock`) with their own module keys added to `STAFF_MODULES` and `ROUTE_MODULES`, and nav entries; server actions that only ever act on `appUser.person_id`; the time clock per `docs/security.md` (append-only punches, per-punch auth). Do **not** reopen the `schedule` module to Staff for this — it exposes everyone's grid.
+- **Scope:** own-only pages under `/me` (the Employee home since 0238; it already accepts `ok` users too) — schedule, time off, clock. Server actions that only ever act on `appUser.person_id` and accept both `ok` and `self_service` states; the time clock per `docs/security.md` (append-only punches, per-punch auth). Do **not** reopen the `schedule` module to Staff for this — it exposes everyone's grid.
 - **Risk:** medium (new write paths for the lowest role; time-clock records are legally retained).
+- **Related:** Admin ▸ Users still shows module checkboxes for an Employee, although `canAccessModule` ignores them; hide or explain them when provisioning (Gate 1 item 2) lands.
 
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.

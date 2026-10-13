@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import {
   BOARD_TYPES,
   sortByApptTime,
@@ -46,14 +47,15 @@ export async function getBoardLocationBySlug(
 /**
  * Pull the day's appointments from the latest Agenda snapshot onto the board.
  * Insert-only, so it never overwrites the team's edits (see medical_board_seed).
+ * SECURITY DEFINER, so it runs with the service role (0238): callers must have
+ * checked med_boards access first.
  */
 export async function seedBoard(
   locationId: string,
   date: string,
   boardType: BoardTypeKey,
 ): Promise<number> {
-  const supabase = await createClient();
-  const { data, error } = await supabase.rpc("medical_board_seed", {
+  const { data, error } = await createAdminClient().rpc("medical_board_seed", {
     p_location: locationId,
     p_date: date,
     p_board_type: boardType,
@@ -206,10 +208,13 @@ export interface CoverageRow {
   on_board: number;
 }
 
-/** Agenda-vs-board reconciliation for a day, so shortfalls are visible. */
+/**
+ * Agenda-vs-board reconciliation for a day, so shortfalls are visible.
+ * SECURITY DEFINER, so it runs with the service role (0238): callers must have
+ * checked med_boards access first.
+ */
 export async function getBoardCoverage(date: string): Promise<CoverageRow[]> {
-  const supabase = await createClient();
-  const { data } = await supabase.rpc("medical_board_coverage", { p_date: date });
+  const { data } = await createAdminClient().rpc("medical_board_coverage", { p_date: date });
   return (data ?? []) as CoverageRow[];
 }
 

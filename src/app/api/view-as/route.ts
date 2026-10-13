@@ -49,6 +49,7 @@ export async function GET() {
     .select("id, email, full_name, title, role")
     .eq("is_active", true)
     .neq("id", owner.appUser.id)
+    .neq("role", "employee")
     .order("full_name", { ascending: true, nullsFirst: false });
   if (error) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
@@ -117,6 +118,12 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     if (!data || !data.is_active) {
       return NextResponse.json({ ok: false, error: "user not found or inactive" }, { status: 404 });
+    }
+    if (data.role === "employee") {
+      return NextResponse.json(
+        { ok: false, error: "Employee accounts use the self-service portal and cannot be previewed" },
+        { status: 400 },
+      );
     }
     summary = `Viewing as ${data.email} (${data.role})`;
   } else {

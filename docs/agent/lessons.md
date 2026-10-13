@@ -114,6 +114,19 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Database
 
+### `SECURITY DEFINER` functions granted to `authenticated` bypass the whole RLS floor
+- **Problem:** 28 definer functions (appointment review, Med Ops board seed/patch, referral upload undo, refresh helpers) were callable through `/rest/v1/rpc/*` by any signed-in Supabase user, including EmployeeGMGDD-only logins, with no `is_gdo_user()` check. `rls_audit()` returned 0 rows.
+- **Root cause:** a definer function runs as its owner and never consults RLS. 0211 only revoked PUBLIC/anon; the `authenticated` grants were kept because pages called the functions with the user client. `rls_audit()` only checked anon EXECUTE.
+- **Fix:** 0238 revokes `authenticated` on every non-trigger definer function except the policy helpers `is_gdo_user` / `is_gdo_admin`; the app calls them with `createAdminClient()` after its module check. `rls_audit()` now reports "SECURITY DEFINER executable by authenticated".
+- **Prevent:** a new RPC is service-role only (the event trigger already does this). `src/lib/security/baseline-grants.test.ts` fails CI if the baseline grants one. Before revoking, check that no *invoker* function, policy or view calls the function (all nested callers here were definer).
+- **Evidence:** 2026-10-13, read-only production probe listed the 28; staging after 0238: `rls_audit()` `[]`, RLS matrix PASS with `definer_fns_open_to_authenticated: 0`.
+
+### Layouts and pages render in parallel — a redirect target must not depend on its own group's layout
+- **Problem:** sending a `self_service` user from `requireUser()` to `/` would loop: the `(app)` dashboard page calls `requireUser()` while its layout is still deciding.
+- **Root cause:** Next 16 renders layouts and pages in parallel (`node_modules/next/dist/docs/01-app/01-getting-started/06-fetching-data.md`, "layouts and pages are rendered in parallel"), so a page's `redirect()` fires even when the layout would not render it.
+- **Fix:** the Employee home `/me` lives outside `(app)` and checks auth itself.
+- **Evidence:** 2026-10-13, Next 16.4.0 docs; design only (not reproduced in a browser — AGENTS.md bans browser verification).
+
 ### A new table silently gets a permissive `gdo_members_all` policy
 - **Problem:** after 0235 created `resource_document_signature` with a narrow read policy (own rows or HR roles), the staging RLS matrix showed Staff reading other people's signatures (`staff doc_signatures=2`).
 - **Root cause:** the `greendogops_protect_new_objects` event trigger runs `protect_new_objects()` on every `CREATE TABLE` and adds `gdo_members_all` (FOR ALL, any active user). Policies are OR-ed, so it overrides any narrower policy the migration adds. `rls_audit()` does not flag it — the table has RLS and a policy.

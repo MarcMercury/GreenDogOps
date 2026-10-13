@@ -41,8 +41,13 @@ export type ViewAsTarget =
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Roles that can be previewed with their default access. Owner is the viewer's own role. */
-export const PREVIEWABLE_ROLES: AppRole[] = APP_ROLES.filter((r) => r !== "owner");
+/**
+ * Roles that can be previewed with their default access. Owner is the viewer's
+ * own role; Employee is the self-service portal, not a view of the Ops app.
+ */
+export const PREVIEWABLE_ROLES: AppRole[] = APP_ROLES.filter(
+  (r) => r !== "owner" && r !== "employee",
+);
 
 /** Only active Owners may preview other users' access. */
 export function canUseViewAs(real: Pick<AppUser, "role" | "is_active">): boolean {

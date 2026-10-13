@@ -1,6 +1,9 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canAccessModule } from "@/lib/auth/permissions";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { LOCATION_COLUMNS } from "@/lib/shared/locations";
 import {
@@ -196,11 +199,18 @@ export async function getSetupData(): Promise<SetupData> {
  */
 export async function getApptTypeMappings(): Promise<ApptTypeDeptMapping[]> {
   const supabase = await createClient();
+  // appt_type_observed_counts is SECURITY DEFINER, so it runs with the service
+  // role (0238); this loader checks Scheduling access itself because the page
+  // fetches it in parallel with its own auth lookup.
+  const current = await getCurrentUser({ allowPreview: true });
+  const mayCount = !!current && canAccessModule(current.appUser, "schedule");
   const [mapRes, countRes] = await Promise.all([
     supabase
       .from("ezyvet_appt_type_dept_map")
       .select("appt_type, department_id, is_ignored, report_track"),
-    supabase.rpc("appt_type_observed_counts"),
+    mayCount
+      ? createAdminClient().rpc("appt_type_observed_counts")
+      : Promise.resolve({ data: [] }),
   ]);
 
   const counts = new Map<string, number>();
