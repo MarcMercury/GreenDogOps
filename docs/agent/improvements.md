@@ -5,6 +5,16 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P1 — Safety net
 
+### Mirror Staff's Recruiting default in the `ats_read` RLS predicate
+- **Why:** since 2026-10-13 Staff have no `ats` module by default (`STAFF_MODULES`), but `ats_read` in migration `0227` treats Recruiting as on unless `module_access.ats = false`. A Staff user calling PostgREST directly with their own token can still read candidates' `person_document` rows and `profile_transition_log`. The app itself no longer shows them (`personDocumentAccess` follows `canAccessModule`).
+- **Scope:** new migration redefining the `hr_file_read` policies on `person_document` and `profile_transition_log` with `ats_read` = override if set, else `role <> 'staff'`; regenerate the baseline; run `scripts/security_rls_matrix.sql` on staging; `rls_audit()` zero rows. Production DDL — needs the owner's authorization.
+- **Risk:** low (tightening only; 5 active Staff, none with overrides as of 2026-10-13).
+
+### Staff self-service: own schedule, PTO requests, time clock
+- **Why:** the owner wants Staff to reach their own schedule, clock in/out, and request PTO once those exist in Ops. Today Staff have no Scheduling/Calendar module, every time-off write requires HR edit (`saveTimeOff` → `ensureCanEdit("hr")`), and there is no punch data at all.
+- **Scope:** own-only pages (e.g. `/me/schedule`, `/me/time-off`, `/me/clock`) with their own module keys added to `STAFF_MODULES` and `ROUTE_MODULES`, and nav entries; server actions that only ever act on `appUser.person_id`; the time clock per `docs/security.md` (append-only punches, per-punch auth). Do **not** reopen the `schedule` module to Staff for this — it exposes everyone's grid.
+- **Risk:** medium (new write paths for the lowest role; time-clock records are legally retained).
+
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.
 - **Scope:** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `actions.ts` export calls a permission helper; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest` (that each one passes the proxy is already tested in `src/lib/supabase/public-paths.test.ts`); migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.

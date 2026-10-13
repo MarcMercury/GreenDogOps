@@ -12,9 +12,15 @@ import {
 export function ModuleDenied({
   moduleKey,
   role,
+  title,
+  detail,
 }: {
   moduleKey: ModuleKey;
   role: AppRole;
+  /** Overrides the default "<module> is restricted" heading. */
+  title?: string;
+  /** Overrides the default explanation. */
+  detail?: string;
 }) {
   const label = MODULES.find((m) => m.key === moduleKey)?.label ?? moduleKey;
 
@@ -23,10 +29,12 @@ export function ModuleDenied({
       <span className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-2xl">
         🔒
       </span>
-      <h1 className="text-lg font-bold text-slate-900">{label} is restricted</h1>
+      <h1 className="text-lg font-bold text-slate-900">
+        {title ?? `${label} is restricted`}
+      </h1>
       <p className="mt-2 text-sm text-slate-600">
-        Your access level ({ROLE_LABELS[role]}) does not include this module. Ask
-        an Owner or Admin to grant it in Admin ▸ Users.
+        {detail ??
+          `Your access level (${ROLE_LABELS[role]}) does not include this module. Ask an Owner or Admin to grant it in Admin ▸ Users.`}
       </p>
     </div>
   );

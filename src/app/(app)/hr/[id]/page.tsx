@@ -24,12 +24,15 @@ import {
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
+  canOpenHrProfile,
   canViewAllCompensation,
   canEditModule,
   hasRestrictedHrView,
   isAdminRole,
+  ROLE_LABELS,
   seesPrivateHrFields,
 } from "@/lib/auth/permissions";
+import { ModuleDenied } from "../../_components/module-denied";
 import {
   getPersonAttendance,
   getPersonScheduleSettings,
@@ -50,6 +53,18 @@ export default async function EmployeeDetailPage({
   const { id } = await params;
   const supabase = await createClient();
   const current = await getCurrentUser();
+  // Staff see the roster grid only; the one profile they may open is their own.
+  if (!current) notFound();
+  if (!canOpenHrProfile(current.appUser, id)) {
+    return (
+      <ModuleDenied
+        moduleKey="hr"
+        role={current.appUser.role}
+        title="Employee profiles are restricted"
+        detail={`Your access level (${ROLE_LABELS[current.appUser.role]}) can view the HR roster and your own profile, but not other employees' profiles.`}
+      />
+    );
+  }
   // Compensation is visible to Owner/Admin/Manager-HR for everyone, and to any
   // user for their own linked record. Editing follows the HR module rule.
   const canViewComp = current

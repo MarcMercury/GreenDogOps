@@ -3,14 +3,16 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canEditGeneral } from "@/lib/auth/permissions";
+import { canAccessModule, canEditGeneral } from "@/lib/auth/permissions";
 import {
   type CrmOrganization,
   type CrmOrgDocument,
   type CrmOrgDocumentWithUrl,
+  crmModuleForSlug,
   crmSectionBySlug,
   crmSlugForOrg,
 } from "@/lib/crm/types";
+import { ModuleDenied } from "../../../_components/module-denied";
 import { LOCATION_COLUMNS, type Location } from "@/lib/shared/locations";
 import { OrganizationForm } from "./organization-form";
 import type { LocationOption } from "./location-multi-select";
@@ -44,7 +46,14 @@ export default async function OrganizationDetailPage({
   if (!data) notFound();
 
   const org = data as CrmOrganization;
-  const section = crmSectionBySlug(crmSlugForOrg(org));
+  const sectionSlug = crmSlugForOrg(org);
+  const sectionModule = crmModuleForSlug(sectionSlug);
+  // /crm/org/* is not module-scoped in the layout, so gate on the section.
+  if (!current) notFound();
+  if (!canAccessModule(current.appUser, sectionModule)) {
+    return <ModuleDenied moduleKey={sectionModule} role={current.appUser.role} />;
+  }
+  const section = crmSectionBySlug(sectionSlug);
 
   const { data: locationData } = await supabase
     .from("location")

@@ -33,9 +33,14 @@ hiding UI.
 
 App-level behaviour that matches it:
 
-- Staff viewing **someone else's** HR profile see only General + Shift
-  Eligibility, without personal fields (DOB, home ZIP/phones, notes, PTO,
-  separation details). Their own profile is unchanged.
+- Staff see the HR roster grid but cannot open **someone else's** HR profile
+  (`canOpenHrProfile`); their own profile is unchanged. Should a Staff user be
+  given another profile view, it still shows only General + Shift Eligibility,
+  without personal fields (DOB, home ZIP/phones, notes, PTO, separation details).
+- Staff have no Recruiting access by default, so the app no longer shows them
+  candidates' documents or stage history. The `ats_read` RLS predicate in
+  `0227` still treats Recruiting as on unless overridden, so the API floor is
+  looser than the app for Staff here (see `docs/agent/improvements.md`).
 - Schedule/Marketing Admins keep the restricted profile view they already had;
   the hidden datasets are no longer sent to the browser at all.
 - HR-file mutations require an HR role (`ensureCanEditSensitiveHr`).

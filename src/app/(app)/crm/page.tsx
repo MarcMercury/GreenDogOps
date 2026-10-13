@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/session";
+import { canAccessModule } from "@/lib/auth/permissions";
 import {
   CRM_SECTIONS,
+  crmModuleForSlug,
   isMarketingVendorOrg,
   isNonMedPartnerOrg,
   isRescueOrg,
@@ -14,6 +17,10 @@ export const dynamic = "force-dynamic";
 
 export default async function CrmHubPage() {
   const supabase = await createClient();
+  const current = await getCurrentUser();
+  const sections = CRM_SECTIONS.filter(
+    (s) => current && canAccessModule(current.appUser, crmModuleForSlug(s.slug)),
+  );
 
   const [orgRes, contactRes] = await Promise.all([
     supabase.from("crm_organization").select("org_type, subtype, category"),
@@ -87,7 +94,7 @@ export default async function CrmHubPage() {
       />
 
       <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {CRM_SECTIONS.map((s) => (
+        {sections.map((s) => (
           <Link
             key={s.slug}
             href={s.homeHref ?? `/crm/${s.slug}`}

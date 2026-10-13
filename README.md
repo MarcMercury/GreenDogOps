@@ -250,10 +250,12 @@ defaults, in both directions.
 | **Manager / HR** | Edits everything except Admin, Reporting, and Emp Reporting; can view all compensation. |
 | **Schedule Admin** | Edits every module they can see; no Admin panel, no all-compensation view. |
 | **Marketing Admin** | Same pages as Schedule Admin, but the Operations section (Calendar, Scheduling, Planning) is view-only. |
-| **Staff** | Read-only everywhere except Admin and Email Templates; sees only their own compensation. On other people's HR profiles sees only General + Shift Eligibility, without personal fields (DOB, home ZIP/phones, notes, PTO, separation). |
+| **Staff** | Read-only, and only these modules: Dashboard, Resources, Ask Ziggy, HR / Roster (grid only — they can open their own profile but no one else's), Referral CRM, Rescue/Shelter CRM, Non-Med Partners, and all of Med Ops (Medical Boards, Board Archive, Vendors & Supplies, ezyVet). No Recruiting, Student/CE/Influencer CRMs, Marketing, Calendar, Scheduling or Planning. Sees only their own compensation. |
 
 `admin`, `reporting`, and `emp_reporting` are admin-only by default and can be
-granted per user. `ask_ziggy` is on for every role and can be switched off per
+granted per user. Staff's modules are an explicit allow-list (`STAFF_MODULES`),
+so a new module stays closed to Staff until it is added there; any other module
+can still be granted to one Staff user through a per-user override. `ask_ziggy` is on for every role and can be switched off per
 user; *what data Ziggy can reach* is narrowed separately by `scopeForUser`
 (below).
 
@@ -263,6 +265,7 @@ Key helpers:
 - `canEditModule(user, key)` — write rights, with the Admin-panel and
   Marketing-Admin/Operations carve-outs.
 - `canViewAllCompensation(role)` / `canViewCredentials(role)`.
+- `canOpenHrProfile(user, personId)` — Staff open only their own `/hr/[id]`.
 - `canViewSensitiveHr(role)` / `hasRestrictedHrView(user, personId)` /
   `seesPrivateHrFields(user, personId)` — the HR-file boundary, mirrored in SQL
   by the `hr_full` / `hr_edit` predicates in the RLS policies (migration `0227`).

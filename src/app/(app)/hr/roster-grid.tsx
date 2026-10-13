@@ -99,12 +99,16 @@ export function RosterGrid({
   rows,
   canEdit,
   canViewAllComp = false,
+  openableIds,
 }: {
   rows: RosterRow[];
   canEdit: boolean;
   canViewAllComp?: boolean;
+  /** Profiles this viewer may open (Staff: only their own). */
+  openableIds: string[];
 }) {
   const router = useRouter();
+  const openable = new Set(openableIds);
   const [view, setView] = useState<"standard" | "detailed">("standard");
   const [importing, startImport] = useTransition();
 
@@ -912,6 +916,7 @@ export function RosterGrid({
           r.person_employment?.offer_title,
         ]}
         onRowClick={(r) => router.push(`/hr/${r.id}`)}
+        isRowClickable={(r) => openable.has(r.id)}
         emptyLabel="No people match your filters."
       />
     </div>

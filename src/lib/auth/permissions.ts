@@ -42,7 +42,7 @@ export const ROLE_DESCRIPTIONS: Record<AppRole, string> = {
   marketing_admin:
     "Same pages as Schedule Admin, and can edit them all except the Operations section (Calendar, Scheduling, Planning), which is view-only; no Admin panel and cannot view all compensation.",
   staff:
-    "Read-only access to everything except the Admin panel; sees only their own compensation.",
+    "Read-only access to Dashboard, Resources, Ask Ziggy, the HR roster grid (their own profile only), Referral, Rescue/Shelter and Non-Med Partner CRMs, and Med Ops; sees only their own compensation.",
 };
 
 // Module slugs that can be permissioned independently.
@@ -116,14 +116,33 @@ const ADMIN_ONLY_MODULES: ModuleKey[] = [
 ];
 
 // Default module access per role. Used when a user has no explicit override.
-// Everyone except owners/admins is locked out of admin-only modules. Managers,
-// schedule admins, and staff can all *see* every other module; what differs is
-// whether they can edit (see canEditModule) and view compensation.
+// Everyone except owners/admins is locked out of admin-only modules. Managers
+// and schedule/marketing admins can *see* every other module; what differs is
+// whether they can edit (see canEditModule) and view compensation. Staff see
+// only STAFF_MODULES.
 const NON_ADMIN_MODULES = ALL_MODULES.filter(
   (m) => !ADMIN_ONLY_MODULES.includes(m),
 );
-// Email Templates management is open to Schedule Admins and up, but not Staff.
-const STAFF_MODULES = NON_ADMIN_MODULES.filter((m) => m !== "email_templates");
+// Staff get an explicit allow-list, so a newly added module stays closed to
+// them until someone decides otherwise. HR / Roster is the grid only: Staff
+// can open their own profile but no one else's (canOpenHrProfile). "Med Ops"
+// is every page in that sidebar section (boards, archive, Vendors & Supplies,
+// ezyVet). crm_business is only the old /crm/business URL, which redirects to
+// Non-Med Partners. The self-service schedule / PTO / time-clock pages are
+// added here when they ship (docs/agent/improvements.md).
+const STAFF_MODULES: ModuleKey[] = [
+  "dashboard",
+  "resources",
+  "ask_ziggy",
+  "hr",
+  "crm_referral",
+  "crm_rescue",
+  "crm_vendor",
+  "crm_business",
+  "med_boards",
+  "crm_supplies",
+  "ezyvet",
+];
 // Operations-section modules (Calendar, Scheduling, Planning). Marketing Admins
 // can see these but only with view rights — they cannot edit them.
 export const OPERATIONS_MODULES: ModuleKey[] = [
@@ -244,6 +263,16 @@ export function hasRestrictedHrView(user: AppUser, personId: string): boolean {
  */
 export function seesPrivateHrFields(user: AppUser, personId: string): boolean {
   return user.role !== "staff" || user.person_id === personId;
+}
+
+/**
+ * May this user open the full HR profile page (/hr/[id])? Staff see the roster
+ * grid only, plus their own profile; everyone else with HR access opens any.
+ */
+export function canOpenHrProfile(user: AppUser, personId: string): boolean {
+  if (!canAccessModule(user, "hr")) return false;
+  if (user.role !== "staff") return true;
+  return user.person_id !== null && user.person_id === personId;
 }
 
 /** People still in recruiting (not yet, or never, employees). */

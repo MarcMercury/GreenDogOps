@@ -4,16 +4,18 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getCurrentUser } from "@/lib/auth/session";
-import { canEditGeneral } from "@/lib/auth/permissions";
+import { canAccessModule, canEditGeneral } from "@/lib/auth/permissions";
 import {
   type CrmContact,
   type CrmCeAttendance,
   type CrmCeEvent,
   type CrmContactDocument,
   type CrmContactDocumentWithUrl,
+  crmModuleForSlug,
   crmSectionBySlug,
   crmSlugForContactType,
 } from "@/lib/crm/types";
+import { ModuleDenied } from "../../../_components/module-denied";
 import { ContactForm } from "./contact-form";
 import { PromoteToRecruiting } from "./promote-controls";
 import { CeAttendanceManager } from "./ce-attendance";
@@ -49,7 +51,14 @@ export default async function ContactDetailPage({
   if (!data) notFound();
 
   const contact = data as CrmContact;
-  const section = crmSectionBySlug(crmSlugForContactType(contact.contact_type));
+  const sectionSlug = crmSlugForContactType(contact.contact_type);
+  const sectionModule = crmModuleForSlug(sectionSlug);
+  // /crm/contact/* is not module-scoped in the layout, so gate on the section.
+  if (!current) notFound();
+  if (!canAccessModule(current.appUser, sectionModule)) {
+    return <ModuleDenied moduleKey={sectionModule} role={current.appUser.role} />;
+  }
+  const section = crmSectionBySlug(sectionSlug);
 
   const formOptions = await getStudentFormOptions();
 

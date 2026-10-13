@@ -524,6 +524,7 @@ export function DataTable<T extends { id: string }>({
   searchExtra,
   searchPlaceholder = "Search…",
   onRowClick,
+  isRowClickable,
   emptyLabel = "No records match your search.",
   initialActive,
   stickyScroll = false,
@@ -537,6 +538,8 @@ export function DataTable<T extends { id: string }>({
   searchExtra?: (row: T) => CellValue[];
   searchPlaceholder?: string;
   onRowClick?: (row: T) => void;
+  /** Limits onRowClick to some rows; the rest render as plain rows. */
+  isRowClickable?: (row: T) => boolean;
   emptyLabel?: string;
   /** Optional default-selected filter values, keyed by filter key. */
   initialActive?: Record<string, string>;
@@ -750,12 +753,14 @@ export function DataTable<T extends { id: string }>({
         </tr>
       </thead>
       <tbody className="divide-y divide-slate-100">
-        {visible.map((row) => (
+        {visible.map((row) => {
+          const clickable = !!onRowClick && (isRowClickable?.(row) ?? true);
+          return (
           <tr
             key={row.id}
-            onClick={() => onRowClick?.(row)}
+            onClick={clickable ? () => onRowClick?.(row) : undefined}
             className={`group transition hover:bg-emerald-50 ${
-              onRowClick ? "cursor-pointer" : ""
+              clickable ? "cursor-pointer" : ""
             }`}
           >
             {columns.map((col) => (
@@ -771,7 +776,8 @@ export function DataTable<T extends { id: string }>({
               </td>
             ))}
           </tr>
-        ))}
+          );
+        })}
         {sorted.length === 0 && (
           <tr>
             <td

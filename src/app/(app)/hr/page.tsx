@@ -8,6 +8,7 @@ import {
 } from "@/lib/hr/compensation";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
+  canOpenHrProfile,
   canViewAllCompensation,
   canEditModule,
   seesPrivateHrFields,
@@ -83,7 +84,16 @@ export default async function HrRosterPage() {
       : withComp;
   });
 
+  const openableIds = current
+    ? rows.filter((r) => canOpenHrProfile(current.appUser, r.id)).map((r) => r.id)
+    : [];
+
   return (
-    <RosterGrid rows={rows} canEdit={canEdit} canViewAllComp={viewAllComp} />
+    <RosterGrid
+      rows={rows}
+      canEdit={canEdit}
+      canViewAllComp={viewAllComp}
+      openableIds={openableIds}
+    />
   );
 }

@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   APP_ROLES,
+  accessibleModules,
   canAccessModule,
   canEditModule,
+  canOpenHrProfile,
   canViewAllCompensation,
   canViewSensitiveHr,
   hasRestrictedHrView,
   isCandidateStatus,
+  MODULES,
   moduleForPathname,
   personDocumentAccess,
   seesPrivateHrFields,
@@ -71,6 +74,8 @@ describe("seesPrivateHrFields", () => {
 
 // The RLS predicates in migration 0227 (hr_edit / ats_read / ats_edit)
 // copy these defaults; this pins them so a change here is noticed there.
+// Known gap: ats_read still defaults Recruiting to on for Staff
+// (docs/agent/improvements.md).
 describe("module defaults mirrored in SQL", () => {
   it("keeps admin-only modules admin-only", () => {
     for (const key of ["admin", "reporting", "emp_reporting"] as const) {
@@ -80,20 +85,98 @@ describe("module defaults mirrored in SQL", () => {
     }
     expect(canAccessModule(user("staff"), "email_templates")).toBe(false);
   });
-  it("lets Staff read HR and Recruiting but edit nothing", () => {
+  it("lets Staff read HR but not Recruiting, and edit nothing", () => {
     expect(canAccessModule(user("staff"), "hr")).toBe(true);
-    expect(canAccessModule(user("staff"), "ats")).toBe(true);
+    expect(canAccessModule(user("staff"), "ats")).toBe(false);
     expect(canEditModule(user("staff"), "hr")).toBe(false);
     expect(canEditModule(user("staff"), "ats")).toBe(false);
   });
   it("honours per-user overrides", () => {
-    expect(canAccessModule(user("staff", "me", { ats: false }), "ats")).toBe(false);
+    expect(canAccessModule(user("staff", "me", { ats: true }), "ats")).toBe(true);
+    expect(canAccessModule(user("schedule_admin", "me", { ats: false }), "ats")).toBe(false);
     expect(canAccessModule(user("manager", "me", { emp_reporting: true }), "emp_reporting")).toBe(true);
   });
   it("keeps Marketing Admins read-only on Operations modules", () => {
     expect(canEditModule(user("marketing_admin"), "schedule")).toBe(false);
     expect(canEditModule(user("marketing_admin"), "ats")).toBe(true);
     expect(canEditModule(user("schedule_admin"), "hr")).toBe(true);
+  });
+});
+
+describe("Staff navigation", () => {
+  // The owner's list: Dashboard, Resources, Ask Ziggy, HR / Roster (grid only),
+  // Referral CRM, Rescue/Shelter CRM, Non-Med Partners, and all of Med Ops
+  // (Medical Boards, Board Archive, Vendors & Supplies, ezyVet).
+  // crm_business is the old /crm/business URL that redirects to Non-Med Partners.
+  const STAFF = [
+    "dashboard",
+    "resources",
+    "ask_ziggy",
+    "hr",
+    "crm_referral",
+    "crm_rescue",
+    "crm_vendor",
+    "crm_business",
+    "med_boards",
+    "crm_supplies",
+    "ezyvet",
+  ];
+
+  it("is exactly the approved module list", () => {
+    expect([...accessibleModules(user("staff"))].sort()).toEqual([...STAFF].sort());
+  });
+
+  it("keeps every other module closed, including ones added later", () => {
+    for (const m of MODULES.filter((d) => !STAFF.includes(d.key))) {
+      expect(canAccessModule(user("staff"), m.key), m.key).toBe(false);
+    }
+  });
+
+  it("blocks the Operations, Recruiting and Marketing routes", () => {
+    for (const path of [
+      "/ats",
+      "/crm/student",
+      "/crm/ce",
+      "/crm/influencer",
+      "/marketing",
+      "/marketing/events",
+      "/calendar",
+      "/schedule",
+      "/capacity",
+      "/planning",
+      "/schedule-search",
+      "/email-templates",
+    ]) {
+      const key = moduleForPathname(path);
+      expect(key, path).not.toBeNull();
+      expect(canAccessModule(user("staff"), key!), path).toBe(false);
+    }
+  });
+
+  it("leaves other roles' defaults unchanged", () => {
+    for (const role of ["manager", "schedule_admin", "marketing_admin"] as const) {
+      expect(canAccessModule(user(role), "ats"), role).toBe(true);
+      expect(canAccessModule(user(role), "schedule"), role).toBe(true);
+      expect(canAccessModule(user(role), "crm_student"), role).toBe(true);
+    }
+  });
+});
+
+describe("canOpenHrProfile", () => {
+  it("lets Staff open only their own profile", () => {
+    expect(canOpenHrProfile(user("staff"), "me")).toBe(true);
+    expect(canOpenHrProfile(user("staff"), "someone-else")).toBe(false);
+    expect(canOpenHrProfile(user("staff", null), "someone-else")).toBe(false);
+  });
+  it("lets every other HR viewer open any profile", () => {
+    for (const role of APP_ROLES.filter((r) => r !== "staff")) {
+      expect(canOpenHrProfile(user(role), "someone-else"), role).toBe(true);
+    }
+  });
+  it("follows HR module access", () => {
+    expect(canOpenHrProfile(user("manager", "me", { hr: false }), "someone-else")).toBe(false);
+    expect(canOpenHrProfile(user("staff", "me", { hr: false }), "me")).toBe(false);
+    expect(canOpenHrProfile({ ...user("staff"), is_active: false }, "me")).toBe(false);
   });
 });
 
@@ -131,9 +214,10 @@ describe("personDocumentAccess", () => {
   });
 
   it("lets Recruiting users see candidates' documents; only editors change them", () => {
-    expect(personDocumentAccess(user("staff"), "cand", "applicant")).toEqual({ read: true, edit: false });
+    expect(personDocumentAccess(user("staff"), "cand", "applicant")).toEqual({ read: false, edit: false });
+    expect(personDocumentAccess(user("staff", "me", { ats: true }), "cand", "applicant")).toEqual({ read: true, edit: false });
     expect(personDocumentAccess(user("schedule_admin"), "cand", "applicant")).toEqual({ read: true, edit: true });
-    expect(personDocumentAccess(user("staff", "me", { ats: false }), "cand", "applicant").read).toBe(false);
+    expect(personDocumentAccess(user("schedule_admin", "me", { ats: false }), "cand", "applicant").read).toBe(false);
   });
 
   it("keeps employee shelves to HR roles (and the employee, read-only)", () => {

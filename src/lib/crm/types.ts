@@ -1,3 +1,5 @@
+import type { ModuleKey } from "@/lib/auth/permissions";
+
 export type OrgType =
   | "referral_clinic"
   | "marketing_partner"
@@ -907,6 +909,25 @@ export const CRM_SECTIONS: CrmSection[] = [
 
 export function crmSectionBySlug(slug: string): CrmSection | undefined {
   return CRM_SECTIONS.find((s) => s.slug === slug);
+}
+
+/**
+ * The permission module that owns a CRM section. Marketing Vendors live in
+ * Marketing Management, so they follow the Marketing module.
+ */
+const CRM_SECTION_MODULES: Record<CrmSlug, ModuleKey> = {
+  referral: "crm_referral",
+  vendor: "crm_vendor",
+  "marketing-vendor": "marketing",
+  supplies: "crm_supplies",
+  rescue: "crm_rescue",
+  student: "crm_student",
+  ce: "crm_ce",
+  influencer: "crm_influencer",
+};
+
+export function crmModuleForSlug(slug: CrmSlug): ModuleKey {
+  return CRM_SECTION_MODULES[slug];
 }
 
 /** True when an organization is a rescue / shelter record. */
