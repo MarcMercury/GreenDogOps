@@ -5,11 +5,6 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P1 — Safety net
 
-### Apply 0237 (Staff Recruiting default in `ats_read`) to production
-- **Why:** written and verified on staging 2026-10-13 (RLS matrix FAIL before → PASS after, `rls_audit()` 0 rows, local `verify_baseline.sh` OK). Until it runs on production, a Staff user calling PostgREST directly can still read candidates' `person_document` rows and `profile_transition_log`; the app already hides them.
-- **Scope:** `scripts/supabase-sql.sh -f supabase/migrations/0237_staff_recruiting_default.sql` on production, then `rls_audit()` = 0 rows and compare the two `hr_file_read` policy md5s with staging. Needs the owner's authorization. Remove this entry when done.
-- **Risk:** low (tightening only; 5 active Staff, none with overrides as of 2026-10-13).
-
 ### Staff self-service: own schedule, PTO requests, time clock
 - **Why:** the owner wants Staff to reach their own schedule, clock in/out, and request PTO once those exist in Ops. Today Staff have no Scheduling/Calendar module, every time-off write requires HR edit (`saveTimeOff` → `ensureCanEdit("hr")`), and there is no punch data at all.
 - **Scope:** own-only pages (e.g. `/me/schedule`, `/me/time-off`, `/me/clock`) with their own module keys added to `STAFF_MODULES` and `ROUTE_MODULES`, and nav entries; server actions that only ever act on `appUser.person_id`; the time clock per `docs/security.md` (append-only punches, per-punch auth). Do **not** reopen the `schedule` module to Staff for this — it exposes everyone's grid.
