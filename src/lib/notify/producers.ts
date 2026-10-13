@@ -8,6 +8,8 @@ import "server-only";
 //                     the rule's escalation roles once.
 //   event reminders   marketing events starting tomorrow → their staff, once,
 //                     from 10am Pacific.
+//   unpublished week  from 10am Pacific: the current week, or (from Thursday)
+//                     next week, isn't published → schedulers, once a day.
 //   missing clock-out someone still clocked in an hour after their shift
 //                     ended (12 h with no shift) → them + clinic managers,
 //                     once per clock-in.
@@ -25,6 +27,8 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { formatClockTime } from "@/lib/timeclock/local-time";
 import { isClockOutOverdue, MISSING_CLOCK_OUT_MAX_AGE_DAYS } from "@/lib/timeclock/missing";
 import { formatShiftTime } from "@/lib/timeclock/shift-match";
+import { publishUrgency, PUBLISH_REMINDER_HOUR, weeksNeedingReminder } from "@/lib/schedule/publish";
+import { SCHEDULE_STATUS_LABELS, type ScheduleStatus } from "@/lib/schedule/types";
 
 type Admin = ReturnType<typeof createAdminClient>;
 
@@ -65,9 +69,55 @@ export async function runProducers(now = new Date()): Promise<number> {
     console.error("[notify] event reminders:", err instanceof Error ? err.message : err);
   }
   try {
+    produced += await produceUnpublishedReminders(now);
+  } catch (err) {
+    console.error("[notify] unpublished reminders:", err instanceof Error ? err.message : err);
+  }
+  try {
     produced += await produceMissingClockOuts(now);
   } catch (err) {
     console.error("[notify] missing clock-outs:", err instanceof Error ? err.message : err);
+  }
+  return produced;
+}
+
+async function produceUnpublishedReminders(now: Date): Promise<number> {
+  if (hourInWorkTz(now) < PUBLISH_REMINDER_HOUR) return 0;
+  const def = EVENT_REGISTRY.get("schedule.unpublished_reminder");
+  if (!def) return 0;
+  const { rule } = await loadRule(def);
+  if (!rule.enabled) return 0;
+
+  const admin = createAdminClient();
+  const today = todayInWorkTz(now);
+  const starts = weeksNeedingReminder(today);
+  const { data } = await admin
+    .from("sched_week")
+    .select("id, week_start, status")
+    .eq("is_template", false)
+    .in("week_start", starts);
+  const byStart = new Map(((data ?? []) as { id: string; week_start: string; status: ScheduleStatus }[]).map((w) => [w.week_start, w]));
+  let produced = 0;
+  for (const weekStart of starts) {
+    const week = byStart.get(weekStart) ?? null;
+    const urgency = publishUrgency(weekStart, week?.status ?? "draft", today);
+    if (!urgency) continue;
+    const created = await createEvent({
+      type: "schedule.unpublished_reminder",
+      subjectType: "sched_week",
+      subjectId: week?.id ?? null,
+      payload: {
+        weekId: week?.id ?? "",
+        weekStart,
+        urgency,
+        statusLabel: week ? SCHEDULE_STATUS_LABELS[week.status] : "",
+      },
+      dedupeKey: `schedule.unpublished_reminder:${weekStart}:${today}`,
+    });
+    if (created.ok && !created.duplicate) {
+      await processEvent(created.id);
+      produced++;
+    }
   }
   return produced;
 }

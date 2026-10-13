@@ -21,6 +21,12 @@ export const SAMPLE_PAYLOADS: Record<string, Record<string, unknown>> = {
     locationName: "Aetna",
     reason: "No Show",
   },
+  "schedule.unpublished_reminder": {
+    weekId: "",
+    weekStart: "2026-10-18",
+    urgency: "due",
+    statusLabel: "Draft",
+  },
   "attendance.missed_shift": {
     personName: "Jane Smith",
     statusLabel: "No Show",

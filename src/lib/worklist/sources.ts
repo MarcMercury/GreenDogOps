@@ -22,6 +22,7 @@ import {
 } from "@/lib/auth/permissions";
 import { agentHealth, HEALTH_LABELS, needsAttention, type HealthAgent } from "../admin/health";
 import { getPendingCounts } from "../timeclock/review";
+import { publishUrgency, weeksNeedingReminder } from "../schedule/publish";
 import { addDays, shortDateLabel, todayInWorkTz, weekdayOf } from "./dates";
 import type { WorkItem, WorkPriority } from "./items";
 import {
@@ -299,6 +300,41 @@ const SOURCES: Source[] = [
         });
       }
       return items;
+    },
+  },
+  {
+    label: "unpublished schedules",
+    applies: (u) => canEditModule(u, "schedule"),
+    async load({ admin, today }) {
+      const starts = weeksNeedingReminder(today);
+      const { data, error } = await admin
+        .from("sched_week")
+        .select("id, week_start, status")
+        .eq("is_template", false)
+        .in("week_start", starts);
+      if (error) throw Object.assign(new Error(error.message), { code: error.code });
+      const byStart = new Map(((data ?? []) as { id: string; week_start: string; status: string }[]).map((w) => [w.week_start, w]));
+      return starts.flatMap((weekStart): WorkItem[] => {
+        const w = byStart.get(weekStart);
+        const urgency = publishUrgency(weekStart, w?.status ?? "draft", today);
+        if (!urgency) return [];
+        return [
+          {
+            id: `publish:${weekStart}`,
+            kind: "schedule_publish",
+            title:
+              urgency === "overdue"
+                ? `Publish this week's schedule (week of ${shortDateLabel(weekStart)})`
+                : `Publish next week's schedule (week of ${shortDateLabel(weekStart)})`,
+            detail: "Staff only see published weeks in My Time, and punches are matched to published shifts.",
+            module: "schedule",
+            href: w ? `/schedule?week=${w.id}` : "/schedule",
+            target: "ops",
+            due: urgency === "overdue" ? today : addDays(weekStart, -1),
+            priority: urgency === "overdue" ? "high" : "normal",
+          },
+        ];
+      });
     },
   },
   {

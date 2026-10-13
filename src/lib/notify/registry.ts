@@ -196,6 +196,30 @@ const DEFINITIONS: EventDefinition[] = [
     },
   },
   {
+    type: "schedule.unpublished_reminder",
+    group: "Scheduling",
+    label: "Schedule not published yet",
+    description:
+      "From 10am each day: the current week isn't published, or (from Thursday) next week isn't. Staff only see published weeks in My Time, and punches are matched to published shifts.",
+    module: "schedule",
+    sensitivity: "module",
+    allowChannel: true,
+    severity: "warning",
+    defaults: rule({ audience: { roles: ["schedule_admin"] } }),
+    render: (p) => ({
+      emoji: "📣",
+      title:
+        str(p, "urgency") === "overdue"
+          ? `This week's schedule isn't published (${weekLabel(str(p, "weekStart"))})`
+          : `Next week's schedule isn't published yet (${weekLabel(str(p, "weekStart"))})`,
+      body: str(p, "statusLabel")
+        ? `It's still ${str(p, "statusLabel")}. Staff can't see it in My Time until it's published.`
+        : "No schedule has been started for that week. Staff can't see it in My Time until it's published.",
+      href: scheduleHref(p),
+      linkLabel: "Open the schedule",
+    }),
+  },
+  {
     type: "attendance.missed_shift",
     group: "Scheduling",
     label: "Missed shift recorded",

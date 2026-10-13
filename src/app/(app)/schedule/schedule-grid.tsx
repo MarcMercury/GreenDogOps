@@ -44,6 +44,8 @@ import { WeekPicker } from "./week-picker";import {
   applyDefaultTemplate,
   setTimeOffStatus,
 } from "./actions";
+import { publishUrgency } from "@/lib/schedule/publish";
+import { todayInWorkTz } from "@/lib/worklist/dates";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 
@@ -601,7 +603,16 @@ export function ScheduleGrid({
         onExportCsv={downloadWiwCsv}
         onStatus={(s) =>
           start(async () => {
-            await setWeekStatus(week.id, s);
+            const res = await setWeekStatus(week.id, s);
+            if (!res.ok && "untimed" in res) {
+              const list = res.untimed.slice(0, 10).join("\n");
+              const more = res.untimed.length > 10 ? `\n…and ${res.untimed.length - 10} more` : "";
+              if (window.confirm(`${res.error}\n\n${list}${more}\n\nPublish anyway?`)) {
+                await setWeekStatus(week.id, s, { confirmUntimed: true });
+              }
+            } else if (!res.ok) {
+              window.alert(res.error);
+            }
             router.refresh();
           })
         }
@@ -1164,6 +1175,8 @@ function Toolbar({
         )}
       </div>
 
+      {!templateMode ? <UnpublishedBanner weekStart={week.week_start} status={week.status} /> : null}
+
       {!templateMode && (
         <WeekPicker weeks={weeks} selectedId={week.id} templates={templates} />
       )}
@@ -1194,6 +1207,25 @@ function Toolbar({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Go-live item 9: the current week (and next week from Thursday) must be
+ * published — My Time shows published weeks only, and clock-ins are matched to
+ * published shifts.
+ */
+function UnpublishedBanner({ weekStart, status }: { weekStart: string; status: SchedWeek["status"] }) {
+  const urgency = publishUrgency(weekStart, status, todayInWorkTz());
+  if (!urgency) return null;
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+      <span className="font-semibold">
+        {urgency === "overdue" ? "This week is not published." : "Next week should be published by Thursday."}
+      </span>{" "}
+      Staff can&apos;t see unpublished shifts in My Time, and their punches can&apos;t be matched to a shift. Submit,
+      approve and publish it.
     </div>
   );
 }

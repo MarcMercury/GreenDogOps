@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentUser, ensureCanEdit } from "@/lib/auth/session";
+import { getCurrentUser, ensureCanEdit, recordAudit } from "@/lib/auth/session";
+import { untimedShifts, type ShiftForCheck } from "@/lib/schedule/publish";
 import type {
   AttendanceStatus,
   ScheduleStatus,
@@ -2045,10 +2046,43 @@ export async function setTimeOffStatus(
 // WORKFLOW — submit / approve / publish
 // ===========================================================================
 
+/** A publish that needs confirmation: shifts without start/end times. */
+export type SetWeekStatusResult = ActionResult | { ok: false; error: string; untimed: string[] };
+
+/** Shifts on the week whose line has no start or end time (go-live item 9). */
+async function untimedShiftsInWeek(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  weekId: string,
+): Promise<string[]> {
+  const { data } = await supabase
+    .from("sched_assignment")
+    .select("work_date, removed_post_publish, sched_week_line(label, start_time, end_time), person(full_name, first_name, last_name, preferred_name)")
+    .eq("week_id", weekId)
+    .eq("removed_post_publish", false)
+    .limit(5000);
+  type Row = {
+    work_date: string;
+    sched_week_line: { label: string | null; start_time: string | null; end_time: string | null } | null;
+    person: { full_name: string | null; first_name: string | null; last_name: string | null; preferred_name: string | null } | null;
+  };
+  const rows: ShiftForCheck[] = ((data ?? []) as unknown as Row[]).map((r) => ({
+    work_date: r.work_date,
+    person_name:
+      [r.person?.preferred_name || r.person?.first_name, r.person?.last_name].filter(Boolean).join(" ") ||
+      r.person?.full_name ||
+      "Unknown",
+    line_label: r.sched_week_line?.label ?? null,
+    start_time: r.sched_week_line?.start_time ?? null,
+    end_time: r.sched_week_line?.end_time ?? null,
+  }));
+  return untimedShifts(rows);
+}
+
 export async function setWeekStatus(
   weekId: string,
   status: ScheduleStatus,
-): Promise<ActionResult> {
+  options?: { confirmUntimed?: boolean },
+): Promise<SetWeekStatusResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
   const supabase = await createClient();
@@ -2056,10 +2090,23 @@ export async function setWeekStatus(
   const now = new Date().toISOString();
   const { data: prior } = await supabase
     .from("sched_week")
-    .select("status")
+    .select("status, week_start")
     .eq("id", weekId)
     .maybeSingle();
   const wasPublished = (prior as { status: ScheduleStatus } | null)?.status === "published";
+
+  // Lateness can't be graded on a shift without times; make that a choice.
+  let untimed: string[] = [];
+  if (status === "published" && !wasPublished) {
+    untimed = await untimedShiftsInWeek(supabase, weekId);
+    if (untimed.length > 0 && !options?.confirmUntimed) {
+      return {
+        ok: false,
+        error: `${untimed.length} shift${untimed.length === 1 ? " has" : "s have"} no start or end time, so lateness can't be checked on ${untimed.length === 1 ? "it" : "them"}.`,
+        untimed,
+      };
+    }
+  }
 
   const patch: Record<string, unknown> = { status };
   if (status === "pending_approval") {
@@ -2083,6 +2130,17 @@ export async function setWeekStatus(
   if (error) return { ok: false, error: error.message };
   if (status === "published" && !wasPublished) {
     runInBackground(() => notifySchedulePublished(weekId, me.id));
+    if (untimed.length > 0) {
+      await recordAudit({
+        actorId: gate.current.authId,
+        actorEmail: gate.current.email,
+        action: "schedule.published_untimed",
+        entity: "sched_week",
+        entityId: weekId,
+        summary: `Published the week of ${(prior as { week_start: string } | null)?.week_start ?? ""} with ${untimed.length} shift(s) missing times`,
+        metadata: { untimed: untimed.slice(0, 50) },
+      });
+    }
   }
 
   // Each workflow transition starts a clean baseline: only edits made while the
