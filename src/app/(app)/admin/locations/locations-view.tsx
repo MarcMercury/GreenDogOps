@@ -9,6 +9,15 @@ import {
 import { PhoneInput } from "@/lib/shared/phone-input";
 import { Panel } from "../_components";
 import { saveLocation, setLocationActive } from "../actions";
+import type { AdminClinic } from "@/lib/timeclock/admin";
+import { TestFromHere } from "./test-from-here";
+import { TimeClockSection } from "./time-clock-section";
+
+export interface TimeClockProps {
+  clinics: AdminClinic[];
+  canEdit: boolean;
+  mapsKey: string;
+}
 
 const inputCls =
   "w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-100";
@@ -279,10 +288,15 @@ function LocationCard({
   location,
   byId,
   onEdit,
+  clinic,
+  timeClock,
 }: {
   location: Location;
   byId: Map<string, Location>;
   onEdit: () => void;
+  /** Time-clock settings; present for active locations. */
+  clinic: AdminClinic | undefined;
+  timeClock: TimeClockProps;
 }) {
   const address = formatAddress(location);
   const parent = location.parent_location_id
@@ -383,17 +397,27 @@ function LocationCard({
         {parent ? <InfoRow label="Parked at">{parent.name}</InfoRow> : null}
         {location.notes ? <InfoRow label="Notes">{location.notes}</InfoRow> : null}
       </div>
+      {clinic ? <TimeClockSection clinic={clinic} canEdit={timeClock.canEdit} mapsKey={timeClock.mapsKey} /> : null}
     </div>
   );
 }
 
-export function LocationsView({ locations }: { locations: Location[] }) {
+export function LocationsView({ locations, timeClock }: { locations: Location[]; timeClock: TimeClockProps }) {
   const [editing, setEditing] = useState<Location | null>(null);
   const [creating, setCreating] = useState(false);
   const byId = new Map(locations.map((l) => [l.id, l]));
   const activeCount = locations.filter((l) => l.is_active).length;
+  const clinicById = new Map(timeClock.clinics.map((c) => [c.id, c]));
+  const testable = timeClock.clinics.filter((c) => c.clock_policy !== "anywhere_logged").map((c) => ({ id: c.id, name: c.name }));
 
   return (
+    <div className="space-y-6">
+    <Panel
+      title="Time clock — Test from here"
+      description="Standing in a clinic? Check what a punch from this phone or computer would get: on its approved IP or inside its geofence passes; anything else asks for “Working off-site” and goes to approval. Nothing is recorded. Set each clinic's IPs and geofence on its card below."
+    >
+      <TestFromHere clinics={testable} />
+    </Panel>
     <Panel
       title="Locations"
       description={`${activeCount} active · ${locations.length} total — the single source of truth used across scheduling, HR, and CRM.`}
@@ -414,6 +438,8 @@ export function LocationsView({ locations }: { locations: Location[] }) {
             location={l}
             byId={byId}
             onEdit={() => setEditing(l)}
+            clinic={clinicById.get(l.id)}
+            timeClock={timeClock}
           />
         ))}
       </div>
@@ -429,5 +455,6 @@ export function LocationsView({ locations }: { locations: Location[] }) {
         />
       )}
     </Panel>
+    </div>
   );
 }

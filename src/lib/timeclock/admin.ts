@@ -6,7 +6,7 @@ import { formatAddress } from "@/lib/shared/locations";
 import { clinicHealth, type ClinicHealth } from "./clinic-settings";
 import type { ClockPolicy } from "./location-check";
 
-// Admin ▸ Time Clock data. Service role; the page is behind the Admin layout
+// Time-clock settings for Admin ▸ Locations. Service role; the page is behind the Admin layout
 // (Owner/Admin edit, Executive view).
 
 export interface AdminNetwork {

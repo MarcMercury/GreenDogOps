@@ -1,4 +1,4 @@
-// Admin ▸ Time Clock rules — pure. Validation mirrors the CHECK constraints in
+// Time-clock clinic settings (Admin ▸ Locations) rules — pure. Validation mirrors the CHECK constraints in
 // migration 0241; health mirrors go-live plan §F ("keeping it working").
 
 import { CLOCK_POLICIES, type ClockPolicy } from "./location-check";

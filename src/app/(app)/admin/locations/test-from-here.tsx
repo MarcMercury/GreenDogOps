@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { LOCATION_RESULT_LABELS } from "@/lib/timeclock/location-check";
-import { testFromHere, type TestFromHereResult } from "./actions";
+import { testFromHere, type TestFromHereResult } from "./time-clock-actions";
 
 function position(): Promise<{ latitude: number; longitude: number; accuracy: number } | null> {
   if (typeof navigator === "undefined" || !navigator.geolocation) return Promise.resolve(null);

@@ -48,7 +48,7 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 ## P2 — Reliability
 
 ### Time clock: scheduled clinic health check with alerts
-- **Why:** Admin ▸ Time Clock shows each clinic's health (no network match in 24 h with punches → IP changed; off-site spike), but only when someone opens the page. An ISP IP change would silently send a clinic's punches to off-site approval.
+- **Why:** Admin ▸ Locations shows each clinic's health (no network match in 24 h with punches → IP changed; off-site spike), but only when someone opens the page. An ISP IP change would silently send a clinic's punches to off-site approval.
 - **Scope:** a daily cron (agent + `agent_run`, `cron-run.ts`) that runs `clinicHealth` for every clinic and emits a notification event (e.g. `timeclock.clinic_health`) to Owners/Admins when a clinic turns amber/red. Reuse `getTimeClockAdminData`.
 - **Risk:** low.
 

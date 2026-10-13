@@ -17,13 +17,13 @@ import {
 } from "@/lib/timeclock/location-check";
 import { getClockLocations } from "@/lib/timeclock/server";
 
-// Admin ▸ Time Clock (go-live plan §F, D11). Owner/Admin edit; Executive views
+// Time-clock settings on Admin ▸ Locations (go-live plan §F, D11). Owner/Admin edit; Executive views
 // (the Admin layout already requires Admin access). Every change is audited.
 
 export type AdminTcResult = { ok: true; message: string } | { ok: false; error: string };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PAGE = "/admin/time-clock";
+const PAGE = "/admin/locations";
 
 async function editorGate(): Promise<{ ok: true; current: CurrentUser } | { ok: false; error: string }> {
   const current = await getCurrentUser();
