@@ -43,16 +43,35 @@ const canUseAskZiggy = (user: AppUser) => canAccessModule(user, "ask_ziggy");
  *
  * Every question is logged: it is the user's private history, and an answer an
  * admin confirms becomes a worked example for future questions.
+ *
+ * Answering is a pure read, so it runs during a "View as" preview with the
+ * previewed user's scope — but a preview question is never logged, so it
+ * cannot land in that user's private history or become a worked example.
+ *
+ * Failures are returned, not thrown: a thrown Server Action message is
+ * replaced by a generic React error in production.
  */
 export async function askSmartQuestion(
   question: string,
   history: SmartChatTurn[] = [],
 ): Promise<SmartAnswer> {
-  const current = await requireUser();
+  const current = await requireUser({ allowPreview: true });
   if (!canUseAskZiggy(current.appUser)) {
-    throw new Error("You do not have access to Ask Ziggy.");
+    return {
+      ok: false,
+      answer: "You do not have access to Ask Ziggy.",
+      sql: null,
+      rows: [],
+      columns: [],
+      rowCount: 0,
+      truncated: false,
+      provider: null,
+      attempts: [],
+      logId: null,
+    };
   }
   const scope = scopeForUser(current.appUser);
+  const isPreview = !!current.viewAs;
 
   const q = typeof question === "string" ? question.trim().slice(0, MAX_QUESTION_CHARS) : "";
   const recent = (Array.isArray(history) ? history : [])
@@ -67,7 +86,7 @@ export async function askSmartQuestion(
     (t) => t.role === "assistant" && typeof t.logId === "string" && UUID.test(t.logId),
   )?.logId;
   let lastSql: string | null = null;
-  if (lastLogId) {
+  if (lastLogId && !isPreview) {
     const { data } = await admin
       .from("smart_question_log")
       .select("sql")
@@ -106,7 +125,7 @@ export async function askSmartQuestion(
   }
 
   let logId: string | null = null;
-  if (q) {
+  if (q && !isPreview) {
     // Result rows are deliberately not stored — history re-runs the question so
     // the numbers are fresh and no client data sits in the log.
     const { data } = await admin
