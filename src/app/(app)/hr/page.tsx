@@ -6,6 +6,7 @@ import {
   loadCompensation,
   withCompensation,
 } from "@/lib/hr/compensation";
+import { completedOnboardingByPerson } from "@/lib/hr/onboarding";
 import { getCurrentUser } from "@/lib/auth/session";
 import {
   canOpenHrProfile,
@@ -29,7 +30,9 @@ export default async function HrRosterPage() {
   // Compensation columns are not readable by the API role (migration 0227);
   // they are loaded below with the service role for the people this viewer may
   // see — everyone for comp roles, otherwise just their own record.
-  const [{ data, error }, comp] = await Promise.all([
+  // Onboarding completion feeds the Detailed view's checkbox columns, which
+  // only comp-role viewers can open (RLS also limits this table to them).
+  const [{ data, error }, comp, onboardingRes] = await Promise.all([
     fetchAllRows<Record<string, unknown>>((from, to) =>
       supabase
         .from("person")
@@ -53,7 +56,32 @@ export default async function HrRosterPage() {
     viewAllComp
       ? loadCompensation("all")
       : loadCompensation(ownPersonId ? [ownPersonId] : []),
+    viewAllComp
+      ? fetchAllRows<{
+          person_id: string;
+          item_key: string;
+          completed_date: string | null;
+        }>((from, to) =>
+          supabase
+            .from("person_onboarding_item")
+            .select("person_id, item_key, completed_date")
+            .not("completed_date", "is", null)
+            .order("id", { ascending: true })
+            .range(from, to),
+        )
+      : null,
   ]);
+
+  if (onboardingRes?.error) {
+    console.error(
+      "HR roster: could not load onboarding completion",
+      onboardingRes.error.message,
+    );
+  }
+  const onboardingDone =
+    onboardingRes && !onboardingRes.error
+      ? completedOnboardingByPerson(onboardingRes.data)
+      : null;
 
   if (error) {
     return (
@@ -94,6 +122,7 @@ export default async function HrRosterPage() {
       canEdit={canEdit}
       canViewAllComp={viewAllComp}
       openableIds={openableIds}
+      onboardingDone={onboardingDone}
     />
   );
 }

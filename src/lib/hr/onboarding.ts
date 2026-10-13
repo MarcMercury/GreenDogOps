@@ -20,6 +20,8 @@ export interface OnboardingItemDef {
   /** Stable key stored in the DB. Never rename once shipped. */
   key: string;
   label: string;
+  /** Compact header for the HR Roster Detailed view (defaults to `label`). */
+  shortLabel?: string;
   /**
    * Label for the first checkbox (e.g. "Sent", "Provided"). Unused by the
    * "annual" group, which only tracks a single last-completed date.
@@ -108,6 +110,7 @@ export const ONBOARDING_GROUPS: OnboardingGroupDef[] = [
         key: "handbook",
         label:
           "Handbook, Content Release, Workplace Liability, HR Pamphlets & CPR Protocol",
+        shortLabel: "Handbook & Policies",
         providedLabel: "Provided",
         completedLabel: "Signed",
       },
@@ -157,3 +160,20 @@ export const ONBOARDING_ITEMS: OnboardingItemDef[] = ONBOARDING_GROUPS.flatMap(
 export const ONBOARDING_ITEM_KEYS: string[] = ONBOARDING_ITEMS.map(
   (i) => i.key,
 );
+
+/**
+ * Group onboarding rows into person id → item keys that have a completion
+ * date. An item counts as done only when `completed_date` is set; unknown
+ * (retired) keys are ignored.
+ */
+export function completedOnboardingByPerson(
+  rows: { person_id: string; item_key: string; completed_date: string | null }[],
+): Record<string, string[]> {
+  const known = new Set(ONBOARDING_ITEM_KEYS);
+  const out: Record<string, string[]> = {};
+  for (const r of rows) {
+    if (!r.completed_date || !known.has(r.item_key)) continue;
+    (out[r.person_id] ??= []).push(r.item_key);
+  }
+  return out;
+}

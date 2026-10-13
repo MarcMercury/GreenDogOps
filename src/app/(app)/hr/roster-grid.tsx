@@ -23,6 +23,7 @@ import {
   exportColumnsCsv,
 } from "../_components/data-views";
 import { opportunityShortLabel, OPPORTUNITY_TYPES } from "@/lib/shared/opportunity-types";
+import { ONBOARDING_ITEMS } from "@/lib/hr/onboarding";
 import { NewEmployeeWizard } from "./new-employee-wizard";
 import { EditableCell, type SelectOption } from "./editable-cell";
 import { importRosterFile, logRosterExport } from "./actions";
@@ -100,12 +101,18 @@ export function RosterGrid({
   canEdit,
   canViewAllComp = false,
   openableIds,
+  onboardingDone = null,
 }: {
   rows: RosterRow[];
   canEdit: boolean;
   canViewAllComp?: boolean;
   /** Profiles this viewer may open (Staff: only their own). */
   openableIds: string[];
+  /**
+   * person id → onboarding item keys that have a completion date. `null`
+   * when it could not be loaded (the columns then show a dash).
+   */
+  onboardingDone?: Record<string, string[]> | null;
 }) {
   const router = useRouter();
   const openable = new Set(openableIds);
@@ -769,6 +776,30 @@ export function RosterGrid({
         />
       ),
     },
+    // — Onboarding: checked when the item has a completion date (read-only;
+    //   dates are edited on the profile's Onboarding tab) —
+    ...ONBOARDING_ITEMS.map(
+      (item): Column<RosterRow> => ({
+        key: `onboarding_${item.key}`,
+        header: item.shortLabel ?? item.label,
+        value: (r) =>
+          onboardingDone ? (onboardingDone[r.id]?.includes(item.key) ?? false) : null,
+        render: (r) => {
+          if (!onboardingDone) return <span className="text-slate-400">—</span>;
+          const done = onboardingDone[r.id]?.includes(item.key) ?? false;
+          return (
+            <input
+              type="checkbox"
+              checked={done}
+              readOnly
+              tabIndex={-1}
+              aria-label={`${item.label} ${done ? "completed" : "not completed"}`}
+              className="pointer-events-none h-4 w-4 rounded border-slate-300 text-emerald-600"
+            />
+          );
+        },
+      }),
+    ),
     {
       key: "notes",
       header: "Notes",
