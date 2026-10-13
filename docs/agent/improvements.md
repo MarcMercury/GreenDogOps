@@ -5,6 +5,16 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P1 — Safety net
 
+### Staff can write most tables through the API (75 active Staff since 2026-10-13)
+- **Why:** `gdo_members_all` is `FOR ALL` for every active GDO user, so a Staff login — read-only in the app — can INSERT/UPDATE/DELETE most `greendogops` tables (schedules, CRM, boards, calendar) by calling PostgREST with its own token. Only the HR file (0227/0237), compensation and service-role tables are protected. On 2026-10-13 the owner chose to give all 70 remaining employees active Staff logins (not the self-service Employee role), so this now applies to 75 people, 67 of whom can sign in today with their EmployeeGMGDD password.
+- **Scope:** split `gdo_members_all` into read for all GDO users and write for non-Staff roles (with the `module_access` override semantics already used by `ats_read`), or move those employees to the `employee` role when the `/me` portal ships. Check every page that writes with the *user* client as Staff (Med Ops boards are deliberately editable by anyone with access — `ensureBoardUser`). Add Staff write probes to `security_rls_matrix.sql`.
+- **Risk:** medium–high (touches every table's policy; must not break Med Ops boards).
+
+### New hires do not get an Ops login automatically
+- **Why:** `ensureAuthUserForPerson()` (HR save, ATS hire) creates only the Supabase Auth user, never the `app_user` row, so anyone hired after the 2026-10-13 bulk provisioning has no login until an admin grants one. `scripts/provision_logins.mts` (idempotent, dry run by default) closes the gap by hand.
+- **Scope:** create the `app_user` (role per owner decision) in `ensureAuthUserForPerson` and the daily roster sync; invites stay a separate, explicit step (Gate 1 item 2).
+- **Risk:** low.
+
 ### Staff self-service: own schedule, PTO requests, time clock
 - **Why:** the owner wants Staff to reach their own schedule, clock in/out, and request PTO once those exist in Ops. Today Staff have no Scheduling/Calendar module, every time-off write requires HR edit (`saveTimeOff` → `ensureCanEdit("hr")`), and there is no punch data at all.
 - **Scope:** own-only pages under `/me` (the Employee home since 0238; it already accepts `ok` users too) — schedule, time off, clock. Server actions that only ever act on `appUser.person_id` and accept both `ok` and `self_service` states; the time clock per `docs/security.md` (append-only punches, per-punch auth). Do **not** reopen the `schedule` module to Staff for this — it exposes everyone's grid.
