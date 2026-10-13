@@ -47,6 +47,7 @@ function row(): RosterRow {
       days_per_week: 5,
       hire_date: "2020-01-01",
       original_hire_date: "2020-01-01",
+      adp_employee_id: "001234",
       pay_type: "hourly",
       current_rate: 30,
       previous_rate: 28,

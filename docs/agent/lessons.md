@@ -14,6 +14,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Tooling & environment
 
+### Adding a field to a shared type: type-check every file that builds it, tests included
+- **Problem:** 2026-10-13, `c85ebbc` (ADP RUN ID) failed the Vercel build: `src/lib/hr/types.test.ts` builds a full `PersonEmployment` literal that lacked the new required field. Vitest passed (it doesn't type-check) and the scoped `tsc` only covered the changed app files.
+- **Fix:** when a required property is added to a shared interface, put every file that references the type into the scoped tsconfig (`grep -rln "TypeName" src` → include list), or make the property optional if older literals are legitimately partial.
+- **Evidence:** the failing deployment's log (`npx vercel inspect <dpl> --logs --token $VERCEL_TOKEN`) showed TS2352 in the test file; the fix built.
+
 ### Merging two `person` rows: re-point by foreign key, and mind the email trigger
 - **Problem:** the same human existed twice (an ATS applicant and a roster employee); 36 tables reference `person`, several 1:1.
 - **Fix:** `scripts/merge_ats_roster_duplicates.sql` — one `DO` block that discovers the FKs to `person` from `pg_constraint`, re-points the many-side rows, merges `person_recruiting` field by field, fills blanks on the survivor, logs `merged_duplicate`, deletes the applicant. It refuses pairs that aren't applicant → employee/former or where the applicant has roster-only 1:1 rows.
