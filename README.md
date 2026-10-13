@@ -71,7 +71,8 @@ the app shows them (see [docs/security.md](docs/security.md)):
   roles (owner/admin/executive/manager) or the employee's own record only.
 - `person_document`, `profile_transition_log`: same, plus candidates
   (`prospect`/`applicant`) for anyone with Recruiting access.
-- **Compensation columns on `person_employment` are not granted to
+- **Compensation and payroll columns on `person_employment` (including the
+  ADP RUN Employee ID, `0244`) are not granted to
   `authenticated` at all.** Read/write them with `src/lib/hr/compensation.ts`
   (service role) after the app-level check. A column *added* to
   `person_employment` must be explicitly granted unless it is compensation.

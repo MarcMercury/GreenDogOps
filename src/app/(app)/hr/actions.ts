@@ -17,6 +17,7 @@ import {
 } from "@/lib/notify/events/schedule";
 import { canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { currentRate, upsertCompensation } from "@/lib/hr/compensation";
+import { normalizeAdpEmployeeId } from "@/lib/hr/payroll-readiness";
 import { safeUploadContentType } from "@/lib/security/upload";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
 import { normalizeJobTitle } from "@/lib/hr/job-titles";
@@ -267,7 +268,10 @@ export async function updateEmployee(
     const rateChanged = existing.found && newRate !== oldRate;
     if (rateChanged) rateAudit = { old: oldRate, new: newRate };
 
+    const adpId = normalizeAdpEmployeeId(formData.get("adp_employee_id"));
+    if (!adpId.ok) return { ok: false, error: adpId.error };
     compPatch = {
+      adp_employee_id: adpId.value,
       pay_type: str(formData.get("pay_type")),
       current_rate: newRate,
       biweekly_wage: num(formData.get("biweekly_wage")),
@@ -317,7 +321,7 @@ export async function updateEmployee(
 
   if (isAdmin) {
     const { error: cErr } = await upsertCompensation(personId, compPatch);
-    if (cErr) return { ok: false, error: cErr };
+    if (cErr) return { ok: false, error: friendlyCompError(cErr) };
     await recordAudit({
       actorId: gate.current.authId,
       actorEmail: gate.current.email,
@@ -395,6 +399,7 @@ const EMPLOYMENT_EDIT_FIELDS: Record<string, FieldKind> = {
 
 /** Compensation/benefits columns — writable only by comp-viewing roles. */
 const EMPLOYMENT_COMP_EDIT_FIELDS: Record<string, FieldKind> = {
+  adp_employee_id: "text",
   pay_type: "text",
   current_rate: "money",
   biweekly_wage: "money",
@@ -405,6 +410,13 @@ const EMPLOYMENT_COMP_EDIT_FIELDS: Record<string, FieldKind> = {
   ce_budget: "money",
   ce_used: "money",
 };
+
+/** Readable message for a payroll-ID clash (unique index from 0244). */
+function friendlyCompError(message: string): string {
+  return /person_employment_adp_employee_id_uq|duplicate key/i.test(message)
+    ? "That ADP RUN Employee ID is already used by another employee."
+    : message;
+}
 
 /**
  * Virtual roster-grid field for the Scheduling Active checkbox. It is not a
@@ -499,7 +511,12 @@ export async function updateEmployeeField(
         error: "You do not have permission to edit compensation.",
       };
     }
-    const value = coerceFieldValue(EMPLOYMENT_COMP_EDIT_FIELDS[field], raw);
+    let value = coerceFieldValue(EMPLOYMENT_COMP_EDIT_FIELDS[field], raw);
+    if (field === "adp_employee_id") {
+      const id = normalizeAdpEmployeeId(raw);
+      if (!id.ok) return { ok: false, error: id.error };
+      value = id.value;
+    }
     const patch: Record<string, unknown> = { [field]: value };
     let oldValue: unknown = undefined;
 
@@ -516,7 +533,7 @@ export async function updateEmployeeField(
 
     // Compensation columns are service-role only (migration 0227).
     const { error } = await upsertCompensation(personId, patch);
-    if (error) return { ok: false, error };
+    if (error) return { ok: false, error: friendlyCompError(error) };
     await recordAudit({
       actorId: gate.current.authId,
       actorEmail: gate.current.email,

@@ -8351,6 +8351,8 @@ CREATE TABLE greendogops.person_employment (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     preferred_location_id uuid,
     schedule_type text,
+    adp_employee_id text,
+    CONSTRAINT person_employment_adp_employee_id_format CHECK (((adp_employee_id IS NULL) OR (adp_employee_id ~ '^[A-Za-z0-9-]{1,20}$'::text))),
     CONSTRAINT person_employment_pay_type_check CHECK ((pay_type = ANY (ARRAY['hourly'::text, 'salary'::text, 'day_rate'::text, 'contract'::text])))
 );
 
@@ -8360,6 +8362,13 @@ CREATE TABLE greendogops.person_employment (
 --
 
 COMMENT ON COLUMN greendogops.person_employment.preferred_location_id IS 'Location the employee has designated as their preferred work location. Set on the HR roster and mirrored in Schedule → Setup → Employees.';
+
+
+--
+-- Name: COLUMN person_employment.adp_employee_id; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_employment.adp_employee_id IS 'ADP RUN Employee ID / file number (0244): the key of the payroll hours export. Unique when set. Not granted to the API role — service role only, after the HR / own-record check.';
 
 
 --
@@ -15201,6 +15210,13 @@ CREATE INDEX person_disciplinary_action_person_idx ON greendogops.person_discipl
 --
 
 CREATE INDEX person_document_person_idx ON greendogops.person_document USING btree (person_id, uploaded_at DESC);
+
+
+--
+-- Name: person_employment_adp_employee_id_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX person_employment_adp_employee_id_uq ON greendogops.person_employment USING btree (adp_employee_id) WHERE (adp_employee_id IS NOT NULL);
 
 
 --

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useActionState } from "react";
 import type { PersonPolicyStatus } from "@/lib/resources/server";
 import type { AcknowledgementRow } from "@/lib/hr/acknowledgements";
+import { missingForPayroll, READINESS_LABELS } from "@/lib/hr/payroll-readiness";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import type {
@@ -253,6 +254,15 @@ export function EmployeeProfile({
           {isAdmin && <DeleteEmployeeButton personId={row.id} />}
         </div>
       </div>
+
+      {canViewComp && missingForPayroll(row).length > 0 ? (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <span className="font-semibold">Incomplete for payroll — {missingForPayroll(row).length} item
+          {missingForPayroll(row).length === 1 ? "" : "s"}:</span>{" "}
+          {missingForPayroll(row).map((k) => READINESS_LABELS[k]).join(", ")}. The ADP RUN Employee ID is on the
+          Compensation &amp; Benefits tab.
+        </p>
+      ) : null}
 
       <div className="overflow-x-auto border-b border-slate-200">
         <nav className="-mb-px flex gap-1">

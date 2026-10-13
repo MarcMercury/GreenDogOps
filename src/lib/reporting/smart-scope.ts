@@ -52,6 +52,7 @@ export interface SmartScope {
  * bare-identifier match is unambiguous.
  */
 const COMPENSATION_COLUMNS = [
+  "adp_employee_id",
   "pay_type",
   "current_rate",
   "previous_rate",

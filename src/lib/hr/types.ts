@@ -52,6 +52,8 @@ export interface PersonEmployment {
   days_per_week: number | null;
   hire_date: string | null;
   original_hire_date: string | null;
+  /** ADP RUN Employee ID (0244): payroll data, service role only like compensation. */
+  adp_employee_id: string | null;
   pay_type: string | null;
   current_rate: number | null;
   previous_rate: number | null;
@@ -92,8 +94,12 @@ export function isSchedulingActive(row: RosterRow): boolean {
   return row.sched_employee_setting?.is_schedulable ?? false;
 }
 
-/** Employment fields treated as compensation/benefits — admin-only. */
+/**
+ * Employment fields treated as compensation/benefits/payroll — not granted to
+ * the API role; HR roles (canViewAllCompensation) and the employee only.
+ */
 export const COMPENSATION_FIELDS: Array<keyof PersonEmployment> = [
+  "adp_employee_id",
   "pay_type",
   "current_rate",
   "previous_rate",

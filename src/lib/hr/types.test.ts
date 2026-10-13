@@ -102,11 +102,13 @@ describe("redactCompensation", () => {
   });
 });
 
-// Migration 0227 revokes exactly these columns from the API role.
-describe("compensation column list (mirrored in migration 0227)", () => {
+// Migration 0227 revokes exactly these columns from the API role (0244 adds
+// adp_employee_id without a grant).
+describe("compensation column list (mirrored in migrations 0227, 0244)", () => {
   it("matches the revoked set", () => {
     expect([...COMPENSATION_FIELDS].sort()).toEqual(
       [
+        "adp_employee_id",
         "pay_type",
         "current_rate",
         "previous_rate",

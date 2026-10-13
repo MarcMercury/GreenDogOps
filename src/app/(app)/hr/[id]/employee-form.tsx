@@ -562,6 +562,14 @@ export function EmployeeForm({
       <div className={activeTab === "comp" && canViewComp ? "space-y-5" : "hidden"}>
         {canViewComp && (
           <>
+            <Section title="Payroll (ADP RUN)">
+              <Field
+                label="ADP RUN Employee ID"
+                name="adp_employee_id"
+                defaultValue={emp?.adp_employee_id}
+                placeholder="As shown in RUN (e.g. 001234)"
+              />
+            </Section>
             <Section title="Compensation">
               <Select
                 label="Pay type"

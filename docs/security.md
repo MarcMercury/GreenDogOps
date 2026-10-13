@@ -28,7 +28,7 @@ hiding UI.
 | --- | --- | --- |
 | Reviews, disciplinary actions, assets, onboarding, compliance, licenses | HR roles (owner, admin, executive, manager) — or the employee's own record | HR roles with HR edit rights |
 | Employee documents, stage history | Same; candidates (`prospect`/`applicant`) also visible to anyone with Recruiting access (not Staff unless granted — `0237`) | HR roles; Recruiting editors for candidates |
-| Compensation columns on `person_employment` | **Nobody** — service role only, after `canViewAllCompensation` or own-record check | Same |
+| Compensation and payroll columns on `person_employment` (incl. `adp_employee_id`, 0244) | **Nobody** — service role only, after `canViewAllCompensation` or own-record check | Same |
 | `audit_log` | Nobody — service role only (Admin → Audit) | Append-only; UPDATE/DELETE/TRUNCATE blocked by trigger |
 
 App-level behaviour that matches it:

@@ -27,6 +27,13 @@ import { ONBOARDING_ITEMS } from "@/lib/hr/onboarding";
 import { NewEmployeeWizard } from "./new-employee-wizard";
 import { EditableCell, type SelectOption } from "./editable-cell";
 import { importRosterFile, logRosterExport } from "./actions";
+import {
+  missingForPayroll,
+  needsPayrollData,
+  READINESS_LABELS,
+  readinessCounts,
+  type ReadinessItem,
+} from "@/lib/hr/payroll-readiness";
 
 const STATUS_BADGE: Record<EmploymentStatus, string> = {
   prospect: "bg-amber-100 text-amber-800",
@@ -566,6 +573,20 @@ export function RosterGrid({
     },
     // — Compensation & Benefits: compensation —
     {
+      key: "adp_employee_id",
+      header: "ADP RUN ID",
+      value: (r) => r.person_employment?.adp_employee_id ?? null,
+      render: (r) => (
+        <EditableCell
+          personId={r.id}
+          field="adp_employee_id"
+          kind="text"
+          rawValue={r.person_employment?.adp_employee_id ?? null}
+          disabled={!editable}
+        />
+      ),
+    },
+    {
       key: "pay_type",
       header: "Pay Type",
       value: (r) =>
@@ -850,7 +871,22 @@ export function RosterGrid({
       label: "Title",
       value: jobTitle,
     },
+    // Payroll readiness (plan D12) — HR roles only, since the ADP RUN ID is
+    // payroll data they alone can see.
+    ...(canViewAllComp
+      ? [
+          {
+            key: "payroll",
+            label: "Payroll data",
+            value: (r: RosterRow) => {
+              if (!needsPayrollData(r)) return null;
+              return missingForPayroll(r).length ? "Missing items" : "Complete";
+            },
+          },
+        ]
+      : []),
   ];
+  const readiness = canViewAllComp ? readinessCounts(rows) : null;
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -924,6 +960,21 @@ export function RosterGrid({
       />
 
       <StatGrid stats={stats} />
+
+      {readiness && readiness.people > 0 ? (
+        <div
+          className={`mt-4 rounded-lg px-4 py-2.5 text-xs ${readiness.ready === readiness.people ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-900"}`}
+        >
+          <span className="font-semibold">
+            Payroll readiness: {readiness.ready} of {readiness.people} active employees complete.
+          </span>{" "}
+          {(Object.keys(READINESS_LABELS) as ReadinessItem[])
+            .filter((k) => readiness[k] > 0)
+            .map((k) => `${readiness[k]} missing ${READINESS_LABELS[k].toLowerCase()}`)
+            .join(" · ") || "Nothing missing."}{" "}
+          Filter by “Payroll data” to list them; fill them in from the Detailed view or each profile.
+        </div>
+      ) : null}
 
       {detailedEnabled && editable ? (
         <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
