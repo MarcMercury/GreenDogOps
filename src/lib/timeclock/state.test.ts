@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  ABANDON_AFTER_HOURS,
   allowedPunches,
   canPunch,
+  canStartNewShift,
   clockState,
   hasAbandonedSession,
   isPunchType,
@@ -58,10 +60,24 @@ describe("allowed punches (mirrors record_time_punch in 0240)", () => {
   it("stays in step with the SQL function", async () => {
     const { readFileSync } = await import("node:fs");
     const { join } = await import("node:path");
-    const sql = readFileSync(join(process.cwd(), "supabase/migrations/0240_time_clock.sql"), "utf8");
+    // 0241 is the current definition of record_time_punch().
+    const sql = readFileSync(join(process.cwd(), "supabase/migrations/0241_time_clock_location_and_approvals.sql"), "utf8");
+    expect(sql).toContain(`interval '${ABANDON_AFTER_HOURS} hours'`);
     expect(sql).toContain(`interval '${STALE_SESSION_HOURS} hours'`);
     expect(sql).toContain("(v_state = 'off'      and p_punch_type = 'clock_in')");
     expect(sql).toContain("(v_state = 'working'  and p_punch_type in ('lunch_start', 'clock_out'))");
     expect(sql).toContain("(v_state = 'on_lunch' and p_punch_type in ('lunch_end', 'clock_out'))");
+  });
+});
+
+describe("canStartNewShift (forgot to clock out)", () => {
+  it("is offered only when still clocked in from more than 8 hours ago", () => {
+    expect(canStartNewShift({ punch_type: "clock_in", punched_at: ago(ABANDON_AFTER_HOURS + 0.5) }, NOW)).toBe(true);
+    expect(canStartNewShift({ punch_type: "lunch_start", punched_at: ago(ABANDON_AFTER_HOURS + 0.5) }, NOW)).toBe(true);
+    expect(canStartNewShift({ punch_type: "clock_in", punched_at: ago(ABANDON_AFTER_HOURS - 0.5) }, NOW)).toBe(false);
+    expect(canStartNewShift({ punch_type: "clock_out", punched_at: ago(10) }, NOW)).toBe(false);
+    expect(canStartNewShift(null, NOW)).toBe(false);
+    // Past the stale threshold the state is already "off": a plain clock-in works.
+    expect(canStartNewShift({ punch_type: "clock_in", punched_at: ago(20) }, NOW)).toBe(false);
   });
 });

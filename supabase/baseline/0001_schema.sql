@@ -1341,6 +1341,89 @@ COMMENT ON FUNCTION greendogops.client_visits(p_client text) IS 'Ask Ziggy: ever
 
 
 --
+-- Name: decide_time_correction(uuid, text, text, uuid, uuid, uuid); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.decide_time_correction(p_request_id uuid, p_decision text, p_note text, p_reviewer uuid, p_replace_punch_id uuid DEFAULT NULL::uuid, p_replace_adjustment_id uuid DEFAULT NULL::uuid) RETURNS jsonb
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  v_req   greendogops.time_correction_request%rowtype;
+  v_note  text := nullif(btrim(coalesce(p_note, '')), '');
+  v_owner uuid;
+  v_reason text;
+begin
+  if p_decision not in ('approved', 'denied') then
+    return jsonb_build_object('ok', false, 'error', 'invalid_decision');
+  end if;
+
+  select * into v_req from greendogops.time_correction_request where id = p_request_id for update;
+  if v_req.id is null then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if v_req.status <> 'pending' then
+    return jsonb_build_object('ok', false, 'error', 'not_pending');
+  end if;
+  if p_decision = 'denied' and v_note is null then
+    return jsonb_build_object('ok', false, 'error', 'note_required');
+  end if;
+
+  if p_decision = 'approved' and v_req.kind in ('missing_punch', 'wrong_time') then
+    if v_req.requested_time > clock_timestamp() then
+      return jsonb_build_object('ok', false, 'error', 'future_time');
+    end if;
+    v_reason := 'Correction request: ' || v_req.reason;
+
+    if v_req.kind = 'wrong_time' then
+      if num_nonnulls(p_replace_punch_id, p_replace_adjustment_id) <> 1 then
+        return jsonb_build_object('ok', false, 'error', 'replace_target_required');
+      end if;
+      if p_replace_punch_id is not null then
+        select person_id into v_owner from greendogops.time_punch where id = p_replace_punch_id;
+      else
+        select person_id into v_owner from greendogops.time_punch_adjustment
+         where id = p_replace_adjustment_id and action = 'add';
+      end if;
+      if v_owner is distinct from v_req.person_id then
+        return jsonb_build_object('ok', false, 'error', 'replace_target_invalid');
+      end if;
+      begin
+        insert into greendogops.time_punch_adjustment
+          (person_id, action, work_date, voids_punch_id, voids_adjustment_id, reason,
+           correction_request_id, created_by)
+        values
+          (v_req.person_id, 'void', v_req.work_date, p_replace_punch_id, p_replace_adjustment_id,
+           v_reason, v_req.id, p_reviewer);
+      exception when unique_violation then
+        return jsonb_build_object('ok', false, 'error', 'already_voided');
+      end;
+    end if;
+
+    insert into greendogops.time_punch_adjustment
+      (person_id, action, punch_type, punched_at, work_date, reason, correction_request_id, created_by)
+    values
+      (v_req.person_id, 'add', v_req.punch_type, v_req.requested_time, v_req.work_date,
+       v_reason, v_req.id, p_reviewer);
+  end if;
+
+  update greendogops.time_correction_request
+     set status = p_decision, reviewed_by = p_reviewer, reviewed_at = now(), review_note = v_note
+   where id = v_req.id;
+
+  return jsonb_build_object('ok', true, 'person_id', v_req.person_id);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION decide_time_correction(p_request_id uuid, p_decision text, p_note text, p_reviewer uuid, p_replace_punch_id uuid, p_replace_adjustment_id uuid); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.decide_time_correction(p_request_id uuid, p_decision text, p_note text, p_reviewer uuid, p_replace_punch_id uuid, p_replace_adjustment_id uuid) IS 'Approve or deny a time_correction_request (0241). Approving a missing punch adds it; a wrong time voids the chosen punch and adds the corrected one. Deny needs a note. Service role only; the app checks the approver role (D9).';
+
+
+--
 -- Name: format_phone(text); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -3283,25 +3366,33 @@ COMMENT ON FUNCTION greendogops.record_qr_scan(p_token text) IS 'Atomically bump
 
 
 --
--- Name: record_time_punch(uuid, text, text, uuid, uuid, uuid, text, text, double precision, double precision, double precision, timestamp with time zone, text, boolean, text, text); Type: FUNCTION; Schema: greendogops; Owner: -
+-- Name: record_time_punch(uuid, text, text, uuid, uuid, uuid, text, text, double precision, double precision, double precision, timestamp with time zone, text, boolean, text, text, uuid, uuid, double precision, boolean); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
-CREATE FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text DEFAULT 'self'::text, p_created_by uuid DEFAULT NULL::uuid, p_location_id uuid DEFAULT NULL::uuid, p_assignment_id uuid DEFAULT NULL::uuid, p_ip text DEFAULT NULL::text, p_user_agent text DEFAULT NULL::text, p_latitude double precision DEFAULT NULL::double precision, p_longitude double precision DEFAULT NULL::double precision, p_accuracy_m double precision DEFAULT NULL::double precision, p_client_time timestamp with time zone DEFAULT NULL::timestamp with time zone, p_note text DEFAULT NULL::text, p_rest_breaks_ok boolean DEFAULT NULL::boolean, p_location_check text DEFAULT 'not_checked'::text, p_timezone text DEFAULT 'America/Los_Angeles'::text) RETURNS jsonb
+CREATE FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text DEFAULT 'self'::text, p_created_by uuid DEFAULT NULL::uuid, p_location_id uuid DEFAULT NULL::uuid, p_assignment_id uuid DEFAULT NULL::uuid, p_ip text DEFAULT NULL::text, p_user_agent text DEFAULT NULL::text, p_latitude double precision DEFAULT NULL::double precision, p_longitude double precision DEFAULT NULL::double precision, p_accuracy_m double precision DEFAULT NULL::double precision, p_client_time timestamp with time zone DEFAULT NULL::timestamp with time zone, p_note text DEFAULT NULL::text, p_rest_breaks_ok boolean DEFAULT NULL::boolean, p_location_check text DEFAULT 'not_checked'::text, p_timezone text DEFAULT 'America/Los_Angeles'::text, p_matched_location_id uuid DEFAULT NULL::uuid, p_network_id uuid DEFAULT NULL::uuid, p_distance_m double precision DEFAULT NULL::double precision, p_abandon_previous boolean DEFAULT false) RETURNS jsonb
     LANGUAGE plpgsql
     SET search_path TO 'greendogops', 'pg_catalog'
     AS $$
 declare
   v_now        timestamptz;
-  v_last       greendogops.time_punch%rowtype;
-  v_session    greendogops.time_punch%rowtype;
+  v_last       record;
+  v_session    record;
   v_state      text;
   v_work_date  date;
   v_location   uuid := p_location_id;
   v_assignment uuid := p_assignment_id;
+  v_check      text := coalesce(p_location_check, 'not_checked');
+  v_note       text := nullif(left(btrim(coalesce(p_note, '')), 1000), '');
   v_id         uuid;
 begin
   if p_punch_type not in ('clock_in', 'lunch_start', 'lunch_end', 'clock_out') then
     return jsonb_build_object('ok', false, 'error', 'invalid_type');
+  end if;
+  if v_check not in ('not_checked', 'on_site', 'other_clinic', 'off_site') then
+    return jsonb_build_object('ok', false, 'error', 'invalid_location_check');
+  end if;
+  if v_check = 'off_site' and v_note is null then
+    return jsonb_build_object('ok', false, 'error', 'note_required');
   end if;
 
   perform 1
@@ -3313,16 +3404,13 @@ begin
     return jsonb_build_object('ok', false, 'error', 'not_eligible');
   end if;
 
-  -- One punch at a time per person. The punch time is read AFTER the lock
-  -- (clock_timestamp, not now(): now() is the transaction start, so a punch
-  -- that waited for the lock could otherwise sort before the one it waited on).
+  -- One punch at a time per person; the time is read after the lock.
   perform pg_advisory_xact_lock(hashtextextended('time_punch:' || p_person_id::text, 0));
   v_now := clock_timestamp();
 
-  select * into v_last
-    from greendogops.time_punch
-   where person_id = p_person_id
-   order by punched_at desc, created_at desc
+  select e.* into v_last
+    from greendogops.time_effective_punches(p_person_id) e
+   order by e.punched_at desc, e.created_at desc
    limit 1;
 
   -- A double tap is the same punch, not a second one.
@@ -3334,8 +3422,7 @@ begin
                               'punch_type', v_last.punch_type);
   end if;
 
-  -- Clock state (mirrors clockState() in src/lib/timeclock/state.ts). A
-  -- session idle for more than 16 hours is abandoned (missing clock-out).
+  -- Mirrors clockState() in src/lib/timeclock/state.ts.
   v_state := case
     when v_last.id is null or v_last.punch_type = 'clock_out' then 'off'
     when v_now - v_last.punched_at > interval '16 hours' then 'off'
@@ -3347,6 +3434,10 @@ begin
        (v_state = 'off'      and p_punch_type = 'clock_in')
     or (v_state = 'working'  and p_punch_type in ('lunch_start', 'clock_out'))
     or (v_state = 'on_lunch' and p_punch_type in ('lunch_end', 'clock_out'))
+    -- Forgot to clock out: start a new shift once the last punch is > 8 h old.
+    or (v_state in ('working', 'on_lunch') and p_punch_type = 'clock_in'
+        and coalesce(p_abandon_previous, false)
+        and v_now - v_last.punched_at > interval '8 hours')
   ) then
     return jsonb_build_object('ok', false, 'error', 'invalid_transition', 'state', v_state);
   end if;
@@ -3358,11 +3449,10 @@ begin
   if p_punch_type = 'clock_in' then
     v_work_date := (v_now at time zone p_timezone)::date;
   else
-    select * into v_session
-      from greendogops.time_punch
-     where person_id = p_person_id
-       and punch_type = 'clock_in'
-     order by punched_at desc, created_at desc
+    select e.* into v_session
+      from greendogops.time_effective_punches(p_person_id) e
+     where e.punch_type = 'clock_in'
+     order by e.punched_at desc, e.created_at desc
      limit 1;
     v_work_date := coalesce(v_session.work_date, (v_now at time zone p_timezone)::date);
     v_location := coalesce(v_location, v_session.location_id);
@@ -3372,27 +3462,35 @@ begin
   insert into greendogops.time_punch (
     person_id, punch_type, punched_at, work_date, location_id, assignment_id, source,
     ip, user_agent, latitude, longitude, accuracy_m, location_check, note,
-    rest_breaks_ok, client_time, created_by
+    rest_breaks_ok, client_time, created_by,
+    matched_location_id, network_id, distance_m, needs_approval
   ) values (
     p_person_id, p_punch_type, v_now, v_work_date, v_location, v_assignment,
     coalesce(p_source, 'self'), left(p_ip, 100), left(p_user_agent, 300),
-    p_latitude, p_longitude, p_accuracy_m, coalesce(p_location_check, 'not_checked'),
-    nullif(left(btrim(coalesce(p_note, '')), 1000), ''), p_rest_breaks_ok, p_client_time, p_created_by
+    p_latitude, p_longitude, p_accuracy_m, v_check, v_note,
+    p_rest_breaks_ok, p_client_time, p_created_by,
+    p_matched_location_id, p_network_id, p_distance_m, v_check = 'off_site'
   )
   returning id into v_id;
 
+  if p_network_id is not null then
+    update greendogops.location_network
+       set last_matched_at = v_now, match_count = match_count + 1
+     where id = p_network_id;
+  end if;
+
   return jsonb_build_object('ok', true, 'duplicate', false, 'punch_id', v_id,
                             'punched_at', v_now, 'work_date', v_work_date,
-                            'punch_type', p_punch_type);
+                            'punch_type', p_punch_type, 'needs_approval', v_check = 'off_site');
 end;
 $$;
 
 
 --
--- Name: FUNCTION record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text); Type: COMMENT; Schema: greendogops; Owner: -
+-- Name: FUNCTION record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text, p_matched_location_id uuid, p_network_id uuid, p_distance_m double precision, p_abandon_previous boolean); Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text) IS 'The only writer of time_punch (0240): per-person lock, state check, double-tap idempotency, server time, clinic-time-zone work_date. Returns {ok, error?, state?, duplicate, punch_id, punched_at, work_date}. Service role only.';
+COMMENT ON FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text, p_matched_location_id uuid, p_network_id uuid, p_distance_m double precision, p_abandon_previous boolean) IS 'The only writer of time_punch (0240, 0241): per-person lock, state check on EFFECTIVE punches (adjustments applied), double-tap idempotency, server time, clinic-time-zone work_date, off-site punches need a note and go to approval. Service role only.';
 
 
 --
@@ -3579,6 +3677,61 @@ CREATE FUNCTION greendogops.request_reporting_refresh() RETURNS void
     AS $$
   update greendogops.reporting_refresh_state set requested_at = now() where id;
 $$;
+
+
+--
+-- Name: review_time_punch(uuid, text, text, uuid); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.review_time_punch(p_punch_id uuid, p_decision text, p_note text, p_reviewer uuid) RETURNS jsonb
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  v_punch greendogops.time_punch%rowtype;
+  v_note  text := nullif(btrim(coalesce(p_note, '')), '');
+begin
+  if p_decision not in ('approved', 'rejected') then
+    return jsonb_build_object('ok', false, 'error', 'invalid_decision');
+  end if;
+  if p_decision = 'rejected' and v_note is null then
+    return jsonb_build_object('ok', false, 'error', 'note_required');
+  end if;
+
+  select * into v_punch from greendogops.time_punch where id = p_punch_id;
+  if v_punch.id is null then
+    return jsonb_build_object('ok', false, 'error', 'not_found');
+  end if;
+  if not v_punch.needs_approval then
+    return jsonb_build_object('ok', false, 'error', 'not_pending');
+  end if;
+
+  insert into greendogops.time_punch_review (punch_id, decision, note, reviewed_by)
+  values (p_punch_id, p_decision, v_note, p_reviewer)
+  on conflict (punch_id) do nothing;
+  if not found then
+    return jsonb_build_object('ok', false, 'error', 'already_reviewed');
+  end if;
+
+  if p_decision = 'rejected' then
+    insert into greendogops.time_punch_adjustment
+      (person_id, action, work_date, voids_punch_id, reason, created_by)
+    values
+      (v_punch.person_id, 'void', v_punch.work_date, v_punch.id,
+       'Off-site punch rejected: ' || v_note, p_reviewer)
+    on conflict do nothing;
+  end if;
+
+  return jsonb_build_object('ok', true, 'person_id', v_punch.person_id);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION review_time_punch(p_punch_id uuid, p_decision text, p_note text, p_reviewer uuid); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.review_time_punch(p_punch_id uuid, p_decision text, p_note text, p_reviewer uuid) IS 'Approve or reject an off-site punch (0241). Reject needs a note and voids the punch. Idempotent per punch. Service role only; the app checks the approver role (D9).';
 
 
 --
@@ -4118,6 +4271,27 @@ COMMENT ON FUNCTION greendogops.staff_read_only_policies(p_table text) IS 'Adds 
 
 
 --
+-- Name: time_effective_punches(uuid); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.time_effective_punches(p_person_id uuid) RETURNS TABLE(id uuid, punch_type text, punched_at timestamp with time zone, work_date date, location_id uuid, assignment_id uuid, created_at timestamp with time zone)
+    LANGUAGE sql STABLE
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+  select p.id, p.punch_type, p.punched_at, p.work_date, p.location_id, p.assignment_id, p.created_at
+    from greendogops.time_punch p
+   where p.person_id = p_person_id
+     and not exists (select 1 from greendogops.time_punch_adjustment v where v.voids_punch_id = p.id)
+  union all
+  select a.id, a.punch_type, a.punched_at, a.work_date, null, null, a.created_at
+    from greendogops.time_punch_adjustment a
+   where a.person_id = p_person_id
+     and a.action = 'add'
+     and not exists (select 1 from greendogops.time_punch_adjustment v where v.voids_adjustment_id = a.id);
+$$;
+
+
+--
 -- Name: time_punch_append_only(); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -4127,6 +4301,21 @@ CREATE FUNCTION greendogops.time_punch_append_only() RETURNS trigger
     AS $$
 begin
   raise exception 'greendogops.time_punch is append-only (% blocked); record a correction instead', tg_op
+    using errcode = 'insufficient_privilege';
+end;
+$$;
+
+
+--
+-- Name: time_record_append_only(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.time_record_append_only() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+begin
+  raise exception 'greendogops.% is append-only (% blocked)', tg_table_name, tg_op
     using errcode = 'insufficient_privilege';
 end;
 $$;
@@ -6954,7 +7143,18 @@ CREATE TABLE greendogops.location (
     website_url text,
     notes text,
     parent_location_id uuid,
-    CONSTRAINT location_kind_chk CHECK ((kind = ANY (ARRAY['clinic'::text, 'mobile'::text])))
+    latitude double precision,
+    longitude double precision,
+    geofence_radius_m integer DEFAULT 150 NOT NULL,
+    gps_max_accuracy_m integer DEFAULT 100 NOT NULL,
+    clock_policy text DEFAULT 'network_or_geofence'::text NOT NULL,
+    CONSTRAINT location_clock_policy_chk CHECK ((clock_policy = ANY (ARRAY['network_or_geofence'::text, 'network_only'::text, 'geofence_only'::text, 'anywhere_logged'::text]))),
+    CONSTRAINT location_geofence_radius_range CHECK (((geofence_radius_m >= 25) AND (geofence_radius_m <= 5000))),
+    CONSTRAINT location_gps_accuracy_range CHECK (((gps_max_accuracy_m >= 5) AND (gps_max_accuracy_m <= 5000))),
+    CONSTRAINT location_kind_chk CHECK ((kind = ANY (ARRAY['clinic'::text, 'mobile'::text]))),
+    CONSTRAINT location_latitude_range CHECK (((latitude IS NULL) OR ((latitude >= ('-90'::integer)::double precision) AND (latitude <= (90)::double precision)))),
+    CONSTRAINT location_latlng_pair CHECK (((latitude IS NULL) = (longitude IS NULL))),
+    CONSTRAINT location_longitude_range CHECK (((longitude IS NULL) OR ((longitude >= ('-180'::integer)::double precision) AND (longitude <= (180)::double precision))))
 );
 
 
@@ -6963,6 +7163,41 @@ CREATE TABLE greendogops.location (
 --
 
 COMMENT ON TABLE greendogops.location IS 'Clinic locations. "Van Nuys" is also referred to as "Aetna" (14661 Aetna St) — the staff schedule sheet uses AETNA; both mean this one row.';
+
+
+--
+-- Name: COLUMN location.clock_policy; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.location.clock_policy IS 'Time-clock location rule (0241): network_or_geofence (default), network_only, geofence_only, anywhere_logged (mobile: always accepted, GPS recorded).';
+
+
+--
+-- Name: location_network; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.location_network (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    location_id uuid NOT NULL,
+    label text NOT NULL,
+    cidr cidr NOT NULL,
+    is_active boolean DEFAULT true NOT NULL,
+    added_by uuid,
+    added_via text DEFAULT 'manual'::text NOT NULL,
+    last_matched_at timestamp with time zone,
+    match_count integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT location_network_added_via_check CHECK ((added_via = ANY (ARRAY['manual'::text, 'captured'::text]))),
+    CONSTRAINT location_network_label_check CHECK ((length(btrim(label)) > 0))
+);
+
+
+--
+-- Name: TABLE location_network; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.location_network IS 'Approved public networks (static IP /32 or a range) per clinic for the time clock (0241). Deactivate rather than delete. Service role only.';
 
 
 --
@@ -11452,7 +11687,13 @@ CREATE TABLE greendogops.time_punch (
     client_time timestamp with time zone,
     created_by uuid,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    matched_location_id uuid,
+    network_id uuid,
+    distance_m double precision,
+    needs_approval boolean DEFAULT false NOT NULL,
     CONSTRAINT time_punch_location_check_check CHECK ((location_check = ANY (ARRAY['not_checked'::text, 'on_site'::text, 'other_clinic'::text, 'off_site'::text]))),
+    CONSTRAINT time_punch_needs_approval_offsite CHECK ((needs_approval = (location_check = 'off_site'::text))),
+    CONSTRAINT time_punch_offsite_needs_note CHECK (((location_check <> 'off_site'::text) OR (length(btrim(COALESCE(note, ''::text))) > 0))),
     CONSTRAINT time_punch_punch_type_check CHECK ((punch_type = ANY (ARRAY['clock_in'::text, 'lunch_start'::text, 'lunch_end'::text, 'clock_out'::text]))),
     CONSTRAINT time_punch_rest_breaks_on_clock_out CHECK (((rest_breaks_ok IS NULL) OR (punch_type = 'clock_out'::text))),
     CONSTRAINT time_punch_source_check CHECK ((source = ANY (ARRAY['self'::text, 'manager'::text, 'kiosk'::text])))
@@ -11485,6 +11726,67 @@ COMMENT ON COLUMN greendogops.time_punch.rest_breaks_ok IS 'Clock-out answer to 
 --
 
 COMMENT ON COLUMN greendogops.time_punch.client_time IS 'The device clock at the moment of the punch — reference only, never used for pay.';
+
+
+--
+-- Name: COLUMN time_punch.needs_approval; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.time_punch.needs_approval IS 'Off-site punch (location check failed, employee chose "Working off-site" with a note). Pending until a time_punch_review row exists.';
+
+
+--
+-- Name: time_punch_adjustment; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.time_punch_adjustment (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid NOT NULL,
+    action text NOT NULL,
+    punch_type text,
+    punched_at timestamp with time zone,
+    work_date date NOT NULL,
+    voids_punch_id uuid,
+    voids_adjustment_id uuid,
+    reason text NOT NULL,
+    correction_request_id uuid,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT time_punch_adjustment_action_check CHECK ((action = ANY (ARRAY['add'::text, 'void'::text]))),
+    CONSTRAINT time_punch_adjustment_not_future CHECK (((punched_at IS NULL) OR (punched_at <= (created_at + '00:01:00'::interval)))),
+    CONSTRAINT time_punch_adjustment_punch_type_check CHECK ((punch_type = ANY (ARRAY['clock_in'::text, 'lunch_start'::text, 'lunch_end'::text, 'clock_out'::text]))),
+    CONSTRAINT time_punch_adjustment_reason_check CHECK ((length(btrim(reason)) > 0)),
+    CONSTRAINT time_punch_adjustment_shape CHECK ((((action = 'add'::text) AND (punch_type IS NOT NULL) AND (punched_at IS NOT NULL) AND (voids_punch_id IS NULL) AND (voids_adjustment_id IS NULL)) OR ((action = 'void'::text) AND (punch_type IS NULL) AND (punched_at IS NULL) AND (num_nonnulls(voids_punch_id, voids_adjustment_id) = 1))))
+);
+
+
+--
+-- Name: TABLE time_punch_adjustment; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.time_punch_adjustment IS 'Approver changes to a timecard (0241): add a punch, or void a punch / earlier add. Append-only; reason required. Effective punches = time_punch − voids + adds. Service role only; keep 4 years.';
+
+
+--
+-- Name: time_punch_review; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.time_punch_review (
+    punch_id uuid NOT NULL,
+    decision text NOT NULL,
+    note text,
+    reviewed_by uuid,
+    reviewed_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT time_punch_review_decision_check CHECK ((decision = ANY (ARRAY['approved'::text, 'rejected'::text]))),
+    CONSTRAINT time_punch_review_reject_note CHECK (((decision = 'approved'::text) OR (length(btrim(COALESCE(note, ''::text))) > 0)))
+);
+
+
+--
+-- Name: TABLE time_punch_review; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.time_punch_review IS 'Approver decision on an off-site punch (0241). One per punch, append-only. Rejecting also voids the punch (time_punch_adjustment). Service role only.';
 
 
 --
@@ -12266,6 +12568,22 @@ ALTER TABLE ONLY greendogops.interview_invite
 
 ALTER TABLE ONLY greendogops.location
     ADD CONSTRAINT location_code_key UNIQUE (code);
+
+
+--
+-- Name: location_network location_network_location_id_cidr_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.location_network
+    ADD CONSTRAINT location_network_location_id_cidr_key UNIQUE (location_id, cidr);
+
+
+--
+-- Name: location_network location_network_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.location_network
+    ADD CONSTRAINT location_network_pkey PRIMARY KEY (id);
 
 
 --
@@ -13133,11 +13451,27 @@ ALTER TABLE ONLY greendogops.time_correction_request
 
 
 --
+-- Name: time_punch_adjustment time_punch_adjustment_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch_adjustment
+    ADD CONSTRAINT time_punch_adjustment_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: time_punch time_punch_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
 ALTER TABLE ONLY greendogops.time_punch
     ADD CONSTRAINT time_punch_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: time_punch_review time_punch_review_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch_review
+    ADD CONSTRAINT time_punch_review_pkey PRIMARY KEY (punch_id);
 
 
 --
@@ -15676,6 +16010,34 @@ CREATE INDEX time_correction_person_idx ON greendogops.time_correction_request U
 
 
 --
+-- Name: time_punch_adjustment_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX time_punch_adjustment_person_idx ON greendogops.time_punch_adjustment USING btree (person_id, work_date);
+
+
+--
+-- Name: time_punch_adjustment_void_adj_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX time_punch_adjustment_void_adj_uq ON greendogops.time_punch_adjustment USING btree (voids_adjustment_id) WHERE (voids_adjustment_id IS NOT NULL);
+
+
+--
+-- Name: time_punch_adjustment_void_punch_uq; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX time_punch_adjustment_void_punch_uq ON greendogops.time_punch_adjustment USING btree (voids_punch_id) WHERE (voids_punch_id IS NOT NULL);
+
+
+--
+-- Name: time_punch_needs_approval_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX time_punch_needs_approval_idx ON greendogops.time_punch USING btree (punched_at) WHERE needs_approval;
+
+
+--
 -- Name: time_punch_person_time_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -15932,6 +16294,13 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.ezyvet_tag FOR EACH R
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.location FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: location_network set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.location_network FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
 
 
 --
@@ -16362,6 +16731,20 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.time_correction_reque
 
 
 --
+-- Name: time_punch_adjustment time_punch_adjustment_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER time_punch_adjustment_append_only_row BEFORE DELETE OR UPDATE ON greendogops.time_punch_adjustment FOR EACH ROW EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: time_punch_adjustment time_punch_adjustment_append_only_truncate; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER time_punch_adjustment_append_only_truncate BEFORE TRUNCATE ON greendogops.time_punch_adjustment FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
 -- Name: time_punch time_punch_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
@@ -16373,6 +16756,20 @@ CREATE TRIGGER time_punch_append_only_row BEFORE DELETE OR UPDATE ON greendogops
 --
 
 CREATE TRIGGER time_punch_append_only_truncate BEFORE TRUNCATE ON greendogops.time_punch FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_punch_append_only();
+
+
+--
+-- Name: time_punch_review time_punch_review_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER time_punch_review_append_only_row BEFORE DELETE OR UPDATE ON greendogops.time_punch_review FOR EACH ROW EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: time_punch_review time_punch_review_append_only_truncate; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER time_punch_review_append_only_truncate BEFORE TRUNCATE ON greendogops.time_punch_review FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_record_append_only();
 
 
 --
@@ -16627,6 +17024,14 @@ ALTER TABLE ONLY greendogops.interview_invite
 
 ALTER TABLE ONLY greendogops.interview_invite
     ADD CONSTRAINT interview_invite_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: location_network location_network_location_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.location_network
+    ADD CONSTRAINT location_network_location_id_fkey FOREIGN KEY (location_id) REFERENCES greendogops.location(id);
 
 
 --
@@ -17694,6 +18099,38 @@ ALTER TABLE ONLY greendogops.time_correction_request
 
 
 --
+-- Name: time_punch_adjustment time_punch_adjustment_correction_request_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch_adjustment
+    ADD CONSTRAINT time_punch_adjustment_correction_request_id_fkey FOREIGN KEY (correction_request_id) REFERENCES greendogops.time_correction_request(id);
+
+
+--
+-- Name: time_punch_adjustment time_punch_adjustment_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch_adjustment
+    ADD CONSTRAINT time_punch_adjustment_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id);
+
+
+--
+-- Name: time_punch_adjustment time_punch_adjustment_voids_adjustment_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch_adjustment
+    ADD CONSTRAINT time_punch_adjustment_voids_adjustment_id_fkey FOREIGN KEY (voids_adjustment_id) REFERENCES greendogops.time_punch_adjustment(id);
+
+
+--
+-- Name: time_punch_adjustment time_punch_adjustment_voids_punch_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch_adjustment
+    ADD CONSTRAINT time_punch_adjustment_voids_punch_id_fkey FOREIGN KEY (voids_punch_id) REFERENCES greendogops.time_punch(id);
+
+
+--
 -- Name: time_punch time_punch_location_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -17702,11 +18139,35 @@ ALTER TABLE ONLY greendogops.time_punch
 
 
 --
+-- Name: time_punch time_punch_matched_location_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch
+    ADD CONSTRAINT time_punch_matched_location_id_fkey FOREIGN KEY (matched_location_id) REFERENCES greendogops.location(id);
+
+
+--
+-- Name: time_punch time_punch_network_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch
+    ADD CONSTRAINT time_punch_network_id_fkey FOREIGN KEY (network_id) REFERENCES greendogops.location_network(id);
+
+
+--
 -- Name: time_punch time_punch_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
 --
 
 ALTER TABLE ONLY greendogops.time_punch
     ADD CONSTRAINT time_punch_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id);
+
+
+--
+-- Name: time_punch_review time_punch_review_punch_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.time_punch_review
+    ADD CONSTRAINT time_punch_review_punch_id_fkey FOREIGN KEY (punch_id) REFERENCES greendogops.time_punch(id);
 
 
 --
@@ -19595,6 +20056,12 @@ ALTER TABLE greendogops.interview_invite ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.location ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: location_network; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.location_network ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: marketing_activity; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -20153,6 +20620,13 @@ CREATE POLICY service_role_only ON greendogops.audit_log TO authenticated USING 
 
 
 --
+-- Name: location_network service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.location_network TO authenticated USING (false) WITH CHECK (false);
+
+
+--
 -- Name: notification_action service_role_only; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -20269,6 +20743,20 @@ CREATE POLICY service_role_only ON greendogops.time_correction_request TO authen
 --
 
 CREATE POLICY service_role_only ON greendogops.time_punch TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: time_punch_adjustment service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.time_punch_adjustment TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: time_punch_review service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.time_punch_review TO authenticated USING (false) WITH CHECK (false);
 
 
 --
@@ -20991,6 +21479,15 @@ CREATE POLICY staff_read_only_delete ON greendogops.interview_invite AS RESTRICT
 --
 
 CREATE POLICY staff_read_only_delete ON greendogops.location AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: location_network staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.location_network AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -21842,6 +22339,24 @@ CREATE POLICY staff_read_only_delete ON greendogops.time_punch AS RESTRICTIVE FO
 
 
 --
+-- Name: time_punch_adjustment staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.time_punch_adjustment AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: time_punch_review staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.time_punch_review AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: user_notification staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -22521,6 +23036,15 @@ CREATE POLICY staff_read_only_insert ON greendogops.interview_invite AS RESTRICT
 --
 
 CREATE POLICY staff_read_only_insert ON greendogops.location AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: location_network staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.location_network AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -23372,6 +23896,24 @@ CREATE POLICY staff_read_only_insert ON greendogops.time_punch AS RESTRICTIVE FO
 
 
 --
+-- Name: time_punch_adjustment staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.time_punch_adjustment AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: time_punch_review staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.time_punch_review AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: user_notification staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -24199,6 +24741,17 @@ CREATE POLICY staff_read_only_update ON greendogops.interview_invite AS RESTRICT
 --
 
 CREATE POLICY staff_read_only_update ON greendogops.location AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: location_network staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.location_network AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
@@ -25240,6 +25793,28 @@ CREATE POLICY staff_read_only_update ON greendogops.time_punch AS RESTRICTIVE FO
 
 
 --
+-- Name: time_punch_adjustment staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.time_punch_adjustment AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: time_punch_review staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.time_punch_review AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: user_notification staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -25267,6 +25842,18 @@ ALTER TABLE greendogops.time_correction_request ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE greendogops.time_punch ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: time_punch_adjustment; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.time_punch_adjustment ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: time_punch_review; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.time_punch_review ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: user_notification; Type: ROW SECURITY; Schema: greendogops; Owner: -
@@ -25433,6 +26020,14 @@ GRANT ALL ON FUNCTION greendogops.client_summary(p_client text) TO service_role;
 
 REVOKE ALL ON FUNCTION greendogops.client_visits(p_client text) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.client_visits(p_client text) TO service_role;
+
+
+--
+-- Name: FUNCTION decide_time_correction(p_request_id uuid, p_decision text, p_note text, p_reviewer uuid, p_replace_punch_id uuid, p_replace_adjustment_id uuid); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.decide_time_correction(p_request_id uuid, p_decision text, p_note text, p_reviewer uuid, p_replace_punch_id uuid, p_replace_adjustment_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.decide_time_correction(p_request_id uuid, p_decision text, p_note text, p_reviewer uuid, p_replace_punch_id uuid, p_replace_adjustment_id uuid) TO service_role;
 
 
 --
@@ -25790,11 +26385,11 @@ GRANT ALL ON FUNCTION greendogops.record_qr_scan(p_token text) TO service_role;
 
 
 --
--- Name: FUNCTION record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text); Type: ACL; Schema: greendogops; Owner: -
+-- Name: FUNCTION record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text, p_matched_location_id uuid, p_network_id uuid, p_distance_m double precision, p_abandon_previous boolean); Type: ACL; Schema: greendogops; Owner: -
 --
 
-REVOKE ALL ON FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text) FROM PUBLIC;
-GRANT ALL ON FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text) TO service_role;
+REVOKE ALL ON FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text, p_matched_location_id uuid, p_network_id uuid, p_distance_m double precision, p_abandon_previous boolean) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.record_time_punch(p_person_id uuid, p_punch_type text, p_source text, p_created_by uuid, p_location_id uuid, p_assignment_id uuid, p_ip text, p_user_agent text, p_latitude double precision, p_longitude double precision, p_accuracy_m double precision, p_client_time timestamp with time zone, p_note text, p_rest_breaks_ok boolean, p_location_check text, p_timezone text, p_matched_location_id uuid, p_network_id uuid, p_distance_m double precision, p_abandon_previous boolean) TO service_role;
 
 
 --
@@ -25854,6 +26449,14 @@ GRANT ALL ON FUNCTION greendogops.report_location_period(p_start date, p_end dat
 
 REVOKE ALL ON FUNCTION greendogops.request_reporting_refresh() FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.request_reporting_refresh() TO service_role;
+
+
+--
+-- Name: FUNCTION review_time_punch(p_punch_id uuid, p_decision text, p_note text, p_reviewer uuid); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.review_time_punch(p_punch_id uuid, p_decision text, p_note text, p_reviewer uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.review_time_punch(p_punch_id uuid, p_decision text, p_note text, p_reviewer uuid) TO service_role;
 
 
 --
@@ -25956,11 +26559,27 @@ GRANT ALL ON FUNCTION greendogops.staff_read_only_policies(p_table text) TO serv
 
 
 --
+-- Name: FUNCTION time_effective_punches(p_person_id uuid); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.time_effective_punches(p_person_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.time_effective_punches(p_person_id uuid) TO service_role;
+
+
+--
 -- Name: FUNCTION time_punch_append_only(); Type: ACL; Schema: greendogops; Owner: -
 --
 
 REVOKE ALL ON FUNCTION greendogops.time_punch_append_only() FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.time_punch_append_only() TO service_role;
+
+
+--
+-- Name: FUNCTION time_record_append_only(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.time_record_append_only() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.time_record_append_only() TO service_role;
 
 
 --
@@ -26604,6 +27223,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.interview_invite TO servi
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.location TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.location TO service_role;
+
+
+--
+-- Name: TABLE location_network; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.location_network TO service_role;
 
 
 --
@@ -27883,6 +28509,20 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.time_correction_request T
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.time_punch TO service_role;
+
+
+--
+-- Name: TABLE time_punch_adjustment; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.time_punch_adjustment TO service_role;
+
+
+--
+-- Name: TABLE time_punch_review; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.time_punch_review TO service_role;
 
 
 --

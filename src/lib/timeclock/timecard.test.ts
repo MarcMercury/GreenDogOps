@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSessions, dayTotals, decimalHours, formatDuration, type Punch } from "./timecard";
+import { buildSessions, dayTotals, decimalHours, effectivePunches, formatDuration, type Punch } from "./timecard";
 import type { PunchType } from "./state";
 
 let n = 0;
@@ -116,5 +116,36 @@ describe("formatting", () => {
     expect(formatDuration(45 * M)).toBe("45m");
     expect(formatDuration(-5)).toBe("0m");
     expect(decimalHours(7 * H + 31 * M)).toBe("7.52");
+  });
+});
+
+describe("effectivePunches", () => {
+  const raw = (id: string, type: PunchType, at: string, needsApproval = false) => ({
+    ...p(type, at),
+    id,
+    location_check: needsApproval ? "off_site" : "on_site",
+    needs_approval: needsApproval,
+  });
+  const base = { work_date: "2026-10-13", reason: "r", created_at: "2026-10-14T00:00:00Z" };
+
+  it("drops voided punches and adds, includes approver adds, and marks off-site approval", () => {
+    const punches = [
+      raw("in", "clock_in", "2026-10-13T15:00:00Z", true),
+      raw("out", "clock_out", "2026-10-13T23:30:00Z"),
+    ];
+    const adjustments = [
+      { ...base, id: "v1", action: "void" as const, punch_type: null, punched_at: null, voids_punch_id: "out", voids_adjustment_id: null },
+      { ...base, id: "a1", action: "add" as const, punch_type: "clock_out" as const, punched_at: "2026-10-13T23:00:00Z", voids_punch_id: null, voids_adjustment_id: null },
+      { ...base, id: "a2", action: "add" as const, punch_type: "lunch_start" as const, punched_at: "2026-10-13T19:00:00Z", voids_punch_id: null, voids_adjustment_id: null },
+      { ...base, id: "v2", action: "void" as const, punch_type: null, punched_at: null, voids_punch_id: null, voids_adjustment_id: "a2" },
+    ];
+    const eff = effectivePunches(punches, adjustments, []);
+    expect(eff.map((e) => e.id)).toEqual(["in", "a1"]);
+    expect(eff[0].approval).toBe("pending");
+    expect(eff[1]).toMatchObject({ origin: "adjustment", reason: "r" });
+    expect(effectivePunches(punches, adjustments, [{ punch_id: "in", decision: "approved" }])[0].approval).toBe("approved");
+    const [s] = buildSessions(eff, NOW);
+    expect(s.status).toBe("complete");
+    expect(s.worked_ms).toBe(8 * H);
   });
 });

@@ -28,12 +28,12 @@ export interface LunchBreak {
   end: string | null;
 }
 
-export interface WorkSession {
+export interface WorkSession<P extends Punch = Punch> {
   work_date: string;
   clock_in: string | null;
   clock_out: string | null;
   lunches: LunchBreak[];
-  punches: Punch[];
+  punches: P[];
   status: SessionStatus;
   /** Worked time (excluding lunch). null when the session is incomplete. */
   worked_ms: number | null;
@@ -44,7 +44,7 @@ export interface WorkSession {
 
 const ms = (iso: string) => new Date(iso).getTime();
 
-function newSession(p: Punch, withClockIn: boolean): WorkSession {
+function newSession<P extends Punch>(p: P, withClockIn: boolean): WorkSession<P> {
   return {
     work_date: p.work_date,
     clock_in: withClockIn ? p.punched_at : null,
@@ -64,12 +64,12 @@ function newSession(p: Punch, withClockIn: boolean): WorkSession {
  * for split shifts). `now` decides whether an unfinished session is still in
  * progress or abandoned.
  */
-export function buildSessions(punches: readonly Punch[], now: Date = new Date()): WorkSession[] {
+export function buildSessions<P extends Punch>(punches: readonly P[], now: Date = new Date()): WorkSession<P>[] {
   const sorted = [...punches].sort((a, b) => ms(a.punched_at) - ms(b.punched_at));
-  const sessions: WorkSession[] = [];
-  let current: WorkSession | null = null;
+  const sessions: WorkSession<P>[] = [];
+  let current: WorkSession<P> | null = null;
 
-  const close = (s: WorkSession) => {
+  const close = (s: WorkSession<P>) => {
     const lastLunch = s.lunches[s.lunches.length - 1];
     if (lastLunch && lastLunch.end === null && s.clock_out) lastLunch.end = s.clock_out;
     s.lunch_ms = s.lunches.reduce((t, l) => t + (l.end ? ms(l.end) - ms(l.start) : 0), 0);
@@ -128,9 +128,9 @@ export function buildSessions(punches: readonly Punch[], now: Date = new Date())
   return sessions;
 }
 
-export interface DayTotal {
+export interface DayTotal<P extends Punch = Punch> {
   work_date: string;
-  sessions: WorkSession[];
+  sessions: WorkSession<P>[];
   /** Sum of complete (and in-progress) sessions. */
   worked_ms: number;
   lunch_ms: number;
@@ -139,8 +139,8 @@ export interface DayTotal {
 }
 
 /** Sessions grouped by work date, newest first. */
-export function dayTotals(sessions: readonly WorkSession[]): DayTotal[] {
-  const byDate = new Map<string, DayTotal>();
+export function dayTotals<P extends Punch>(sessions: readonly WorkSession<P>[]): DayTotal<P>[] {
+  const byDate = new Map<string, DayTotal<P>>();
   for (const s of sessions) {
     const day = byDate.get(s.work_date) ?? {
       work_date: s.work_date,
@@ -169,4 +169,87 @@ export function formatDuration(msValue: number): string {
 /** Decimal hours to two places, as payroll shows them ("7.52"). */
 export function decimalHours(msValue: number): string {
   return (Math.max(0, msValue) / 3_600_000).toFixed(2);
+}
+
+// ---------------------------------------------------------------------------
+// Effective punches (migration 0241): punches − voids + approver adds.
+// ---------------------------------------------------------------------------
+
+export interface RawPunch extends Punch {
+  location_check: string;
+  needs_approval: boolean;
+}
+
+export interface PunchAdjustment {
+  id: string;
+  action: "add" | "void";
+  punch_type: PunchType | null;
+  punched_at: string | null;
+  work_date: string;
+  voids_punch_id: string | null;
+  voids_adjustment_id: string | null;
+  reason: string;
+  created_at: string;
+}
+
+export interface PunchReview {
+  punch_id: string;
+  decision: "approved" | "rejected";
+}
+
+export type PunchApproval = "none" | "pending" | "approved";
+
+export interface EffectivePunch extends Punch {
+  /** "adjustment" = added by an approver (or an approved correction). */
+  origin: "punch" | "adjustment";
+  /** Off-site punches wait for an approver; everything else is "none". */
+  approval: PunchApproval;
+  location_check: string;
+  /** Why an approver added it. */
+  reason: string | null;
+}
+
+/**
+ * The timecard's punches: recorded punches not voided, plus approver adds not
+ * voided. Rejected off-site punches are voided in the database, so they drop
+ * out here.
+ */
+export function effectivePunches(
+  punches: readonly RawPunch[],
+  adjustments: readonly PunchAdjustment[],
+  reviews: readonly PunchReview[],
+): EffectivePunch[] {
+  const voidedPunches = new Set(adjustments.filter((a) => a.action === "void" && a.voids_punch_id).map((a) => a.voids_punch_id));
+  const voidedAdds = new Set(adjustments.filter((a) => a.action === "void" && a.voids_adjustment_id).map((a) => a.voids_adjustment_id));
+  const decided = new Map(reviews.map((r) => [r.punch_id, r.decision]));
+
+  const fromPunches: EffectivePunch[] = punches
+    .filter((p) => !voidedPunches.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      punch_type: p.punch_type,
+      punched_at: p.punched_at,
+      work_date: p.work_date,
+      location_id: p.location_id,
+      rest_breaks_ok: p.rest_breaks_ok,
+      origin: "punch",
+      approval: !p.needs_approval ? "none" : decided.get(p.id) === "approved" ? "approved" : "pending",
+      location_check: p.location_check,
+      reason: null,
+    }));
+  const fromAdds: EffectivePunch[] = adjustments
+    .filter((a) => a.action === "add" && a.punch_type && a.punched_at && !voidedAdds.has(a.id))
+    .map((a) => ({
+      id: a.id,
+      punch_type: a.punch_type as PunchType,
+      punched_at: a.punched_at as string,
+      work_date: a.work_date,
+      location_id: null,
+      rest_breaks_ok: null,
+      origin: "adjustment",
+      approval: "none",
+      location_check: "not_checked",
+      reason: a.reason,
+    }));
+  return [...fromPunches, ...fromAdds].sort((a, b) => ms(a.punched_at) - ms(b.punched_at));
 }

@@ -278,6 +278,23 @@ export function canOpenHrProfile(user: AppUser, personId: string): boolean {
   return user.person_id !== null && user.person_id === personId;
 }
 
+/**
+ * Timecard approvers (go-live plan D9): Owner, Admin, Executive, HR / Manager
+ * with Scheduling access. They approve off-site punches and correction
+ * requests, add missing punches, and see punch evidence (IP, GPS, device).
+ */
+export function canApproveTime(user: AppUser): boolean {
+  return isEditorRole(user.role) && canAccessModule(user, "schedule");
+}
+
+/**
+ * Who may open the time-clock queues: approvers, plus Schedule Admins, who
+ * see the exceptions (without location evidence) but cannot change hours (D9).
+ */
+export function canReviewTimeClock(user: AppUser): boolean {
+  return canApproveTime(user) || (user.role === "schedule_admin" && canAccessModule(user, "schedule"));
+}
+
 /** People still in recruiting (not yet, or never, employees). */
 export function isCandidateStatus(status: string | null | undefined): boolean {
   return status === "prospect" || status === "applicant";

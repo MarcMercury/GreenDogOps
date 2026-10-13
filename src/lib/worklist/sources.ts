@@ -12,6 +12,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   canAccessModule,
+  canApproveTime,
   canEditGeneral,
   canEditModule,
   canViewSensitiveHr,
@@ -20,6 +21,7 @@ import {
   type ModuleKey,
 } from "@/lib/auth/permissions";
 import { agentHealth, HEALTH_LABELS, needsAttention, type HealthAgent } from "../admin/health";
+import { getPendingCounts } from "../timeclock/review";
 import { addDays, shortDateLabel, todayInWorkTz, weekdayOf } from "./dates";
 import type { WorkItem, WorkPriority } from "./items";
 import {
@@ -322,6 +324,43 @@ const SOURCES: Source[] = [
         due: w.week_start < today ? today : addDays(w.week_start, -1),
         priority: (w.week_start <= addDays(today, 7) ? "high" : "normal") as WorkPriority,
       }));
+    },
+  },
+  {
+    label: "time-clock approvals",
+    applies: (u) => canApproveTime(u),
+    async load() {
+      const { offsite, corrections } = await getPendingCounts();
+      const items: WorkItem[] = [];
+      if (offsite > 0) {
+        items.push({
+          id: "queue:timeclock_offsite",
+          kind: "queue",
+          title: `Approve ${offsite} off-site punch${offsite === 1 ? "" : "es"}`,
+          detail: "Employees clocked in or out away from a clinic, with a note.",
+          module: "schedule",
+          href: "/schedule/time-clock",
+          target: "ops",
+          due: null,
+          priority: "high",
+          count: offsite,
+        });
+      }
+      if (corrections > 0) {
+        items.push({
+          id: "queue:timeclock_corrections",
+          kind: "queue",
+          title: `Review ${corrections} time correction request${corrections === 1 ? "" : "s"}`,
+          detail: "Employees asking to fix a missing or wrong punch.",
+          module: "schedule",
+          href: "/schedule/time-clock",
+          target: "ops",
+          due: null,
+          priority: "high",
+          count: corrections,
+        });
+      }
+      return items;
     },
   },
   {

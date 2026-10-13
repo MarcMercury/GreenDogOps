@@ -8,8 +8,11 @@ import { rateLimit, requestMeta } from "@/lib/security/rate-limit";
 import { addDays, isIsoDate, todayInWorkTz } from "@/lib/worklist/dates";
 import { localToInstant } from "@/lib/timeclock/local-time";
 import { TIME_CLOCK_NOTICE_VERSION } from "@/lib/timeclock/notice";
+import { evaluateLocation, type LocationCheck } from "@/lib/timeclock/location-check";
 import {
+  getClockLocations,
   getMyShifts,
+  getSessionLocationId,
   hasAckedNotice,
   resolveSelf,
   TIME_CLOCK_TZ,
@@ -25,6 +28,11 @@ import { CORRECTION_WINDOW_DAYS, isPunchType, PUNCH_LABELS, type PunchType } fro
 // getCurrentUser() refuses during a "View as" preview.
 
 export type TimeActionResult = { ok: true; message: string } | { ok: false; error: string };
+
+/** A punch result; `offsite` asks the employee to confirm "Working off-site" with a note. */
+export type PunchResult =
+  | { ok: true; message: string; needsApproval: boolean }
+  | { ok: false; error: string; offsite?: { reason: string } };
 
 async function selfGate(): Promise<
   { ok: true; person: SelfPerson; appUserId: string } | { ok: false; error: string }
@@ -59,6 +67,10 @@ export interface PunchInput {
   clientTime?: string | null;
   /** Clock-out only, non-exempt staff: "Were you able to take your rest breaks today?" */
   restBreaksOk?: boolean | null;
+  /** The employee chose "Working off-site" after a failed location check. */
+  offsiteNote?: string | null;
+  /** Clock-in only: "I forgot to clock out — start a new shift" (last punch > 8 h old). */
+  abandonPrevious?: boolean;
 }
 
 const PUNCH_ERRORS: Record<string, string> = {
@@ -66,9 +78,11 @@ const PUNCH_ERRORS: Record<string, string> = {
   not_eligible: "Only active employees and contractors can use the time clock.",
   rest_breaks_only_on_clock_out: "The rest-break answer belongs to clock-out.",
   invalid_type: "Unknown punch.",
+  note_required: "Please say why you're working off-site.",
+  invalid_location_check: "The location check failed. Please try again.",
 };
 
-export async function recordPunch(input: PunchInput): Promise<TimeActionResult> {
+export async function recordPunch(input: PunchInput): Promise<PunchResult> {
   const gate = await selfGate();
   if (!gate.ok) return gate;
   const { person } = gate;
@@ -99,7 +113,8 @@ export async function recordPunch(input: PunchInput): Promise<TimeActionResult> 
       : null;
 
   // A clock-in is matched to the nearest published shift today; later punches
-  // inherit the session's shift in the database.
+  // inherit the session's shift in the database and are checked against its
+  // clinic.
   let assignmentId: string | null = null;
   let locationId: string | null = null;
   if (input.type === "clock_in") {
@@ -109,8 +124,32 @@ export async function recordPunch(input: PunchInput): Promise<TimeActionResult> 
     assignmentId = match?.assignment_id ?? null;
     locationId = match?.location_id ?? null;
   }
+  const scheduledLocationId = input.type === "clock_in" ? locationId : await getSessionLocationId(person.id);
 
   const meta = await requestMeta();
+  const ip = meta.ip === "unknown" ? null : meta.ip;
+  const accuracy = hasGps ? finiteIn(input.accuracy, 0, 100_000) : null;
+  let check: LocationCheck;
+  try {
+    check = evaluateLocation(await getClockLocations(), scheduledLocationId, {
+      ip,
+      latitude: hasGps ? latitude : null,
+      longitude: hasGps ? longitude : null,
+      accuracy,
+    });
+  } catch (e) {
+    // Never block a punch on a settings read: record it, unchecked.
+    console.error("[timeclock] location settings unavailable:", (e as Error).message);
+    check = { result: "not_checked", matchedLocationId: null, networkId: null, method: null, distanceM: null, reason: "Location settings unavailable." };
+  }
+
+  const offsiteNote = typeof input.offsiteNote === "string" ? input.offsiteNote.trim().slice(0, 1000) : "";
+  if (check.result === "off_site" && !offsiteNote) {
+    // D6: never refuse — ask the employee to confirm off-site work with a note.
+    return { ok: false, error: "You don't appear to be at a Green Dog clinic.", offsite: { reason: check.reason } };
+  }
+  if (input.type === "clock_in" && !locationId && check.matchedLocationId) locationId = check.matchedLocationId;
+
   const { data, error } = await createAdminClient().rpc("record_time_punch", {
     p_person_id: person.id,
     p_punch_type: input.type,
@@ -118,20 +157,32 @@ export async function recordPunch(input: PunchInput): Promise<TimeActionResult> 
     p_created_by: gate.appUserId,
     p_location_id: locationId,
     p_assignment_id: assignmentId,
-    p_ip: meta.ip === "unknown" ? null : meta.ip,
+    p_ip: ip,
     p_user_agent: meta.userAgent,
     p_latitude: hasGps ? latitude : null,
     p_longitude: hasGps ? longitude : null,
-    p_accuracy_m: hasGps ? finiteIn(input.accuracy, 0, 100_000) : null,
+    p_accuracy_m: accuracy,
     p_client_time: clientTime,
+    p_note: check.result === "off_site" ? offsiteNote : null,
     p_rest_breaks_ok: restBreaksOk,
+    p_location_check: check.result,
     p_timezone: TIME_CLOCK_TZ,
+    p_matched_location_id: check.matchedLocationId,
+    p_network_id: check.networkId,
+    p_distance_m: check.distanceM,
+    p_abandon_previous: input.type === "clock_in" && input.abandonPrevious === true,
   });
   if (error) {
     console.error("[timeclock] record_time_punch failed:", error.message);
     return { ok: false, error: "The punch could not be saved. Please try again, then tell your manager." };
   }
-  const result = data as { ok: boolean; error?: string; duplicate?: boolean; punched_at?: string };
+  const result = data as {
+    ok: boolean;
+    error?: string;
+    duplicate?: boolean;
+    punched_at?: string;
+    needs_approval?: boolean;
+  };
   if (!result.ok) return { ok: false, error: PUNCH_ERRORS[result.error ?? ""] ?? "The punch was not accepted." };
 
   revalidatePath("/me");
@@ -141,11 +192,13 @@ export async function recordPunch(input: PunchInput): Promise<TimeActionResult> 
     hour: "numeric",
     minute: "2-digit",
   });
+  const needsApproval = result.needs_approval === true;
   return {
     ok: true,
+    needsApproval,
     message: result.duplicate
       ? `Already recorded: ${PUNCH_LABELS[input.type]} at ${when}.`
-      : `${PUNCH_LABELS[input.type]} recorded at ${when}.`,
+      : `${PUNCH_LABELS[input.type]} recorded at ${when}.${needsApproval ? " It will go to a manager to approve." : ""}`,
   };
 }
 

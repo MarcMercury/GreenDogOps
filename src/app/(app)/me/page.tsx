@@ -8,7 +8,7 @@ import {
   hasAckedNotice,
   TIME_CLOCK_TZ,
 } from "@/lib/timeclock/server";
-import { allowedPunches, clockState, hasAbandonedSession, PUNCH_LABELS } from "@/lib/timeclock/state";
+import { allowedPunches, canStartNewShift, clockState, hasAbandonedSession, PUNCH_LABELS } from "@/lib/timeclock/state";
 import { buildSessions, formatDuration } from "@/lib/timeclock/timecard";
 import { formatClockTime } from "@/lib/timeclock/local-time";
 import { formatShiftTime } from "@/lib/timeclock/shift-match";
@@ -107,7 +107,11 @@ export default async function MyTimeHome() {
               .
             </p>
           ) : null}
-          <ClockPanel allowed={allowedPunches(state)} nonExempt={person.nonExempt} />
+          <ClockPanel
+            allowed={allowedPunches(state)}
+            nonExempt={person.nonExempt}
+            offerNewShift={canStartNewShift(last, now)}
+          />
           <p className="mt-4 text-xs text-slate-400">
             Your location is checked only when you press a button.{" "}
             <Link href="/me/privacy" className="underline">
@@ -146,7 +150,11 @@ export default async function MyTimeHome() {
           <ul className="mt-2 space-y-1 text-sm">
             {todayPunches.map((p) => (
               <li key={p.id} className="flex justify-between text-slate-600">
-                <span>{PUNCH_LABELS[p.punch_type]}</span>
+                <span>
+                  {PUNCH_LABELS[p.punch_type]}
+                  {p.approval === "pending" ? <span className="ml-2 text-xs text-amber-700">off-site · awaiting approval</span> : null}
+                  {p.origin === "adjustment" ? <span className="ml-2 text-xs text-slate-400">added by a manager</span> : null}
+                </span>
                 <span className="tabular-nums">{formatClockTime(p.punched_at, TIME_CLOCK_TZ)}</span>
               </li>
             ))}

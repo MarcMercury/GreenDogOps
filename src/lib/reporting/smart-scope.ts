@@ -133,6 +133,10 @@ export const ALWAYS_BLOCKED_TABLES = [
   "time_punch",
   "time_correction_request",
   "time_clock_notice_ack",
+  "time_punch_adjustment",
+  "time_punch_review",
+  // Approved clinic IPs: security configuration (0241).
+  "location_network",
 ] as const;
 
 /**

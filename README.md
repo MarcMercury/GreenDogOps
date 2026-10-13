@@ -164,7 +164,13 @@ from users who cannot access it.
   pay period, correction requests and the time-clock privacy notice. Open to
   every role (Staff included), always scoped to the signed-in person. Punches
   are append-only (`time_punch`, migration `0240`) and written only by
-  `record_time_punch()`; see docs/security.md §12.
+  `record_time_punch()`; see docs/security.md §12. Each punch is checked
+  against the clinic's approved networks / geofence (`0241`); a failed check
+  asks for "Working off-site" with a note and goes to approval. Approvers
+  (Owner, Admin, Executive, HR / Manager) work the queues at **Scheduling ▸
+  Time Clock** (`/schedule/time-clock`): off-site punches, correction
+  requests and missing punches; changes are recorded as adjustments, never
+  edits. Pending items also show on approvers' Dashboard.
 - **Resources** (`/resources`) — the library of company policies, protocols and
   documents, grouped by category. Policies are **native Ops documents**
   (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),

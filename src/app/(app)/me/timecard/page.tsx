@@ -118,6 +118,12 @@ export default async function MyTimecardPage({
                     {s.clock_out ? formatClockTime(s.clock_out, TIME_CLOCK_TZ) : "?"}
                     {s.lunch_ms > 0 ? ` · lunch ${formatDuration(s.lunch_ms)}` : ""}
                     {s.rest_breaks_ok === false ? " · rest breaks missed" : ""}
+                    {s.punches.some((x) => x.approval === "pending") ? (
+                      <span className="ml-2 text-amber-700">Off-site — awaiting approval</span>
+                    ) : null}
+                    {s.punches.some((x) => x.origin === "adjustment") ? (
+                      <span className="ml-2 text-slate-400">Includes a manager correction</span>
+                    ) : null}
                     {STATUS_NOTE[s.status] ? (
                       <span className={s.status === "open" ? "ml-2 text-emerald-700" : "ml-2 text-amber-700"}>
                         {STATUS_NOTE[s.status]}

@@ -273,22 +273,24 @@ periods after the ADP export and flag any later change; keep an export history
 every punch individually (no shared logins; a kiosk mode limited to clock
 in/out/meal and today's punches).
 
-Built in `0240` (My Time, `/me`):
+Built in `0240` (My Time, `/me`) and `0241` (location check, approvals):
 
 | Requirement | How |
 | --- | --- |
 | Append-only punches | `time_punch` has triggers that block UPDATE/DELETE/TRUNCATE for every role, the service role included. Its only writer is `record_time_punch()` (service role only): per-person advisory lock, state check, double-tap idempotency (same punch within 60 s), server `clock_timestamp()`. The device clock is stored as `client_time` for reference only. |
 | Per-punch authentication | Each punch is a Server Action by the signed-in user, acting only on their own `app_user.person_id`; refused during a View-as preview; rate-limited. No shared logins, no kiosk yet. |
-| Corrections as separate rows | `time_correction_request` (employee asks, with reason). Approval (item 5) records an adjustment and never edits a punch. |
-| Location captured only at the punch | GPS + accuracy (if the browser allows), IP and user agent are stored on the punch row; nothing is collected between punches. `location_check` stays `not_checked` until clinic geofences/networks exist (items 5–6). |
+| Corrections as separate rows | `time_correction_request` (employee asks, with reason). Approval (`decide_time_correction()`) records a `time_punch_adjustment` — `add` a punch, or `void` the wrong one and add the corrected one — append-only, with reason and approver. Approvers can also add a missing punch directly. The timecard is the *effective* punches (punches − voids + adds), and the clock state uses them too. |
+| Approvals (D9) | Owner, Admin, Executive, HR / Manager with Scheduling access (`canApproveTime`), at Scheduling ▸ Time Clock (`/schedule/time-clock`): off-site punches, correction requests, missing punches. Schedule Admins see the queues without location evidence and cannot change hours. Nobody approves or changes their own time. Every decision is audited (`timeclock.*`). |
+| Location captured only at the punch | GPS + accuracy (if the browser allows), IP and user agent are stored on the punch row; nothing is collected between punches. |
+| Location check (§F, D6) | `src/lib/timeclock/location-check.ts`: the scheduled clinic first, then every other clinic; a clinic passes on an approved network (`location_network`, IP/CIDR from the request's forwarded IP) **or** an accurate GPS fix inside its geofence, per its `clock_policy`. Mobile locations accept anything (GPS recorded). A clinic with nothing configured is `not_checked` (never sent to approval). A failed check is never refused: the employee confirms "Working off-site" with a required note, and the punch is stored with `needs_approval` until an approver approves it or rejects it (reject voids it, with a note). The result, matched clinic/network and distance are stored with the evidence. |
 | Privacy notice | Shown and acknowledged (`time_clock_notice_ack`, versioned) before the first punch; always at `/me/privacy`. |
 | Access | All three tables are service-role only and always blocked in Ask Ziggy. Employees see only their own punches; approver views come with item 5. |
 | Retention | 4 years after the pay period ends (D10). Nothing deletes punches. |
 
-Open decision: an earlier note here asked to store "location verified:
-<clinic>" rather than GPS. The go-live plan (§F) keeps the raw GPS/IP of each
-punch so a reviewer can see why it passed or failed; that is what `0240` does.
-If raw coordinates should be dropped once the check result is stored, add it
-with the geofence check (item 5).
+Decision (owner, 2026-10-13): keep the go-live plan (§F). Each punch keeps its
+raw GPS + accuracy, IP and user agent alongside the check result, so a reviewer
+can see why it passed or failed; they are visible only to timecard approvers
+and are kept for the same 4 years as the punch. This replaces an earlier note
+that asked to store only "location verified: <clinic>".
 
 Not built yet: pay-period lock, export history and the ADP file (Gate 2).

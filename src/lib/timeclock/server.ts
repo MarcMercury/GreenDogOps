@@ -4,8 +4,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { WORK_TZ } from "@/lib/worklist/dates";
 import type { AppUser } from "@/lib/auth/permissions";
 import { TIME_CLOCK_NOTICE_VERSION } from "./notice";
-import type { PunchType } from "./state";
-import type { Punch } from "./timecard";
+import type { ClockLocation } from "./location-check";
+import type { LastPunch, PunchType } from "./state";
+import {
+  effectivePunches,
+  type EffectivePunch,
+  type PunchAdjustment,
+  type PunchReview,
+  type RawPunch,
+} from "./timecard";
 
 // Self-service time-clock reads. Every function here is scoped to ONE person,
 // passed in by the caller from the signed-in user's own app_user.person_id —
@@ -68,35 +75,100 @@ export async function resolveSelf(appUser: AppUser): Promise<SelfResolution> {
   };
 }
 
-export interface MyPunch extends Punch {
-  location_check: string;
+const RAW_PUNCH_COLUMNS =
+  "id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check, needs_approval";
+const ADJUSTMENT_COLUMNS =
+  "id, action, punch_type, punched_at, work_date, voids_punch_id, voids_adjustment_id, reason, created_at";
+
+/** The latest EFFECTIVE punch (adjustments applied) — what the clock state is based on. */
+export async function getLastPunch(personId: string): Promise<(LastPunch & { work_date: string }) | null> {
+  const { data, error } = await createAdminClient()
+    .rpc("time_effective_punches", { p_person_id: personId })
+    .order("punched_at", { ascending: false })
+    .limit(1);
+  if (error) throw new Error(`Could not load your last punch: ${error.message}`);
+  const row = ((data ?? []) as { punch_type: PunchType; punched_at: string; work_date: string }[])[0];
+  return row ? { punch_type: row.punch_type, punched_at: row.punched_at, work_date: row.work_date } : null;
 }
 
-const PUNCH_COLUMNS = "id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check";
-
-export async function getLastPunch(personId: string): Promise<MyPunch | null> {
+/** Clinic of the person's latest clock-in (later punches are checked against it). */
+export async function getSessionLocationId(personId: string): Promise<string | null> {
   const { data } = await createAdminClient()
     .from("time_punch")
-    .select(PUNCH_COLUMNS)
+    .select("location_id")
     .eq("person_id", personId)
+    .eq("punch_type", "clock_in")
     .order("punched_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  return (data as MyPunch | null) ?? null;
+  return (data as { location_id: string | null } | null)?.location_id ?? null;
 }
 
-/** Punches whose work date falls in [from, to]. */
-export async function getPunches(personId: string, from: string, to: string): Promise<MyPunch[]> {
-  const { data, error } = await createAdminClient()
-    .from("time_punch")
-    .select(PUNCH_COLUMNS)
-    .eq("person_id", personId)
-    .gte("work_date", from)
-    .lte("work_date", to)
-    .order("punched_at", { ascending: true })
-    .limit(2000);
-  if (error) throw new Error(`Could not load punches: ${error.message}`);
-  return (data ?? []) as MyPunch[];
+/** Effective punches (punches − voids + approver adds) whose work date is in [from, to]. */
+export async function getPunches(personId: string, from: string, to: string): Promise<EffectivePunch[]> {
+  const admin = createAdminClient();
+  const [punchRes, adjRes] = await Promise.all([
+    admin
+      .from("time_punch")
+      .select(RAW_PUNCH_COLUMNS)
+      .eq("person_id", personId)
+      .gte("work_date", from)
+      .lte("work_date", to)
+      .order("punched_at", { ascending: true })
+      .limit(2000),
+    admin
+      .from("time_punch_adjustment")
+      .select(ADJUSTMENT_COLUMNS)
+      .eq("person_id", personId)
+      .gte("work_date", from)
+      .lte("work_date", to)
+      .limit(2000),
+  ]);
+  if (punchRes.error) throw new Error(`Could not load punches: ${punchRes.error.message}`);
+  if (adjRes.error) throw new Error(`Could not load timecard changes: ${adjRes.error.message}`);
+  const punches = (punchRes.data ?? []) as RawPunch[];
+  const pendingIds = punches.filter((p) => p.needs_approval).map((p) => p.id);
+  let reviews: PunchReview[] = [];
+  if (pendingIds.length > 0) {
+    const { data, error } = await admin.from("time_punch_review").select("punch_id, decision").in("punch_id", pendingIds);
+    if (error) throw new Error(`Could not load approvals: ${error.message}`);
+    reviews = (data ?? []) as PunchReview[];
+  }
+  return effectivePunches(punches, (adjRes.data ?? []) as PunchAdjustment[], reviews);
+}
+
+/** Active locations with their time-clock settings and active approved networks. */
+export async function getClockLocations(): Promise<ClockLocation[]> {
+  const admin = createAdminClient();
+  const [locRes, netRes] = await Promise.all([
+    admin
+      .from("location")
+      .select("id, name, display_name, latitude, longitude, geofence_radius_m, gps_max_accuracy_m, clock_policy")
+      .eq("is_active", true),
+    admin.from("location_network").select("id, location_id, cidr").eq("is_active", true),
+  ]);
+  if (locRes.error) throw new Error(`Could not load clinic settings: ${locRes.error.message}`);
+  if (netRes.error) throw new Error(`Could not load clinic networks: ${netRes.error.message}`);
+  const nets = (netRes.data ?? []) as { id: string; location_id: string; cidr: string }[];
+  return ((locRes.data ?? []) as {
+    id: string;
+    name: string;
+    display_name: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    geofence_radius_m: number;
+    gps_max_accuracy_m: number;
+    clock_policy: ClockLocation["clock_policy"];
+  }[]).map((l) => ({
+    id: l.id,
+    name: l.display_name || l.name,
+    latitude: l.latitude,
+    longitude: l.longitude,
+    geofence_radius_m: l.geofence_radius_m,
+    gps_max_accuracy_m: l.gps_max_accuracy_m,
+    clock_policy: l.clock_policy,
+    networks: nets.filter((n) => n.location_id === l.id).map((n) => ({ id: n.id, cidr: String(n.cidr) })),
+  }));
 }
 
 export interface MyShift {

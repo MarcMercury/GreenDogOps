@@ -3,8 +3,10 @@ import {
   APP_ROLES,
   accessibleModules,
   canAccessModule,
+  canApproveTime,
   canEditModule,
   canOpenHrProfile,
+  canReviewTimeClock,
   canViewAllCompensation,
   canViewSensitiveHr,
   hasRestrictedHrView,
@@ -172,6 +174,27 @@ describe("My Time (self-service time clock)", () => {
     expect(moduleForPathname("/me")).toBe("my_time");
     expect(moduleForPathname("/me/timecard")).toBe("my_time");
     expect(moduleForPathname("/media")).toBeNull();
+  });
+});
+
+describe("time-clock approvals (D9)", () => {
+  it("lets Owner, Admin, Executive and HR / Manager approve", () => {
+    for (const role of APP_ROLES) {
+      const approver = ["owner", "admin", "executive", "manager"].includes(role);
+      expect(canApproveTime(user(role)), role).toBe(approver);
+    }
+  });
+  it("lets Schedule Admins see the queues but not change hours", () => {
+    expect(canReviewTimeClock(user("schedule_admin"))).toBe(true);
+    expect(canApproveTime(user("schedule_admin"))).toBe(false);
+  });
+  it("keeps Staff and Marketing Admins out, and follows Scheduling access", () => {
+    expect(canReviewTimeClock(user("staff"))).toBe(false);
+    expect(canReviewTimeClock(user("staff", "me", { schedule: true }))).toBe(false);
+    expect(canReviewTimeClock(user("marketing_admin"))).toBe(false);
+    expect(canApproveTime(user("manager", "me", { schedule: false }))).toBe(false);
+    expect(canReviewTimeClock(user("schedule_admin", "me", { schedule: false }))).toBe(false);
+    expect(canApproveTime({ ...user("owner"), is_active: false })).toBe(false);
   });
 });
 
