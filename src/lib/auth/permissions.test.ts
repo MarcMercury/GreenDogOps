@@ -1,23 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { roleRequiresMfa } from "./mfa-policy";
 import {
   APP_ROLES,
   accessibleModules,
   canAccessModule,
-  canEditGeneral,
   canEditModule,
   canOpenHrProfile,
   canViewAllCompensation,
-  canViewCredentials,
   canViewSensitiveHr,
   hasRestrictedHrView,
   isCandidateStatus,
-  isEditorRole,
-  isEmployeeRole,
   MODULES,
   moduleForPathname,
   personDocumentAccess,
-  roleDefaultModules,
   seesPrivateHrFields,
   type AppRole,
   type AppUser,
@@ -72,8 +66,7 @@ describe("seesPrivateHrFields", () => {
   it("hides personal fields only from Staff viewing someone else", () => {
     expect(seesPrivateHrFields(user("staff"), "someone-else")).toBe(false);
     expect(seesPrivateHrFields(user("staff"), "me")).toBe(true);
-    // Employee is asserted in its own block below.
-    for (const role of APP_ROLES.filter((r) => r !== "staff" && r !== "employee")) {
+    for (const role of APP_ROLES.filter((r) => r !== "staff")) {
       expect(seesPrivateHrFields(user(role), "someone-else")).toBe(true);
     }
   });
@@ -175,8 +168,7 @@ describe("canOpenHrProfile", () => {
     expect(canOpenHrProfile(user("staff", null), "someone-else")).toBe(false);
   });
   it("lets every other HR viewer open any profile", () => {
-    // Employee has no HR module at all (asserted below).
-    for (const role of APP_ROLES.filter((r) => r !== "staff" && r !== "employee")) {
+    for (const role of APP_ROLES.filter((r) => r !== "staff")) {
       expect(canOpenHrProfile(user(role), "someone-else"), role).toBe(true);
     }
   });
@@ -188,8 +180,8 @@ describe("canOpenHrProfile", () => {
 });
 
 describe("Ask Ziggy", () => {
-  it("is open to every active Ops role by default, Staff included", () => {
-    for (const role of APP_ROLES.filter((r) => r !== "employee")) {
+  it("is open to every active role by default, Staff included", () => {
+    for (const role of APP_ROLES) {
       expect(canAccessModule(user(role), "ask_ziggy"), role).toBe(true);
     }
   });
@@ -237,63 +229,6 @@ describe("personDocumentAccess", () => {
   it("denies inactive users", () => {
     const inactive = { ...user("owner"), is_active: false };
     expect(personDocumentAccess(inactive, "cand", "applicant")).toEqual({ read: false, edit: false });
-  });
-});
-
-// Employees are self-service only; the database does not treat them as GDO
-// users (is_gdo_user() is false, migration 0238), so the app must not either.
-describe("Employee (self-service) role", () => {
-  const everyModule = MODULES.map((m) => m.key);
-  const allOn = Object.fromEntries(everyModule.map((k) => [k, true]));
-
-  it("is a real role", () => {
-    expect(APP_ROLES).toContain("employee");
-    expect(isEmployeeRole("employee")).toBe(true);
-    for (const role of APP_ROLES.filter((r) => r !== "employee")) {
-      expect(isEmployeeRole(role), role).toBe(false);
-    }
-  });
-
-  it("has no Ops modules by default", () => {
-    expect(roleDefaultModules("employee")).toEqual([]);
-    expect(accessibleModules(user("employee"))).toEqual([]);
-  });
-
-  it("ignores per-user module overrides (regression guard: an admin ticking a module)", () => {
-    const granted = user("employee", "me", allOn);
-    for (const key of everyModule) {
-      expect(canAccessModule(granted, key), key).toBe(false);
-      expect(canEditModule(granted, key), key).toBe(false);
-    }
-  });
-
-  it("edits nothing and sees no one's compensation or HR file", () => {
-    expect(isEditorRole("employee")).toBe(false);
-    expect(canEditGeneral(user("employee"))).toBe(false);
-    expect(canViewAllCompensation("employee")).toBe(false);
-    expect(canViewSensitiveHr("employee")).toBe(false);
-    expect(canViewCredentials("employee")).toBe(false);
-  });
-
-  it("is limited to its own record wherever a profile is shown", () => {
-    expect(canOpenHrProfile(user("employee"), "me")).toBe(false);
-    expect(canOpenHrProfile(user("employee"), "someone-else")).toBe(false);
-    expect(hasRestrictedHrView(user("employee"), "someone-else")).toBe(true);
-    expect(hasRestrictedHrView(user("employee"), "me")).toBe(false);
-    expect(seesPrivateHrFields(user("employee"), "someone-else")).toBe(false);
-    expect(seesPrivateHrFields(user("employee"), "me")).toBe(true);
-    expect(personDocumentAccess(user("employee"), "someone-else", "employee")).toEqual({ read: false, edit: false });
-    expect(personDocumentAccess(user("employee"), "cand", "applicant")).toEqual({ read: false, edit: false });
-  });
-
-  it("does not need two-step verification by role", () => {
-    expect(roleRequiresMfa("employee")).toBe(false);
-  });
-
-  it("leaves Staff unchanged", () => {
-    expect(canViewCredentials("staff")).toBe(false);
-    expect(canViewCredentials("schedule_admin")).toBe(true);
-    expect(canOpenHrProfile(user("staff"), "me")).toBe(true);
   });
 });
 

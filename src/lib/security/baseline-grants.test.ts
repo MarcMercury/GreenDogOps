@@ -50,8 +50,23 @@ describe("database grants (baseline)", () => {
     expect(open).toEqual([]);
   });
 
-  it("does not treat Employee (self-service) logins as GDO users", () => {
+  it("keeps Staff read-only: every RLS table carries the three restrictive Staff policies (0239)", () => {
+    const rlsTables = [...baseline.matchAll(/^ALTER TABLE greendogops\.(\w+) ENABLE ROW LEVEL SECURITY;/gm)].map((m) => m[1]);
+    expect(rlsTables.length).toBeGreaterThan(100);
+    const missing = rlsTables.filter((t) =>
+      ["insert", "update", "delete"].some(
+        (cmd) =>
+          !new RegExp(`^CREATE POLICY staff_read_only_${cmd} ON greendogops\\.${t} AS RESTRICTIVE FOR ${cmd.toUpperCase()} `, "m").test(
+            baseline,
+          ),
+      ),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  it("rejects the retired employee role on app_user", () => {
+    expect(baseline).toMatch(/CONSTRAINT app_user_role_supported CHECK/);
     const isGdoUser = functions().find((f) => f.name === "is_gdo_user");
-    expect(isGdoUser?.body).toMatch(/role::text <> 'employee'/);
+    expect(isGdoUser?.body).not.toMatch(/employee/);
   });
 });

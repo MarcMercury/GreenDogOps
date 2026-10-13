@@ -1498,7 +1498,6 @@ CREATE FUNCTION greendogops.is_gdo_user() RETURNS boolean
     from greendogops.app_user
     where id = auth.uid()
       and is_active
-      and role::text <> 'employee'
   )
   and (
     coalesce(auth.jwt() ->> 'aal', 'aal1') = 'aal2'
@@ -1516,7 +1515,7 @@ $$;
 -- Name: FUNCTION is_gdo_user(); Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON FUNCTION greendogops.is_gdo_user() IS 'True when the current JWT belongs to an active greendogops.app_user whose role is not employee (and who has passed two-step verification if enrolled). auth.users is shared with EmployeeGMGDD, so a session alone is NOT sufficient. Employee (self-service) logins are served only through service-role Server Actions.';
+COMMENT ON FUNCTION greendogops.is_gdo_user() IS 'True when the current JWT belongs to an active greendogops.app_user. auth.users is shared with EmployeeGMGDD, so a session alone is NOT sufficient.';
 
 
 --
@@ -2895,7 +2894,9 @@ begin
         'with check (greendogops.is_gdo_user())',
         obj_name
       );
-      raise notice 'greendogops.%: RLS enabled with gdo_members_all policy', obj_name;
+      -- 0239: Staff are read-only in the database.
+      perform greendogops.staff_read_only_policies(obj_name);
+      raise notice 'greendogops.%: RLS enabled with gdo_members_all policy (Staff read-only)', obj_name;
 
     elsif cmd.command_tag in ('CREATE VIEW', 'CREATE MATERIALIZED VIEW') then
       execute format('revoke all on greendogops.%I from anon, authenticated', obj_name);
@@ -2910,7 +2911,7 @@ $$;
 -- Name: FUNCTION protect_new_objects(); Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON FUNCTION greendogops.protect_new_objects() IS 'Event-trigger body: applies the migration 0164 RLS baseline to newly created greendogops tables/views.';
+COMMENT ON FUNCTION greendogops.protect_new_objects() IS 'Event-trigger body: applies the migration 0164 RLS baseline to newly created greendogops tables/views, plus the 0239 Staff read-only policies.';
 
 
 --
@@ -3528,7 +3529,7 @@ CREATE FUNCTION greendogops.rls_audit() RETURNS TABLE(object_name text, object_k
   union all
 
   -- 0238: a SECURITY DEFINER function bypasses RLS, so `authenticated` (which
-  -- includes EmployeeGMGDD and employee logins) must not call one directly.
+  -- includes EmployeeGMGDD logins) must not call one directly.
   -- The two policy helpers are the only exceptions.
   select format('%I(%s)', p.proname, pg_get_function_identity_arguments(p.oid)),
          'function',
@@ -3541,6 +3542,22 @@ CREATE FUNCTION greendogops.rls_audit() RETURNS TABLE(object_name text, object_k
     and p.prorettype not in ('trigger'::regtype, 'event_trigger'::regtype)
     and p.proname not in ('is_gdo_user', 'is_gdo_admin')
     and has_function_privilege('authenticated', p.oid, 'EXECUTE')
+
+  union all
+
+  -- 0239: Staff are read-only in the database. Every table carries the three
+  -- restrictive staff_read_only_* policies (protect_new_objects adds them).
+  select c.relname::text, 'table', 'Staff not read-only (missing staff_read_only_* policies)'
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'greendogops'
+    and c.relkind = 'r'
+    and c.relrowsecurity
+    and c.relname not in ('credential', 'ats_hr_merge_backup_0032')
+    and (select count(*) from pg_policies p
+          where p.schemaname = 'greendogops' and p.tablename = c.relname
+            and p.permissive = 'RESTRICTIVE'
+            and p.policyname in ('staff_read_only_insert', 'staff_read_only_update', 'staff_read_only_delete')) < 3
 
   union all
 
@@ -3561,7 +3578,7 @@ $$;
 -- Name: FUNCTION rls_audit(); Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON FUNCTION greendogops.rls_audit() IS 'Returns every greendogops object still reachable by anon/authenticated without RLS (including SECURITY DEFINER functions authenticated can call). Expect zero rows.';
+COMMENT ON FUNCTION greendogops.rls_audit() IS 'Returns every greendogops object still reachable by anon/authenticated without RLS (including SECURITY DEFINER functions authenticated can call, and tables Staff could write). Expect zero rows.';
 
 
 --
@@ -3952,6 +3969,42 @@ COMMENT ON FUNCTION greendogops.split_tag_list(p_list text) IS 'Split an ezyVet 
 
 
 --
+-- Name: staff_read_only_policies(text); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.staff_read_only_policies(p_table text) RETURNS void
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  not_staff constant text :=
+    'not exists (select 1 from greendogops.app_user u where u.id = auth.uid() '
+    'and u.is_active and u.role::text = ''staff'')';
+begin
+  execute format('drop policy if exists staff_read_only_insert on greendogops.%I', p_table);
+  execute format('drop policy if exists staff_read_only_update on greendogops.%I', p_table);
+  execute format('drop policy if exists staff_read_only_delete on greendogops.%I', p_table);
+  execute format(
+    'create policy staff_read_only_insert on greendogops.%I as restrictive for insert to authenticated with check (%s)',
+    p_table, not_staff);
+  execute format(
+    'create policy staff_read_only_update on greendogops.%I as restrictive for update to authenticated using (%s) with check (%s)',
+    p_table, not_staff, not_staff);
+  execute format(
+    'create policy staff_read_only_delete on greendogops.%I as restrictive for delete to authenticated using (%s)',
+    p_table, not_staff);
+end;
+$$;
+
+
+--
+-- Name: FUNCTION staff_read_only_policies(p_table text); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.staff_read_only_policies(p_table text) IS 'Adds the three RESTRICTIVE staff_read_only_* policies (0239) to one greendogops table: an active Staff login cannot insert, update or delete through the API. Called by protect_new_objects() for every new table.';
+
+
+--
 -- Name: trg_request_reporting_refresh(); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -4331,8 +4384,16 @@ CREATE TABLE greendogops.app_user (
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     created_by uuid,
-    person_id uuid
+    person_id uuid,
+    CONSTRAINT app_user_role_supported CHECK (((role)::text <> ALL (ARRAY['employee'::text, 'viewer'::text])))
 );
+
+
+--
+-- Name: CONSTRAINT app_user_role_supported ON app_user; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON CONSTRAINT app_user_role_supported ON greendogops.app_user IS 'employee (0238, retired by 0239) and viewer are unused app_role values; Staff is the employee role.';
 
 
 --
@@ -10631,7 +10692,7 @@ CREATE TABLE greendogops.resource_document (
     CONSTRAINT resource_document_content_json_object CHECK (((content_json IS NULL) OR (jsonb_typeof(content_json) = 'object'::text))),
     CONSTRAINT resource_document_has_target CHECK (((storage_path IS NOT NULL) OR (source_url IS NOT NULL) OR (content_json IS NOT NULL))),
     CONSTRAINT resource_document_signature_baseline CHECK (((NOT require_signature) OR ((signature_from_version IS NOT NULL) AND ((signature_from_version >= 1) AND (signature_from_version <= GREATEST(current_version, 1)))))),
-    CONSTRAINT resource_document_visible_roles_valid CHECK (((visible_roles IS NULL) OR (visible_roles <@ ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text, 'schedule_admin'::text, 'marketing_admin'::text, 'staff'::text, 'employee'::text])))
+    CONSTRAINT resource_document_visible_roles_valid CHECK (((visible_roles IS NULL) OR (visible_roles <@ ARRAY['owner'::text, 'admin'::text, 'executive'::text, 'manager'::text, 'schedule_admin'::text, 'marketing_admin'::text, 'staff'::text])))
 );
 
 
@@ -19883,6 +19944,4849 @@ ALTER TABLE greendogops.sms_message ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.sms_opt_out ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: agent staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.agent AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_report staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.agent_report AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_run staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.agent_run AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_run_log staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.agent_run_log AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: app_setting staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.app_setting AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: app_user staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.app_user AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ats_hr_merge_backup_0032 staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ats_hr_merge_backup_0032 AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: audit_log staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.audit_log AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: bizdev_appt_type staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.bizdev_appt_type AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: bizdev_location_config staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.bizdev_location_config AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_event staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.calendar_event AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_notification staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.calendar_notification AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_schedule_pin staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.calendar_schedule_pin AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_sync_state staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.calendar_sync_state AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: clinic_visits staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.clinic_visits AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: credential staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.credential AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_ce_attendance staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_ce_attendance AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_ce_event staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_ce_event AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_contact staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_contact AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_contact_document staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_contact_document AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_org_document staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_org_document AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_org_visit staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_org_visit AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_organization staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_organization AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_program_name staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_program_name AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_retail_lead staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.crm_retail_lead AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: email_event staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.email_event AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: email_template staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.email_template AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_aged_receivable staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_aged_receivable AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_appt_snapshot staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_agenda_appt_snapshot AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_count staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_agenda_count AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_dept_map staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_agenda_dept_map AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_snapshot staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_agenda_snapshot AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_animal staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_animal AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_animal_import staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_animal_import AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_record staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_appointment_record AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_status staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_appointment_status AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_type_stat staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_appointment_type_stat AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appt_type_dept_map staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_appt_type_dept_map AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_cancelled_appointment staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_cancelled_appointment AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_clinical_note staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_clinical_note AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_consult_metric staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_consult_metric AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_contact AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact_change staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_contact_change AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact_import staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_contact_import AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_controlled_drug staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_controlled_drug AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_customer_invoice_stat staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_customer_invoice_stat AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_disabled_record staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_disabled_record AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_end_of_day staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_end_of_day AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_estimate staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_estimate AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_expired_inventory staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_expired_inventory AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_expiring_inventory staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_expiring_inventory AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_ordering staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_inventory_ordering AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_transfer staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_inventory_transfer AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_value staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_inventory_value AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_import staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_invoice_import AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_line staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_invoice_line AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_summary staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_invoice_summary AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_payment staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_payment AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_payment_allocation staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_payment_allocation AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_product AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product_import staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_product_import AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product_price staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_product_price AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_purchase staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_purchase AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_record_tag staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_record_tag AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_record_tag_run staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_record_tag_run AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_soc_overdue staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_soc_overdue AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_staff_sale staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_staff_sale AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_tag staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_tag AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_taxable_sales staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_taxable_sales AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_unapplied_payment staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_unapplied_payment AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_unbilled_consult staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_unbilled_consult AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_vaccination staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_vaccination AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_wellness_plan_use staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ezyvet_wellness_plan_use AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: interview_invite staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.interview_invite AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: location staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.location AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_activity staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_activity AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_budget_entry staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_budget_entry AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_budget_period staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_budget_period AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_event AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event_attendee staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_event_attendee AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event_source staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_event_source AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_goal staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_goal AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_influencers staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_influencers AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_initiative staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_initiative AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_promotion staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_promotion AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_resource staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_resource AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_tree_node staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.marketing_tree_node AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_day staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.medical_board_day AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_row staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.medical_board_row AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_type staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.medical_board_type AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_action staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.notification_action AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_delivery staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.notification_delivery AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_event staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.notification_event AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_rule staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.notification_rule AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ops_task staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.ops_task AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: partner_contacts staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.partner_contacts AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: partner_notes staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.partner_notes AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_asset staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_asset AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_compliance_entry staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_compliance_entry AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_disciplinary_action staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_disciplinary_action AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_document staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_document AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_employment staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_employment AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_interview staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_interview AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_license staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_license AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_onboarding_item staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_onboarding_item AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_pto_day staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_pto_day AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_recruiting AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting_cleanup_0220 staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_recruiting_cleanup_0220 AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting_score_backup_0225 staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_recruiting_score_backup_0225 AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_review staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_review AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_slack_link staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_slack_link AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_time_off staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.person_time_off AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_capacity_rule staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.planning_capacity_rule AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.planning_guide AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide_column staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.planning_guide_column AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide_slot staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.planning_guide_slot AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: position staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops."position" AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: profile_transition_log staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.profile_transition_log AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_code staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.qr_code AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_form staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.qr_form AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_lead staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.qr_lead AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: rate_limit_bucket staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.rate_limit_bucket AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiter_google_token staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiter_google_token AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiter_schedule staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiter_schedule AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_activity staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_activity AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_email_template staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_email_template AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_form AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form_request staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_form_request AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form_response staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_form_response AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_rejection staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_rejection AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_score_change staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_score_change AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_task staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.recruiting_task AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_partners staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.referral_partners AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_revenue_line_items staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.referral_revenue_line_items AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_sync_history staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.referral_sync_history AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reminder_ack staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.reminder_ack AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reminder_rule staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.reminder_rule AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: report_capacity_override staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.report_capacity_override AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: report_capacity_target staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.report_capacity_target AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reporting_refresh_state staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.reporting_refresh_state AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_category staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.resource_category AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.resource_document AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_chunk staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.resource_document_chunk AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_signature staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.resource_document_signature AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_version staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.resource_document_version AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_viewer staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.resource_document_viewer AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_assignment staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_assignment AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_change_log staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_change_log AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_closure staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_closure AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_department staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_department AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_employee_setting staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_employee_setting AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_event staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_event AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_role staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_role AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_role_member staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_role_member AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_shift_template staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_shift_template AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_week AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week_line staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_week_line AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week_location staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sched_week_location AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sheet_sync_issue staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sheet_sync_issue AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sheet_sync_source staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sheet_sync_source AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: smart_glossary staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.smart_glossary AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: smart_question_log staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.smart_question_log AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_consent staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sms_consent AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_message staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sms_message AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_opt_out staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.sms_opt_out AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: user_notification staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.user_notification AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.agent AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_report staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.agent_report AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_run staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.agent_run AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_run_log staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.agent_run_log AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: app_setting staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.app_setting AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: app_user staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.app_user AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ats_hr_merge_backup_0032 staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ats_hr_merge_backup_0032 AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: audit_log staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.audit_log AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: bizdev_appt_type staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.bizdev_appt_type AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: bizdev_location_config staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.bizdev_location_config AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_event staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.calendar_event AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_notification staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.calendar_notification AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_schedule_pin staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.calendar_schedule_pin AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_sync_state staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.calendar_sync_state AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: clinic_visits staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.clinic_visits AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: credential staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.credential AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_ce_attendance staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_ce_attendance AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_ce_event staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_ce_event AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_contact staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_contact AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_contact_document staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_contact_document AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_org_document staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_org_document AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_org_visit staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_org_visit AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_organization staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_organization AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_program_name staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_program_name AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_retail_lead staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.crm_retail_lead AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: email_event staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.email_event AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: email_template staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.email_template AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_aged_receivable staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_aged_receivable AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_appt_snapshot staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_agenda_appt_snapshot AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_count staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_agenda_count AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_dept_map staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_agenda_dept_map AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_snapshot staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_agenda_snapshot AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_animal staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_animal AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_animal_import staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_animal_import AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_record staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_appointment_record AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_status staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_appointment_status AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_type_stat staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_appointment_type_stat AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appt_type_dept_map staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_appt_type_dept_map AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_cancelled_appointment staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_cancelled_appointment AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_clinical_note staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_clinical_note AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_consult_metric staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_consult_metric AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_contact AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact_change staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_contact_change AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact_import staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_contact_import AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_controlled_drug staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_controlled_drug AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_customer_invoice_stat staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_customer_invoice_stat AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_disabled_record staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_disabled_record AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_end_of_day staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_end_of_day AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_estimate staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_estimate AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_expired_inventory staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_expired_inventory AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_expiring_inventory staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_expiring_inventory AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_ordering staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_inventory_ordering AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_transfer staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_inventory_transfer AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_value staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_inventory_value AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_import staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_invoice_import AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_line staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_invoice_line AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_summary staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_invoice_summary AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_payment staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_payment AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_payment_allocation staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_payment_allocation AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_product AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product_import staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_product_import AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product_price staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_product_price AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_purchase staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_purchase AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_record_tag staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_record_tag AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_record_tag_run staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_record_tag_run AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_soc_overdue staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_soc_overdue AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_staff_sale staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_staff_sale AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_tag staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_tag AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_taxable_sales staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_taxable_sales AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_unapplied_payment staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_unapplied_payment AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_unbilled_consult staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_unbilled_consult AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_vaccination staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_vaccination AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_wellness_plan_use staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ezyvet_wellness_plan_use AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: interview_invite staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.interview_invite AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: location staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.location AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_activity staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_activity AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_budget_entry staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_budget_entry AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_budget_period staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_budget_period AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_event AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event_attendee staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_event_attendee AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event_source staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_event_source AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_goal staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_goal AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_influencers staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_influencers AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_initiative staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_initiative AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_promotion staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_promotion AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_resource staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_resource AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_tree_node staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.marketing_tree_node AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_day staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.medical_board_day AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_row staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.medical_board_row AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_type staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.medical_board_type AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_action staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.notification_action AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_delivery staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.notification_delivery AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_event staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.notification_event AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_rule staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.notification_rule AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ops_task staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.ops_task AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: partner_contacts staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.partner_contacts AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: partner_notes staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.partner_notes AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_asset staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_asset AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_compliance_entry staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_compliance_entry AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_disciplinary_action staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_disciplinary_action AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_document staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_document AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_employment staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_employment AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_interview staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_interview AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_license staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_license AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_onboarding_item staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_onboarding_item AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_pto_day staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_pto_day AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_recruiting AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting_cleanup_0220 staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_recruiting_cleanup_0220 AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting_score_backup_0225 staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_recruiting_score_backup_0225 AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_review staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_review AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_slack_link staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_slack_link AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_time_off staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.person_time_off AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_capacity_rule staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.planning_capacity_rule AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.planning_guide AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide_column staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.planning_guide_column AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide_slot staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.planning_guide_slot AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: position staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops."position" AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: profile_transition_log staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.profile_transition_log AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_code staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.qr_code AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_form staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.qr_form AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_lead staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.qr_lead AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: rate_limit_bucket staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.rate_limit_bucket AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiter_google_token staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiter_google_token AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiter_schedule staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiter_schedule AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_activity staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_activity AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_email_template staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_email_template AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_form AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form_request staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_form_request AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form_response staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_form_response AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_rejection staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_rejection AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_score_change staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_score_change AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_task staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.recruiting_task AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_partners staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.referral_partners AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_revenue_line_items staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.referral_revenue_line_items AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_sync_history staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.referral_sync_history AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reminder_ack staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.reminder_ack AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reminder_rule staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.reminder_rule AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: report_capacity_override staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.report_capacity_override AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: report_capacity_target staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.report_capacity_target AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reporting_refresh_state staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.reporting_refresh_state AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_category staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.resource_category AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.resource_document AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_chunk staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.resource_document_chunk AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_signature staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.resource_document_signature AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_version staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.resource_document_version AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_viewer staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.resource_document_viewer AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_assignment staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_assignment AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_change_log staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_change_log AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_closure staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_closure AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_department staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_department AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_employee_setting staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_employee_setting AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_event staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_event AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_role staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_role AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_role_member staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_role_member AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_shift_template staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_shift_template AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_week AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week_line staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_week_line AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week_location staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sched_week_location AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sheet_sync_issue staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sheet_sync_issue AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sheet_sync_source staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sheet_sync_source AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: smart_glossary staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.smart_glossary AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: smart_question_log staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.smart_question_log AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_consent staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sms_consent AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_message staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sms_message AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_opt_out staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.sms_opt_out AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: user_notification staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.user_notification AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.agent AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_report staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.agent_report AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_run staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.agent_run AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: agent_run_log staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.agent_run_log AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: app_setting staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.app_setting AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: app_user staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.app_user AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ats_hr_merge_backup_0032 staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ats_hr_merge_backup_0032 AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: audit_log staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.audit_log AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: bizdev_appt_type staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.bizdev_appt_type AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: bizdev_location_config staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.bizdev_location_config AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_event staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.calendar_event AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_notification staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.calendar_notification AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_schedule_pin staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.calendar_schedule_pin AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: calendar_sync_state staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.calendar_sync_state AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: clinic_visits staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.clinic_visits AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: credential staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.credential AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_ce_attendance staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_ce_attendance AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_ce_event staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_ce_event AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_contact staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_contact AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_contact_document staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_contact_document AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_org_document staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_org_document AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_org_visit staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_org_visit AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_organization staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_organization AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_program_name staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_program_name AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: crm_retail_lead staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.crm_retail_lead AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: email_event staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.email_event AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: email_template staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.email_template AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_aged_receivable staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_aged_receivable AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_appt_snapshot staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_agenda_appt_snapshot AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_count staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_agenda_count AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_dept_map staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_agenda_dept_map AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_agenda_snapshot staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_agenda_snapshot AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_animal staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_animal AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_animal_import staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_animal_import AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_record staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_appointment_record AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_status staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_appointment_status AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appointment_type_stat staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_appointment_type_stat AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_appt_type_dept_map staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_appt_type_dept_map AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_cancelled_appointment staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_cancelled_appointment AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_clinical_note staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_clinical_note AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_consult_metric staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_consult_metric AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_contact AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact_change staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_contact_change AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_contact_import staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_contact_import AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_controlled_drug staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_controlled_drug AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_customer_invoice_stat staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_customer_invoice_stat AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_disabled_record staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_disabled_record AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_end_of_day staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_end_of_day AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_estimate staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_estimate AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_expired_inventory staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_expired_inventory AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_expiring_inventory staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_expiring_inventory AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_ordering staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_inventory_ordering AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_transfer staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_inventory_transfer AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_inventory_value staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_inventory_value AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_import staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_invoice_import AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_line staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_invoice_line AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_invoice_summary staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_invoice_summary AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_payment staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_payment AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_payment_allocation staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_payment_allocation AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_product AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product_import staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_product_import AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_product_price staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_product_price AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_purchase staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_purchase AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_record_tag staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_record_tag AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_record_tag_run staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_record_tag_run AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_soc_overdue staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_soc_overdue AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_staff_sale staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_staff_sale AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_tag staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_tag AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_taxable_sales staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_taxable_sales AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_unapplied_payment staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_unapplied_payment AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_unbilled_consult staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_unbilled_consult AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_vaccination staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_vaccination AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ezyvet_wellness_plan_use staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ezyvet_wellness_plan_use AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: interview_invite staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.interview_invite AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: location staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.location AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_activity staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_activity AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_budget_entry staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_budget_entry AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_budget_period staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_budget_period AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_event AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event_attendee staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_event_attendee AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_event_source staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_event_source AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_goal staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_goal AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_influencers staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_influencers AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_initiative staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_initiative AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_promotion staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_promotion AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_resource staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_resource AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: marketing_tree_node staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.marketing_tree_node AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_day staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.medical_board_day AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_row staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.medical_board_row AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: medical_board_type staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.medical_board_type AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_action staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.notification_action AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_delivery staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.notification_delivery AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_event staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.notification_event AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: notification_rule staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.notification_rule AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: ops_task staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.ops_task AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: partner_contacts staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.partner_contacts AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: partner_notes staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.partner_notes AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_asset staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_asset AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_compliance_entry staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_compliance_entry AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_disciplinary_action staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_disciplinary_action AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_document staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_document AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_employment staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_employment AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_interview staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_interview AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_license staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_license AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_onboarding_item staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_onboarding_item AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_pto_day staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_pto_day AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_recruiting AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting_cleanup_0220 staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_recruiting_cleanup_0220 AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_recruiting_score_backup_0225 staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_recruiting_score_backup_0225 AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_review staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_review AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_slack_link staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_slack_link AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: person_time_off staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.person_time_off AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_capacity_rule staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.planning_capacity_rule AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.planning_guide AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide_column staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.planning_guide_column AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: planning_guide_slot staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.planning_guide_slot AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: position staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops."position" AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: profile_transition_log staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.profile_transition_log AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_code staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.qr_code AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_form staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.qr_form AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: qr_lead staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.qr_lead AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: rate_limit_bucket staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.rate_limit_bucket AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiter_google_token staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiter_google_token AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiter_schedule staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiter_schedule AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_activity staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_activity AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_email_template staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_email_template AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_form AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form_request staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_form_request AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_form_response staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_form_response AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_rejection staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_rejection AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_score_change staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_score_change AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: recruiting_task staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.recruiting_task AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_partners staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.referral_partners AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_revenue_line_items staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.referral_revenue_line_items AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: referral_sync_history staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.referral_sync_history AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reminder_ack staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.reminder_ack AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reminder_rule staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.reminder_rule AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: report_capacity_override staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.report_capacity_override AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: report_capacity_target staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.report_capacity_target AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: reporting_refresh_state staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.reporting_refresh_state AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_category staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.resource_category AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.resource_document AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_chunk staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.resource_document_chunk AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_signature staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.resource_document_signature AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_version staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.resource_document_version AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: resource_document_viewer staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.resource_document_viewer AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_assignment staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_assignment AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_change_log staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_change_log AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_closure staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_closure AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_department staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_department AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_employee_setting staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_employee_setting AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_event staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_event AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_role staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_role AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_role_member staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_role_member AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_shift_template staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_shift_template AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_week AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week_line staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_week_line AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sched_week_location staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sched_week_location AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sheet_sync_issue staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sheet_sync_issue AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sheet_sync_source staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sheet_sync_source AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: smart_glossary staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.smart_glossary AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: smart_question_log staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.smart_question_log AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_consent staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sms_consent AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_message staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sms_message AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: sms_opt_out staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.sms_opt_out AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: user_notification staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.user_notification AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: user_notification; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -20551,6 +25455,14 @@ GRANT ALL ON FUNCTION greendogops.split_student_program(label text) TO authentic
 REVOKE ALL ON FUNCTION greendogops.split_tag_list(p_list text) FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.split_tag_list(p_list text) TO service_role;
 GRANT ALL ON FUNCTION greendogops.split_tag_list(p_list text) TO authenticated;
+
+
+--
+-- Name: FUNCTION staff_read_only_policies(p_table text); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.staff_read_only_policies(p_table text) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.staff_read_only_policies(p_table text) TO service_role;
 
 
 --

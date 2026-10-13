@@ -180,15 +180,10 @@ describe("General tier (Staff)", () => {
     expect(general.canViewCompensation).toBe(false);
     expect(general.canViewHrRecords).toBe(false);
     expect(general.allowedTables).toBe(GENERAL_ALLOWED_TABLES);
-    for (const role of APP_ROLES.filter((r) => r !== "staff" && r !== "employee")) {
+    for (const role of APP_ROLES.filter((r) => r !== "staff")) {
       expect(smartScopeFor(role).canViewFinancials, role).toBe(true);
       expect(smartScopeFor(role).allowedTables, role).toBeNull();
     }
-  });
-
-  it("holds Employees to the narrowest tier, even with Reporting ticked", () => {
-    expect(smartScopeFor("employee").tier).toBe("general");
-    expect(scopeForUser(appUser("employee", { reporting: true })).tier).toBe("general");
   });
 
   it("gives Staff granted the Reporting module the same scope as other non-HR roles", () => {
@@ -340,7 +335,7 @@ describe("lookupCallProblem (General tier per-client lookups)", () => {
 
   it("does not restrict roles that can already run revenue reports", () => {
     const sql = "select sum(v.charge_incl_tax) from ezyvet_animal a cross join lateral client_visits(a.owner_contact_code) v";
-    for (const role of APP_ROLES.filter((r) => r !== "staff" && r !== "employee")) {
+    for (const role of APP_ROLES.filter((r) => r !== "staff")) {
       expect(lookupCallProblem(sql, smartScopeFor(role)), role).toBeNull();
     }
   });

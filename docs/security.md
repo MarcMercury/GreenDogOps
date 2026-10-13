@@ -50,20 +50,21 @@ App-level behaviour that matches it:
   list/upload/delete) applies `personDocumentAccess()` — the same rule as the
   `person_document` RLS policy — because the service role bypasses RLS.
 
-### Employee (self-service) logins (migration `0238`)
+### Staff are read-only in the database (migration `0239`)
 
-Every active employee gets a login for the self-service portal only. The
-boundary is enforced at both layers:
+Staff is the employee role: every rostered employee has a Staff login (since
+2026-10-13). The app has always treated Staff as read-only; `0239` makes the
+database agree:
 
 | Layer | Rule |
 | --- | --- |
-| Postgres | `is_gdo_user()` is false for `role = 'employee'`, so every table policy refuses them; only `app_user_read_self` applies (their own row). No `SECURITY DEFINER` function is executable by `authenticated` (`rls_audit()` reports any that are). |
-| App session | `getRealAuthState()` returns `self_service`, not `ok`. `requireUser` redirects to `/me`; `getCurrentUser` returns null; the edit gates refuse. Both layouts redirect to `/me`, which lives outside the `(app)` group so it cannot loop. |
-| Permissions | `canAccessModule` ignores per-user overrides for Employees (no modules); own-record-only like Staff elsewhere; Ask Ziggy `general` tier; not previewable with View as. |
+| Postgres | Every `greendogops` table carries three RESTRICTIVE policies (`staff_read_only_insert/update/delete`) that refuse an active Staff login. They AND with the permissive policies, so Staff still read what `gdo_members_all` allows and every other role is unchanged. `protect_new_objects()` adds them to new tables; `rls_audit()` reports any table without them. |
+| Postgres | No `SECURITY DEFINER` function is executable by `authenticated` except the policy helpers `is_gdo_user()` / `is_gdo_admin()` (`0238`). |
+| App | Anything a Staff user may change is written by a Server Action with the service role after its own check: Med Ops boards (`ensureBoardUser`), and later the self-service time clock and PTO, which must act only on `current.appUser.person_id`. |
 
-Self-service pages and actions must load and write with the service role and
-act only on `current.appUser.person_id`. The RLS matrix probes all of the
-above (`employee_*` keys).
+The separate `employee` role added by `0238` was retired by `0239` (the value
+stays in the enum; `app_user_role_supported` rejects it). The RLS matrix
+probes all of the above (`staff_*` keys).
 
 ### Testing the boundary ("Can Employee A see Employee B?")
 

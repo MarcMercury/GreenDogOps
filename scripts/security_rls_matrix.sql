@@ -283,68 +283,72 @@ begin
   execute 'reset role';
   update greendogops.app_user set module_access = '{}'::jsonb where id = v_uid;
 
-  -- Employee (0238): self-service only. The API floor gives them nothing but
-  -- their own app_user row, whatever module overrides say; definer RPCs are
-  -- closed to every API token.
+  -- Staff are read-only in the database (0239), even with module overrides;
+  -- other roles still write. Definer RPCs are closed to every API token (0238).
   execute 'reset role';
   update greendogops.app_user
-     set role = 'employee', module_access = '{"hr": true, "ats": true, "schedule": true}'::jsonb
+     set role = 'staff', module_access = '{"hr": true, "schedule": true, "crm_referral": true}'::jsonb
    where id = v_uid;
   execute 'set local role authenticated';
-  r := r || jsonb_build_object('employee_is_gdo_user', greendogops.is_gdo_user());
-  if greendogops.is_gdo_user() then failures := failures || 'employee is a gdo user'::text; end if;
-  select count(*) into v_n from greendogops.app_user where id = v_uid;
-  r := r || jsonb_build_object('employee_read_own_app_user', v_n);
-  if v_n <> 1 then failures := failures || 'employee cannot read own app_user'::text; end if;
-  select count(*) into v_n from greendogops.app_user where id <> v_uid;
-  r := r || jsonb_build_object('employee_read_other_app_users', v_n);
-  if v_n <> 0 then failures := failures || 'employee reads other app_users'::text; end if;
   select count(*) into v_n from greendogops.person where id in (v_self, v_other);
-  r := r || jsonb_build_object('employee_read_person', v_n);
-  if v_n <> 0 then failures := failures || 'employee reads person rows'::text; end if;
-  select count(*) into v_n from greendogops.person_review where person_id = v_self;
-  r := r || jsonb_build_object('employee_read_own_review', v_n);
-  if v_n <> 0 then failures := failures || 'employee reads own review through the API'::text; end if;
-  select count(*) into v_n from greendogops.person_document where person_id in (v_self, v_cand);
-  r := r || jsonb_build_object('employee_read_docs', v_n);
-  if v_n <> 0 then failures := failures || 'employee reads person documents'::text; end if;
-  select count(*) into v_n from greendogops.resource_document where id = v_doc_public;
-  r := r || jsonb_build_object('employee_read_public_doc', v_n);
-  if v_n <> 0 then failures := failures || 'employee reads resource documents through the API'::text; end if;
-  select count(*) into v_n from greendogops.location;
-  r := r || jsonb_build_object('employee_read_location', v_n);
-  if v_n <> 0 then failures := failures || 'employee reads location'::text; end if;
-  update greendogops.person set notes = 'rls-hacked' where id = v_self;
+  r := r || jsonb_build_object('staff_read_person', v_n);
+  if v_n <> 2 then failures := failures || format('staff cannot read person rows (%s)', v_n); end if;
+  update greendogops.person set notes = 'rls-staff' where id in (v_self, v_other);
   get diagnostics v_n = row_count;
-  r := r || jsonb_build_object('employee_update_own_person', v_n);
-  if v_n <> 0 then failures := failures || 'employee updates person'::text; end if;
+  r := r || jsonb_build_object('staff_update_person', v_n);
+  if v_n <> 0 then failures := failures || 'staff updates person'::text; end if;
+  delete from greendogops.person where id = v_other;
+  get diagnostics v_n = row_count;
+  r := r || jsonb_build_object('staff_delete_person', v_n);
+  if v_n <> 0 then failures := failures || 'staff deletes person'::text; end if;
   begin
     insert into greendogops.person (first_name, last_name, status) values ('Rls', 'Forged', 'employee');
-    r := r || jsonb_build_object('employee_insert_person', 'ALLOWED');
-    failures := failures || 'employee inserts person'::text;
+    r := r || jsonb_build_object('staff_insert_person', 'ALLOWED');
+    failures := failures || 'staff inserts person'::text;
   exception when insufficient_privilege then
-    r := r || jsonb_build_object('employee_insert_person', 'denied');
+    r := r || jsonb_build_object('staff_insert_person', 'denied');
   end;
   update greendogops.app_user set role = 'owner' where id = v_uid;
   get diagnostics v_n = row_count;
-  r := r || jsonb_build_object('employee_self_promote', v_n);
-  if v_n <> 0 then failures := failures || 'employee can change own app_user role'::text; end if;
+  r := r || jsonb_build_object('staff_self_promote', v_n);
+  if v_n <> 0 then failures := failures || 'staff can change own app_user role'::text; end if;
   begin
     perform greendogops.appointment_review(current_date - 7, current_date - 1);
-    r := r || jsonb_build_object('employee_definer_rpc', 'ALLOWED');
-    failures := failures || 'employee calls appointment_review'::text;
+    r := r || jsonb_build_object('staff_definer_rpc', 'ALLOWED');
+    failures := failures || 'staff calls appointment_review'::text;
   exception when insufficient_privilege then
-    r := r || jsonb_build_object('employee_definer_rpc', 'denied');
+    r := r || jsonb_build_object('staff_definer_rpc', 'denied');
   end;
   begin
     perform greendogops.medical_board_patch_card(gen_random_uuid(), '{}'::jsonb, 'rls');
-    r := r || jsonb_build_object('employee_board_patch_rpc', 'ALLOWED');
-    failures := failures || 'employee calls medical_board_patch_card'::text;
+    r := r || jsonb_build_object('staff_board_patch_rpc', 'ALLOWED');
+    failures := failures || 'staff calls medical_board_patch_card'::text;
   exception when insufficient_privilege then
-    r := r || jsonb_build_object('employee_board_patch_rpc', 'denied');
+    r := r || jsonb_build_object('staff_board_patch_rpc', 'denied');
   end;
+
   execute 'reset role';
+  update greendogops.app_user set role = 'schedule_admin', module_access = '{}'::jsonb where id = v_uid;
+  execute 'set local role authenticated';
+  update greendogops.person set notes = 'rls-sched-admin' where id = v_other;
+  get diagnostics v_n = row_count;
+  r := r || jsonb_build_object('schedule_admin_update_person', v_n);
+  if v_n <> 1 then failures := failures || 'schedule_admin can no longer write person'::text; end if;
+
+  execute 'reset role';
+  begin
+    update greendogops.app_user set role = 'employee' where id = v_uid;
+    r := r || jsonb_build_object('retired_employee_role', 'ALLOWED');
+    failures := failures || 'app_user accepts the retired employee role'::text;
+  exception when check_violation then
+    r := r || jsonb_build_object('retired_employee_role', 'rejected');
+  end;
   update greendogops.app_user set role = 'staff', module_access = '{}'::jsonb where id = v_uid;
+
+  select count(*) into v_n from greendogops.rls_audit() a
+   where a.problem like 'Staff not read-only%';
+  r := r || jsonb_build_object('tables_staff_can_write', v_n);
+  if v_n <> 0 then failures := failures || format('%s tables Staff can write', v_n); end if;
 
   -- No SECURITY DEFINER function is callable by any API token (0238).
   select count(*) into v_n from greendogops.rls_audit() a

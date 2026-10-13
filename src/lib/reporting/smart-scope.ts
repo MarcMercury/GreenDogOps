@@ -269,7 +269,7 @@ export function smartScopeFor(role: AppRole): SmartScope {
       ? "full"
       : role === "manager"
         ? "hr"
-        : role === "staff" || role === "employee"
+        : role === "staff"
           ? "general"
           : "basic";
 

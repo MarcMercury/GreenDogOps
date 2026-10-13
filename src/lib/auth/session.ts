@@ -8,7 +8,6 @@ import type { AppUser, ModuleKey } from "./permissions";
 import { aalFromAccessToken, isMfaEnforced, mfaRequirement, roleRequiresMfa } from "./mfa";
 import {
   isAdminRole,
-  isEmployeeRole,
   canAccessModule,
   canEditModule,
   canEditGeneral,
@@ -61,21 +60,7 @@ export type AuthState =
       current: CurrentUser;
       verifiedFactorIds: string[];
     }
-  /**
-   * An Employee (self-service) login that has passed two-step verification.
-   * Deliberately NOT "ok": every helper that requires "ok" (requireUser,
-   * getCurrentUser, the edit gates) refuses it, so no existing page, Server
-   * Action or API route serves an Employee. Self-service code opts in.
-   */
-  | { kind: "self_service"; current: CurrentUser; verifiedFactorIds: string[]; aal: string | null }
   | { kind: "ok"; current: CurrentUser; verifiedFactorIds: string[]; aal: string | null };
-
-/**
- * Where a signed-in Employee is sent. Lives outside the (app) route group:
- * layouts and pages render in parallel, so a redirect target inside (app)
- * could loop on a page that itself calls requireUser().
- */
-export const SELF_SERVICE_HOME = "/me";
 
 /**
  * Resolve the request's authentication state for the person actually signed
@@ -127,9 +112,6 @@ export const getRealAuthState = cache(async (): Promise<AuthState> => {
   });
   if (requirement === "challenge") return { kind: "mfa_challenge", current, verifiedFactorIds };
   if (requirement === "enroll") return { kind: "mfa_enroll", current, verifiedFactorIds };
-  if (isEmployeeRole(appUser.role)) {
-    return { kind: "self_service", current, verifiedFactorIds, aal };
-  }
   return { kind: "ok", current, verifiedFactorIds, aal };
 });
 
@@ -167,10 +149,8 @@ async function applyViewAs(real: CurrentUser): Promise<CurrentUser> {
     .eq("id", target.userId)
     .maybeSingle();
   const appUser = data as AppUser | null;
-  // A deactivated or deleted target silently falls back to the real user, as
-  // does an Employee: their access is the self-service portal, not a preview
-  // of the Ops app.
-  if (!appUser || !appUser.is_active || isEmployeeRole(appUser.role)) return real;
+  // A deactivated or deleted target silently falls back to the real user.
+  if (!appUser || !appUser.is_active) return real;
   return {
     authId: appUser.id,
     email: appUser.email,
@@ -221,7 +201,6 @@ export async function requireUser(options?: SessionOptions): Promise<CurrentUser
   if (state.kind === "mfa_challenge" || state.kind === "mfa_enroll") {
     redirect("/login/mfa");
   }
-  if (state.kind === "self_service") redirect(SELF_SERVICE_HOME);
   if (state.kind !== "ok") redirect("/login");
   if (await previewRefuses(state.current, options)) {
     throw new Error(VIEW_AS_READ_ONLY_MESSAGE);

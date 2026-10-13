@@ -23,6 +23,8 @@ export type ActionResult<T = undefined> =
  * Boards are a live floor tool that the WHOLE team keeps current, so any user
  * who can see the module may edit it — unlike most modules, this deliberately
  * gates on access rather than canEditModule (Staff is read-only elsewhere).
+ * Staff are read-only in the database (migration 0239), so board writes use
+ * the service role after this check.
  */
 async function ensureBoardUser(options?: SessionOptions) {
   const current = await getCurrentUser(options);
@@ -46,8 +48,7 @@ export async function updateBoardCell(
       ? value.trim()
       : null;
 
-  const supabase = await createClient();
-  const { error } = await supabase
+  const { error } = await createAdminClient()
     .from("medical_board_row")
     .update({ [field]: next, updated_by: current.email })
     .eq("id", rowId);
@@ -64,7 +65,7 @@ export async function addBoardRow(
   const current = await ensureBoardUser();
   if (!current) return { ok: false, error: "Not authorized." };
 
-  const supabase = await createClient();
+  const supabase = createAdminClient();
   const { data: last } = await supabase
     .from("medical_board_row")
     .select("sort_order")
@@ -99,8 +100,7 @@ export async function deleteBoardRow(rowId: string): Promise<ActionResult> {
   const current = await ensureBoardUser();
   if (!current) return { ok: false, error: "Not authorized." };
 
-  const supabase = await createClient();
-  const { error } = await supabase
+  const { error } = await createAdminClient()
     .from("medical_board_row")
     .delete()
     .eq("id", rowId);

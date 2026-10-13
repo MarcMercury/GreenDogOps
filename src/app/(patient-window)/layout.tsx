@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAuthState, SELF_SERVICE_HOME } from "@/lib/auth/session";
+import { getAuthState } from "@/lib/auth/session";
 import { NoAccess } from "../(app)/_components/no-access";
 import { ViewAsBanner } from "../(app)/_components/view-as-switcher";
 
@@ -19,7 +19,6 @@ export default async function PatientWindowLayout({
     redirect("/login/mfa");
   }
   if (state.kind === "not_gdo") return <NoAccess email={state.email} />;
-  if (state.kind === "self_service") redirect(SELF_SERVICE_HOME);
   const viewAs = state.current.viewAs;
   return (
     <div className="min-h-screen bg-slate-50">

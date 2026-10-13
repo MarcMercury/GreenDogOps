@@ -101,7 +101,6 @@ export const ROLE_SHORT_LABELS: Record<AppRole, string> = {
   schedule_admin: "Schedule Admin",
   marketing_admin: "Marketing Admin",
   staff: "Staff",
-  employee: "Employee",
 };
 
 /** "Everyone", "Staff, Schedule Admin + 2 people", "3 named people". */

@@ -8,8 +8,7 @@ export type AppRole =
   | "manager"
   | "schedule_admin"
   | "marketing_admin"
-  | "staff"
-  | "employee";
+  | "staff";
 
 export const APP_ROLES: AppRole[] = [
   "owner",
@@ -19,7 +18,6 @@ export const APP_ROLES: AppRole[] = [
   "schedule_admin",
   "marketing_admin",
   "staff",
-  "employee",
 ];
 
 export const ROLE_LABELS: Record<AppRole, string> = {
@@ -30,7 +28,6 @@ export const ROLE_LABELS: Record<AppRole, string> = {
   schedule_admin: "Schedule Admin",
   marketing_admin: "Marketing Admin",
   staff: "Staff",
-  employee: "Employee",
 };
 
 export const ROLE_DESCRIPTIONS: Record<AppRole, string> = {
@@ -46,8 +43,6 @@ export const ROLE_DESCRIPTIONS: Record<AppRole, string> = {
     "Same pages as Schedule Admin, and can edit them all except the Operations section (Calendar, Scheduling, Planning), which is view-only; no Admin panel and cannot view all compensation.",
   staff:
     "Read-only access to Dashboard, Resources, Ask Ziggy, the HR roster grid (their own profile only), Referral, Rescue/Shelter and Non-Med Partner CRMs, and Med Ops; sees only their own compensation.",
-  employee:
-    "Self-service only: their own time clock, schedule, timecard and PTO. No other Ops pages, whatever the module settings say.",
 };
 
 // Module slugs that can be permissioned independently.
@@ -148,10 +143,6 @@ const STAFF_MODULES: ModuleKey[] = [
   "crm_supplies",
   "ezyvet",
 ];
-// Employees are self-service only. The database does not treat them as GDO
-// users (is_gdo_user() is false, migration 0238), so no module page can load
-// data for them; per-user module overrides are ignored for this role.
-const EMPLOYEE_MODULES: ModuleKey[] = [];
 // Operations-section modules (Calendar, Scheduling, Planning). Marketing Admins
 // can see these but only with view rights — they cannot edit them.
 export const OPERATIONS_MODULES: ModuleKey[] = [
@@ -170,16 +161,7 @@ const ROLE_DEFAULT_MODULES: Record<AppRole, ModuleKey[]> = {
   schedule_admin: NON_ADMIN_MODULES,
   marketing_admin: NON_ADMIN_MODULES,
   staff: STAFF_MODULES,
-  employee: EMPLOYEE_MODULES,
 };
-
-/** Self-service-only logins: never GDO users, at the database or in the app. */
-export function isEmployeeRole(role: AppRole): boolean {
-  return role === "employee";
-}
-
-// Roles that may see only their own record wherever a profile is shown.
-const OWN_RECORD_ONLY_ROLES: readonly AppRole[] = ["staff", "employee"];
 
 export interface AppUser {
   id: string;
@@ -272,15 +254,15 @@ export function canViewSensitiveHr(role: AppRole): boolean {
  */
 export function hasRestrictedHrView(user: AppUser, personId: string): boolean {
   if (user.role === "schedule_admin" || user.role === "marketing_admin") return true;
-  return OWN_RECORD_ONLY_ROLES.includes(user.role) && user.person_id !== personId;
+  return user.role === "staff" && user.person_id !== personId;
 }
 
 /**
- * Read-only Staff (and Employees) do not see other employees' personal fields
- * (date of birth, home ZIP/phones, notes, PTO and separation details).
+ * Read-only Staff do not see other employees' personal fields (date of birth,
+ * home ZIP/phones, notes, PTO and separation details).
  */
 export function seesPrivateHrFields(user: AppUser, personId: string): boolean {
-  return !OWN_RECORD_ONLY_ROLES.includes(user.role) || user.person_id === personId;
+  return user.role !== "staff" || user.person_id === personId;
 }
 
 /**
@@ -289,7 +271,7 @@ export function seesPrivateHrFields(user: AppUser, personId: string): boolean {
  */
 export function canOpenHrProfile(user: AppUser, personId: string): boolean {
   if (!canAccessModule(user, "hr")) return false;
-  if (!OWN_RECORD_ONLY_ROLES.includes(user.role)) return true;
+  if (user.role !== "staff") return true;
   return user.person_id !== null && user.person_id === personId;
 }
 
@@ -323,20 +305,15 @@ export function personDocumentAccess(
 /**
  * Roles allowed to reveal stored logins/passwords (e.g. the marketing
  * Resources directory). Admins, Managers, and Schedule Admins may click to
- * see them; Staff and Employees may not. (Owner/Executive are above Admin and
- * also allowed.)
+ * see them; Staff may not. (Owner/Executive are above Admin and also allowed.)
  */
 export function canViewCredentials(role: AppRole): boolean {
-  return !OWN_RECORD_ONLY_ROLES.includes(role);
+  return role !== "staff";
 }
 
-/**
- * Resolve effective module access: per-user overrides win over role defaults,
- * except for Employees, whose access is fixed (see EMPLOYEE_MODULES).
- */
+/** Resolve effective module access: per-user overrides win over role defaults. */
 export function canAccessModule(user: AppUser, key: ModuleKey): boolean {
   if (!user.is_active) return false;
-  if (isEmployeeRole(user.role)) return EMPLOYEE_MODULES.includes(key);
   const override = user.module_access?.[key];
   if (typeof override === "boolean") return override;
   return ROLE_DEFAULT_MODULES[user.role].includes(key);

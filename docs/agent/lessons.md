@@ -122,9 +122,9 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Evidence:** 2026-10-13, read-only production probe listed the 28; staging after 0238: `rls_audit()` `[]`, RLS matrix PASS with `definer_fns_open_to_authenticated: 0`.
 
 ### Layouts and pages render in parallel — a redirect target must not depend on its own group's layout
-- **Problem:** sending a `self_service` user from `requireUser()` to `/` would loop: the `(app)` dashboard page calls `requireUser()` while its layout is still deciding.
+- **Problem:** while designing a separate self-service login state (0238, since retired), redirecting it from `requireUser()` to `/` would have looped: the `(app)` dashboard page calls `requireUser()` while its layout is still deciding.
 - **Root cause:** Next 16 renders layouts and pages in parallel (`node_modules/next/dist/docs/01-app/01-getting-started/06-fetching-data.md`, "layouts and pages are rendered in parallel"), so a page's `redirect()` fires even when the layout would not render it.
-- **Fix:** the Employee home `/me` lives outside `(app)` and checks auth itself.
+- **Fix:** a redirect target for a state that `(app)` refuses must live outside the `(app)` group and check auth itself.
 - **Evidence:** 2026-10-13, Next 16.4.0 docs; design only (not reproduced in a browser — AGENTS.md bans browser verification).
 
 ### A new table silently gets a permissive `gdo_members_all` policy

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getRealAuthState, SELF_SERVICE_HOME } from "@/lib/auth/session";
+import { getRealAuthState } from "@/lib/auth/session";
 import { MfaForm } from "./mfa-form";
 
 export const dynamic = "force-dynamic";
@@ -16,9 +16,7 @@ export default async function MfaPage({
 
   const { setup } = await searchParams;
   const voluntary = setup === "1";
-  const signedIn = state.kind === "ok" || state.kind === "self_service";
-  const home = state.kind === "self_service" ? SELF_SERVICE_HOME : "/";
-  if (signedIn && !voluntary) redirect(home);
+  if (state.kind === "ok" && !voluntary) redirect("/");
 
   const mode =
     state.kind === "mfa_challenge"
@@ -61,8 +59,8 @@ export default async function MfaPage({
         )}
 
         <div className="mt-6 flex items-center justify-between text-xs">
-          {signedIn ? (
-            <Link href={home} className="text-emerald-600 hover:underline">
+          {state.kind === "ok" ? (
+            <Link href="/" className="text-emerald-600 hover:underline">
               ← Back to Green Dog Ops
             </Link>
           ) : (
