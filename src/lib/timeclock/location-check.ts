@@ -213,3 +213,42 @@ export const LOCATION_RESULT_LABELS: Record<LocationResult, string> = {
   other_clinic: "At another clinic",
   off_site: "Off-site",
 };
+
+export interface ClinicDiagnosis {
+  locationId: string;
+  name: string;
+  policy: ClockPolicy;
+  configured: boolean;
+  /** Which approved network the IP matched, if any. */
+  networkMatchId: string | null;
+  distanceM: number | null;
+  insideFence: boolean | null;
+  accuracyOk: boolean | null;
+  /** Would a punch here pass this clinic's check? */
+  passes: boolean;
+}
+
+/** Per-clinic detail for "Test from here" — nothing is recorded. */
+export function diagnoseAll(locations: readonly ClockLocation[], ev: PunchEvidence): ClinicDiagnosis[] {
+  const ip = parseIp(ev.ip);
+  return locations.map((l) => {
+    const net = ip
+      ? l.networks.find((n) => {
+          const c = parseCidr(n.cidr);
+          return c ? ipInCidr(ip, c) : false;
+        }) ?? null
+      : null;
+    const d = distanceTo(l, ev);
+    return {
+      locationId: l.id,
+      name: l.name,
+      policy: l.clock_policy,
+      configured: isConfigured(l),
+      networkMatchId: net?.id ?? null,
+      distanceM: d,
+      insideFence: d === null ? null : d <= l.geofence_radius_m,
+      accuracyOk: ev.accuracy === null ? null : ev.accuracy <= l.gps_max_accuracy_m,
+      passes: isConfigured(l) && matchLocation(l, ev) !== null,
+    };
+  });
+}

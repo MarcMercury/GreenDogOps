@@ -251,6 +251,12 @@ from users who cannot access it.
 - **Biz Dev** (`/biz-dev`) — business-development planner and partner targeting.
 - **Admin** (`/admin`) — users, roles, per-user module overrides, locations,
   credentials, Slack user links, settings, agent runs, and the audit log.
+  **Time Clock** (`/admin/time-clock`) configures the location check per
+  clinic: policy, geofence (from the stored address via Google Geocoding,
+  then drag the pin), required GPS accuracy, and approved networks (enter the
+  static IP, or "Approve the network I'm on now" on site). **Test from here**
+  shows what a punch from this device would get without recording one; each
+  clinic shows a health status (last network match, off-site rate).
 
 ---
 

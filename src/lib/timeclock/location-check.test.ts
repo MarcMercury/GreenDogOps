@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { distanceMeters } from "./geo";
-import { evaluateLocation, isConfigured, type ClockLocation, type PunchEvidence } from "./location-check";
+import { diagnoseAll, evaluateLocation, isConfigured, type ClockLocation, type PunchEvidence } from "./location-check";
 
 // Venice-ish and Van Nuys-ish coordinates (synthetic).
 const VENICE = { lat: 33.99, lng: -118.46 };
@@ -97,5 +97,16 @@ describe("evaluateLocation", () => {
     const geoOnly = loc("G", { clock_policy: "geofence_only", latitude: VENICE.lat, longitude: VENICE.lng, networks: [{ id: "n", cidr: "203.0.113.0/24" }] });
     expect(evaluateLocation([geoOnly], "G", ev({ ip: "203.0.113.9" })).result).toBe("off_site");
     expect(isConfigured(loc("x", { clock_policy: "network_only", latitude: 1, longitude: 1 }))).toBe(false);
+  });
+});
+
+describe("diagnoseAll (Test from here)", () => {
+  it("explains each clinic without recording anything", () => {
+    const rows = diagnoseAll(ALL, ev({ ip: "203.0.113.25", latitude: VAN_NUYS.lat, longitude: VAN_NUYS.lng, accuracy: 30 }));
+    const by = Object.fromEntries(rows.map((r) => [r.locationId, r]));
+    expect(by.Venice).toMatchObject({ networkMatchId: "n-ven", passes: true, insideFence: false });
+    expect(by["Van Nuys"]).toMatchObject({ networkMatchId: null, insideFence: true, accuracyOk: true, passes: true });
+    expect(by["Sherman Oaks"]).toMatchObject({ configured: false, passes: false, distanceM: null });
+    expect(by.MPMV).toMatchObject({ passes: true });
   });
 });

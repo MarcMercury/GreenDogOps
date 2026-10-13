@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ipInCidr, normalizeCidr, parseCidr, parseIp } from "./ip";
+import { hostCidr, ipInCidr, isPublicIp, normalizeCidr, parseCidr, parseIp, validateClinicNetwork } from "./ip";
 
 const inRange = (ip: string, cidr: string) => ipInCidr(parseIp(ip)!, parseCidr(cidr)!);
 
@@ -41,5 +41,33 @@ describe("CIDR", () => {
     expect(normalizeCidr("203.0.113.24/29")).toBe("203.0.113.24/29");
     expect(normalizeCidr("2001:DB8::/32")).toBe("2001:db8:0:0:0:0:0:0/32");
     expect(normalizeCidr("nope")).toBeNull();
+  });
+});
+
+describe("validateClinicNetwork", () => {
+  it("accepts a public static IP or block and normalizes it", () => {
+    expect(validateClinicNetwork(" 203.0.113.25 ")).toEqual({ ok: true, cidr: "203.0.113.25/32" });
+    expect(validateClinicNetwork("203.0.113.24/29")).toEqual({ ok: true, cidr: "203.0.113.24/29" });
+    expect(validateClinicNetwork("2600:1700:1:2::/64")).toEqual({ ok: true, cidr: "2600:1700:1:2:0:0:0:0/64" });
+  });
+  it("rejects private, internal and carrier-NAT addresses", () => {
+    for (const bad of ["192.168.1.1", "10.0.0.5", "172.20.1.1", "100.64.3.2", "127.0.0.1", "169.254.1.1", "fe80::1", "fd00::1", "::1"]) {
+      const r = validateClinicNetwork(bad);
+      expect(r.ok, bad).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/private or internal/);
+    }
+  });
+  it("rejects ranges that are too broad, malformed, or have host bits set", () => {
+    expect(validateClinicNetwork("203.0.112.0/23")).toMatchObject({ ok: false, error: expect.stringMatching(/too broad/) });
+    expect(validateClinicNetwork("2600:1700::/32")).toMatchObject({ ok: false, error: expect.stringMatching(/too broad/) });
+    expect(validateClinicNetwork("203.0.113.25/29")).toMatchObject({ ok: false, error: expect.stringMatching(/host bits/) });
+    expect(validateClinicNetwork("clinic wifi")).toMatchObject({ ok: false, error: expect.stringMatching(/valid IP/) });
+    expect(validateClinicNetwork("")).toMatchObject({ ok: false });
+  });
+  it("builds a single-address network from the IP the server saw", () => {
+    expect(hostCidr(parseIp("203.0.113.25")!)).toBe("203.0.113.25/32");
+    expect(hostCidr(parseIp("::ffff:203.0.113.25")!)).toBe("203.0.113.25/32");
+    expect(hostCidr(parseIp("2600:1700::5")!)).toBe("2600:1700:0:0:0:0:0:5/128");
+    expect(isPublicIp(parseIp("8.8.8.8")!)).toBe(true);
   });
 });

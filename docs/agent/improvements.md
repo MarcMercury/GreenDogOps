@@ -47,6 +47,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
+### Time clock: scheduled clinic health check with alerts
+- **Why:** Admin ▸ Time Clock shows each clinic's health (no network match in 24 h with punches → IP changed; off-site spike), but only when someone opens the page. An ISP IP change would silently send a clinic's punches to off-site approval.
+- **Scope:** a daily cron (agent + `agent_run`, `cron-run.ts`) that runs `clinicHealth` for every clinic and emits a notification event (e.g. `timeclock.clinic_health`) to Owners/Admins when a clinic turns amber/red. Reuse `getTimeClockAdminData`.
+- **Risk:** low.
+
 ### Applicant intake creates a second person for someone already on the roster
 - **Why:** `findRecentDuplicate` in `src/lib/ats/applicant-intake.ts` only matches `status = 'applicant'`, so an employee or former employee who applies (or is re-imported) becomes a duplicate ATS candidate. 2026-10-13: 14 such duplicates were merged with `scripts/merge_ats_roster_duplicates.sql` (incl. one Indeed application that arrived the same day for an employee hired 09-22). The Indeed CSV importer already matches roster people (`update_roster`); the Gmail/website path does not.
 - **Scope:** in intake, when the email (or, with no email, the exact full name **and** the Indeed relay/job) matches an employee/former, attach the application to that person (`application_history` + notes) instead of creating an applicant — owner decision on whether a former employee reapplying should re-enter the ATS as a rehire. Until then, run the script's FIND query periodically.

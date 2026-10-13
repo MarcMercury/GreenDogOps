@@ -110,3 +110,67 @@ export function normalizeCidr(raw: string | null | undefined): string | null {
   for (let i = 7; i >= 0; i--) groups.push(((c.network >> BigInt(i * 16)) & BigInt(0xffff)).toString(16));
   return `${groups.join(":")}/${c.prefix}`;
 }
+
+// ---------------------------------------------------------------------------
+// Which networks may be approved for a clinic.
+// ---------------------------------------------------------------------------
+
+/** Broadest range an admin may approve: a static-IP block, not a whole ISP. */
+export const MIN_PREFIX_V4 = 24;
+export const MIN_PREFIX_V6 = 48;
+
+const NON_PUBLIC_V4 = [
+  "0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12",
+  "192.0.0.0/24", "192.168.0.0/16", "198.18.0.0/15", "224.0.0.0/4", "240.0.0.0/4",
+];
+const NON_PUBLIC_V6 = ["::/128", "::1/128", "fc00::/7", "fe80::/10", "ff00::/8"];
+const NON_PUBLIC = [...NON_PUBLIC_V4, ...NON_PUBLIC_V6].map((c) => parseCidr(c) as ParsedCidr);
+
+/**
+ * Private, loopback, link-local, carrier-NAT and multicast addresses never
+ * reach the server as a client IP, so approving one could never match — it is
+ * almost always a typo or the Wi-Fi router's internal address.
+ */
+export function isPublicIp(ip: ParsedIp): boolean {
+  return !NON_PUBLIC.some((c) => ipInCidr(ip, c));
+}
+
+export type NetworkValidation = { ok: true; cidr: string } | { ok: false; error: string };
+
+/** Validate an admin-entered approved network ("203.0.113.25" or "203.0.113.24/29"). */
+export function validateClinicNetwork(raw: string | null | undefined): NetworkValidation {
+  const text = (raw ?? "").trim();
+  if (!text) return { ok: false, error: "Enter the clinic's public IP address." };
+  const cidr = parseCidr(text);
+  if (!cidr) {
+    return parseCidr(text.split("/")[0])
+      ? { ok: false, error: "That range has host bits set — use the first address of the block (e.g. 203.0.113.24/29)." }
+      : { ok: false, error: "That isn't a valid IP address or range." };
+  }
+  const min = cidr.version === 4 ? MIN_PREFIX_V4 : MIN_PREFIX_V6;
+  if (cidr.prefix < min) {
+    return { ok: false, error: `That range is too broad. Use /${min} or narrower (a static IP is usually a single address).` };
+  }
+  if (!isPublicIp({ version: cidr.version, value: cidr.network })) {
+    return {
+      ok: false,
+      error: "That's a private or internal address (like the Wi-Fi router's). Enter the public IP your ISP gave the clinic.",
+    };
+  }
+  return { ok: true, cidr: normalizeCidr(text) as string };
+}
+
+/** The single-address network for an IP the server saw ("approve the network I'm on"). */
+export function hostCidr(ip: ParsedIp): string {
+  const bits = ip.version === 4 ? 32 : 128;
+  return normalizeCidr(`${formatIp(ip)}/${bits}`) as string;
+}
+
+export function formatIp(ip: ParsedIp): string {
+  if (ip.version === 4) {
+    return [24, 16, 8, 0].map((s) => Number((ip.value >> BigInt(s)) & BigInt(255))).join(".");
+  }
+  const groups: string[] = [];
+  for (let i = 7; i >= 0; i--) groups.push(((ip.value >> BigInt(i * 16)) & BigInt(0xffff)).toString(16));
+  return groups.join(":");
+}
