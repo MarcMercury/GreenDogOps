@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { getCurrentUser } from "@/lib/auth/session";
+import { getCurrentUser, recordAudit } from "@/lib/auth/session";
 import { canAccessModule } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rateLimit, requestMeta } from "@/lib/security/rate-limit";
@@ -26,6 +26,8 @@ import {
 } from "@/lib/timeclock/server";
 import { localMinutes, pickShift } from "@/lib/timeclock/shift-match";
 import { CORRECTION_WINDOW_DAYS, isPunchType, PUNCH_LABELS, type PunchType } from "@/lib/timeclock/state";
+import { isMealWaiverKind, MEAL_WAIVER_LABELS, signatureMatches } from "@/lib/timeclock/meal-waiver";
+import { getWaiverDocuments, mealWaiversLive } from "@/lib/timeclock/meal-waiver-server";
 
 // Self-service time clock. Every action acts ONLY on the signed-in user's own
 // HR person (app_user.person_id); nothing about whose record it is comes from
@@ -41,7 +43,7 @@ export type PunchResult =
   | { ok: false; error: string; offsite?: { reason: string } };
 
 async function selfGate(): Promise<
-  { ok: true; person: SelfPerson; appUserId: string } | { ok: false; error: string }
+  { ok: true; person: SelfPerson; appUserId: string; authId: string; email: string } | { ok: false; error: string }
 > {
   const current = await getCurrentUser();
   if (!current) return { ok: false, error: "You are not signed in (or this is a read-only preview)." };
@@ -58,7 +60,7 @@ async function selfGate(): Promise<
           : "Only active employees and contractors can use the time clock.",
     };
   }
-  return { ok: true, person: self.person, appUserId: current.appUser.id };
+  return { ok: true, person: self.person, appUserId: current.appUser.id, authId: current.authId, email: current.email };
 }
 
 function finiteIn(v: unknown, min: number, max: number): number | null {
@@ -306,4 +308,101 @@ export async function cancelTimeCorrection(id: string): Promise<TimeActionResult
   runInBackground(() => notifyCorrectionWithdrawn(id));
   revalidatePath("/me/timecard");
   return { ok: true, message: "Request cancelled." };
+}
+
+// ---------------------------------------------------------------------------
+// Meal-period waivers (go-live item 12). Voluntary; signed against the exact
+// document version shown; revocable at any time (effective immediately).
+// ---------------------------------------------------------------------------
+
+export async function signMealWaiver(input: {
+  kind: string;
+  versionId: string;
+  typedName: string;
+  agreed: boolean;
+}): Promise<TimeActionResult> {
+  const gate = await selfGate();
+  if (!gate.ok) return gate;
+  if (!gate.person.canPunch) return { ok: false, error: "Meal waivers are for active employees." };
+  if (!(await mealWaiversLive())) return { ok: false, error: "Meal waivers aren't available yet." };
+  if (!isMealWaiverKind(input?.kind)) return { ok: false, error: "Unknown waiver." };
+  if (input.agreed !== true) return { ok: false, error: "Please tick the box to confirm you've read it and are signing voluntarily." };
+  if (!(await rateLimit(`timeclock:waiver:${gate.person.id}`, 10, 3600))) {
+    return { ok: false, error: "Too many attempts. Please try again later." };
+  }
+
+  const doc = (await getWaiverDocuments())[input.kind];
+  if (!doc) return { ok: false, error: "This waiver isn't available right now." };
+  if (doc.versionId !== input.versionId) {
+    return { ok: false, error: "The waiver was updated while you were reading it. The page has been refreshed — please read it again." };
+  }
+
+  const admin = createAdminClient();
+  const { data: person } = await admin
+    .from("person")
+    .select("first_name, last_name, preferred_name")
+    .eq("id", gate.person.id)
+    .maybeSingle();
+  const typed = String(input.typedName ?? "").trim().slice(0, 200);
+  if (!person || !signatureMatches(typed, person as { first_name: string | null; last_name: string | null; preferred_name: string | null })) {
+    return { ok: false, error: "Type your first and last name exactly as HR has them." };
+  }
+
+  const meta = await requestMeta();
+  const { data: row, error } = await admin
+    .from("meal_waiver")
+    .insert({
+      person_id: gate.person.id,
+      kind: input.kind,
+      document_id: doc.documentId,
+      version_id: doc.versionId,
+      version_no: doc.versionNo,
+      signer_name: typed,
+      app_user_id: gate.appUserId,
+      ip: meta.ip === "unknown" ? null : meta.ip,
+      user_agent: meta.userAgent,
+    })
+    .select("id")
+    .single();
+  if (error) {
+    if (error.code === "23505") return { ok: false, error: "You already have this waiver signed." };
+    return { ok: false, error: `Could not save: ${error.message}` };
+  }
+  await recordAudit({
+    actorId: gate.authId,
+    actorEmail: gate.email,
+    action: "timeclock.meal_waiver_signed",
+    entity: "meal_waiver",
+    entityId: row.id as string,
+    summary: `Signed: ${MEAL_WAIVER_LABELS[input.kind]} (version ${doc.versionNo})`,
+    metadata: { person_id: gate.person.id, kind: input.kind, version_no: doc.versionNo },
+  });
+  revalidatePath("/me/waivers");
+  return { ok: true, message: "Signed. You can revoke it here at any time." };
+}
+
+export async function revokeMealWaiver(kind: string): Promise<TimeActionResult> {
+  const gate = await selfGate();
+  if (!gate.ok) return gate;
+  if (!isMealWaiverKind(kind)) return { ok: false, error: "Unknown waiver." };
+  const { data, error } = await createAdminClient()
+    .from("meal_waiver")
+    .update({ revoked_at: new Date().toISOString(), revoked_by: gate.appUserId, revoke_note: "Revoked by the employee in My Time" })
+    .eq("person_id", gate.person.id)
+    .eq("kind", kind)
+    .is("revoked_at", null)
+    .select("id");
+  if (error) return { ok: false, error: `Could not revoke: ${error.message}` };
+  if (!data?.length) return { ok: false, error: "You don't have this waiver signed." };
+  await recordAudit({
+    actorId: gate.authId,
+    actorEmail: gate.email,
+    action: "timeclock.meal_waiver_revoked",
+    entity: "meal_waiver",
+    entityId: data[0].id as string,
+    summary: `Revoked: ${MEAL_WAIVER_LABELS[kind]}`,
+    metadata: { person_id: gate.person.id, kind },
+  });
+  revalidatePath("/me/waivers");
+  return { ok: true, message: "Revoked. From now on you'll take this meal period." };
 }

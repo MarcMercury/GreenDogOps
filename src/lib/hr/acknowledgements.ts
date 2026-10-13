@@ -1,4 +1,5 @@
 import { WORK_TZ } from "../worklist/dates";
+import { MEAL_WAIVER_KINDS, MEAL_WAIVER_LABELS, type MealWaiverKind } from "../timeclock/meal-waiver";
 
 /**
  * Employee acknowledgements shown read-only on the HR profile's Onboarding tab:
@@ -14,7 +15,7 @@ import { WORK_TZ } from "../worklist/dates";
 export type AcknowledgementState = "done" | "attention" | "none";
 
 export interface AcknowledgementRow {
-  key: "sms_opt_in" | "time_clock_notice";
+  key: "sms_opt_in" | "time_clock_notice" | `meal_waiver_${MealWaiverKind}`;
   label: string;
   state: AcknowledgementState;
   status: string;
@@ -30,6 +31,13 @@ export interface SmsConsentRecord {
 
 export interface SmsOptOutRecord {
   opted_out_at: string;
+}
+
+export interface WaiverAckRecord {
+  kind: MealWaiverKind;
+  version_no: number;
+  signed_at: string;
+  revoked_at: string | null;
 }
 
 export interface NoticeAckRecord {
@@ -115,6 +123,26 @@ function noticeRow(acks: NoticeAckRecord[], currentVersion: string): Acknowledge
   };
 }
 
+function waiverRow(kind: MealWaiverKind, records: WaiverAckRecord[]): AcknowledgementRow {
+  const base = { key: `meal_waiver_${kind}` as const, label: MEAL_WAIVER_LABELS[kind] };
+  const mine = records.filter((r) => r.kind === kind).sort((a, b) => b.signed_at.localeCompare(a.signed_at));
+  const active = mine.find((r) => r.revoked_at === null);
+  if (active) {
+    return { ...base, state: "done", status: "Signed", at: formatAckTimestamp(active.signed_at), detail: `Version ${active.version_no} · the employee can revoke it in My Time` };
+  }
+  const last = mine[0];
+  if (last) {
+    return {
+      ...base,
+      state: "attention",
+      status: "Revoked",
+      at: formatAckTimestamp(last.revoked_at),
+      detail: `Had signed ${formatAckTimestamp(last.signed_at)}; this meal period applies again.`,
+    };
+  }
+  return { ...base, state: "none", status: "Not signed", at: null, detail: "Voluntary — offered in My Time to non-exempt staff." };
+}
+
 /**
  * The rows in display order. `sms` is omitted (undefined) when the viewer may
  * not see texting data for this person.
@@ -123,9 +151,12 @@ export function buildAcknowledgements(input: {
   sms?: { consent: SmsConsentRecord | null; optOut: SmsOptOutRecord | null };
   noticeAcks: NoticeAckRecord[];
   currentNoticeVersion: string;
+  /** Meal-period waivers (0242); omitted when not loaded. */
+  waivers?: WaiverAckRecord[];
 }): AcknowledgementRow[] {
   const rows: AcknowledgementRow[] = [];
   if (input.sms) rows.push(smsRow(input.sms.consent, input.sms.optOut));
   rows.push(noticeRow(input.noticeAcks, input.currentNoticeVersion));
+  if (input.waivers) for (const kind of MEAL_WAIVER_KINDS) rows.push(waiverRow(kind, input.waivers));
   return rows;
 }

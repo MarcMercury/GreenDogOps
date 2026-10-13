@@ -137,6 +137,8 @@ export const ALWAYS_BLOCKED_TABLES = [
   "time_punch_review",
   // Approved clinic IPs: security configuration (0241).
   "location_network",
+  // Employee meal-period waivers (0242): HR record.
+  "meal_waiver",
 ] as const;
 
 /**

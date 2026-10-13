@@ -7,6 +7,7 @@ const TABS = [
   { href: "/me", label: "Clock" },
   { href: "/me/schedule", label: "My Schedule" },
   { href: "/me/timecard", label: "Timecard" },
+  { href: "/me/waivers", label: "Meal waivers" },
   { href: "/me/privacy", label: "Privacy" },
 ];
 

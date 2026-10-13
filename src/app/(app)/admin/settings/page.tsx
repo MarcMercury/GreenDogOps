@@ -17,6 +17,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   general: "General",
   security: "Security",
   features: "Features",
+  timeclock: "Time clock",
 };
 
 function SettingField({ s }: { s: Setting }) {

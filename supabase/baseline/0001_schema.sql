@@ -1602,6 +1602,61 @@ COMMENT ON FUNCTION greendogops.is_gdo_user() IS 'True when the current JWT belo
 
 
 --
+-- Name: meal_waiver_guard(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.meal_waiver_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+begin
+  if tg_op = 'UPDATE' then
+    if old.revoked_at is null
+       and new.revoked_at is not null
+       and (new.id, new.person_id, new.kind, new.document_id, new.version_id, new.version_no,
+            new.signer_name, new.signed_at, new.app_user_id, new.ip, new.user_agent)
+           is not distinct from
+           (old.id, old.person_id, old.kind, old.document_id, old.version_id, old.version_no,
+            old.signer_name, old.signed_at, old.app_user_id, old.ip, old.user_agent) then
+      -- The database's clock decides when a revocation took effect.
+      new.revoked_at := greatest(clock_timestamp(), old.signed_at);
+      return new;
+    end if;
+    raise exception 'greendogops.meal_waiver: only revoking an active waiver is allowed'
+      using errcode = 'insufficient_privilege';
+  end if;
+  raise exception 'greendogops.meal_waiver is append-only (% blocked)', tg_op
+    using errcode = 'insufficient_privilege';
+end;
+$$;
+
+
+--
+-- Name: meal_waiver_in_force(uuid, text, timestamp with time zone); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.meal_waiver_in_force(p_person_id uuid, p_kind text, p_at timestamp with time zone) RETURNS boolean
+    LANGUAGE sql STABLE
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+  select exists (
+    select 1 from greendogops.meal_waiver w
+     where w.person_id = p_person_id
+       and w.kind = p_kind
+       and w.signed_at <= p_at
+       and (w.revoked_at is null or w.revoked_at > p_at)
+  );
+$$;
+
+
+--
+-- Name: FUNCTION meal_waiver_in_force(p_person_id uuid, p_kind text, p_at timestamp with time zone); Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON FUNCTION greendogops.meal_waiver_in_force(p_person_id uuid, p_kind text, p_at timestamp with time zone) IS 'True when the person had this kind of meal waiver in force at p_at (0242). Mirrors waiverInForce() in src/lib/timeclock/meal-waiver.ts. Service role only.';
+
+
+--
 -- Name: med_age_short(text); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -7691,6 +7746,40 @@ COMMENT ON COLUMN greendogops.marketing_tree_node.last_handled_at IS 'Last time 
 
 
 --
+-- Name: meal_waiver; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.meal_waiver (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid NOT NULL,
+    kind text NOT NULL,
+    document_id uuid NOT NULL,
+    version_id uuid NOT NULL,
+    version_no integer NOT NULL,
+    signer_name text NOT NULL,
+    signed_at timestamp with time zone DEFAULT now() NOT NULL,
+    app_user_id uuid,
+    ip text,
+    user_agent text,
+    revoked_at timestamp with time zone,
+    revoked_by uuid,
+    revoke_note text,
+    CONSTRAINT meal_waiver_kind_check CHECK ((kind = ANY (ARRAY['six_hour'::text, 'second_meal'::text]))),
+    CONSTRAINT meal_waiver_revoked_after_signed CHECK (((revoked_at IS NULL) OR (revoked_at >= signed_at))),
+    CONSTRAINT meal_waiver_signer_name_check CHECK (((length(btrim(signer_name)) >= 2) AND (length(btrim(signer_name)) <= 200))),
+    CONSTRAINT meal_waiver_user_agent_check CHECK (((user_agent IS NULL) OR (length(user_agent) <= 400))),
+    CONSTRAINT meal_waiver_version_no_check CHECK ((version_no >= 1))
+);
+
+
+--
+-- Name: TABLE meal_waiver; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.meal_waiver IS 'Employee meal-period waivers (0242): signed in My Time against a specific resource_document_version, revocable (revoked_at), never deleted or edited otherwise. Service role only.';
+
+
+--
 -- Name: medical_board_day; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -12699,6 +12788,14 @@ ALTER TABLE ONLY greendogops.marketing_tree_node
 
 
 --
+-- Name: meal_waiver meal_waiver_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.meal_waiver
+    ADD CONSTRAINT meal_waiver_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: medical_board_day medical_board_day_location_id_board_date_board_type_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -14897,6 +14994,20 @@ CREATE INDEX marketing_tree_node_zone_idx ON greendogops.marketing_tree_node USI
 
 
 --
+-- Name: meal_waiver_one_active; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE UNIQUE INDEX meal_waiver_one_active ON greendogops.meal_waiver USING btree (person_id, kind) WHERE (revoked_at IS NULL);
+
+
+--
+-- Name: meal_waiver_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX meal_waiver_person_idx ON greendogops.meal_waiver USING btree (person_id, kind, signed_at);
+
+
+--
 -- Name: medical_board_day_lookup_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -16122,6 +16233,20 @@ CREATE TRIGGER marketing_influencers_register_qr_code AFTER INSERT ON greendogop
 
 
 --
+-- Name: meal_waiver meal_waiver_guard_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER meal_waiver_guard_row BEFORE DELETE OR UPDATE ON greendogops.meal_waiver FOR EACH ROW EXECUTE FUNCTION greendogops.meal_waiver_guard();
+
+
+--
+-- Name: meal_waiver meal_waiver_guard_truncate; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER meal_waiver_guard_truncate BEFORE TRUNCATE ON greendogops.meal_waiver FOR EACH STATEMENT EXECUTE FUNCTION greendogops.meal_waiver_guard();
+
+
+--
 -- Name: person person_after_change; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
@@ -17120,6 +17245,30 @@ ALTER TABLE ONLY greendogops.marketing_tree_node
 
 ALTER TABLE ONLY greendogops.marketing_tree_node
     ADD CONSTRAINT marketing_tree_node_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES greendogops.marketing_tree_node(id) ON DELETE SET NULL;
+
+
+--
+-- Name: meal_waiver meal_waiver_document_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.meal_waiver
+    ADD CONSTRAINT meal_waiver_document_id_fkey FOREIGN KEY (document_id) REFERENCES greendogops.resource_document(id);
+
+
+--
+-- Name: meal_waiver meal_waiver_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.meal_waiver
+    ADD CONSTRAINT meal_waiver_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id);
+
+
+--
+-- Name: meal_waiver meal_waiver_version_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.meal_waiver
+    ADD CONSTRAINT meal_waiver_version_id_fkey FOREIGN KEY (version_id) REFERENCES greendogops.resource_document_version(id);
 
 
 --
@@ -20134,6 +20283,12 @@ ALTER TABLE greendogops.marketing_resource ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.marketing_tree_node ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: meal_waiver; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.meal_waiver ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: medical_board_day; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -20624,6 +20779,13 @@ CREATE POLICY service_role_only ON greendogops.audit_log TO authenticated USING 
 --
 
 CREATE POLICY service_role_only ON greendogops.location_network TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: meal_waiver service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.meal_waiver TO authenticated USING (false) WITH CHECK (false);
 
 
 --
@@ -21596,6 +21758,15 @@ CREATE POLICY staff_read_only_delete ON greendogops.marketing_resource AS RESTRI
 --
 
 CREATE POLICY staff_read_only_delete ON greendogops.marketing_tree_node AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: meal_waiver staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.meal_waiver AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -23153,6 +23324,15 @@ CREATE POLICY staff_read_only_insert ON greendogops.marketing_resource AS RESTRI
 --
 
 CREATE POLICY staff_read_only_insert ON greendogops.marketing_tree_node AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: meal_waiver staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.meal_waiver AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -24891,6 +25071,17 @@ CREATE POLICY staff_read_only_update ON greendogops.marketing_tree_node AS RESTR
 
 
 --
+-- Name: meal_waiver staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.meal_waiver AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: medical_board_day staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -26064,6 +26255,22 @@ GRANT ALL ON FUNCTION greendogops.is_gdo_admin(uid uuid) TO authenticated;
 REVOKE ALL ON FUNCTION greendogops.is_gdo_user() FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.is_gdo_user() TO authenticated;
 GRANT ALL ON FUNCTION greendogops.is_gdo_user() TO service_role;
+
+
+--
+-- Name: FUNCTION meal_waiver_guard(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.meal_waiver_guard() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.meal_waiver_guard() TO service_role;
+
+
+--
+-- Name: FUNCTION meal_waiver_in_force(p_person_id uuid, p_kind text, p_at timestamp with time zone); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.meal_waiver_in_force(p_person_id uuid, p_kind text, p_at timestamp with time zone) FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.meal_waiver_in_force(p_person_id uuid, p_kind text, p_at timestamp with time zone) TO service_role;
 
 
 --
@@ -27326,6 +27533,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.marketing_resource TO ser
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.marketing_tree_node TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.marketing_tree_node TO service_role;
+
+
+--
+-- Name: TABLE meal_waiver; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.meal_waiver TO service_role;
 
 
 --

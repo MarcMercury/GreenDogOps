@@ -9,6 +9,7 @@ import {
   type NoticeAckRecord,
   type SmsConsentRecord,
   type SmsOptOutRecord,
+  type WaiverAckRecord,
 } from "./acknowledgements";
 
 type Admin = ReturnType<typeof createAdminClient>;
@@ -25,7 +26,7 @@ export async function loadPersonAcknowledgements(
   opts: { includeSms: boolean },
 ): Promise<AcknowledgementRow[]> {
   const phone = opts.includeSms ? toE164(person.phone_mobile) : null;
-  const [noticeRes, consentRes, optOutRes] = await Promise.all([
+  const [noticeRes, consentRes, optOutRes, waiverRes] = await Promise.all([
     admin
       .from("time_clock_notice_ack")
       .select("notice_version, acknowledged_at")
@@ -36,13 +37,15 @@ export async function loadPersonAcknowledgements(
     phone
       ? admin.from("sms_opt_out").select("opted_out_at").eq("phone", phone).maybeSingle()
       : Promise.resolve({ data: null, error: null }),
+    admin.from("meal_waiver").select("kind, version_no, signed_at, revoked_at").eq("person_id", person.id),
   ]);
-  const failed = noticeRes.error ?? consentRes.error ?? optOutRes.error;
+  const failed = noticeRes.error ?? consentRes.error ?? optOutRes.error ?? waiverRes.error;
   if (failed) throw new Error(`Could not load acknowledgements: ${failed.message}`);
 
   return buildAcknowledgements({
     noticeAcks: (noticeRes.data ?? []) as NoticeAckRecord[],
     currentNoticeVersion: TIME_CLOCK_NOTICE_VERSION,
+    waivers: (waiverRes.data ?? []) as WaiverAckRecord[],
     sms: opts.includeSms
       ? {
           consent: (consentRes.data as SmsConsentRecord | null) ?? null,

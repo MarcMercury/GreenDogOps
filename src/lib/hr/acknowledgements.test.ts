@@ -105,3 +105,27 @@ describe("buildAcknowledgements — time clock notice", () => {
     expect(ack).toMatchObject({ state: "none", status: "Not yet read", at: null });
   });
 });
+
+describe("buildAcknowledgements — meal waivers", () => {
+  const base = { noticeAcks: [], currentNoticeVersion: CURRENT };
+  it("omits waiver rows when they weren't loaded", () => {
+    expect(buildAcknowledgements(base).some((r) => r.key.startsWith("meal_waiver"))).toBe(false);
+  });
+  it("shows signed, revoked and not-signed waivers with times", () => {
+    const rows = buildAcknowledgements({
+      ...base,
+      waivers: [
+        { kind: "six_hour", version_no: 1, signed_at: "2026-10-01T16:00:00Z", revoked_at: "2026-10-10T16:00:00Z" },
+        { kind: "six_hour", version_no: 2, signed_at: "2026-10-12T16:00:00Z", revoked_at: null },
+        { kind: "second_meal", version_no: 1, signed_at: "2026-10-01T16:00:00Z", revoked_at: "2026-10-02T16:00:00Z" },
+      ],
+    });
+    const six = rows.find((r) => r.key === "meal_waiver_six_hour");
+    const second = rows.find((r) => r.key === "meal_waiver_second_meal");
+    expect(six).toMatchObject({ state: "done", status: "Signed", at: "Oct 12, 2026 at 9:00 AM PDT" });
+    expect(six?.detail).toMatch(/Version 2/);
+    expect(second).toMatchObject({ state: "attention", status: "Revoked", at: "Oct 2, 2026 at 9:00 AM PDT" });
+    const none = buildAcknowledgements({ ...base, waivers: [] }).find((r) => r.key === "meal_waiver_second_meal");
+    expect(none).toMatchObject({ state: "none", status: "Not signed", at: null });
+  });
+});

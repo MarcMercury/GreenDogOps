@@ -161,7 +161,9 @@ from users who cannot access it.
   - **Your activity** — their own audit-log entries.
 - **My Time** (`/me`) — every employee's own time clock (clock in, lunch,
   clock out, from their phone or computer), published schedule, timecard by
-  pay period, correction requests and the time-clock privacy notice. Open to
+  pay period, correction requests, the time-clock privacy notice, and (once
+  an Admin turns on `timeclock.meal_waivers_live`) e-signing or revoking the
+  California meal-period waivers (`meal_waiver`, migration `0242`). Open to
   every role (Staff included), always scoped to the signed-in person. Punches
   are append-only (`time_punch`, migration `0240`) and written only by
   `record_time_punch()`; see docs/security.md §12. Each punch is checked
