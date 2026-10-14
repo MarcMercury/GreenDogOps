@@ -420,7 +420,7 @@ const DEFINITIONS: EventDefinition[] = [
         { label: "Clocked in", value: str(p, "clockIn") },
         { label: "Location", value: str(p, "locationName") },
       ].filter((f) => f.value),
-      href: "/schedule/time-attendance",
+      href: "/schedule/attendance?view=day",
       linkLabel: "Open Time & Attendance",
     }),
   },

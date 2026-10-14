@@ -165,8 +165,10 @@ from users who cannot access it.
   pay period, correction requests, the time-clock privacy notice, and (once
   an Admin turns on `timeclock.meal_waivers_live`) e-signing or revoking the
   California meal-period waivers (`meal_waiver`, migration `0242`), and PTO:
-  the balance, requests (full days, or 2–8 hours of sick time on one day; no
-  reason asked) and withdrawing a pending one (`0246`). Open to
+  the balance, requests (whole 8-hour days only, sick time included; no
+  reason asked) and withdrawing a pending one (`0246`), and **Reliability
+  Score** — their attendance score, counts and every graded shift (the same
+  numbers as Scheduling ▸ Attendance; manager notes are not shown). Open to
   every role (Staff included), always scoped to the signed-in person. Punches
   are append-only (`time_punch`, migration `0240`) and written only by
   `record_time_punch()`; see docs/security.md §12. Each punch is checked
@@ -178,19 +180,27 @@ from users who cannot access it.
   edits. Pending items also show on approvers' Dashboard, and the notification
   engine sends them (and the employee's outcomes, and missing clock-outs) as
   Slack DMs / in-app notices — group "Time clock" in Admin ▸ Notifications.
-  **Scheduling ▸ Time & Attendance** (`/schedule/time-attendance`) grades each
+  **Scheduling ▸ Attendance** is the one attendance report: "Reliability by
+  employee" (scores and counts) and "Daily — live from the time clock"
+  (`?view=day`; the old `/schedule/time-attendance` redirects there) grades each
   published shift live from punches (on time / late / missed / left early …,
   per clinic, with the punch-match rate). From the date set in Admin ▸
   Settings ▸ Time clock ("Use time-clock attendance from", blank = off) the
   grades also count for unmarked shifts in reliability and the grid, and
   missed / late alerts are sent; a manager's mark always wins.
-  **Scheduling ▸ Payroll** (`/schedule/payroll`, timecard approvers) totals
-  each pay period under California rules (`src/lib/payroll/ca-rules.ts`: daily
+  **Payroll** (sidebar; `/schedule/payroll`, timecard approvers) totals each
+  pay period under California rules (`src/lib/payroll/ca-rules.ts`: daily
   OT > 8 h, DT > 12 h, weekly OT > 40 h, the 7th-day rule, meal and rest
-  premiums with signed waivers; exempt staff get hours only). Approve each
-  timecard, lock the period (corrections are then refused), export the totals
-  CSV (each export is logged with its SHA-256). Owner/Admin can reopen with a
-  reason. Migration `0245`.
+  premiums with signed waivers; exempt staff get hours only), in three steps:
+  **1 Approve & lock** each timecard and the period (corrections are then
+  refused; `0245`). **2 Payroll Review** (`0247`): every employee's regular /
+  OT / DT / meal / rest premium hours plus approved paid PTO in the period;
+  HR adjusts any line or leaves someone out of the file, with a reason
+  (append-only `payroll_override`), then completes the review, which freezes
+  the hours (`pay_period.review_snapshot`). **3 Export** the ADP RUN Time
+  Sheet Import file (`src/lib/payroll/adp-run.ts`; company code and earnings
+  codes in Admin ▸ Settings ▸ Payroll) plus a readable summary; each download
+  is logged with its SHA-256. Owner/Admin can reopen with a reason.
   **Scheduling ▸ Time Off** (`/schedule/time-off`, schedule editors) is the
   queue of every pending request (My Time, HR, When I Work import): choose
   paid PTO or unpaid and the PTO days (0 = don't deduct), then approve or deny.

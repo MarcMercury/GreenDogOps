@@ -2860,6 +2860,27 @@ COMMENT ON FUNCTION greendogops.patient_visits(p_patient text) IS 'Ask Ziggy: ev
 
 
 --
+-- Name: payroll_override_guard(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.payroll_override_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  v_status text;
+begin
+  select status into v_status from greendogops.pay_period where id = new.pay_period_id;
+  if v_status is distinct from 'locked' then
+    raise exception 'payroll overrides can only be made while the period is locked for review (it is %)', coalesce(v_status, 'missing')
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+
+--
 -- Name: person_after_change(); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -8349,10 +8370,15 @@ CREATE TABLE greendogops.pay_period (
     reopen_reason text,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    reviewed_at timestamp with time zone,
+    reviewed_by uuid,
+    review_snapshot jsonb,
     CONSTRAINT pay_period_14_days CHECK ((period_end = (period_start + 13))),
     CONSTRAINT pay_period_lock_stamp CHECK (((status = 'open'::text) OR (locked_at IS NOT NULL))),
     CONSTRAINT pay_period_pay_after_end CHECK ((pay_date > period_end)),
-    CONSTRAINT pay_period_status_check CHECK ((status = ANY (ARRAY['open'::text, 'locked'::text, 'exported'::text]))),
+    CONSTRAINT pay_period_review_snapshot_check CHECK (((review_snapshot IS NULL) OR (jsonb_typeof(review_snapshot) = 'array'::text))),
+    CONSTRAINT pay_period_review_stamp CHECK (((status <> 'reviewed'::text) OR (review_snapshot IS NOT NULL))),
+    CONSTRAINT pay_period_status_check CHECK ((status = ANY (ARRAY['open'::text, 'locked'::text, 'reviewed'::text, 'exported'::text]))),
     CONSTRAINT pay_period_sunday CHECK ((EXTRACT(dow FROM period_start) = (0)::numeric))
 );
 
@@ -8362,6 +8388,13 @@ CREATE TABLE greendogops.pay_period (
 --
 
 COMMENT ON TABLE greendogops.pay_period IS 'Biweekly pay periods (0245). open → locked (approvals final, no new adjustments) → exported. Service role only; keep 4 years.';
+
+
+--
+-- Name: COLUMN pay_period.review_snapshot; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.pay_period.review_snapshot IS 'Payroll Review frozen at "Complete review" (0247): one entry per employee in the export with their final hours. The ADP export is built only from this.';
 
 
 --
@@ -8389,6 +8422,33 @@ CREATE TABLE greendogops.payroll_export (
 --
 
 COMMENT ON TABLE greendogops.payroll_export IS 'Export history of locked pay periods (0245): format, file name, SHA-256, employee count, totals, who and when. Append-only. Service role only.';
+
+
+--
+-- Name: payroll_override; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.payroll_override (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    pay_period_id uuid NOT NULL,
+    person_id uuid NOT NULL,
+    field text NOT NULL,
+    hours numeric(7,2),
+    reason text NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payroll_override_exclude_flag CHECK (((field <> 'exclude'::text) OR (hours IS NULL) OR (hours = ANY (ARRAY[(0)::numeric, (1)::numeric])))),
+    CONSTRAINT payroll_override_field_check CHECK ((field = ANY (ARRAY['regular'::text, 'overtime'::text, 'double_time'::text, 'meal_premium'::text, 'rest_premium'::text, 'pto'::text, 'exclude'::text]))),
+    CONSTRAINT payroll_override_hours_check CHECK (((hours IS NULL) OR ((hours >= (0)::numeric) AND (hours <= (400)::numeric)))),
+    CONSTRAINT payroll_override_reason_check CHECK (((length(btrim(reason)) >= 1) AND (length(btrim(reason)) <= 1000)))
+);
+
+
+--
+-- Name: TABLE payroll_override; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.payroll_override IS 'Payroll Review overrides (0247): HR''s change to one employee''s hours bucket (or exclude from the export) in a locked period, with a reason. Append-only; newest per field wins; NULL hours clears. Service role only.';
 
 
 --
@@ -13246,6 +13306,14 @@ ALTER TABLE ONLY greendogops.payroll_export
 
 
 --
+-- Name: payroll_override payroll_override_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.payroll_override
+    ADD CONSTRAINT payroll_override_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: person_asset person_asset_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -15537,6 +15605,13 @@ CREATE INDEX payroll_export_period_idx ON greendogops.payroll_export USING btree
 
 
 --
+-- Name: payroll_override_period_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX payroll_override_period_idx ON greendogops.payroll_override USING btree (pay_period_id, person_id, created_at);
+
+
+--
 -- Name: person_asset_person_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -16633,6 +16708,27 @@ CREATE TRIGGER payroll_export_append_only_row BEFORE DELETE OR UPDATE ON greendo
 --
 
 CREATE TRIGGER payroll_export_append_only_truncate BEFORE TRUNCATE ON greendogops.payroll_export FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: payroll_override payroll_override_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER payroll_override_append_only_row BEFORE DELETE OR UPDATE ON greendogops.payroll_override FOR EACH ROW EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: payroll_override payroll_override_append_only_truncate; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER payroll_override_append_only_truncate BEFORE TRUNCATE ON greendogops.payroll_override FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: payroll_override payroll_override_guard_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER payroll_override_guard_row BEFORE INSERT ON greendogops.payroll_override FOR EACH ROW EXECUTE FUNCTION greendogops.payroll_override_guard();
 
 
 --
@@ -17857,6 +17953,22 @@ ALTER TABLE ONLY greendogops.ops_task
 
 ALTER TABLE ONLY greendogops.payroll_export
     ADD CONSTRAINT payroll_export_pay_period_id_fkey FOREIGN KEY (pay_period_id) REFERENCES greendogops.pay_period(id);
+
+
+--
+-- Name: payroll_override payroll_override_pay_period_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.payroll_override
+    ADD CONSTRAINT payroll_override_pay_period_id_fkey FOREIGN KEY (pay_period_id) REFERENCES greendogops.pay_period(id);
+
+
+--
+-- Name: payroll_override payroll_override_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.payroll_override
+    ADD CONSTRAINT payroll_override_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id);
 
 
 --
@@ -20845,6 +20957,12 @@ ALTER TABLE greendogops.pay_period ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.payroll_export ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: payroll_override; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.payroll_override ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: person; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -21337,6 +21455,13 @@ CREATE POLICY service_role_only ON greendogops.pay_period TO authenticated USING
 --
 
 CREATE POLICY service_role_only ON greendogops.payroll_export TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: payroll_override service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.payroll_override TO authenticated USING (false) WITH CHECK (false);
 
 
 --
@@ -22405,6 +22530,15 @@ CREATE POLICY staff_read_only_delete ON greendogops.pay_period AS RESTRICTIVE FO
 --
 
 CREATE POLICY staff_read_only_delete ON greendogops.payroll_export AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: payroll_override staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.payroll_override AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -24007,6 +24141,15 @@ CREATE POLICY staff_read_only_insert ON greendogops.pay_period AS RESTRICTIVE FO
 --
 
 CREATE POLICY staff_read_only_insert ON greendogops.payroll_export AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: payroll_override staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.payroll_override AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -25816,6 +25959,17 @@ CREATE POLICY staff_read_only_update ON greendogops.payroll_export AS RESTRICTIV
 
 
 --
+-- Name: payroll_override staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.payroll_override AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: person staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -27169,6 +27323,14 @@ GRANT ALL ON FUNCTION greendogops.patient_visits(p_patient text) TO service_role
 
 
 --
+-- Name: FUNCTION payroll_override_guard(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.payroll_override_guard() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.payroll_override_guard() TO service_role;
+
+
+--
 -- Name: FUNCTION person_after_change(); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -28313,6 +28475,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.pay_period TO service_rol
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.payroll_export TO service_role;
+
+
+--
+-- Name: TABLE payroll_override; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.payroll_override TO service_role;
 
 
 --

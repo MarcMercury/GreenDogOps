@@ -70,6 +70,13 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 - **Card updates:** a delivery's `message_key` (e.g. `pto:<id>`, `task:<id>`) lets `resolveCards()` rewrite every sent card about that record via `chat.update` (buttons removed, "✅ Approved by …" added) and skip unsent ones. Needs the original `slack_channel_id` + `slack_ts`, which the dispatcher stores.
 - **Channel posts** are by channel id chosen in Admin ▸ Notifications (`conversations.list` needs `channels:read` / `groups:read`). Public channels are auto-joined; private ones need `/invite @Green Dog Ops`, otherwise the delivery fails with `not_in_channel`.
 
+## ADP RUN payroll import (`src/lib/payroll/adp-run.ts`)
+- **No API on our plan** — Ops produces a file; Payroll uploads it in RUN at **Home ▸ Time Sheet Import**. If that tile is missing, enable it at RUN ▸ Settings ▸ General Settings ▸ Features and Services ▸ Payroll Features ▸ "Time Sheet Import", or ask ADP to turn it on.
+- **Layout (researched 2026-10-14, not yet verified against our RUN account):** CSV with header `Co Code,Batch ID,File #,Reg Hours,O/T Hours,Hours 3 Code,Hours 3 Amount`. One row per employee carries Reg/O-T; each other earning (double time, meal premium, rest premium, PTO) is an extra row with the RUN earnings code + hours. Sources: Redcort "Exporting to ADP Run" guide (company code, earnings codes report, employee codes report, Time Sheet Import), Kloqk "ADP timesheet CSV column reference" (Co Code / Batch ID 6-digit / File # / Reg / OT / Hours 3 Code+Amount pairs). ADP's own template wasn't publicly reachable.
+- **Must match RUN exactly or hours are silently dropped:** company code (Admin ▸ Settings ▸ Payroll), earnings codes (RUN ▸ Reports ▸ Miscellaneous ▸ Earnings Codes), and each employee's File # / Employee ID (HR profile ▸ ADP RUN Employee ID; RUN ▸ Reports ▸ Miscellaneous ▸ Employee Codes).
+- **Batch ID** = pay date YYMMDD, identical on every re-download of a period, so RUN can flag a duplicate import.
+- **First run:** import a 1–3 employee test file, compare RUN's preview with "Summary with names", fix codes, then import the full file. If RUN rejects the header, take its template (or the When I Work RUN export header) and adjust `ADP_RUN_HEADER` / `adpRunCsv` + `adp-run.test.ts`.
+
 ## Recovery log
 
 Add entries as `### YYYY-MM-DD — system — symptom` with root cause, fix, and evidence.

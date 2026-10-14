@@ -40,6 +40,12 @@ there, or that need a sharper statement for agents.
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
 
+### 2026-10-14 — Payroll is Lock → Review → Export ADP (migration 0247); one Attendance page
+- **Decision (owner):** after a period is locked, HR does a Payroll Review (manual overrides) before the ADP export. `pay_period.status` gains `reviewed`; `payroll_override` (append-only, newest per field wins, NULL clears, `exclude` = leave out of the file) is accepted only while `locked` (DB guard). "Complete review" freezes `review_snapshot`; the ADP file and the summary are built **only** from it. Reviewed → locked is allowed ("Back to review"); after export only Owner/Admin reopen (which clears the snapshot; overrides stay).
+- **Review lines** = approved timecard snapshot (hours) + approved paid PTO overlapping the period (days inside it × 8 h, spread evenly when `pto_days` < calendar days) + overrides. The ADP RUN ID is read live from the profile so a missing ID can be fixed without reopening. Missing ID on an included line blocks completion.
+- **ADP file:** RUN Time Sheet Import layout (see integrations.md). Settings are flat `payroll.adp.*` text keys (the generic Admin ▸ Settings form can't edit JSON objects). The earlier interim `ops_totals_v1` export is removed.
+- **Attendance:** `/schedule/time-attendance` merged into `/schedule/attendance` (`?view=day`); employees see the same score on My Time ▸ Reliability Score (`getPersonAttendance`, manager notes hidden). `RELIABILITY_WEIGHT` is exported so the page explains the score from the real weights.
+
 ### 2026-10-14 — PTO & Timekeeping Rules page is generated, versioned and signed off (go-live item 26, plan §I)
 - **Decision:** `/hr/pto-rules` is built by `buildRules()` (`src/lib/pto/rules.ts`) from the same constants and functions the calculations use; every worked example runs the real engine (`computePeriod`, `checkMeals`, `parseSelfRequest`, `payPeriodFor`, `src/lib/pto/annual.ts`) on fixed sample data. `rules.test.ts` pins the outputs, so a rule change that alters an example fails a test and must be reviewed.
 - **Sign-off:** `rulesVersion()` = first 12 hex of SHA-256 of the rules JSON. Sign-offs are `audit_log` rows (`timekeeping_rules.signed_off`, `metadata.version`) — no new table. A changed rule = a new version, shown as "not signed off".

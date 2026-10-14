@@ -9,6 +9,7 @@ import { lockBlockers } from "@/lib/payroll/period";
 import { ensurePayPeriod, loadPeriodTimecards } from "@/lib/payroll/server";
 import { PageHeader } from "../../_components/ui";
 import { ApproveButton, LockButton, ReopenButton } from "./payroll-controls";
+import { ReviewAndExport } from "./review-section";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ const h = (m: number) => hours(m).toFixed(2);
 const STATUS_STYLE = {
   open: "bg-amber-50 text-amber-800",
   locked: "bg-sky-50 text-sky-800",
+  reviewed: "bg-violet-50 text-violet-800",
   exported: "bg-emerald-50 text-emerald-800",
 } as const;
 
@@ -57,7 +59,7 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
       <PageHeader
         eyebrow="Scheduling"
         title="Payroll"
-        description="Approve each timecard, lock the pay period, then export. Hours follow California rules: daily overtime over 8 h, double time over 12 h, weekly overtime over 40 h, the 7th-day rule, and meal / rest premiums."
+        description="1. Approve every timecard and lock the pay period. 2. Payroll Review: check each employee's hours and PTO, adjust with a reason. 3. Export the ADP RUN file and import it in RUN (Home ▸ Time Sheet Import). Hours follow California rules."
       />
 
       <p className="text-xs text-slate-500">
@@ -95,14 +97,6 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {open ? <LockButton period={period.period_start} blockers={blockers} /> : null}
-            {!open ? (
-              <form action="/api/payroll/export" method="post">
-                <input type="hidden" name="period" value={period.period_start} />
-                <button type="submit" className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700">
-                  Export timecard totals (CSV)
-                </button>
-              </form>
-            ) : null}
             {!open && isAdminRole(current.appUser.role) ? <ReopenButton period={period.period_start} /> : null}
           </div>
         </div>
@@ -113,15 +107,32 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
           <div className="rounded-lg bg-slate-50 px-3 py-2">Double time <span className="block text-lg font-semibold tabular-nums">{h(total("doubleTime"))}</span></div>
           <div className="rounded-lg bg-slate-50 px-3 py-2">Worked <span className="block text-lg font-semibold tabular-nums">{h(total("worked"))}</span></div>
         </div>
-        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-          The export is Ops&apos; timecard totals, not yet the ADP RUN import file — that layout is added once the When I
-          Work → RUN header row and RUN&apos;s meal / rest premium pay codes are provided (go-live items 19–20).
-          {missingRunId ? ` ${missingRunId} employee(s) here have no ADP RUN Employee ID yet.` : ""}
-          {unknownFlsa ? ` ${unknownFlsa} have no FLSA status (treated as non-exempt).` : ""}
-        </p>
+        <ol className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+          {[
+            { n: 1, label: "Approve & lock", done: !open, active: open },
+            { n: 2, label: "Payroll review", done: period.status === "reviewed" || period.status === "exported", active: period.status === "locked" },
+            { n: 3, label: "Export to ADP RUN", done: period.status === "exported", active: period.status === "reviewed" },
+          ].map((st) => (
+            <li
+              key={st.n}
+              className={`rounded-lg border px-3 py-2 ${st.active ? "border-emerald-500 bg-emerald-50 text-emerald-900" : st.done ? "border-slate-200 bg-slate-50 text-slate-500" : "border-dashed border-slate-200 text-slate-400"}`}
+            >
+              <span className="font-semibold">{st.done ? "✓" : st.n}.</span> {st.label}
+            </li>
+          ))}
+        </ol>
+        {missingRunId || unknownFlsa ? (
+          <p className="mt-2 text-xs text-slate-500">
+            {missingRunId ? `${missingRunId} employee(s) here have no ADP RUN Employee ID yet (add it on the HR profile before export).` : ""}
+            {unknownFlsa ? ` ${unknownFlsa} have no FLSA status (treated as non-exempt).` : ""}
+          </p>
+        ) : null}
       </section>
 
+      {!open ? <ReviewAndExport period={period} viewerPersonId={current.appUser.person_id} /> : null}
+
       <section className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {!open ? <h2 className="px-5 pt-4 text-sm font-semibold text-slate-900">Approved timecards</h2> : null}
         {rows.length === 0 ? (
           <p className="p-6 text-sm text-slate-500">No time-clock punches in this pay period.</p>
         ) : (

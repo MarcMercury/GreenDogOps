@@ -15,11 +15,20 @@ import {
 } from "@/lib/timeclock/timecard";
 import { approvalBlockers, computePeriod, type FlsaClass, type PeriodResult } from "./ca-rules";
 import { approvalStale, snapshotOf, type ApprovalSnapshot } from "./period";
+import {
+  applyOverrides,
+  hoursFromSnapshot,
+  ptoHoursInPeriod,
+  type OverrideRow,
+  type PayLine,
+  type PtoRequestRow,
+  type ReviewedLine,
+} from "./review";
 
 // Payroll period data (checklist item 21). Service role; callers must have
 // checked canApproveTime (D9) — this is everyone's hours.
 
-export type PeriodStatus = "open" | "locked" | "exported";
+export type PeriodStatus = "open" | "locked" | "reviewed" | "exported";
 
 export interface PayPeriodRow {
   id: string;
@@ -28,12 +37,13 @@ export interface PayPeriodRow {
   pay_date: string;
   status: PeriodStatus;
   locked_at: string | null;
+  reviewed_at: string | null;
 }
 
 /** The pay_period row for a period, created on first use. */
 export async function ensurePayPeriod(p: PayPeriod): Promise<PayPeriodRow> {
   const admin = createAdminClient();
-  const cols = "id, period_start, period_end, pay_date, status, locked_at";
+  const cols = "id, period_start, period_end, pay_date, status, locked_at, reviewed_at";
   const { data } = await admin.from("pay_period").select(cols).eq("period_start", p.start).maybeSingle();
   if (data) return data as PayPeriodRow;
   const { data: created, error } = await admin
@@ -178,4 +188,72 @@ export async function loadPeriodTimecards(
 
 export function periodFor(date: string): PayPeriod {
   return payPeriodFor(date);
+}
+
+/**
+ * Payroll Review lines for a locked period: each approved timecard snapshot,
+ * plus everyone with approved paid PTO in the period (even without punches),
+ * with HR overrides applied. The ADP RUN ID is read live from the profile so
+ * HR can add a missing one during review without reopening the period.
+ */
+export async function loadPeriodReview(period: Pick<PayPeriodRow, "id" | "period_start" | "period_end">): Promise<PayLine[]> {
+  const admin = createAdminClient();
+  const { period_start: from, period_end: to } = period;
+  const [approvals, pto, overrides] = await Promise.all([
+    admin.from("timecard_approval").select("person_id, snapshot").eq("pay_period_id", period.id),
+    fetchAllRows<PtoRequestRow>((a, b) =>
+      admin
+        .from("person_time_off")
+        .select("person_id, kind, status, start_date, end_date, pto_days")
+        .eq("status", "approved")
+        .lte("start_date", to)
+        .gte("end_date", from)
+        .order("id")
+        .range(a, b),
+    ),
+    admin.from("payroll_override").select("person_id, field, hours, reason, created_at").eq("pay_period_id", period.id),
+  ]);
+  for (const r of [approvals, pto, overrides]) {
+    if (r.error) throw new Error(`Could not load the payroll review: ${r.error.message}`);
+  }
+  const snapById = new Map(
+    ((approvals.data ?? []) as { person_id: string; snapshot: ApprovalSnapshot }[]).map((a) => [a.person_id, a.snapshot]),
+  );
+  const ptoRows = pto.data as PtoRequestRow[];
+  const overrideRows = (overrides.data ?? []) as OverrideRow[];
+  const personIds = [...new Set([...snapById.keys(), ...ptoRows.map((r) => r.person_id), ...overrideRows.map((o) => o.person_id)])];
+  if (personIds.length === 0) return [];
+
+  const [people, emp] = await Promise.all([
+    admin.from("person").select("id, full_name, first_name, last_name, preferred_name").in("id", personIds),
+    admin.from("person_employment").select("person_id, flsa_status, adp_employee_id").in("person_id", personIds),
+  ]);
+  if (people.error) throw new Error(`Could not load payroll review names: ${people.error.message}`);
+  if (emp.error) throw new Error(`Could not load payroll review employment: ${emp.error.message}`);
+  const personById = new Map(((people.data ?? []) as PersonRow[]).map((p) => [p.id, p]));
+  const empById = new Map(
+    ((emp.data ?? []) as { person_id: string; flsa_status: string | null; adp_employee_id: string | null }[]).map((e) => [e.person_id, e]),
+  );
+
+  return personIds
+    .map((personId) => {
+      const snap = snapById.get(personId) ?? null;
+      const e = empById.get(personId);
+      const flsa: FlsaClass =
+        snap?.flsa ?? (e?.flsa_status === "exempt" ? "exempt" : e?.flsa_status === "non_exempt" ? "non_exempt" : "unknown");
+      const calculated = hoursFromSnapshot(snap);
+      calculated.pto = ptoHoursInPeriod(ptoRows.filter((r) => r.person_id === personId), from, to);
+      return applyOverrides(
+        { person_id: personId, name: nameOf(personById.get(personId)), adp_employee_id: e?.adp_employee_id ?? null, flsa, calculated },
+        overrideRows.filter((o) => o.person_id === personId),
+      );
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** The frozen review stored at "Complete review" (null until then). */
+export async function loadReviewSnapshot(periodId: string): Promise<ReviewedLine[] | null> {
+  const { data, error } = await createAdminClient().from("pay_period").select("review_snapshot").eq("id", periodId).single();
+  if (error) throw new Error(`Could not load the review: ${error.message}`);
+  return (data?.review_snapshot as ReviewedLine[] | null) ?? null;
 }

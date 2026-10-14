@@ -411,7 +411,7 @@ export interface ReliabilityTally {
 }
 
 /** Weight each status toward a 0–100 reliability score. */
-const RELIABILITY_WEIGHT: Record<AttendanceStatus, number> = {
+export const RELIABILITY_WEIGHT: Record<AttendanceStatus, number> = {
   present: 1,
   pto: 1,
   late_excused: 0.9,

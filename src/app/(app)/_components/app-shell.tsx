@@ -61,6 +61,7 @@ const MODULES_TOP: NavItem[] = [
 const HR_RECRUIT: NavItem[] = [
   { key: "hr", href: "/hr", label: "HR / Roster", icon: "👥" },
   { key: "ats", href: "/ats", label: "Recruiting (ATS)", icon: "🎯" },
+  { key: "schedule", href: "/schedule/payroll", label: "Payroll", icon: "💵" },
   crmSection("student"),
 ];
 

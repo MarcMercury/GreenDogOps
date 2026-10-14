@@ -18,6 +18,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   security: "Security",
   features: "Features",
   timeclock: "Time clock",
+  payroll: "Payroll — ADP RUN import",
 };
 
 function SettingField({ s }: { s: Setting }) {

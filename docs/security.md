@@ -300,8 +300,11 @@ Built in `0245` (Scheduling ▸ Payroll, go-live item 21):
 | --- | --- |
 | Timecard approval | `timecard_approval` holds one approval per person and period with a snapshot of the totals (hours, premiums, FLSA, RUN ID). A trigger allows insert/delete only while the period is open and never an update. If the hours change afterwards, the page shows "Changed since approval" and the period can't be locked until the card is approved again. Nobody approves their own timecard; a timecard with a missing punch or an unapproved off-site punch can't be approved. |
 | Pay-period lock | `pay_period` (open → locked → exported). Locking needs every timecard approved and the period ended. While locked or exported, `time_adjustment_period_guard` refuses any correction dated inside it. Reopening is Owner/Admin only, with a required reason, and is audited. |
-| Export history | `payroll_export` (append-only: period, user, time, format, employee count, totals, SHA-256 of the file). The export reads only the approval snapshots, so it matches what was approved. |
+| Export history | `payroll_export` (append-only: period, user, time, format, employee count, totals, SHA-256 of the file). The export reads only the completed Payroll Review, so it matches what was reviewed. |
 | Access | All three tables are service-role only and always blocked in Ask Ziggy. Every approve / lock / reopen / export is audited (`payroll.*`). |
 
-Not built yet: the ADP RUN import layout and pay codes (items 19–20). The
-current export is Ops' own totals CSV (`ops_totals_v1`), not the RUN file.
+Payroll Review (`0247`): after the lock, approvers adjust hours or leave an
+employee out of the file only through `payroll_override` (append-only, reason
+required, accepted only while the period is `locked`; service role only).
+"Complete review" freezes `pay_period.review_snapshot`, and the ADP RUN file
+and the summary are built only from it. Nobody adjusts their own pay line.
