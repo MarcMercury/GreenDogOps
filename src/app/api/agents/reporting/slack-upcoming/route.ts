@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isAuthorizedCronRequest as authorized } from "@/lib/auth/cron";
 import { buildUpcomingApptsReport } from "@/lib/reporting/upcoming";
+import { isUpcomingPostSlot } from "@/lib/reporting/upcoming-schedule";
 import { postSlackMessage } from "@/lib/slack/client";
 import { recordCronRun } from "@/lib/admin/cron-run";
 
@@ -12,9 +13,11 @@ export const maxDuration = 60;
  * Forward-looking appointment report for next calendar week — booked vs offered
  * per clinic, day and track (dental / VE / AP).
  *
- * Scheduled Tuesdays and Thursdays (see vercel.json), after the overnight ezyVet
- * Agenda look-ahead pull. CRON_SECRET-gated; lives under /api/agents/ so the
- * proxy already treats it as self-authenticating.
+ * Posts Monday, Wednesday and Friday at 9 AM Pacific, after the 5 AM Pacific
+ * ezyVet Agenda look-ahead pull. vercel.json fires at both 16:00 and 17:00 UTC
+ * (DST-safe pair) and only the run landing at 9 AM Pacific posts; `?force=1`
+ * bypasses the gate for manual runs. CRON_SECRET-gated; lives under
+ * /api/agents/ so the proxy already treats it as self-authenticating.
  */
 async function run(req: NextRequest) {
   if (!authorized(req)) {
@@ -22,6 +25,11 @@ async function run(req: NextRequest) {
   }
 
   const preview = Boolean(req.nextUrl.searchParams.get("preview"));
+  const force = req.nextUrl.searchParams.get("force") === "1";
+  if (!preview && !force && !isUpcomingPostSlot(new Date())) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "not Mon/Wed/Fri 9 AM Pacific" });
+  }
+
   const startedAt = new Date();
   let report: Awaited<ReturnType<typeof buildUpcomingApptsReport>>;
   try {
@@ -46,7 +54,7 @@ async function run(req: NextRequest) {
   await recordCronRun(
     "reporting_slack_upcoming",
     startedAt,
-    { ok: posted.ok, error: posted.ok ? null : posted.error ?? "Slack post failed.", changed: posted.ok ? 1 : 0 },
+    { ok: posted.ok, error: posted.ok ? report.staleWarning : posted.error ?? "Slack post failed.", changed: posted.ok ? 1 : 0 },
     { everyRun: true },
   );
   if (!posted.ok) {

@@ -50,7 +50,7 @@
     },
     {
       "path": "/api/agents/reporting/slack-upcoming",
-      "schedule": "0 16 * * 2,4"
+      "schedule": "0 16,17 * * 1,3,5"
     }
   ]
 }

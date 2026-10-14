@@ -501,7 +501,7 @@ against a queue snapshot taken before printing.
 | `/api/agents/sheets/sync` | daily | Google Sheets ⇄ roster / schedule / students |
 | `/api/agents/bizdev/refresh` | daily | Business-development metrics |
 | `/api/agents/reporting/slack-digest` | Mondays | Weekly Slack digest |
-| `/api/agents/reporting/slack-upcoming` | Tue/Thu | Upcoming-appointments Slack report |
+| `/api/agents/reporting/slack-upcoming` | Mon/Wed/Fri 9 AM PT | Upcoming-appointments Slack report |
 
 All cron routes authenticate with `CRON_SECRET`; long-running ones set
 `export const maxDuration = 300`.

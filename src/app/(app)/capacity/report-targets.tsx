@@ -165,7 +165,7 @@ export function ReportCapacityManager({
         <p className="mt-0.5 text-xs text-slate-500">
           How many Dental, VE and AP appointments each clinic offers on a normal
           week. These are the denominators in the upcoming-appointments post that
-          goes out Tuesdays and Thursdays. 0 means the lane is closed.
+          goes out Monday, Wednesday and Friday mornings. 0 means the lane is closed.
         </p>
       </div>
 

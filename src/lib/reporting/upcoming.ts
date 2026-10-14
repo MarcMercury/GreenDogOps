@@ -2,7 +2,8 @@ import "server-only";
 
 // ---------------------------------------------------------------------------
 // Upcoming-appointments report for Slack — a forward-looking "how full is next
-// week" view, posted Tuesdays and Thursdays.
+// week" view, posted Monday, Wednesday and Friday at 9 AM Pacific (see
+// ./upcoming-schedule.ts).
 //
 // One table per clinic: a row per open day, columns for the DENTAL lane (its
 // NAD and OE make-up broken out), VE and AP. Each cell is booked / offered.
@@ -19,6 +20,7 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { todayLA } from "@/lib/sheets/common";
+import { staleAgendaWarning } from "./upcoming-schedule";
 
 const DAY_MS = 86_400_000;
 
@@ -45,6 +47,8 @@ export interface UpcomingApptsReport {
   weekEnd: string;
   /** Date of the Agenda pull the booked numbers came from, or null. */
   bookedAsOf: string | null;
+  /** Set when today's Agenda pull has not landed, so the numbers are stale. */
+  staleWarning: string | null;
 }
 
 interface DemandRow {
@@ -218,6 +222,8 @@ export async function buildUpcomingApptsReport(): Promise<UpcomingApptsReport> {
     `*Upcoming appointments* · week of ${monthDay(week.start)}–${monthDay(week.end)}`,
     "_Each cell is booked / slots offered. Dental = NAD + OE._",
   ];
+  const staleWarning = staleAgendaWarning(bookedAsOf, todayLA());
+  if (staleWarning) lines.push(staleWarning);
 
   let anyClinic = false;
 
@@ -301,5 +307,6 @@ export async function buildUpcomingApptsReport(): Promise<UpcomingApptsReport> {
     weekStart: week.start,
     weekEnd: week.end,
     bookedAsOf,
+    staleWarning,
   };
 }
