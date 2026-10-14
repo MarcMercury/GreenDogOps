@@ -140,6 +140,10 @@ export const ALWAYS_BLOCKED_TABLES = [
   "location_network",
   // Employee meal-period waivers (0242): HR record.
   "meal_waiver",
+  // Payroll periods, approvals and export history (0245).
+  "pay_period",
+  "timecard_approval",
+  "payroll_export",
 ] as const;
 
 /**

@@ -182,6 +182,13 @@ from users who cannot access it.
   Settings ▸ Time clock ("Use time-clock attendance from", blank = off) the
   grades also count for unmarked shifts in reliability and the grid, and
   missed / late alerts are sent; a manager's mark always wins.
+  **Scheduling ▸ Payroll** (`/schedule/payroll`, timecard approvers) totals
+  each pay period under California rules (`src/lib/payroll/ca-rules.ts`: daily
+  OT > 8 h, DT > 12 h, weekly OT > 40 h, the 7th-day rule, meal and rest
+  premiums with signed waivers; exempt staff get hours only). Approve each
+  timecard, lock the period (corrections are then refused), export the totals
+  CSV (each export is logged with its SHA-256). Owner/Admin can reopen with a
+  reason. Migration `0245`.
 - **Resources** (`/resources`) — the library of company policies, protocols and
   documents, grouped by category. Policies are **native Ops documents**
   (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),

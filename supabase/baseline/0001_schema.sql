@@ -4326,6 +4326,28 @@ COMMENT ON FUNCTION greendogops.staff_read_only_policies(p_table text) IS 'Adds 
 
 
 --
+-- Name: time_adjustment_period_guard(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.time_adjustment_period_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+begin
+  if exists (
+    select 1 from greendogops.pay_period pp
+     where new.work_date between pp.period_start and pp.period_end
+       and pp.status <> 'open'
+  ) then
+    raise exception 'the pay period containing % is locked — ask an Owner or Admin to reopen it', new.work_date
+      using errcode = 'check_violation';
+  end if;
+  return new;
+end;
+$$;
+
+
+--
 -- Name: time_effective_punches(uuid); Type: FUNCTION; Schema: greendogops; Owner: -
 --
 
@@ -4372,6 +4394,32 @@ CREATE FUNCTION greendogops.time_record_append_only() RETURNS trigger
 begin
   raise exception 'greendogops.% is append-only (% blocked)', tg_table_name, tg_op
     using errcode = 'insufficient_privilege';
+end;
+$$;
+
+
+--
+-- Name: timecard_approval_guard(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.timecard_approval_guard() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  v_status text;
+begin
+  if tg_op = 'UPDATE' then
+    raise exception 'greendogops.timecard_approval rows are never edited; un-approve and approve again'
+      using errcode = 'insufficient_privilege';
+  end if;
+  select status into v_status from greendogops.pay_period
+   where id = case when tg_op = 'DELETE' then old.pay_period_id else new.pay_period_id end;
+  if v_status is distinct from 'open' then
+    raise exception 'pay period is % — approvals can only change while it is open', coalesce(v_status, 'missing')
+      using errcode = 'check_violation';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
 end;
 $$;
 
@@ -8182,6 +8230,65 @@ CREATE TABLE greendogops.partner_notes (
 
 
 --
+-- Name: pay_period; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.pay_period (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    period_start date NOT NULL,
+    period_end date NOT NULL,
+    pay_date date NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    locked_at timestamp with time zone,
+    locked_by uuid,
+    reopened_at timestamp with time zone,
+    reopened_by uuid,
+    reopen_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT pay_period_14_days CHECK ((period_end = (period_start + 13))),
+    CONSTRAINT pay_period_lock_stamp CHECK (((status = 'open'::text) OR (locked_at IS NOT NULL))),
+    CONSTRAINT pay_period_pay_after_end CHECK ((pay_date > period_end)),
+    CONSTRAINT pay_period_status_check CHECK ((status = ANY (ARRAY['open'::text, 'locked'::text, 'exported'::text]))),
+    CONSTRAINT pay_period_sunday CHECK ((EXTRACT(dow FROM period_start) = (0)::numeric))
+);
+
+
+--
+-- Name: TABLE pay_period; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.pay_period IS 'Biweekly pay periods (0245). open → locked (approvals final, no new adjustments) → exported. Service role only; keep 4 years.';
+
+
+--
+-- Name: payroll_export; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.payroll_export (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    pay_period_id uuid NOT NULL,
+    format text NOT NULL,
+    file_name text NOT NULL,
+    file_sha256 text NOT NULL,
+    employee_count integer NOT NULL,
+    totals jsonb NOT NULL,
+    created_by uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT payroll_export_employee_count_check CHECK ((employee_count >= 0)),
+    CONSTRAINT payroll_export_file_sha256_check CHECK ((file_sha256 ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT payroll_export_totals_check CHECK ((jsonb_typeof(totals) = 'object'::text))
+);
+
+
+--
+-- Name: TABLE payroll_export; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.payroll_export IS 'Export history of locked pay periods (0245): format, file name, SHA-256, employee count, totals, who and when. Append-only. Service role only.';
+
+
+--
 -- Name: person; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -11888,6 +11995,28 @@ COMMENT ON TABLE greendogops.time_punch_review IS 'Approver decision on an off-s
 
 
 --
+-- Name: timecard_approval; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.timecard_approval (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    pay_period_id uuid NOT NULL,
+    person_id uuid NOT NULL,
+    approved_by uuid,
+    approved_at timestamp with time zone DEFAULT now() NOT NULL,
+    snapshot jsonb NOT NULL,
+    CONSTRAINT timecard_approval_snapshot_check CHECK ((jsonb_typeof(snapshot) = 'object'::text))
+);
+
+
+--
+-- Name: TABLE timecard_approval; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.timecard_approval IS 'An approver''s sign-off on one employee''s pay period with the totals snapshot (0245). Insert/delete only while the period is open; never updated. Service role only.';
+
+
+--
 -- Name: user_notification; Type: TABLE; Schema: greendogops; Owner: -
 --
 
@@ -12925,6 +13054,30 @@ ALTER TABLE ONLY greendogops.partner_notes
 
 
 --
+-- Name: pay_period pay_period_period_start_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.pay_period
+    ADD CONSTRAINT pay_period_period_start_key UNIQUE (period_start);
+
+
+--
+-- Name: pay_period pay_period_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.pay_period
+    ADD CONSTRAINT pay_period_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: payroll_export payroll_export_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.payroll_export
+    ADD CONSTRAINT payroll_export_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: person_asset person_asset_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -13578,6 +13731,22 @@ ALTER TABLE ONLY greendogops.time_punch
 
 ALTER TABLE ONLY greendogops.time_punch_review
     ADD CONSTRAINT time_punch_review_pkey PRIMARY KEY (punch_id);
+
+
+--
+-- Name: timecard_approval timecard_approval_pay_period_id_person_id_key; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.timecard_approval
+    ADD CONSTRAINT timecard_approval_pay_period_id_person_id_key UNIQUE (pay_period_id, person_id);
+
+
+--
+-- Name: timecard_approval timecard_approval_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.timecard_approval
+    ADD CONSTRAINT timecard_approval_pkey PRIMARY KEY (id);
 
 
 --
@@ -15185,6 +15354,13 @@ CREATE INDEX partner_notes_partner_id_idx ON greendogops.partner_notes USING btr
 
 
 --
+-- Name: payroll_export_period_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX payroll_export_period_idx ON greendogops.payroll_export USING btree (pay_period_id, created_at DESC);
+
+
+--
 -- Name: person_asset_person_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -16263,6 +16439,20 @@ CREATE TRIGGER meal_waiver_guard_truncate BEFORE TRUNCATE ON greendogops.meal_wa
 
 
 --
+-- Name: payroll_export payroll_export_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER payroll_export_append_only_row BEFORE DELETE OR UPDATE ON greendogops.payroll_export FOR EACH ROW EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: payroll_export payroll_export_append_only_truncate; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER payroll_export_append_only_truncate BEFORE TRUNCATE ON greendogops.payroll_export FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
 -- Name: person person_after_change; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
@@ -16568,6 +16758,13 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.notification_rule FOR
 --
 
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.ops_task FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
+
+
+--
+-- Name: pay_period set_updated_at; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER set_updated_at BEFORE UPDATE ON greendogops.pay_period FOR EACH ROW EXECUTE FUNCTION greendogops.set_updated_at();
 
 
 --
@@ -16886,6 +17083,13 @@ CREATE TRIGGER time_punch_adjustment_append_only_truncate BEFORE TRUNCATE ON gre
 
 
 --
+-- Name: time_punch_adjustment time_punch_adjustment_period_guard; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER time_punch_adjustment_period_guard BEFORE INSERT ON greendogops.time_punch_adjustment FOR EACH ROW EXECUTE FUNCTION greendogops.time_adjustment_period_guard();
+
+
+--
 -- Name: time_punch time_punch_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
 --
 
@@ -16911,6 +17115,13 @@ CREATE TRIGGER time_punch_review_append_only_row BEFORE DELETE OR UPDATE ON gree
 --
 
 CREATE TRIGGER time_punch_review_append_only_truncate BEFORE TRUNCATE ON greendogops.time_punch_review FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: timecard_approval timecard_approval_guard_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER timecard_approval_guard_row BEFORE INSERT OR DELETE OR UPDATE ON greendogops.timecard_approval FOR EACH ROW EXECUTE FUNCTION greendogops.timecard_approval_guard();
 
 
 --
@@ -17413,6 +17624,14 @@ ALTER TABLE ONLY greendogops.ops_task
 
 ALTER TABLE ONLY greendogops.ops_task
     ADD CONSTRAINT ops_task_created_by_user_id_fkey FOREIGN KEY (created_by_user_id) REFERENCES greendogops.app_user(id) ON DELETE SET NULL;
+
+
+--
+-- Name: payroll_export payroll_export_pay_period_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.payroll_export
+    ADD CONSTRAINT payroll_export_pay_period_id_fkey FOREIGN KEY (pay_period_id) REFERENCES greendogops.pay_period(id);
 
 
 --
@@ -18333,6 +18552,22 @@ ALTER TABLE ONLY greendogops.time_punch
 
 ALTER TABLE ONLY greendogops.time_punch_review
     ADD CONSTRAINT time_punch_review_punch_id_fkey FOREIGN KEY (punch_id) REFERENCES greendogops.time_punch(id);
+
+
+--
+-- Name: timecard_approval timecard_approval_pay_period_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.timecard_approval
+    ADD CONSTRAINT timecard_approval_pay_period_id_fkey FOREIGN KEY (pay_period_id) REFERENCES greendogops.pay_period(id);
+
+
+--
+-- Name: timecard_approval timecard_approval_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.timecard_approval
+    ADD CONSTRAINT timecard_approval_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id);
 
 
 --
@@ -20365,6 +20600,18 @@ ALTER TABLE greendogops.partner_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.partner_notes ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: pay_period; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.pay_period ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: payroll_export; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.payroll_export ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: person; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -20840,6 +21087,20 @@ CREATE POLICY service_role_only ON greendogops.ops_task TO authenticated USING (
 
 
 --
+-- Name: pay_period service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.pay_period TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: payroll_export service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.payroll_export TO authenticated USING (false) WITH CHECK (false);
+
+
+--
 -- Name: person_recruiting_score_backup_0225 service_role_only; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -20935,6 +21196,13 @@ CREATE POLICY service_role_only ON greendogops.time_punch_adjustment TO authenti
 --
 
 CREATE POLICY service_role_only ON greendogops.time_punch_review TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: timecard_approval service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.timecard_approval TO authenticated USING (false) WITH CHECK (false);
 
 
 --
@@ -21878,6 +22146,24 @@ CREATE POLICY staff_read_only_delete ON greendogops.partner_notes AS RESTRICTIVE
 
 
 --
+-- Name: pay_period staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.pay_period AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: payroll_export staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.payroll_export AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: person staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -22539,6 +22825,15 @@ CREATE POLICY staff_read_only_delete ON greendogops.time_punch_adjustment AS RES
 --
 
 CREATE POLICY staff_read_only_delete ON greendogops.time_punch_review AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: timecard_approval staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.timecard_approval AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -23444,6 +23739,24 @@ CREATE POLICY staff_read_only_insert ON greendogops.partner_notes AS RESTRICTIVE
 
 
 --
+-- Name: pay_period staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.pay_period AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: payroll_export staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.payroll_export AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: person staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -24105,6 +24418,15 @@ CREATE POLICY staff_read_only_insert ON greendogops.time_punch_adjustment AS RES
 --
 
 CREATE POLICY staff_read_only_insert ON greendogops.time_punch_review AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: timecard_approval staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.timecard_approval AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -25208,6 +25530,28 @@ CREATE POLICY staff_read_only_update ON greendogops.partner_notes AS RESTRICTIVE
 
 
 --
+-- Name: pay_period staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.pay_period AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: payroll_export staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.payroll_export AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: person staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -26022,6 +26366,17 @@ CREATE POLICY staff_read_only_update ON greendogops.time_punch_review AS RESTRIC
 
 
 --
+-- Name: timecard_approval staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.timecard_approval AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: user_notification staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -26061,6 +26416,12 @@ ALTER TABLE greendogops.time_punch_adjustment ENABLE ROW LEVEL SECURITY;
 --
 
 ALTER TABLE greendogops.time_punch_review ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: timecard_approval; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.timecard_approval ENABLE ROW LEVEL SECURITY;
 
 --
 -- Name: user_notification; Type: ROW SECURITY; Schema: greendogops; Owner: -
@@ -26782,6 +27143,14 @@ GRANT ALL ON FUNCTION greendogops.staff_read_only_policies(p_table text) TO serv
 
 
 --
+-- Name: FUNCTION time_adjustment_period_guard(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.time_adjustment_period_guard() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.time_adjustment_period_guard() TO service_role;
+
+
+--
 -- Name: FUNCTION time_effective_punches(p_person_id uuid); Type: ACL; Schema: greendogops; Owner: -
 --
 
@@ -26803,6 +27172,14 @@ GRANT ALL ON FUNCTION greendogops.time_punch_append_only() TO service_role;
 
 REVOKE ALL ON FUNCTION greendogops.time_record_append_only() FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.time_record_append_only() TO service_role;
+
+
+--
+-- Name: FUNCTION timecard_approval_guard(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.timecard_approval_guard() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.timecard_approval_guard() TO service_role;
 
 
 --
@@ -27631,6 +28008,20 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.partner_contacts TO servi
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.partner_notes TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.partner_notes TO service_role;
+
+
+--
+-- Name: TABLE pay_period; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.pay_period TO service_role;
+
+
+--
+-- Name: TABLE payroll_export; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.payroll_export TO service_role;
 
 
 --
@@ -28753,6 +29144,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.time_punch_adjustment TO 
 --
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.time_punch_review TO service_role;
+
+
+--
+-- Name: TABLE timecard_approval; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.timecard_approval TO service_role;
 
 
 --

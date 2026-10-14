@@ -8,6 +8,7 @@ const TABS = [
   { href: "/schedule/attendance", label: "Attendance", icon: "✓" },
   { href: "/schedule/time-attendance", label: "Time & Attendance", icon: "◷" },
   { href: "/schedule/time-clock", label: "Time Clock", icon: "⏱" },
+  { href: "/schedule/payroll", label: "Payroll", icon: "$" },
   { href: "/schedule/setup", label: "Set Up", icon: "⚙" },
 ];
 
