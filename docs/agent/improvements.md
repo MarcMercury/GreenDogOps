@@ -5,6 +5,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P1 — Safety net
 
+### Roles added from Set Up between 2026-09-29 and 2026-10-13 may be inactive
+- **Why:** `de633bb` replaced `saveRole`'s `formData.has("is_active") ? … : true` with the plain `checkbox` helper, and the Add-role form never sends `is_active`, so every role created there was inserted with `is_active = false`. The eligibility matrix still showed them, but `getPersonEligibility` (HR profile) lists active roles only. Fixed in code on 2026-10-13 (`checkboxDefaultOn`, pinned by `src/features/scheduling/setup/schema/role.schema.test.ts`); the rows already written are not.
+- **Scope:** read-only check first — `select id, name, department_id, created_at from greendogops.sched_role where is_active = false order by created_at;` — then, with the owner's go-ahead, `update … set is_active = true` for the ones that were meant to be live (production write: needs explicit authorization; roles the owner deliberately deactivated must stay off).
+- **Risk:** low; a role flipped back to active only widens who can be picked for its shifts.
+
 ### New hires do not get an Ops login automatically
 - **Why:** `ensureAuthUserForPerson()` (HR save, ATS hire) creates only the Supabase Auth user, never the `app_user` row, so anyone hired after the 2026-10-13 bulk provisioning has no login until an admin grants one. `scripts/provision_logins.mts` (idempotent, dry run by default) closes the gap by hand.
 - **Scope:** create the `app_user` (role per owner decision) in `ensureAuthUserForPerson` and the daily roster sync; invites stay a separate, explicit step (Gate 1 item 2).
@@ -17,7 +22,7 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.
-- **Scope:** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `actions.ts` export calls a permission helper; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest` (that each one passes the proxy is already tested in `src/lib/supabase/public-paths.test.ts`); migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.
+- **Scope:** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `actions.ts` / `src/features/**/actions/*.ts` export calls a permission helper, and no `src/features/**/db/*.ts` file is missing `import "server-only"`; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest` (that each one passes the proxy is already tested in `src/lib/supabase/public-paths.test.ts`); migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.
 - **Risk:** low; may surface existing violations that need triage.
 
 ### Security follow-ups from the ASVS L2 pass (0227)

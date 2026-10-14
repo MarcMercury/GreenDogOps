@@ -1,5 +1,5 @@
 import { getGuides, getGuideData, getPlanningSetup } from "./data";
-import { getWeeks } from "../schedule/data";
+import { getWeeks } from "@/features/scheduling/scheduling-grid/db/get-weeks";
 import { PlanningWorkspace } from "./planning-workspace";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";

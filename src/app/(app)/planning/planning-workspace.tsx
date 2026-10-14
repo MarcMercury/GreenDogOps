@@ -42,7 +42,7 @@ import {
   type ActionResult,
 } from "./actions";
 import { PageHeader } from "../_components/ui";
-import { WeekPicker } from "../schedule/week-picker";
+import { WeekPicker } from "@/features/scheduling/scheduling-grid/components/week-picker";
 
 interface Setup {
   locations: Location[];

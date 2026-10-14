@@ -33,11 +33,9 @@ import {
   seesPrivateHrFields,
 } from "@/lib/auth/permissions";
 import { ModuleDenied } from "../../_components/module-denied";
-import {
-  getPersonAttendance,
-  getPersonScheduleSettings,
-  getPersonEligibility,
-} from "../../schedule/data";
+import { getPersonAttendance } from "@/features/scheduling/attendance/db/get-person-attendance";
+import { getPersonScheduleSettings } from "@/features/scheduling/setup/db/get-person-schedule-settings";
+import { getPersonEligibility } from "@/features/scheduling/setup/db/get-person-eligibility";
 import { canTextPerson } from "@/lib/sms/access";
 import { EmployeeProfile, type LinkedAccount, type SlackChipInfo } from "./employee-profile";
 import { getSlackLinkForPerson } from "@/lib/slack/link-sync";

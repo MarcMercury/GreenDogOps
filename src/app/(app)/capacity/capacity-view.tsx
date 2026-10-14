@@ -6,8 +6,8 @@ import { useRouter } from "next/navigation";
 import { DAY_LABELS, dateForDay } from "@/lib/schedule/types";
 import type { DayLocationCapacity } from "@/lib/planning/resolve";
 import { STAFF_CATEGORIES } from "@/lib/planning/resolve";
-import { generateGuideFromCapacity } from "../schedule/actions";
-import type { AgendaCount } from "../schedule/data";
+import { generateGuideFromCapacity } from "@/features/scheduling/scheduling-grid/actions/planning-guide-actions";
+import type { AgendaCount } from "@/features/scheduling/scheduling-grid/types/agenda-count";
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 

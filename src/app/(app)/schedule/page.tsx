@@ -1,14 +1,14 @@
-import {
-  getSetupData,
-  getWeeks,
-  getWeekData,
-  getWeekDataFor,
-  getWeekTimeOff,
-  getAgendaCounts,
-  getTemplates,
-} from "./data";
-import { ScheduleGrid } from "./schedule-grid";
-import { WeekPicker } from "./week-picker";
+import { getSetupData } from "@/features/scheduling/setup/db/get-setup-data";
+import { getAgendaCounts } from "@/features/scheduling/scheduling-grid/db/get-agenda-counts";
+import { getTemplates } from "@/features/scheduling/scheduling-grid/db/get-templates";
+import { getWeekData } from "@/features/scheduling/scheduling-grid/db/get-week-data";
+import { getWeekDataFor } from "@/features/scheduling/scheduling-grid/db/get-week-data-for";
+import { getWeekTimeOff } from "@/features/scheduling/scheduling-grid/db/get-week-time-off";
+import { getWeeks } from "@/features/scheduling/scheduling-grid/db/get-weeks";
+import { selectDefaultWeek } from "@/features/scheduling/scheduling-grid/lib/select-default-week";
+import { EmptyWeekState } from "@/features/scheduling/scheduling-grid/components/empty-week-state";
+import { ScheduleGrid } from "@/features/scheduling/scheduling-grid/components/grid/schedule-grid";
+import { WeekPicker } from "@/features/scheduling/scheduling-grid/components/week-picker";
 import { PageHeader } from "../_components/ui";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
@@ -32,12 +32,7 @@ export default async function SchedulePage({
 
   // Default to the current week (or the most recent week on/before today),
   // falling back to the newest week if everything is in the future.
-  const currentWeekStart = weekStartFor(new Date());
-  const defaultWeek =
-    weeks.find((w) => w.week_start === currentWeekStart) ??
-    weeks.find((w) => w.week_start <= currentWeekStart) ??
-    weeks[weeks.length - 1] ??
-    null;
+  const defaultWeek = selectDefaultWeek(weeks, weekStartFor(new Date()));
   const selectedId = weekParam ?? defaultWeek?.id ?? null;
 
   // The week row is already in `weeks`, so the grid, time-off and agenda
@@ -76,11 +71,7 @@ export default async function SchedulePage({
           description="Build, approve, and publish the visual weekly schedule."
         />
         <WeekPicker weeks={weeks} selectedId={null} />
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <p className="text-sm text-slate-500">
-            No schedule week yet. Pick a week above to create one.
-          </p>
-        </div>
+        <EmptyWeekState />
       </div>
     );
   }

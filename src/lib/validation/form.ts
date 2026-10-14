@@ -66,6 +66,17 @@ export const checkbox = z.preprocess(
   z.boolean(),
 );
 
+/**
+ * A boolean the form does not always render a box for (e.g. "Active" on a
+ * create form that only has name and order). Absent means ON; only an explicit
+ * off value turns it off. Use plain `checkbox` when the box is always on the
+ * form, because there an unchecked box is also absent — and must mean OFF.
+ */
+export const checkboxDefaultOn = z.preprocess(
+  (v) => (v === undefined ? true : v === "on" || v === "true" || v === "1" || v === true),
+  z.boolean(),
+);
+
 /** "YYYY-MM-DD", or null. */
 export const optionalDate = z.preprocess(
   blankToNull,

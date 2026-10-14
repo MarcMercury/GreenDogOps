@@ -38,11 +38,9 @@ import {
   reliabilityTone,
   DAY_SHORT,
 } from "@/lib/schedule/types";
-import type {
-  PersonAttendanceSummary,
-  PersonScheduleSettings,
-  PersonRoleEligibility,
-} from "../../schedule/data";
+import type { PersonAttendanceSummary } from "@/features/scheduling/attendance/types/person-attendance";
+import type { PersonScheduleSettings } from "@/features/scheduling/setup/types/person-schedule-settings";
+import type { PersonRoleEligibility } from "@/features/scheduling/setup/types/person-role-eligibility";
 import type { ProfileTransition } from "@/lib/shared/transitions";
 import { transitionEventLabel, stageLabel } from "@/lib/shared/transitions";
 import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
@@ -81,7 +79,8 @@ import {
   deleteEmployee,
   type SaveResult,
 } from "../actions";
-import { setPersonRoles, setStudentRoleFlags, saveScheduleSettingFields } from "../../schedule/actions";
+import { setPersonRoles, setStudentRoleFlags } from "@/features/scheduling/setup/actions/role-actions";
+import { saveScheduleSettingFields } from "@/features/scheduling/setup/actions/employee-setting-actions";
 import { useTableSort, SortHeader, stickyHeadClass } from "../../_components/data-views";
 import {
   EmployeeForm,

@@ -640,6 +640,10 @@ src/
       agents/               # agent ingest endpoints + scheduled jobs
       ats/ calendar/ email/ med-ops/ admin/
     auth/  login/           # auth flows
+  features/
+    scheduling/             # the /schedule/* pages' actions, components, db
+                            # queries, schemas, types — one folder per sub-page
+                            # (see src/features/scheduling/README.md)
   lib/
     admin/ agents/ ai/ ats/ auth/ calendar/ crm/ google/ hr/ marketing/
     med-ops/ planning/ reporting/ resources/ schedule/ sheets/ slack/
@@ -658,7 +662,10 @@ docs/agent/                 # verified engineering memory: lessons, integrations
 Conventions worth knowing:
 
 - A route's reads live in `data.ts`; mutations live in `actions.ts` as Server
-  Actions that re-check permissions and then `revalidatePath`.
+  Actions that re-check permissions and then `revalidatePath`. Scheduling is
+  the exception: its `/schedule/*` pages are thin and the reads (`db/`, one
+  query per file), actions, components, zod schemas and types live under
+  `src/features/scheduling/<feature>/` (see its README).
 - Adding a module means touching **four** places: the `ModuleKey` union and
   `MODULES` in `permissions.ts`, `ROUTE_MODULES` in the same file, the nav in
   `app-shell.tsx`, and `MODULE_ICONS` in `src/lib/shared/module-icons.ts` — an exhaustive

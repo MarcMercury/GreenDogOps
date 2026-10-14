@@ -35,12 +35,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Root cause:** a second VS Code server + agent started at 19:50 (`free -m`: ~850 MB available of 8 GB). The baseline script writes its output files in place.
 - **Fix:** check `ps aux | grep generate_baseline` before regenerating, never kill another session's run, wait for it, then `wc -l` the baseline before running tests. If it is truncated, `git checkout -- supabase/baseline/` and regenerate. When `tsc` cannot run, use the `problems` tool on every file touching a changed exhaustive type (e.g. `Record<ModuleKey, …>` in `module-icons.ts`) and rely on the Vercel build.
 
-### Vitest does not resolve the `@/` alias — pure modules under test need relative imports
-- **Problem:** new tests failed with `Cannot find package '@/lib/worklist/dates'` / `'@/lib/auth/permissions'`.
-- **Root cause:** there is no vitest config with the tsconfig `paths` alias, so a runtime (value) `import … from "@/…"` can't be resolved. `import type` from `@/…` is erased and works.
-- **Fix:** in modules that tests import, use relative paths for value imports (`../auth/permissions`). Server-only modules that tests never import can keep `@/`.
-- **Prevent:** keep business rules in small pure files (`src/lib/notify/audience.ts`, `plan.ts`, `rule-config.ts`) with relative imports, and keep DB/Slack calls in separate `server-only` files.
-- **Evidence:** 2026-10-12, 0236 notification engine: 5 test files failed to load, all passed after switching the imports.
+### Vitest resolves the `@/` alias (since `vitest.config.mts`), but `server-only` modules still cannot be imported by tests
+- **Problem:** until 2026-10-13 there was no vitest config, so a runtime (value) `import … from "@/…"` failed in tests (`Cannot find package '@/lib/worklist/dates'`) and pure modules under test had to use relative imports.
+- **Fix:** `vitest.config.mts` (repo root) maps `@` → `./src`, the same alias as tsconfig. It must be `.mts` — package.json has no `"type": "module"`, so a `.ts` config is loaded as CommonJS and vitest warns about ESM syntax. Value imports from `@/…` now work in tests; the relative imports left in older pure modules are harmless.
+- **Still true:** `server-only` and `next/cache` are not resolvable in vitest, so anything a test imports (transitively) must stay free of `db/` / `server/` / Server Action modules. Keep business rules in small pure files and DB/Slack calls in separate `server-only` files.
+- **Evidence:** 2026-10-13 — full suite (71 files, 787 tests) passed with the config; a smoke test importing `weekStartFor` from `@/lib/schedule/types` and `isIsoDate` from `@/lib/worklist/dates` passed.
 
 ### OpenRouter retires `:free` model ids — default to the `openrouter/free` router
 - **Problem:** the OpenRouter fallback (LLM chain + ATS resume parse) defaulted to `google/gemini-2.0-flash-exp:free`, which no longer exists, so every OpenRouter call would fail even with a valid key.
@@ -132,6 +131,15 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ### Test suite baseline
 - `npx vitest run` with no config file: 14 files / 186 tests, ~9s, all passing on 2026-10-08 (`eddc044` + uncommitted ATS work). Tests are pure-logic `*.test.ts` files beside their modules in `src/lib/**`.
+
+## Application code
+
+### `checkbox` means "absent = unchecked" — wrong for a create form that never renders the box
+- **Problem:** roles added on Set Up ▸ Roles & Eligibility were inserted with `is_active = false` and disappeared from the HR profile's eligibility list (`getPersonEligibility` filters to active roles) while still showing in the matrix (`getSetupData` doesn't filter).
+- **Root cause:** `de633bb` (2026-09-29) replaced `is_active: formData.has("is_active") ? bool(…) : true` with the `checkbox` zod helper in `saveRole`. The Add-role form has no Active box, so the field is always absent → `false`. Departments were unaffected only because both department forms always send the field (the Setup form as a real checkbox, the grid's modal as a hidden `on`).
+- **Fix:** `checkboxDefaultOn` in `src/lib/validation/form.ts` (absent → `true`, explicit off → `false`), used by `role.schema.ts` and `shift-template.schema.ts` (same situation). Pick per form: a box that is always rendered → `checkbox`; a flag the create form never shows → `checkboxDefaultOn`.
+- **Prevent:** `src/features/scheduling/setup/schema/role.schema.test.ts` pins both defaults. When a FormData schema gains a boolean, check whether every form that posts it renders the box. Existing inactive rows are a production data follow-up (improvements.md).
+- **Evidence:** 2026-10-13 — `git show de633bb` shows the swap; `supabase/baseline` has `sched_role.is_active DEFAULT true` (so only the explicit `false` from the schema produced inactive rows); the production count is still to be run (`.secrets/supabase.env` is Codespace-only).
 
 ## Database
 

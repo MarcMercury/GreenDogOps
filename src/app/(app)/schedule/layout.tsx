@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth/session";
-import { ScheduleTabs } from "./schedule-tabs";
+import { ScheduleTabs } from "@/features/scheduling/shared/components/schedule-tabs";
 
 export default async function ScheduleLayout({
   children,

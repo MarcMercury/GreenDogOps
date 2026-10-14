@@ -11,7 +11,7 @@ there, or that need a sharper statement for agents.
 2. No migration creates or alters objects outside `greendogops`.
 3. No routine is executable by `anon` / `authenticated`; `greendogops.rls_audit()` returns zero rows.
 4. `SUPABASE_SERVICE_ROLE_KEY` / `createAdminClient()` are never reachable from client components or `NEXT_PUBLIC_*`.
-5. Every exported Server Action in an `actions.ts` re-checks permissions before writing.
+5. Every exported Server Action (`actions.ts` files, and `src/features/**/actions/*.ts`) re-checks permissions before writing.
 6. Every cron route checks `isAuthorizedCronRequest` (`src/lib/auth/cron.ts`).
 7. Adding a module touches `ModuleKey`/`MODULES`/`ROUTE_MODULES` in `permissions.ts`, the nav in `app-shell.tsx`, and `MODULE_ICONS` in `src/lib/shared/module-icons.ts`.
 8. Every write to `ops_task` goes through `src/lib/worklist/tasks.ts`. Every notification goes through `emitEvent()` (module events, routed by rules — `src/lib/notify/emit.ts`) or `publishNotification()` (one chosen login — `src/lib/notify/publish.ts`); every event type is registered in `src/lib/notify/registry.ts`. Work-center and notification tables are service-role only and every read filters to the signed-in user (Admin ▸ Notifications excepted).
@@ -39,6 +39,11 @@ there, or that need a sharper statement for agents.
 ## Decisions log
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
+
+### 2026-10-13 — Scheduling route logic lives in `src/features/scheduling/<feature>/` (no migration)
+- **Context:** `src/app/(app)/schedule/` had grown to ~10K lines in 18 files: one `actions.ts` (2.6K lines) mixing grid, setup, attendance, PTO, workflow and planning-guide actions; one `schedule-grid.tsx` with 15 components; one `data.ts` whose loaders were also imported by the HR profile, Capacity and Planning pages. The six tabs are to become separate sidebar items, so each needed to be its own unit.
+- **Decision:** one feature folder per sub-page — `scheduling-grid`, `setup`, `attendance`, `time-clock`, `payroll`, `time-attendance` — plus `shared/`, each with `actions/ components/ db/ lib/ schema/ server/ types/` (roles and rules in `src/features/scheduling/README.md`). Route files under `src/app/(app)/schedule/**` are thin composers (gate → `db/` → `lib/` → `components/`). Every Server Action now parses its input through a zod schema from `schema/` (shape-only, built on `src/lib/validation/form.ts`); business rules and their messages stay in the action. Cross-feature imports are limited to the contract listed in the README. The two planning-only loaders that lived in `schedule/data.ts` (`getActiveGuides`, `getCapacityRules`) moved to `src/app/(app)/planning/data.ts`. `vitest.config.mts` adds the `@` alias so feature `lib/` tests import like app code.
+- **Consequences:** `"use server"` files export only async functions, so shared gates / revalidation / multi-step writes live in `server/` and `db/` and are not reachable as endpoints. "What does this page read or write" is the `db/` directory listing. Action names, parameters, return shapes and user-facing messages were kept identical for the external importers (`hr/[id]`, `capacity`, `planning`); the only behavioural delta is that malformed inputs are refused at the boundary instead of reaching Postgres. Invariant 5 above now reads: every exported Server Action under `src/features/**/actions/` (and any remaining `actions.ts`) re-checks permissions before writing.
 
 ### 2026-10-14 — Payroll periods, approval, lock and export (migration 0245, go-live item 21)
 - **Decision:** hours and premiums are computed at read time by one pure engine (`src/lib/payroll/ca-rules.ts`) from the effective punches; nothing stores computed hours except the **approval snapshot**. The export is built only from those snapshots, so the file always equals what an approver signed off. If live totals differ from the snapshot, the approval is "stale" and blocks the lock.

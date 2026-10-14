@@ -1,13 +1,10 @@
-import {
-  getSetupData,
-  getWeeks,
-  getWeekData,
-  getWeekDataFor,
-  getActiveGuides,
-  getCapacityRules,
-  getAgendaCounts,
-} from "../schedule/data";
-import { WeekPicker } from "../schedule/week-picker";
+import { getSetupData } from "@/features/scheduling/setup/db/get-setup-data";
+import { getWeeks } from "@/features/scheduling/scheduling-grid/db/get-weeks";
+import { getWeekData } from "@/features/scheduling/scheduling-grid/db/get-week-data";
+import { getWeekDataFor } from "@/features/scheduling/scheduling-grid/db/get-week-data-for";
+import { getAgendaCounts } from "@/features/scheduling/scheduling-grid/db/get-agenda-counts";
+import { WeekPicker } from "@/features/scheduling/scheduling-grid/components/week-picker";
+import { getActiveGuides, getCapacityRules } from "../planning/data";
 import { CapacityView } from "./capacity-view";
 import { CapacityRulesManager } from "./capacity-rules";
 import { ReportCapacityManager } from "./report-targets";

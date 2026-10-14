@@ -29,11 +29,9 @@ import {
 import { DAY_SHORT } from "@/lib/schedule/types";
 import { ONBOARDING_GROUPS } from "@/lib/hr/onboarding";
 import type { AcknowledgementRow } from "@/lib/hr/acknowledgements";
-import type {
-  PersonAttendanceSummary,
-  PersonScheduleSettings,
-  PersonRoleEligibility,
-} from "../../schedule/data";
+import type { PersonAttendanceSummary } from "@/features/scheduling/attendance/types/person-attendance";
+import type { PersonScheduleSettings } from "@/features/scheduling/setup/types/person-schedule-settings";
+import type { PersonRoleEligibility } from "@/features/scheduling/setup/types/person-role-eligibility";
 import { ROLE_LABELS, type AppRole } from "@/lib/auth/permissions";
 
 /** Everything the printable summary needs. Mirrors the profile's props. */

@@ -1,14 +1,13 @@
 import { PageHeader } from "../../_components/ui";
-import {
-  getSetupData,
-  getApptTypeMappings,
-  getTemplates,
-  getTemplateWeekData,
-  getWeeks,
-} from "../data";
-import { SetupManager } from "./setup-manager";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
+import { getWeeks } from "@/features/scheduling/scheduling-grid/db/get-weeks";
+import { getTemplates } from "@/features/scheduling/scheduling-grid/db/get-templates";
+import { getTemplateWeekData } from "@/features/scheduling/scheduling-grid/db/get-template-week-data";
+import { getSetupData } from "@/features/scheduling/setup/db/get-setup-data";
+import { getApptTypeMappings } from "@/features/scheduling/setup/db/get-appt-type-mappings";
+import { selectTemplateId } from "@/features/scheduling/setup/lib/select-template";
+import { SetupManager } from "@/features/scheduling/setup/components/setup-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +27,7 @@ export default async function ScheduleSetupPage({
 
   // Open the requested template, falling back to the first so the tab shows a
   // grid rather than an empty chooser.
-  const selectedTemplateId =
-    (templateParam && templates.some((t) => t.id === templateParam)
-      ? templateParam
-      : templates[0]?.id) ?? null;
+  const selectedTemplateId = selectTemplateId(templates, templateParam);
   const templateWeek = selectedTemplateId
     ? await getTemplateWeekData(selectedTemplateId)
     : null;
