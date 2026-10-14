@@ -1,5 +1,5 @@
 -- ============================================================================
--- Green Dog Ops — 0249 Upcoming-appointments report moves to Mon/Wed/Fri 9 AM PT
+-- Green Dog Ops — 0250 Upcoming-appointments report moves to Mon/Wed/Fri 9 AM PT
 -- ----------------------------------------------------------------------------
 -- Owner request 2026-10-14: post the upcoming-appointments Slack report Monday,
 -- Wednesday and Friday at 9 AM Pacific, after the morning ezyVet uploads,
