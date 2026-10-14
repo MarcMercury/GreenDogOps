@@ -8624,7 +8624,9 @@ CREATE TABLE greendogops.person_employment (
     adp_employee_id text,
     CONSTRAINT person_employment_adp_employee_id_format CHECK (((adp_employee_id IS NULL) OR (adp_employee_id ~ '^[A-Za-z0-9-]{1,20}$'::text))),
     CONSTRAINT person_employment_pay_type_check CHECK ((pay_type = ANY (ARRAY['hourly'::text, 'salary'::text, 'day_rate'::text, 'contract'::text]))),
-    CONSTRAINT person_employment_pto_policy_allotment_whole CHECK (((pto_policy_allotment IS NULL) OR (pto_policy_allotment = trunc(pto_policy_allotment))))
+    CONSTRAINT person_employment_pto_available_whole CHECK (((pto_available IS NULL) OR (pto_available = trunc(pto_available)))),
+    CONSTRAINT person_employment_pto_policy_allotment_whole CHECK (((pto_policy_allotment IS NULL) OR (pto_policy_allotment = trunc(pto_policy_allotment)))),
+    CONSTRAINT person_employment_pto_used_whole CHECK (((pto_used IS NULL) OR (pto_used = trunc(pto_used))))
 );
 
 

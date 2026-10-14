@@ -43,7 +43,7 @@ export function deductionDays(r: {
   return requestedDays(r);
 }
 
-/** "3 days", "1 day"; a fractional balance (HR-entered or legacy) under 1 day shows as hours, e.g. "4 h". */
+/** "3 days", "1 day"; anything under 1 day shows as hours, e.g. "4 h". */
 export function formatDays(days: number): string {
   const d = Math.round(days * 100) / 100;
   if (d > 0 && d < 1) return `${Math.round(d * PTO_DAY_HOURS * 100) / 100} h`;
@@ -150,8 +150,8 @@ const PTO_FIELD_LABELS = {
 } as const;
 
 /**
- * HR-entered PTO values must be whole days, like every request. Pass only the
- * values being written, so an untouched legacy balance never blocks a save.
+ * HR-entered PTO values must be whole days, like every request (also enforced
+ * by CHECKs, 0248/0249). Pass only the values being written.
  */
 export function fractionalPtoError(
   values: Partial<Record<keyof typeof PTO_FIELD_LABELS, number | null>>,

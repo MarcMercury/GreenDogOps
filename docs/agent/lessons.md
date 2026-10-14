@@ -115,6 +115,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Verify:** `rls_audit()` returns 0 rows on staging, and a diff of greendogops columns, function bodies (md5 of `pg_get_functiondef`), view bodies, policies and triggers between the two projects is empty. The one expected difference is `format_phone(text)`, which exists only on staging (see 0213).
 - **Evidence:** 2026-10-10 — 0215–0227 applied to staging, all ok; `rls_audit` 0 rows; 3,379 production objects all match staging, with `format_phone` the only extra.
 
+### The HR workbook's "Former Employees" tab mixes column layouts
+- **Problem:** rows on that tab were pasted from the 2026, 2025 and 2022 profile tabs without realigning, so a fixed column index reads different fields per row. `scripts/import_roster.py` (former employees: cols 23/24 → `pto_used`/`pto_available`) loaded CE budgets (250/500/1000) and benefits $/month and $/year (123.66/1483.92) as PTO days for 29 people.
+- **Fix:** identify each row's layout before reading: 2026 = CE at cols 23–25 (compliance booleans from 26); 2025 = benefits Y/N at 23, CE at 24–26; 2022 = benefits Y/N at col b (20–22), $/month b+1, $/year b+2, CE b+3..b+5. Sanity-check each row (CE remaining = budget − used). Header-pattern matching (`src/lib/sheets/hr-roster.ts`) is only safe on the 2026 tab.
+- **Evidence:** 2026-10-14 — all 29 rows matched one of the three layouts; corrected in production (owner decision), then 0249 added whole-day CHECKs on the balances.
+
 ### Production's applied-log is incomplete — always pass `--from`
 - **Problem:** `.secrets/applied-uekumyupkhnpjpdcjfxb.log` lists only ~30 files, so `ALLOW_PROD=1 … apply_migrations.sh` without `--from` would replay ~225 already-applied migrations against production.
 - **Fix:** `ALLOW_PROD=1 SUPABASE_PROJECT_REF=<prod> scripts/apply_migrations.sh --from 0NNN --dry-run`, check it lists only the new file(s), then run without `--dry-run`.

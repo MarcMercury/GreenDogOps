@@ -13,17 +13,12 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 ### PTO annual cycle (Jan 1 grant, tenure step-up, year-end payout)
 - **Why:** since 0246 Ops keeps the PTO balance current from approvals, but nothing yet resets it on Jan 1, adds the +2-day tenure step-up, prorates a new hire's first year or computes the Dec 31 / separation payout (plan §H, D8a–D8e).
 - **Scope:** pure rules in `src/lib/pto/**` + an idempotent Jan 1 job (agent_run) writing through `person_employment` so `pto_ledger` records it; `pto_eligible` flag; the 5-day sick-leave floor warning. Must land before 2027-01-01.
-- **Risk:** medium (pay-affecting; needs Payroll/HR sign-off of the rules page, item 26).
+- **Risk:** medium (pay-affecting).
 
 ### The schedule grid approves PTO without asking how many days
 - **Why:** since 0246 an approval deducts `coalesce(pto_days, end_date − start_date + 1)` for kind `pto`/`vacation`. `/schedule/time-off` (`reviewPtoRequest`) lets the approver set `pto_days`, kind and a note, and only decides `requested` rows; the grid's Approve/Deny (`setTimeOffStatus` in `schedule/actions.ts`, moved to `scheduling-grid/actions/time-off-actions.ts` on the scheduling refactor branch) sets only `status`, so a grid approval deducts every calendar day, weekends included. Reversals refund correctly (the trigger applies deltas). Verified 2026-10-14: 0246 is live in production.
 - **Scope:** one shared approval function (owned by the PTO feature) that both paths call; the grid either asks for days or sends the approver to `/schedule/time-off`. Do it after the scheduling refactor merges, in its structure (`docs/agent/contributing-scheduling.md`).
 - **Risk:** medium (pay-affecting balance).
-
-### Legacy PTO balances hold non-day values (29 profiles)
-- **Why:** in production 29 `person_employment` rows have `pto_used` / `pto_available` of 250, 500, 1483.92 or 123.66 "days" (8 fractional) — they look like CE dollar amounts that landed in the PTO columns from the old HR sheet import (the sheet sync no longer writes PTO, 0246). None has a tracked approved request. They show on My PTO, HR and Ziggy as real balances, and block a whole-day CHECK on these two columns (0248 constrains only requests and the allotment).
-- **Scope:** HR supplies the correct whole-day balances (or confirms clearing them); apply through the HR profile so `pto_ledger` records each change; then add `pto_used/pto_available = trunc(...)` CHECKs in a migration.
-- **Risk:** low technically; it changes HR records, so it needs HR's numbers and explicit authorization.
 
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.
@@ -61,7 +56,7 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 ### Stored annual wages drift from current rate (Ask Ziggy + HR profile)
 - **Why:** `person_employment.annual_wages` / `biweekly_wage` are not recalculated when HR changes `current_rate` (4 active employees disagree as of 2026-10-14). Emp Reporting now reads `current_rate`, but Ask Ziggy's prompt (`src/lib/reporting/smart.ts`) still says `annual_wages` is the only pay column to rank on, and the HR profile summary (`hr/[id]/employee-summary.tsx`) shows `offer_title` before `adp_job_title` as "Job title".
 - **Scope:** either recompute `annual_wages`/`biweekly_wage` when `current_rate` changes (needs HR to confirm hours for part-timers) or point Ziggy at the same rule as `annualizeSalary`; align the profile's title order with the roster grid.
-- **Risk:** medium (touches compensation records — needs HR sign-off before any backfill).
+- **Risk:** medium (touches compensation records; the owner decides any backfill).
 
 ### Reliability v2 and attendance overrides from Time & Attendance
 - **Why:** automatic attendance (item 16) maps grades onto the existing statuses and the old weight table (late = 0.6 regardless of minutes). The plan's v2 deducts by severity (late 1–10 min = −1 … no-call/no-show = −15, reduced when excused) over a rolling window. Managers also override only from the grid's attendance menu, not from the dashboard row.
