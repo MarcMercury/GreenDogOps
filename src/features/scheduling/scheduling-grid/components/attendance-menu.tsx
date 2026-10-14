@@ -11,6 +11,15 @@ import {
   type SchedAssignment,
   type SchedPerson,
 } from "@/lib/schedule/types";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 /** Attendance marking menu for one published shift. */
 export function AttendanceMenu({
@@ -25,58 +34,53 @@ export function AttendanceMenu({
   systemStatus?: AttendanceStatus;
   person: SchedPerson | undefined;
   onClose: () => void;
-  onMark: (status: AttendanceStatus, note: string | null) => void;
+  onMark: (status: AttendanceStatus, note: string | null) => void | Promise<unknown>;
 }) {
   const [note, setNote] = useState(assignment.attendance_note ?? "");
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-sm rounded-xl bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 p-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800">
-              {person ? gridName(person) : "Attendance"}
-            </h3>
-            <p className="text-xs text-slate-500">
-              Current:{" "}
-              <span className="font-medium">
-                {ATTENDANCE_LABELS[effectiveAttendance(assignment, true, undefined, systemStatus)]}
-              </span>
-              {systemStatus && assignment.attendance_status === "scheduled" ? (
-                <span className="text-slate-400"> · from the time clock</span>
-              ) : null}
-            </p>
-          </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            ✕
-          </button>
-        </div>
-        <div className="space-y-3 p-4">
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{person ? gridName(person) : "Attendance"}</DialogTitle>
+          <DialogDescription>
+            Current:{" "}
+            <span className="font-medium text-foreground">
+              {ATTENDANCE_LABELS[effectiveAttendance(assignment, true, undefined, systemStatus)]}
+            </span>
+            {systemStatus && assignment.attendance_status === "scheduled" ? (
+              <span> · from the time clock</span>
+            ) : null}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {/* The statuses keep their attendance colours — the chips are the legend. */}
           <div className="grid grid-cols-2 gap-2">
             {MARKABLE_ATTENDANCE.map((s) => (
               <button
                 key={s}
-                onClick={() => onMark(s, note.trim() || null)}
-                className={`rounded-lg px-2 py-2 text-xs font-semibold ${ATTENDANCE_TONE[s]} ring-1 ring-inset ring-black/5 hover:opacity-80`}
+                type="button"
+                onClick={() => void onMark(s, note.trim() || null)}
+                className={`rounded-lg px-2 py-2 text-xs font-semibold ${ATTENDANCE_TONE[s]} ring-1 ring-inset ring-black/5 transition hover:opacity-80`}
               >
                 {ATTENDANCE_LABELS[s]}
               </button>
             ))}
           </div>
-          <textarea
+          <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Optional note…"
             rows={2}
-            className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
           />
-          <button
-            onClick={() => onMark("scheduled", note.trim() || null)}
-            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50"
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => void onMark("scheduled", note.trim() || null)}
           >
             Clear marking (assume Present)
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

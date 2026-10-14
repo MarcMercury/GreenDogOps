@@ -1,12 +1,14 @@
 "use server";
 
 import { ensureCanEdit } from "@/lib/auth/session";
-import { parseForm } from "@/lib/validation/form";
+import { parseInput } from "@/lib/validation/form";
 import type { ActionResult } from "@/features/scheduling/shared/types/action-result";
 import { revalidateSchedulePaths } from "@/features/scheduling/shared/server/revalidate-schedule";
 import {
   apptTypeDeptSchema,
   apptTypeReportTrackSchema,
+  type ApptTypeDeptValues,
+  type ApptTypeReportTrackValues,
 } from "@/features/scheduling/setup/schema/appt-type.schema";
 import { upsertApptTypeDept } from "@/features/scheduling/setup/db/upsert-appt-type-dept";
 import { upsertApptTypeReportTrack } from "@/features/scheduling/setup/db/upsert-appt-type-report-track";
@@ -19,11 +21,11 @@ import { upsertApptTypeReportTrack } from "@/features/scheduling/setup/db/upsert
  * Assign an ezyVet appointment type to a schedule department (or ignore it).
  * Upserts by appt_type so newly-observed types create a row on first save.
  */
-export async function saveApptTypeDept(formData: FormData): Promise<ActionResult> {
+export async function saveApptTypeDept(input: ApptTypeDeptValues): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
 
-  const parsed = parseForm(apptTypeDeptSchema, formData);
+  const parsed = parseInput(apptTypeDeptSchema, input);
   if (!parsed.ok) return parsed;
   const v = parsed.data;
 
@@ -42,12 +44,12 @@ export async function saveApptTypeDept(formData: FormData): Promise<ActionResult
  * Slack report. Blank clears it (the type stops being counted there).
  */
 export async function saveApptTypeReportTrack(
-  formData: FormData,
+  input: ApptTypeReportTrackValues,
 ): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
 
-  const parsed = parseForm(apptTypeReportTrackSchema, formData);
+  const parsed = parseInput(apptTypeReportTrackSchema, input);
   if (!parsed.ok) return parsed;
   const v = parsed.data;
 

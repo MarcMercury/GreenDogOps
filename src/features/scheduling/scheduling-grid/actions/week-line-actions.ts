@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { ensureCanEdit } from "@/lib/auth/session";
-import { parseForm, parseInput } from "@/lib/validation/form";
+import { parseInput } from "@/lib/validation/form";
 import { DEFAULT_WEEK_TEMPLATE } from "@/lib/schedule/default-template";
 import type { ActionResult } from "@/features/scheduling/shared/types/action-result";
 import { revalidateSchedulePaths } from "@/features/scheduling/shared/server/revalidate-schedule";
@@ -12,6 +12,8 @@ import {
   removeWeekLineSchema,
   updateWeekLineSchema,
   weekLinesForWeekSchema,
+  type AddWeekLineValues,
+  type UpdateWeekLineValues,
 } from "@/features/scheduling/scheduling-grid/schema/week-line.schema";
 import { countShiftTemplates } from "@/features/scheduling/scheduling-grid/db/count-shift-templates";
 import { deleteWeekLine } from "@/features/scheduling/scheduling-grid/db/delete-week-line";
@@ -27,11 +29,11 @@ import { insertWeekLines } from "@/features/scheduling/scheduling-grid/db/insert
 import { updateWeekLineRow } from "@/features/scheduling/scheduling-grid/db/update-week-line-row";
 
 /** Add an ad-hoc shift line to a week (not derived from a template). */
-export async function addWeekLine(formData: FormData): Promise<ActionResult> {
+export async function addWeekLine(input: AddWeekLineValues): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
 
-  const parsed = parseForm(addWeekLineSchema, formData);
+  const parsed = parseInput(addWeekLineSchema, input);
   if (!parsed.ok) return parsed;
   const v = parsed.data;
 
@@ -57,11 +59,11 @@ export async function addWeekLine(formData: FormData): Promise<ActionResult> {
 }
 
 /** Edit an existing shift line on a week's grid. */
-export async function updateWeekLine(formData: FormData): Promise<ActionResult> {
+export async function updateWeekLine(input: UpdateWeekLineValues): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
 
-  const parsed = parseForm(updateWeekLineSchema, formData);
+  const parsed = parseInput(updateWeekLineSchema, input);
   if (!parsed.ok) return parsed;
   const v = parsed.data;
 

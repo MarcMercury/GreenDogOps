@@ -5,7 +5,7 @@ import { formatHours } from "@/features/scheduling/payroll/lib/hours";
 /** Collapsed per-day breakdown under an employee's name: hours by bucket plus each day's flags. */
 export function TimecardDayList({ days }: { days: DayResult[] }) {
   return (
-    <details className="mt-1 text-xs text-slate-500">
+    <details className="mt-1 text-xs text-muted-foreground">
       <summary className="cursor-pointer">{days.length} day(s)</summary>
       <ul className="mt-1 space-y-0.5">
         {days.map((d) => (

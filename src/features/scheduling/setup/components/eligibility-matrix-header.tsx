@@ -1,6 +1,9 @@
 "use client";
 
+import { XIcon } from "lucide-react";
 import type { SchedRole } from "@/lib/schedule/types";
+import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
   DeptGroup,
   MatrixColumn,
@@ -30,7 +33,7 @@ export function EligibilityMatrixHeader({
       <tr>
         <th
           rowSpan={2}
-          className="sticky left-0 top-0 z-40 min-w-[13rem] border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left text-xs font-semibold text-slate-600"
+          className="sticky left-0 top-0 z-40 min-w-[13rem] border-b border-r border-border bg-muted px-3 py-2 text-left text-xs font-semibold text-muted-foreground"
         >
           Employee
         </th>
@@ -43,7 +46,7 @@ export function EligibilityMatrixHeader({
                 rowSpan={2}
                 onClick={() => onToggleDept(g.dept.id)}
                 title={`Expand ${g.dept.name}`}
-                className="sticky top-0 z-30 cursor-pointer select-none border-b border-r border-slate-200 px-1 py-2 text-center align-middle text-white"
+                className="sticky top-0 z-30 cursor-pointer select-none border-b border-r border-border px-1 py-2 text-center align-middle text-white"
                 style={{ background: g.dept.color }}
               >
                 <div className="flex flex-col items-center gap-1">
@@ -64,7 +67,7 @@ export function EligibilityMatrixHeader({
               colSpan={Math.max(g.roles.length, 1)}
               onClick={() => onToggleDept(g.dept.id)}
               title={`Collapse ${g.dept.name}`}
-              className="sticky top-0 z-30 h-9 cursor-pointer select-none whitespace-nowrap border-b border-r border-slate-200 px-3 text-center text-xs font-semibold text-white"
+              className="sticky top-0 z-30 h-9 cursor-pointer select-none whitespace-nowrap border-b border-r border-border px-3 text-center text-xs font-semibold text-white"
               style={{ background: g.dept.color }}
             >
               <span className="inline-flex items-center gap-1">
@@ -82,7 +85,7 @@ export function EligibilityMatrixHeader({
             return (
               <th
                 key={`empty-${col.deptId}`}
-                className="sticky top-9 z-30 min-w-[7rem] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center align-bottom text-[11px] font-normal italic text-slate-400"
+                className="sticky top-9 z-30 min-w-[7rem] whitespace-nowrap border-b border-r border-border bg-muted px-2 py-2 text-center align-bottom text-[11px] font-normal italic text-muted-foreground"
               >
                 No roles yet
               </th>
@@ -91,20 +94,29 @@ export function EligibilityMatrixHeader({
           return (
             <th
               key={col.role.id}
-              className="group sticky top-9 z-30 min-w-[3.5rem] whitespace-nowrap border-b border-r border-slate-200 bg-slate-50 px-2 py-2 text-center align-bottom text-[11px] font-medium text-slate-600"
+              className="group sticky top-9 z-30 min-w-[3.5rem] whitespace-nowrap border-b border-r border-border bg-muted px-2 py-2 text-center align-bottom text-[11px] font-medium text-muted-foreground"
             >
               <div className="flex items-center justify-center gap-1">
                 <span>{col.role.name}</span>
                 {!col.role.id.startsWith("__") && (
-                  <button
-                    type="button"
-                    onClick={() => onRemoveRole(col.role)}
-                    disabled={pending}
-                    title="Delete role"
-                    className="text-slate-300 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
-                  >
-                    ✕
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          disabled={pending}
+                          onClick={() => onRemoveRole(col.role)}
+                          aria-label={`Delete role ${col.role.name}`}
+                          className="text-muted-foreground opacity-0 transition hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                        />
+                      }
+                    >
+                      <XIcon />
+                    </TooltipTrigger>
+                    <TooltipContent>Delete role</TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             </th>

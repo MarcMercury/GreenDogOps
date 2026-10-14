@@ -7,6 +7,7 @@ import {
   type SchedWeek,
   type ScheduleLocation,
 } from "@/lib/schedule/types";
+import { Badge } from "@/components/ui/badge";
 import { LocationToggles } from "@/features/scheduling/scheduling-grid/components/location-toggles";
 import { UnpublishedBanner } from "@/features/scheduling/scheduling-grid/components/unpublished-banner";
 import { WeekPicker } from "@/features/scheduling/scheduling-grid/components/week-picker";
@@ -18,7 +19,7 @@ export function GridToolbar({
   weeks,
   availableLocations,
   enabled,
-  setEnabled,
+  onToggleLocation,
   templateMode = false,
   templates = [],
   onPrintGrid,
@@ -30,7 +31,7 @@ export function GridToolbar({
   weeks: SchedWeek[];
   availableLocations: ScheduleLocation[];
   enabled: Set<string>;
-  setEnabled: (s: Set<string>) => void;
+  onToggleLocation: (id: string) => void;
   templateMode?: boolean;
   templates?: SchedWeek[];
   onPrintGrid: () => void;
@@ -38,13 +39,6 @@ export function GridToolbar({
   onExportCsv: () => void;
   onStatus: (s: SchedWeek["status"]) => void;
 }) {
-  function toggle(id: string) {
-    const next = new Set(enabled);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setEnabled(next);
-  }
-
   return (
     <div className="space-y-3 print:hidden">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -53,16 +47,14 @@ export function GridToolbar({
             {templateMode ? "Week Template" : formatWeekRange(week.week_start)}
           </h1>
           {templateMode ? (
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-muted-foreground">
               Populate this reusable template with shifts and staffing, then apply
               it to any week from the Grid tab.
             </p>
           ) : (
-            <span
-              className={`mt-1 inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${SCHEDULE_STATUS_TONE[week.status]}`}
-            >
+            <Badge variant="secondary" className={`mt-1 ${SCHEDULE_STATUS_TONE[week.status]}`}>
               {SCHEDULE_STATUS_LABELS[week.status]}
-            </span>
+            </Badge>
           )}
         </div>
         {!templateMode && (
@@ -85,7 +77,7 @@ export function GridToolbar({
       <LocationToggles
         availableLocations={availableLocations}
         enabled={enabled}
-        onToggle={toggle}
+        onToggle={onToggleLocation}
       />
     </div>
   );

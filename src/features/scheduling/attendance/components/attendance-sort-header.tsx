@@ -1,5 +1,8 @@
 "use client";
 
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { TableHead } from "@/components/ui/table";
 import type { SortDir } from "@/features/scheduling/attendance/types/attendance-sort";
 
 /** A clickable column heading showing which way the table is sorted. */
@@ -16,24 +19,22 @@ export function AttendanceSortHeader({
   dir: SortDir;
   onClick: () => void;
 }) {
+  const Icon = active ? (dir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
   return (
-    <th
-      className={`px-3 py-2 font-medium ${
-        align === "center" ? "text-center" : "text-left"
-      }`}
+    <TableHead
+      aria-sort={active ? (dir === "asc" ? "ascending" : "descending") : "none"}
+      className={`h-9 px-1.5 ${align === "center" ? "text-center" : "text-left"}`}
     >
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="xs"
         onClick={onClick}
-        className={`inline-flex items-center gap-1 uppercase transition-colors hover:text-slate-600 ${
-          align === "center" ? "justify-center" : ""
-        } ${active ? "text-slate-700" : ""}`}
+        className={`uppercase ${active ? "text-foreground" : "text-muted-foreground"}`}
       >
         {label}
-        <span className="text-[0.65rem] leading-none">
-          {active ? (dir === "asc" ? "▲" : "▼") : "↕"}
-        </span>
-      </button>
-    </th>
+        <Icon aria-hidden className={active ? "" : "opacity-60"} />
+      </Button>
+    </TableHead>
   );
 }

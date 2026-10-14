@@ -1,11 +1,31 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import type { SchedDepartment } from "@/lib/schedule/types";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useAppForm } from "@/features/scheduling/shared/hooks/use-app-form";
+import { toastInvalidForm, toastResult } from "@/features/scheduling/shared/lib/action-toast";
+import { formValidator } from "@/features/scheduling/shared/lib/form-validator";
 import { saveDepartment } from "@/features/scheduling/setup/actions/department-actions";
+import { departmentFormDefaults } from "@/features/scheduling/setup/lib/department-form-defaults";
+import {
+  departmentSchema,
+  type DepartmentFormValues,
+} from "@/features/scheduling/setup/schema/department.schema";
 import { DeleteDeptButton } from "@/features/scheduling/scheduling-grid/components/delete-dept-button";
 
-/** Add or edit a department directly from the grid. */
+/**
+ * Add or edit a department directly from the grid. The full form (code,
+ * planning flag) lives in Set Up ▸ Departments; here only the name, colour
+ * and order are editable and the department stays active.
+ */
 export function DeptModal({
   dept,
   onClose,
@@ -15,93 +35,57 @@ export function DeptModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-
-  function submit(fd: FormData) {
-    setError(null);
-    if (dept) fd.set("id", dept.id);
-    start(async () => {
-      const res = await saveDepartment(fd);
-      if (!res.ok) setError(res.error);
-      else onDone();
-    });
-  }
+  const form = useAppForm({
+    defaultValues: { ...departmentFormDefaults(dept), is_active: true } as DepartmentFormValues,
+    validators: { onSubmit: formValidator<DepartmentFormValues>(departmentSchema) },
+    onSubmit: async ({ value }) => {
+      const res = toastResult(await saveDepartment(value), dept ? "Department saved" : "Department added");
+      if (res.ok) onDone();
+    },
+    onSubmitInvalid: toastInvalidForm,
+  });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <form
-        action={submit}
-        className="w-full max-w-sm space-y-3 rounded-xl bg-white p-4 shadow-xl"
-      >
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-800">
-            {dept ? "Edit department" : "Add department"}
-          </h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600"
-          >
-            ✕
-          </button>
-        </div>
-        <label className="block text-xs font-medium text-slate-500">
-          Name
-          <input
-            name="name"
-            defaultValue={dept?.name ?? ""}
-            required
-            placeholder="e.g. Surgery"
-            className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
-          />
-        </label>
-        <div className="flex gap-3">
-          <label className="block text-xs font-medium text-slate-500">
-            Color
-            <input
-              name="color"
-              type="color"
-              defaultValue={dept?.color ?? "#64748b"}
-              className="mt-1 block h-9 w-16 cursor-pointer rounded border border-slate-300"
-            />
-          </label>
-          <label className="block text-xs font-medium text-slate-500">
-            Order
-            <input
-              name="sort_order"
-              type="number"
-              defaultValue={dept?.sort_order ?? 9999}
-              className="mt-1 w-20 rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
-            />
-          </label>
-        </div>
-        <input type="hidden" name="is_active" value="on" />
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex items-center justify-between gap-2 pt-1">
-          {dept ? (
-            <DeleteDeptButton dept={dept} onDone={onDone} setError={setError} />
-          ) : (
-            <span />
-          )}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={pending}
-              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {dept ? "Save" : "Add"}
-            </button>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void form.handleSubmit();
+          }}
+          className="grid gap-4"
+        >
+          <DialogHeader>
+            <DialogTitle>{dept ? "Edit department" : "Add department"}</DialogTitle>
+            <DialogDescription>
+              Departments group the grid&apos;s shift lines and colour their sections.
+            </DialogDescription>
+          </DialogHeader>
+          <form.AppField name="name">
+            {(field) => <field.TextField label="Name" placeholder="e.g. Surgery" autoFocus />}
+          </form.AppField>
+          <div className="grid grid-cols-[6rem_1fr] gap-3">
+            <form.AppField name="color">
+              {(field) => <field.TextField label="Color" type="color" className="[&_input]:h-9 [&_input]:cursor-pointer" />}
+            </form.AppField>
+            <form.AppField name="sort_order">
+              {(field) => <field.TextField label="Order" type="number" />}
+            </form.AppField>
           </div>
-        </div>
-      </form>
-    </div>
+          <DialogFooter className={dept ? "sm:justify-between" : undefined}>
+            {dept ? <DeleteDeptButton dept={dept} onDone={onDone} /> : null}
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={onClose}>
+                Cancel
+              </Button>
+              <form.AppForm>
+                <form.SubmitButton>{dept ? "Save" : "Add"}</form.SubmitButton>
+              </form.AppForm>
+            </div>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

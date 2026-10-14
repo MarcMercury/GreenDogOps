@@ -1,8 +1,53 @@
 import { describe, expect, it } from "vitest";
-import { parseForm } from "@/lib/validation/form";
-import { shiftTemplateSchema } from "./shift-template.schema";
+import { parseForm, parseInput } from "@/lib/validation/form";
+import { NEW_ROLE_OPTION } from "@/features/scheduling/setup/lib/shift-template-submit";
+import {
+  shiftTemplateFormSchema,
+  shiftTemplateSchema,
+  type ShiftTemplateFormValues,
+} from "./shift-template.schema";
 
 const DEPT = "11111111-1111-4111-8111-111111111111";
+const ROLE = "22222222-2222-4222-8222-222222222222";
+
+const formValues: ShiftTemplateFormValues = {
+  id: null,
+  department_id: DEPT,
+  role_id: "",
+  new_role_name: "",
+  label: "",
+  start_time: "08:00",
+  end_time: "16:00",
+  sort_order: "0",
+};
+
+describe("shiftTemplateFormSchema (the form's client-side validator)", () => {
+  it("requires a name when “+ New role…” is chosen, on the new_role_name field", () => {
+    const res = shiftTemplateFormSchema.safeParse({ ...formValues, role_id: NEW_ROLE_OPTION });
+    expect(res.success).toBe(false);
+    if (!res.success) {
+      expect(res.error.issues.map((i) => [i.path.join("."), i.message])).toEqual([
+        ["new_role_name", "Give the new role a name."],
+      ]);
+    }
+  });
+
+  it("maps “+ New role…” to a blank role id with the typed name, as the action expects", () => {
+    const res = shiftTemplateFormSchema.safeParse({
+      ...formValues,
+      role_id: NEW_ROLE_OPTION,
+      new_role_name: " Clinic Tech ",
+    });
+    expect(res.success && res.data).toMatchObject({ role_id: null, new_role_name: "Clinic Tech", is_active: true });
+  });
+
+  it("drops a stale typed name when an existing role is chosen, and still applies the base rules", () => {
+    const res = shiftTemplateFormSchema.safeParse({ ...formValues, role_id: ROLE, new_role_name: "stale" });
+    expect(res.success && res.data).toMatchObject({ role_id: ROLE, new_role_name: null });
+    expect(shiftTemplateFormSchema.safeParse({ ...formValues, department_id: "" }).success).toBe(false);
+    expect(parseInput(shiftTemplateSchema, { ...formValues, role_id: ROLE }).ok).toBe(true);
+  });
+});
 
 function form(fields: Record<string, string>): FormData {
   const fd = new FormData();

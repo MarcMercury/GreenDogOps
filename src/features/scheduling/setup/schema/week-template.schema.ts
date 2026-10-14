@@ -18,3 +18,10 @@ export type DeleteTemplateInput = z.infer<typeof deleteTemplateSchema>;
 
 export const syncTemplateWeekSchema = z.object({ templateId });
 export type SyncTemplateWeekInput = z.infer<typeof syncTemplateWeekSchema>;
+
+/**
+ * The name box of the New / Rename / Duplicate template dialog
+ * (`PromptDialog` holds its text as `value`), with the same rule as the actions.
+ */
+export const templateNamePromptSchema = z.object({ value: templateName });
+export type TemplateNamePromptInput = z.infer<typeof templateNamePromptSchema>;

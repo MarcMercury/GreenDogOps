@@ -2,10 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { ensureCanEdit } from "@/lib/auth/session";
-import { parseForm, parseInput } from "@/lib/validation/form";
+import { parseInput } from "@/lib/validation/form";
 import type { ActionResult } from "@/features/scheduling/shared/types/action-result";
 import { revalidateSchedulePaths } from "@/features/scheduling/shared/server/revalidate-schedule";
-import { deleteRoleSchema, roleSchema } from "@/features/scheduling/setup/schema/role.schema";
+import {
+  deleteRoleSchema,
+  roleSchema,
+  type RoleFormValues,
+} from "@/features/scheduling/setup/schema/role.schema";
 import {
   setPersonRolesSchema,
   setRoleMembersSchema,
@@ -24,11 +28,15 @@ import { upsertStudentFlags } from "@/features/scheduling/setup/db/upsert-studen
 // SETUP — roles and who is eligible for them
 // ===========================================================================
 
-export async function saveRole(formData: FormData): Promise<ActionResult> {
+/**
+ * Add a role from the Add-role form's values. The browser already ran
+ * `roleSchema`; it runs again here because the browser is untrusted.
+ */
+export async function saveRole(input: RoleFormValues): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
 
-  const parsed = parseForm(roleSchema, formData);
+  const parsed = parseInput(roleSchema, input);
   if (!parsed.ok) return parsed;
   const { id, ...patch } = parsed.data;
 

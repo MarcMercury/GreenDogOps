@@ -1,6 +1,7 @@
 "use client";
 
 import { gridName, type SchedPerson } from "@/lib/schedule/types";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   eligibilityKey,
   type MatrixColumn,
@@ -23,7 +24,7 @@ export function EligibilityRow({
     <tr className="group">
       <th
         scope="row"
-        className="sticky left-0 z-20 whitespace-nowrap border-b border-r border-slate-200 bg-white px-3 py-1.5 text-left text-sm font-normal text-slate-800 group-hover:bg-emerald-50"
+        className="sticky left-0 z-20 whitespace-nowrap border-b border-r border-border bg-card px-3 py-1.5 text-left text-sm font-normal group-hover:bg-muted"
       >
         {gridName(p)}
       </th>
@@ -32,7 +33,7 @@ export function EligibilityRow({
           return (
             <td
               key={`${col.kind}-${col.deptId}`}
-              className="border-b border-r border-slate-100 bg-slate-50/60 group-hover:bg-emerald-50"
+              className="border-b border-r border-border/60 bg-muted/60 group-hover:bg-muted"
             />
           );
         }
@@ -41,15 +42,15 @@ export function EligibilityRow({
         return (
           <td
             key={r.id}
-            className="border-b border-r border-slate-100 px-2 py-1.5 text-center group-hover:bg-emerald-50"
+            className="border-b border-r border-border/60 px-2 py-1.5 text-center group-hover:bg-muted"
           >
-            <input
-              type="checkbox"
-              checked={checked}
-              onChange={() => onToggle(r.id, p.id)}
-              className="h-4 w-4 cursor-pointer accent-emerald-600"
-              aria-label={`${gridName(p)} eligible for ${r.name}`}
-            />
+            <div className="flex justify-center">
+              <Checkbox
+                checked={checked}
+                onCheckedChange={() => onToggle(r.id, p.id)}
+                aria-label={`${gridName(p)} eligible for ${r.name}`}
+              />
+            </div>
           </td>
         );
       })}

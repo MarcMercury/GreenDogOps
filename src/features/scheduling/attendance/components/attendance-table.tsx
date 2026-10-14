@@ -2,6 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { Empty, EmptyDescription, EmptyHeader } from "@/components/ui/empty";
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { reliabilityTone } from "@/lib/schedule/types";
 import { AttendanceFilters } from "@/features/scheduling/attendance/components/attendance-filters";
 import { AttendanceSortHeader } from "@/features/scheduling/attendance/components/attendance-sort-header";
@@ -51,10 +54,10 @@ export function AttendanceTable({
         onOnlyResolvedChange={setOnlyResolved}
       />
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase text-slate-400">
+      <div className="rounded-xl bg-card ring-1 ring-foreground/10">
+        <Table className="min-w-full">
+          <TableHeader>
+            <TableRow className="bg-muted/50 text-xs hover:bg-muted/50">
               <AttendanceSortHeader
                 label="Employee"
                 active={sortKey === "name"}
@@ -85,58 +88,62 @@ export function AttendanceTable({
                 dir={sortDir}
                 onClick={() => toggleSort("total")}
               />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200">
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {filtered.map((e) => (
-              <tr key={e.personId} className="hover:bg-slate-50/50">
-                <td className="px-3 py-2 font-medium text-slate-800">
-                  <Link
-                    href={`/hr/${e.personId}`}
-                    className="text-slate-800 hover:text-emerald-700 hover:underline"
-                    title="Open HR profile"
-                  >
-                    {e.name}
-                  </Link>
-                </td>
-                <td className="px-3 py-2 text-center">
-                  <span
-                    className={`text-sm font-bold ${reliabilityTone(e.score)}`}
-                  >
+              <TableRow key={e.personId}>
+                <TableCell className="px-3 font-medium text-foreground">
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Link
+                          href={`/hr/${e.personId}`}
+                          className="text-foreground hover:text-emerald-700 hover:underline"
+                        />
+                      }
+                    >
+                      {e.name}
+                    </TooltipTrigger>
+                    <TooltipContent>Open HR profile</TooltipContent>
+                  </Tooltip>
+                </TableCell>
+                <TableCell className="px-3 text-center">
+                  <span className={`text-sm font-bold ${reliabilityTone(e.score)}`}>
                     {e.score == null ? "—" : `${e.score}%`}
                   </span>
-                </td>
+                </TableCell>
                 {COLUMNS.map((c) => {
                   const v = e.tally[c.key];
                   return (
-                    <td
+                    <TableCell
                       key={c.key}
-                      className={`px-3 py-2 text-center ${
-                        v ? c.tone : "text-slate-300"
-                      }`}
+                      className={`px-3 text-center ${v ? c.tone : "text-muted-foreground/50"}`}
                     >
                       {v || "·"}
-                    </td>
+                    </TableCell>
                   );
                 })}
-                <td className="px-3 py-2 text-center text-slate-500">
+                <TableCell className="px-3 text-center text-muted-foreground">
                   {e.tally.total}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
             {filtered.length === 0 && (
-              <tr>
-                <td
-                  colSpan={COLUMNS.length + 3}
-                  className="px-3 py-10 text-center text-sm text-slate-400"
-                >
-                  No attendance recorded yet. Mark attendance from a published
-                  grid.
-                </td>
-              </tr>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={COLUMNS.length + 3} className="whitespace-normal p-0">
+                  <Empty className="py-10">
+                    <EmptyHeader>
+                      <EmptyDescription>
+                        No attendance recorded yet. Mark attendance from a published grid.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                </TableCell>
+              </TableRow>
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </div>
   );

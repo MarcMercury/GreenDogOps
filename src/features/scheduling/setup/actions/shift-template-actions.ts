@@ -2,12 +2,13 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { ensureCanEdit } from "@/lib/auth/session";
-import { parseForm, parseInput } from "@/lib/validation/form";
+import { parseInput } from "@/lib/validation/form";
 import type { ActionResult } from "@/features/scheduling/shared/types/action-result";
 import { revalidateSchedulePaths } from "@/features/scheduling/shared/server/revalidate-schedule";
 import {
   deleteShiftTemplateSchema,
   shiftTemplateSchema,
+  type ShiftTemplateFormValues,
 } from "@/features/scheduling/setup/schema/shift-template.schema";
 import { resolveRoleId } from "@/features/scheduling/setup/db/resolve-role-id";
 import { upsertShiftTemplate } from "@/features/scheduling/setup/db/upsert-shift-template";
@@ -17,13 +18,19 @@ import { deleteShiftTemplateRow } from "@/features/scheduling/setup/db/delete-sh
 // SETUP — Dept/Shift Template (the canonical shift lines)
 // ===========================================================================
 
+/**
+ * Create or update a template line from the form's (already mapped) values —
+ * `role_id` is an existing role id or blank, never the "+ New role…" marker.
+ * The browser already ran `shiftTemplateFormSchema`; the base schema runs
+ * again here because the browser is untrusted.
+ */
 export async function saveShiftTemplate(
-  formData: FormData,
+  input: ShiftTemplateFormValues,
 ): Promise<ActionResult> {
   const gate = await ensureCanEdit("schedule");
   if (!gate.ok) return gate;
 
-  const parsed = parseForm(shiftTemplateSchema, formData);
+  const parsed = parseInput(shiftTemplateSchema, input);
   if (!parsed.ok) return parsed;
   const v = parsed.data;
 

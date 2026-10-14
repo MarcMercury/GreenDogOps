@@ -3,7 +3,34 @@
 Work discovered but deliberately not done. Highest value first. Each entry:
 **why it matters**, **scope**, **risk**. Remove entries when done (mention the commit).
 
+## P2 — Scheduling UI stack follow-ups (2026-10-14)
+
+### Move the remaining scheduling tables onto TanStack Table
+- **Why:** the weekly grid is a `useTable` instance with its columns in `scheduling-grid/columns/`; the Attendance table (sorting + filter in `attendance/lib/filter-sort.ts`), Set Up ▸ Employees (`useTableSort`) and the payroll timecards still hand-roll sorting. One table model would let the `columns/` convention cover every list.
+- **Scope:** per table a `columns/` folder, `rowSortingFeature` / `globalFilteringFeature`, keep the pure tests. No data changes.
+- **Risk:** low.
+
+### Mount the toast container and tooltip provider app-wide
+- **Why:** `ScheduleProviders` mounts `ToastContainer` + `TooltipProvider` only under `/schedule/*`. As other modules adopt `useAction` / `toastResult`, the container belongs in the app shell — and the schedule one must then go, or messages show twice.
+- **Scope:** move the two providers to `src/app/(app)/layout.tsx` (or the app shell) and delete `schedule-providers.tsx`.
+- **Risk:** low.
+
+### Decide the shadcn theme tokens
+- **Why:** `globals.css` ships shadcn's neutral palette, so primary buttons are near-black; the scheduling screens keep emerald/sky/amber only where the colour is semantic (publish, approve, status). Setting `--primary` to the brand emerald in `globals.css` would restore the old look app-wide.
+- **Scope:** one token change plus a visual pass.
+- **Risk:** low.
+
+### Dense grid chips still use `title` hints
+- **Why:** assignment and PTO chips on the grid keep `title=` attributes instead of shadcn `Tooltip`s: a Tooltip per chip is hundreds of Base UI portals on a full week. Toolbar, header and dialog controls use `Tooltip`.
+- **Scope:** only if hover help on chips becomes a request; a single shared tooltip anchored on hover (one portal) would be the way.
+- **Risk:** low.
+
 ## P1 — Safety net
+
+### Make `@tanstack/react-form` an explicit dependency
+- **Why:** `src/features/scheduling/shared/hooks/use-app-form.ts`, `form-context.ts`, `prompt-dialog.tsx` and the form validator import `@tanstack/react-form` directly, but `package.json` lists only `@tanstack/react-form-nextjs`; the package resolves today because npm hoists it. A lockfile change could break the Vercel build.
+- **Scope:** `npm i @tanstack/react-form@^1.33.5` (same version already installed). Consider moving `shadcn` (the CLI) to `devDependencies`.
+- **Risk:** none.
 
 ### Roles added from Set Up between 2026-09-29 and 2026-10-13 may be inactive
 - **Why:** `de633bb` replaced `saveRole`'s `formData.has("is_active") ? … : true` with the plain `checkbox` helper, and the Add-role form never sends `is_active`, so every role created there was inserted with `is_active = false`. The eligibility matrix still showed them, but `getPersonEligibility` (HR profile) lists active roles only. Fixed in code on 2026-10-13 (`checkboxDefaultOn`, pinned by `src/features/scheduling/setup/schema/role.schema.test.ts`); the rows already written are not.

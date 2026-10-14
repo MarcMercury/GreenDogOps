@@ -24,6 +24,21 @@ export const departmentSchema = z.object({
 });
 export type DepartmentInput = z.infer<typeof departmentSchema>;
 
+/**
+ * What the department form holds before validation: strings as the inputs
+ * produce them, booleans for the two boxes. `departmentSchema` parses this
+ * shape in the browser (TanStack Form) and again inside `saveDepartment`.
+ */
+export interface DepartmentFormValues {
+  id: string | null;
+  name: string;
+  code: string;
+  color: string;
+  sort_order: string;
+  is_active: boolean;
+  show_in_planning: boolean;
+}
+
 export const deleteDepartmentSchema = z.object({
   id: requiredUuid("department id"),
 });

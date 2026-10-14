@@ -1,41 +1,33 @@
 "use client";
 
-import { useTransition } from "react";
 import type { SchedDepartment } from "@/lib/schedule/types";
+import { ActionButton } from "@/features/scheduling/shared/components/action-button";
 import { deleteDepartment } from "@/features/scheduling/setup/actions/department-actions";
 
 /** The confirm-then-delete control inside the department modal. */
 export function DeleteDeptButton({
   dept,
   onDone,
-  setError,
 }: {
   dept: SchedDepartment;
+  /** Closes the modal and refreshes the grid. */
   onDone: () => void;
-  setError: (s: string | null) => void;
 }) {
-  const [pending, start] = useTransition();
   return (
-    <button
-      type="button"
-      disabled={pending}
-      onClick={() => {
-        if (
-          !confirm(
-            `Delete department "${dept.name}"? Its roles and shift lines will be removed.`,
-          )
-        )
-          return;
-        setError(null);
-        start(async () => {
-          const res = await deleteDepartment(dept.id);
-          if (!res.ok) setError(res.error);
-          else onDone();
-        });
+    <ActionButton
+      variant="destructive"
+      action={() => deleteDepartment(dept.id)}
+      success="Department deleted"
+      confirm={{
+        title: `Delete department “${dept.name}”?`,
+        description: "Its roles and shift lines will be removed.",
+        confirmLabel: "Delete",
+        destructive: true,
       }}
-      className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+      refresh={false}
+      onSuccess={onDone}
     >
       Delete
-    </button>
+    </ActionButton>
   );
 }

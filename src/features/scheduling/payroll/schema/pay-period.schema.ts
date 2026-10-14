@@ -1,4 +1,4 @@
-import { requiredDate, z } from "@/lib/validation/form";
+import { requiredDate, requiredText, z } from "@/lib/validation/form";
 
 /** Locking names the period by its first day; the row itself is looked up by the action. */
 export const lockPayPeriodSchema = z.object({
@@ -18,3 +18,12 @@ export const reopenPayPeriodSchema = z.object({
 });
 
 export type ReopenPayPeriodInput = z.infer<typeof reopenPayPeriodSchema>;
+
+/**
+ * The reopen dialog's single field, checked in the browser before the action
+ * runs: a blank reason is refused where it is typed, with the same 500-character
+ * cap the action applies.
+ */
+export const reopenReasonSchema = z.object({
+  value: requiredText(500, "Reason"),
+});

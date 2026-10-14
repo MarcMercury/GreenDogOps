@@ -134,6 +134,29 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Application code
 
+### shadcn `base-nova` primitives built on Base UI hooks cannot render inside a server component
+- **Problem:** a server component rendering `<Badge>` (and likewise `Tooltip`, `Checkbox`, `Switch`, `Select`, `Dialog`) fails at render time; `tsc` passes and `next build` passes too because the route is dynamic and never rendered at build.
+- **Root cause:** `src/components/ui/badge.tsx` has no `"use client"` directive and calls Base UI's `useRender` (a hook) in the component body, so the hook runs in the server component's render. `Card`, `Table`, `Skeleton`, `Empty`, `Input`, `Textarea` and `NativeSelect` are plain elements and are fine; `Button` is fine without function props (`render={<Link/>}` is serialisable, `onClick` is not).
+- **Fix:** in a server component use the class string — `<span className={cn(badgeVariants({ variant: "outline" }), …)}>` — or make the leaf a `"use client"` file that receives plain data. Applied in `time-clock/components/queue-section.tsx`, `payroll/components/period-summary-card.tsx`, `payroll/components/timecard-row.tsx`, `time-attendance/components/date-nav.tsx`.
+- **Prevent:** before reporting, grep files without `"use client"` for `<Badge|<Tooltip|<Checkbox|<Switch|<Select|<Dialog` and for handlers passed to `<Button`.
+- **Evidence:** 2026-10-14, found by the attendance fork while converting `shift-status-cell.tsx`; `next build` exit 0 with the bug present.
+
+### `z.preprocess`-based schemas do not type-check as TanStack Form validators — wrap them
+- **Problem:** `useForm({ defaultValues: { name: "" }, validators: { onSubmit: departmentSchema } })` fails with TS2322 (`ZodObject<…> is not assignable to FormValidateOrFn<{ name: string; … }>`), while a plain `z.object({ name: z.string() })` is accepted.
+- **Root cause:** TanStack types a validator as `StandardSchemaV1<TFormData, unknown>`; our `src/lib/validation/form.ts` helpers wrap every field in `z.preprocess(blankToNull, …)`, whose *input* type is `unknown`, and `{ name: unknown }` is not assignable to `{ name: string }`.
+- **Fix:** `src/features/scheduling/shared/lib/form-validator.ts` — `formValidator<TValues>(schema)` is a typed cast; at runtime a Standard Schema validates anything and issue `path`s still map to fields (pinned by `form-validator.test.ts`). One schema serves the client and the action.
+- **Evidence:** 2026-10-14 probe file through `tsc` (probe A fails, probe B passes).
+
+### TanStack Table v9 (`@tanstack/react-table` 9.x) is not the v8 API
+- **Facts (verified in `node_modules`):** `useTable({ features, columns, data, initialState, … })` (not `useReactTable`); features are opt-in via `tableFeatures({ columnGroupingFeature, rowExpandingFeature, columnVisibilityFeature, groupedRowModel: createGroupedRowModel(), expandedRowModel: createExpandedRowModel(), columnMeta: {} as MyMeta })`; `createColumnHelper<typeof features, Row>()`; `table.FlexRender` / `flexRender` render function cells as components (hooks and context are fine inside); grouped row ids are `${columnId}:${value}`.
+- **Gotchas:** `groupedColumnMode` defaults to `"reorder"` (set `"remove"` to hide the grouping column); `autoResetExpanded` resets every group's expansion when `data` changes — with `router.refresh()` after each save that collapses the whole grid, so set `autoResetExpanded: false` (and `autoResetAll: false`); the expanded row model returns the collapsed model unless `paginateExpandedRows` is truthy, so set it explicitly. Vitest can import the pure helpers (`tableFeatures`, `createColumnHelper`).
+- **Where:** `src/features/scheduling/scheduling-grid/lib/grid-table-features.ts`, `components/grid/schedule-grid.tsx`.
+- **Evidence:** 2026-10-14 — `createExpandedRowModel.js` line 30–31 and `columnGroupingFeature.js` defaults; grid builds and type-checks.
+
+### react-toastify 11 injects its CSS; a container is still required
+- **Fact:** no `ReactToastify.css` import is needed (the styles are embedded in `dist/index.mjs`; `react-toastify/unstyled` opts out). Toasts render nowhere until a `<ToastContainer>` is mounted in a client component — `src/features/scheduling/shared/components/schedule-providers.tsx`, from the schedule layout. Mount it once app-wide later and remove the schedule one, or messages show twice.
+- **Evidence:** 2026-10-14, `grep -c Toastify__toast-container node_modules/react-toastify/dist/index.mjs` → 18.
+
 ### `checkbox` means "absent = unchecked" — wrong for a create form that never renders the box
 - **Problem:** roles added on Set Up ▸ Roles & Eligibility were inserted with `is_active = false` and disappeared from the HR profile's eligibility list (`getPersonEligibility` filters to active roles) while still showing in the matrix (`getSetupData` doesn't filter).
 - **Root cause:** `de633bb` (2026-09-29) replaced `is_active: formData.has("is_active") ? bool(…) : true` with the `checkbox` zod helper in `saveRole`. The Add-role form has no Active box, so the field is always absent → `false`. Departments were unaffected only because both department forms always send the field (the Setup form as a real checkbox, the grid's modal as a hidden `on`).

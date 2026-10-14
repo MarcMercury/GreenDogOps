@@ -1,9 +1,26 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Button } from "@/components/ui/button";
 import { addMissingPunch } from "@/features/scheduling/time-clock/actions/punch-actions";
-import { ActionStatus } from "@/features/scheduling/time-clock/components/action-status";
+import { addPunchFormDefaults } from "@/features/scheduling/time-clock/lib/add-punch-defaults";
+import {
+  addPunchSchema,
+  type AddPunchFormValues,
+} from "@/features/scheduling/time-clock/schema/add-punch.schema";
+import { useAppForm } from "@/features/scheduling/shared/hooks/use-app-form";
+import { toastInvalidForm, toastResult } from "@/features/scheduling/shared/lib/action-toast";
+import { formValidator } from "@/features/scheduling/shared/lib/form-validator";
+
+const PUNCH_OPTIONS = [
+  { value: "clock_in", label: "Clock in" },
+  { value: "lunch_start", label: "Start lunch" },
+  { value: "lunch_end", label: "End lunch" },
+  { value: "clock_out", label: "Clock out" },
+];
+
+const validator = formValidator<AddPunchFormValues>(addPunchSchema);
 
 /** Collapsed button that opens the "add the missing punch" form for one day. */
 export function AddPunchForm({
@@ -16,65 +33,63 @@ export function AddPunchForm({
   defaultType: "clock_in" | "clock_out";
 }) {
   const router = useRouter();
-  const [busy, start] = useTransition();
   const [open, setOpen] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const form = useAppForm({
+    // The employee and day are fixed by the queue row; they travel with the
+    // values so the action can check them like any other input.
+    defaultValues: addPunchFormDefaults(personId, workDate, defaultType),
+    validators: { onSubmit: validator },
+    onSubmit: async ({ value }) => {
+      const res = toastResult(await addMissingPunch(value), (r) => r.message);
+      if (res.ok) router.refresh();
+    },
+    onSubmitInvalid: toastInvalidForm,
+  });
+
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-      >
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
         Add the missing punch
-      </button>
+      </Button>
     );
   }
   return (
     <form
       className="space-y-2"
-      action={(fd) =>
-        start(async () => {
-          const res = await addMissingPunch(fd);
-          setResult(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error });
-          if (res.ok) router.refresh();
-        })
-      }
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void form.handleSubmit();
+      }}
     >
-      <input type="hidden" name="person_id" value={personId} />
-      <input type="hidden" name="work_date" value={workDate} />
-      <div className="flex flex-wrap gap-2">
-        <select name="punch_type" defaultValue={defaultType} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm">
-          <option value="clock_in">Clock in</option>
-          <option value="lunch_start">Start lunch</option>
-          <option value="lunch_end">End lunch</option>
-          <option value="clock_out">Clock out</option>
-        </select>
-        <input type="time" name="time" required className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm" />
-        <label className="flex items-center gap-1 text-xs text-slate-500">
-          <input type="checkbox" name="next_day" /> after midnight
-        </label>
+      <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+        <form.AppField name="punch_type">
+          {(field) => <field.NativeSelectField label="Punch" options={PUNCH_OPTIONS} />}
+        </form.AppField>
+        <form.AppField name="time">
+          {(field) => <field.TextField label="Time" type="time" />}
+        </form.AppField>
       </div>
-      <input
-        name="reason"
-        required
-        maxLength={1000}
-        placeholder="Reason (e.g. confirmed with the employee)"
-        className="w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm"
-      />
+      <form.AppField name="next_day">
+        {(field) => <field.CheckboxField label="after midnight" />}
+      </form.AppField>
+      <form.AppField name="reason">
+        {(field) => (
+          <field.TextField
+            label="Reason"
+            maxLength={1000}
+            placeholder="Reason (e.g. confirmed with the employee)"
+          />
+        )}
+      </form.AppField>
       <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={busy}
-          className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-        >
-          Add punch
-        </button>
-        <button type="button" onClick={() => setOpen(false)} className="px-2 text-xs text-slate-500 hover:text-slate-800">
+        <form.AppForm>
+          <form.SubmitButton size="sm">Add punch</form.SubmitButton>
+        </form.AppForm>
+        <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
           Cancel
-        </button>
+        </Button>
       </div>
-      <ActionStatus result={result} />
     </form>
   );
 }

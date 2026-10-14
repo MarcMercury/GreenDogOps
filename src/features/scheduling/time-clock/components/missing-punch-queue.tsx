@@ -1,6 +1,7 @@
 import { MISSING_PUNCH_LOOKBACK_DAYS, type MissingItem } from "@/lib/timeclock/review";
 import { PUNCH_LABELS } from "@/lib/timeclock/state";
 import { shortDateLabel } from "@/lib/worklist/dates";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { AddPunchForm } from "@/features/scheduling/time-clock/components/add-punch-form";
 import { QueueSection } from "@/features/scheduling/time-clock/components/queue-section";
 import { clockTime } from "@/features/scheduling/time-clock/server/clock-time";
@@ -10,17 +11,21 @@ export function MissingPunchQueue({ items, approver }: { items: MissingItem[]; a
   return (
     <QueueSection title="Missing punches" count={items.length} hint={`Last ${MISSING_PUNCH_LOOKBACK_DAYS} days`}>
       {items.length === 0 ? (
-        <p className="text-sm text-slate-500">Every shift has a clock-in and clock-out.</p>
+        <Empty className="border py-6">
+          <EmptyHeader>
+            <EmptyTitle>Every shift has a clock-in and clock-out.</EmptyTitle>
+          </EmptyHeader>
+        </Empty>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-border">
           {items.map((m) => (
             <li key={`${m.person_id}|${m.work_date}|${m.first_punch_at}`} className="grid gap-3 py-3 md:grid-cols-[1fr_18rem]">
               <div className="text-sm">
-                <p className="font-medium text-slate-900">
+                <p className="font-medium text-foreground">
                   {m.person_name} · {shortDateLabel(m.work_date)} ·{" "}
                   {m.status === "missing_clock_out" ? "No clock-out" : "No clock-in"}
                 </p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   First punch: {PUNCH_LABELS[m.first_punch_type]} at {clockTime(m.first_punch_at)}
                   {m.has_request ? " · the employee has asked for a correction (above)" : ""}
                 </p>

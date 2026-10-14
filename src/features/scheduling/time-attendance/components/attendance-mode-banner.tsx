@@ -8,7 +8,8 @@ import { shortDateLabel } from "@/lib/worklist/dates";
 export function AttendanceModeBanner({ settings }: { settings: AttendanceSettings }) {
   return (
     <p
-      className={`rounded-lg px-4 py-2.5 text-xs ${settings.liveFrom ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-600"}`}
+      role="status"
+      className={`rounded-lg px-4 py-2.5 text-xs ${settings.liveFrom ? "bg-emerald-50 text-emerald-800" : "bg-muted text-muted-foreground"}`}
     >
       {settings.liveFrom
         ? `Time-clock attendance counts from ${shortDateLabel(settings.liveFrom)}: unmarked shifts use these grades for reliability and the grid, and missed / late alerts are sent.`

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button";
 import { SUB_TABS } from "@/features/scheduling/setup/lib/sub-tabs";
 import type { SubTab } from "@/features/scheduling/setup/types/sub-tab";
 
@@ -12,19 +13,19 @@ export function SetupSubTabBar({
   onSelect: (tab: SubTab) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Set Up sections">
       {SUB_TABS.map((t) => (
-        <button
+        <Button
           key={t.key}
+          type="button"
+          role="tab"
+          aria-selected={active === t.key}
+          variant={active === t.key ? "default" : "outline"}
+          size="sm"
           onClick={() => onSelect(t.key)}
-          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            active === t.key
-              ? "bg-slate-900 text-white"
-              : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-          }`}
         >
           {t.label}
-        </button>
+        </Button>
       ))}
     </div>
   );

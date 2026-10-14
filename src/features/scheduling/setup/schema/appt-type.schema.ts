@@ -15,9 +15,22 @@ export const apptTypeDeptSchema = z.object({
 });
 export type ApptTypeDeptInput = z.infer<typeof apptTypeDeptSchema>;
 
+/** What the Department select sends: blank department = unassigned. */
+export interface ApptTypeDeptValues {
+  appt_type: string;
+  department_id: string;
+  is_ignored: boolean;
+}
+
 /** Which lane an appointment type is counted in on the Slack report; blank clears it. */
 export const apptTypeReportTrackSchema = z.object({
   appt_type: requiredText(200, "Appointment type"),
   report_track: optionalEnum(APPT_REPORT_TRACKS),
 });
 export type ApptTypeReportTrackInput = z.infer<typeof apptTypeReportTrackSchema>;
+
+/** What the Slack-lane select sends: blank lane = not reported. */
+export interface ApptTypeReportTrackValues {
+  appt_type: string;
+  report_track: string;
+}

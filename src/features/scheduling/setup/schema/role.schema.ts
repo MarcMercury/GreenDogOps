@@ -22,6 +22,17 @@ export const roleSchema = z.object({
 });
 export type RoleInput = z.infer<typeof roleSchema>;
 
+/**
+ * What the Add-role form holds: no `id` (roles are only created here) and no
+ * `is_active` (see above — absent means active). `roleSchema` parses it on the
+ * client and again in `saveRole`.
+ */
+export interface RoleFormValues {
+  department_id: string;
+  name: string;
+  sort_order: string;
+}
+
 export const deleteRoleSchema = z.object({
   id: requiredUuid("role id"),
 });

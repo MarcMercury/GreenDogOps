@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ChevronLeftIcon, ChevronRightIcon, CopyIcon, PlusIcon } from "lucide-react";
 import {
   formatWeekRange,
   weekStartFor,
@@ -10,6 +11,14 @@ import {
   type ScheduleStatus,
   type SchedWeek,
 } from "@/lib/schedule/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ConfirmDialog } from "@/features/scheduling/shared/components/confirm-dialog";
+import { useAction } from "@/features/scheduling/shared/hooks/use-action";
+import { toastError } from "@/features/scheduling/shared/lib/action-toast";
 import {
   applyWeekTemplate,
   copyPreviousWeek,
@@ -61,11 +70,11 @@ export function WeekPicker({
   templates?: SchedWeek[];
 }) {
   const router = useRouter();
-  const [pending, start] = useTransition();
+  const { run, pending } = useAction();
   const [newWeek, setNewWeek] = useState<string>(weekStartFor(new Date()));
-  const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
   const [templateId, setTemplateId] = useState<string>("");
+  const [confirmTemplate, setConfirmTemplate] = useState<{ id: string; name: string } | null>(null);
   const currentWeekStart = weekStartFor(new Date());
 
   // getWeeks() returns newest first; the rail reads left to right in time.
@@ -116,250 +125,253 @@ export function WeekPicker({
   function goToDate() {
     const ws = weekStartFor(new Date(`${newWeek}T00:00:00`));
     const match = ordered.find((w) => w.week_start === ws);
-    if (match) {
-      setError(null);
-      go(match.id);
-    } else {
-      setError(
-        `No week starting ${ws} yet — use “Create / open week” to add it.`,
-      );
-    }
+    if (match) go(match.id);
+    else toastError(`No week starting ${ws} yet — use “Create / open week” to add it.`);
   }
 
+  /** Create (or just open) the week containing the picked date, then navigate to it. */
   function create() {
     const ws = weekStartFor(new Date(`${newWeek}T00:00:00`));
-    setError(null);
-    start(async () => {
-      const res = await createWeek(ws);
-      if (res.ok && res.data) {
-        router.push(`/schedule?week=${res.data}`);
-        router.refresh();
-      } else if (!res.ok) {
-        setError(res.error);
-      }
+    void run(() => createWeek(ws), "Week opened", {
+      onSuccess: (r) => {
+        if (r.data) router.push(`/schedule?week=${r.data}`);
+      },
     });
   }
 
   function copyPrevious() {
     const ws = weekStartFor(new Date(`${newWeek}T00:00:00`));
-    setError(null);
-    start(async () => {
-      const res = await copyPreviousWeek(ws);
-      if (res.ok && res.data) {
-        router.push(`/schedule?week=${res.data}`);
-        router.refresh();
-      } else if (!res.ok) {
-        setError(res.error);
-      }
+    void run(() => copyPreviousWeek(ws), "Previous week copied", {
+      onSuccess: (r) => {
+        if (r.data) router.push(`/schedule?week=${r.data}`);
+      },
     });
   }
 
-  function useTemplate() {
+  function askToApplyTemplate() {
     if (!selectedId) {
-      setError("Open a week first, then apply a template to it.");
+      toastError("Open a week first, then apply a template to it.");
       return;
     }
     const chosen = templateId || templates[0]?.id;
     if (!chosen) {
-      setError("No templates saved yet — create one in Set Up › Week Template.");
+      toastError("No templates saved yet — create one in Set Up › Week Template.");
       return;
     }
     const name = templates.find((t) => t.id === chosen)?.title ?? "template";
-    if (
-      !window.confirm(
-        `Replace this week's shifts and staffing with “${name}”? Existing entries for this week will be overwritten.`,
-      )
-    )
-      return;
-    setError(null);
-    start(async () => {
-      const res = await applyWeekTemplate(selectedId, chosen);
-      if (res.ok) {
-        router.refresh();
-      } else {
-        setError(res.error);
-      }
-    });
+    setConfirmTemplate({ id: chosen, name });
   }
-
-  const stepBtn =
-    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-lg leading-none text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
 
   return (
     <div className="space-y-2 print:hidden">
       {/* Stepper and rail stay on one line; the rail scrolls rather than wrapping,
           which would otherwise strand the next-week arrow on its own row. */}
       <div className="flex items-center gap-2">
-        <button
-          onClick={() => prev && go(prev.id)}
-          disabled={!prev}
-          title={
-            prev
-              ? `Previous week — ${formatWeekRange(prev.week_start)}`
-              : "No earlier week"
-          }
-          aria-label="Previous week"
-          className={stepBtn}
-        >
-          ‹
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => prev && go(prev.id)}
+                disabled={!prev}
+                aria-label="Previous week"
+              />
+            }
+          >
+            <ChevronLeftIcon />
+          </TooltipTrigger>
+          <TooltipContent>
+            {prev ? `Previous week — ${formatWeekRange(prev.week_start)}` : "No earlier week"}
+          </TooltipContent>
+        </Tooltip>
 
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
           {rail.map((w) => {
             const isSelected = w.id === selectedId;
             const isThisWeek = w.week_start === currentWeekStart;
             return (
-              <button
-                key={w.id}
-                ref={isSelected ? selectedChip : undefined}
-                onClick={() => go(w.id)}
-                title={`${formatWeekRange(w.week_start)} · ${SCHEDULE_STATUS_LABELS[w.status]}`}
-                aria-current={isSelected ? "page" : undefined}
-                className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
-                  isSelected
-                    ? "border-slate-900 bg-slate-900 text-white"
-                    : isThisWeek
-                      ? "border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-                      : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                <span
-                  aria-hidden
-                  className={`h-1.5 w-1.5 shrink-0 rounded-full ${STATUS_DOT[w.status]}`}
-                />
-                {chipLabel(w.week_start)}
-              </button>
+              <Tooltip key={w.id}>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      ref={isSelected ? selectedChip : undefined}
+                      size="sm"
+                      variant={isSelected ? "default" : "outline"}
+                      onClick={() => go(w.id)}
+                      aria-current={isSelected ? "page" : undefined}
+                      className={`shrink-0 text-xs ${
+                        !isSelected && isThisWeek
+                          ? "border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                          : ""
+                      }`}
+                    />
+                  }
+                >
+                  <span
+                    aria-hidden
+                    className={`size-1.5 shrink-0 rounded-full ${STATUS_DOT[w.status]}`}
+                  />
+                  {chipLabel(w.week_start)}
+                </TooltipTrigger>
+                <TooltipContent>
+                  {formatWeekRange(w.week_start)} · {SCHEDULE_STATUS_LABELS[w.status]}
+                </TooltipContent>
+              </Tooltip>
             );
           })}
           {rail.length === 0 && (
-            <span className="px-2 text-xs text-slate-400">No weeks yet.</span>
+            <span className="px-2 text-xs text-muted-foreground">No weeks yet.</span>
           )}
         </div>
 
-        <button
-          onClick={() => next && go(next.id)}
-          disabled={!next}
-          title={
-            next
-              ? `Next week — ${formatWeekRange(next.week_start)}`
-              : "No later week"
-          }
-          aria-label="Next week"
-          className={stepBtn}
-        >
-          ›
-        </button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => next && go(next.id)}
+                disabled={!next}
+                aria-label="Next week"
+              />
+            }
+          >
+            <ChevronRightIcon />
+          </TooltipTrigger>
+          <TooltipContent>
+            {next ? `Next week — ${formatWeekRange(next.week_start)}` : "No later week"}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         {thisWeek && thisWeek.id !== selectedId && (
-          <button
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
             onClick={() => go(thisWeek.id)}
-            className="rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
           >
             This week
-          </button>
+          </Button>
         )}
 
         {selected && (
-          <span
-            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${SCHEDULE_STATUS_TONE[selected.status]}`}
-          >
+          <Badge variant="secondary" className={SCHEDULE_STATUS_TONE[selected.status]}>
             {SCHEDULE_STATUS_LABELS[selected.status]}
-          </span>
+          </Badge>
         )}
 
-        <button
-          onClick={() => setShowAll((v) => !v)}
-          aria-expanded={showAll}
-          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-        >
+        <Button size="sm" variant="outline" onClick={() => setShowAll((v) => !v)} aria-expanded={showAll}>
           {showAll ? "Hide list" : `All weeks (${ordered.length})`}
-        </button>
+        </Button>
       </div>
 
       {showAll && (
-        <select
+        <NativeSelect
           value={selectedId ?? ""}
           onChange={(e) => e.target.value && go(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium focus:border-emerald-500 focus:outline-none sm:w-auto"
+          aria-label="All weeks"
+          className="w-full sm:w-auto"
         >
-          <option value="">Select a week…</option>
+          <NativeSelectOption value="">Select a week…</NativeSelectOption>
           {[...ordered].reverse().map((w) => (
-            <option key={w.id} value={w.id}>
-              {formatWeekRange(w.week_start)} ·{" "}
-              {SCHEDULE_STATUS_LABELS[w.status]}
+            <NativeSelectOption key={w.id} value={w.id}>
+              {formatWeekRange(w.week_start)} · {SCHEDULE_STATUS_LABELS[w.status]}
               {w.week_start === currentWeekStart ? " · This week" : ""}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
+        </NativeSelect>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <input
+        <Input
           type="date"
           value={newWeek}
           onChange={(e) => setNewWeek(e.target.value)}
           aria-label="Week date"
-          className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+          className="w-auto"
         />
-        <button
-          onClick={goToDate}
-          title="Open the week containing this date"
-          className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
-        >
-          Go to week
-        </button>
+        <Tooltip>
+          <TooltipTrigger render={<Button variant="outline" onClick={goToDate} />}>
+            Go to week
+          </TooltipTrigger>
+          <TooltipContent>Open the week containing this date</TooltipContent>
+        </Tooltip>
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <button
-            onClick={copyPrevious}
-            disabled={pending}
-            title="Create the week and copy every shift, person, and time from the most recent prior week"
-            className="rounded-lg border border-emerald-600 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:opacity-50"
-          >
-            Copy previous week
-          </button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="outline"
+                  className="border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                  onClick={copyPrevious}
+                  disabled={pending}
+                />
+              }
+            >
+              <CopyIcon /> Copy previous week
+            </TooltipTrigger>
+            <TooltipContent>
+              Create the week and copy every shift, person, and time from the most recent prior week
+            </TooltipContent>
+          </Tooltip>
           {basePath === "/schedule" && templates.length > 0 && (
             <span className="flex items-center gap-1.5">
               {/* Only worth choosing between when there is more than one. */}
               {templates.length > 1 && (
-                <select
+                <NativeSelect
                   value={templateId || templates[0].id}
                   onChange={(e) => setTemplateId(e.target.value)}
                   aria-label="Template to apply"
-                  className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-sky-500 focus:outline-none"
                 >
                   {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
+                    <NativeSelectOption key={t.id} value={t.id}>
                       {t.title}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </select>
+                </NativeSelect>
               )}
-              <button
-                onClick={useTemplate}
-                disabled={pending || !selectedId}
-                title="Replace the open week's shifts and staffing with the chosen template"
-                className="rounded-lg border border-sky-600 px-3 py-1.5 text-sm font-medium text-sky-700 transition hover:bg-sky-50 disabled:opacity-50"
-              >
-                {templates.length > 1
-                  ? "Use template"
-                  : `Use “${templates[0].title}”`}
-              </button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="outline"
+                      className="border-sky-600 text-sky-700 hover:bg-sky-50"
+                      onClick={askToApplyTemplate}
+                      disabled={pending || !selectedId}
+                    />
+                  }
+                >
+                  {templates.length > 1 ? "Use template" : `Use “${templates[0].title}”`}
+                </TooltipTrigger>
+                <TooltipContent>
+                  Replace the open week&apos;s shifts and staffing with the chosen template
+                </TooltipContent>
+              </Tooltip>
             </span>
           )}
-          <button
-            onClick={create}
-            disabled={pending}
-            className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
-          >
-            + Create / open week
-          </button>
+          <Button onClick={create} disabled={pending} className="bg-emerald-600 text-white hover:bg-emerald-700">
+            <PlusIcon /> Create / open week
+          </Button>
         </div>
       </div>
 
-      {error && <p className="text-xs font-medium text-red-600">{error}</p>}
+      <ConfirmDialog
+        open={confirmTemplate !== null}
+        onOpenChange={(open) => !open && setConfirmTemplate(null)}
+        title={`Replace this week with “${confirmTemplate?.name ?? "template"}”?`}
+        description="This week's shifts and staffing will be overwritten with the template's."
+        confirmLabel="Replace week"
+        destructive
+        onConfirm={async () => {
+          if (selectedId && confirmTemplate) {
+            await run(() => applyWeekTemplate(selectedId, confirmTemplate.id), "Template applied");
+          }
+        }}
+      />
     </div>
   );
 }

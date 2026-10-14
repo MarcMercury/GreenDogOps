@@ -12,9 +12,9 @@ const TILES: { label: string; bucket: HoursBucket }[] = [
 /** Regular / overtime / double time / worked hours, summed across the period's timecards. */
 export function HoursTotals({ rows }: { rows: EmployeePeriod[] }) {
   return (
-    <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
       {TILES.map((t) => (
-        <div key={t.bucket} className="rounded-lg bg-slate-50 px-3 py-2">
+        <div key={t.bucket} className="rounded-lg bg-muted px-3 py-2">
           {t.label} <span className="block text-lg font-semibold tabular-nums">{formatHours(sumTotals(rows, t.bucket))}</span>
         </div>
       ))}

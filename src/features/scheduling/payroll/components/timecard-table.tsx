@@ -1,4 +1,7 @@
 import type { EmployeePeriod } from "@/lib/payroll/server";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Table, TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TimecardRow } from "@/features/scheduling/payroll/components/timecard-row";
 
 /** Every employee with time in the period, one row each; an empty state when nobody punched. */
@@ -14,30 +17,36 @@ export function TimecardTable({
   currentPersonId: string | null;
 }) {
   return (
-    <section className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <Card className="py-0">
       {rows.length === 0 ? (
-        <p className="p-6 text-sm text-slate-500">No time-clock punches in this pay period.</p>
+        <CardContent className="py-6">
+          <Empty className="border py-6">
+            <EmptyHeader>
+              <EmptyTitle>No time-clock punches in this pay period.</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
+        </CardContent>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-100 text-xs text-slate-400">
-            <tr>
-              <th className="px-4 py-2 font-medium">Employee</th>
-              <th className="px-2 py-2 text-right font-medium">Regular</th>
-              <th className="px-2 py-2 text-right font-medium">OT 1.5x</th>
-              <th className="px-2 py-2 text-right font-medium">DT 2x</th>
-              <th className="px-2 py-2 text-right font-medium">Meal prem.</th>
-              <th className="px-2 py-2 text-right font-medium">Rest prem.</th>
-              <th className="px-2 py-2 font-medium">Flags</th>
-              <th className="px-4 py-2 text-right font-medium">Approval</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
+        <Table>
+          <TableHeader className="text-xs text-muted-foreground">
+            <TableRow>
+              <TableHead className="px-4">Employee</TableHead>
+              <TableHead className="text-right">Regular</TableHead>
+              <TableHead className="text-right">OT 1.5x</TableHead>
+              <TableHead className="text-right">DT 2x</TableHead>
+              <TableHead className="text-right">Meal prem.</TableHead>
+              <TableHead className="text-right">Rest prem.</TableHead>
+              <TableHead>Flags</TableHead>
+              <TableHead className="px-4 text-right">Approval</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {rows.map((r) => (
               <TimecardRow key={r.person_id} row={r} periodStart={periodStart} open={open} currentPersonId={currentPersonId} />
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
-    </section>
+    </Card>
   );
 }

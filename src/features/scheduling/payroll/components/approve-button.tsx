@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { approveTimecard, unapproveTimecard } from "@/features/scheduling/payroll/actions/timecard-actions";
-import { ActionNote } from "@/features/scheduling/payroll/components/action-note";
-import type { ActionMessage } from "@/features/scheduling/payroll/types/action-message";
+import { ActionButton } from "@/features/scheduling/shared/components/action-button";
 
 /** Approve one employee's timecard, or withdraw the approval, while the period is open. */
 export function ApproveButton({
@@ -18,33 +16,26 @@ export function ApproveButton({
   personId: string;
   approved: boolean;
   disabled?: boolean;
+  /** Why the button is disabled (own timecard, blockers); shown as a tooltip. */
   title?: string;
 }) {
-  const router = useRouter();
-  const [busy, start] = useTransition();
-  const [msg, setMsg] = useState<ActionMessage>(null);
+  const button = (
+    <ActionButton
+      action={() => (approved ? unapproveTimecard(period, personId) : approveTimecard(period, personId))}
+      success={(r) => r.message}
+      variant={approved ? "outline" : "default"}
+      size="xs"
+      disabled={disabled}
+    >
+      {approved ? "Un-approve" : "Approve"}
+    </ActionButton>
+  );
+  if (!title) return button;
+  // A disabled button swallows pointer events, so the hint hangs off a wrapper.
   return (
-    <span className="inline-flex flex-col items-end gap-1">
-      <button
-        type="button"
-        disabled={busy || disabled}
-        title={title}
-        onClick={() =>
-          start(async () => {
-            const res = approved ? await unapproveTimecard(period, personId) : await approveTimecard(period, personId);
-            setMsg(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error });
-            router.refresh();
-          })
-        }
-        className={
-          approved
-            ? "rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-            : "rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-        }
-      >
-        {busy ? "…" : approved ? "Un-approve" : "Approve"}
-      </button>
-      <ActionNote msg={msg} />
-    </span>
+    <Tooltip>
+      <TooltipTrigger render={<span className="inline-flex" />}>{button}</TooltipTrigger>
+      <TooltipContent>{title}</TooltipContent>
+    </Tooltip>
   );
 }

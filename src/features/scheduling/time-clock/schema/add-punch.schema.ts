@@ -1,6 +1,20 @@
 import { checkbox, requiredUuid, z } from "@/lib/validation/form";
 
 /**
+ * What the "Add the missing punch" form holds and submits. The TanStack Form
+ * keeps every input as a string (the time stays "HH:MM"); the checkbox is the
+ * one boolean. The action parses this through `addPunchSchema`.
+ */
+export interface AddPunchFormValues {
+  person_id: string;
+  work_date: string;
+  punch_type: string;
+  time: string;
+  next_day: boolean;
+  reason: string;
+}
+
+/**
  * Shape of the "Add the missing punch" form. Only the employee id is checked
  * here; the date window, punch type, reason and time each have their own
  * message in the action ("Pick a date within the last 45 days.", "Pick which

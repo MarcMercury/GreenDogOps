@@ -12,6 +12,17 @@ import {
   type ScheduleLocation,
   type WeekTimeOff,
 } from "@/lib/schedule/types";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import type { CellKey } from "@/features/scheduling/scheduling-grid/types/grid";
 
 /** Eligible-employee picker: who can fill one shift line at one location on one day. */
@@ -180,64 +191,45 @@ export function EligiblePicker({
   const dayScheduled = scheduledByDay.get(cell.day) ?? new Set<string>();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="flex max-h-[80vh] w-full max-w-md flex-col rounded-xl bg-white shadow-xl">
-        <div className="border-b border-slate-200 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">
-                {line.label || roleName(line.role_id) || "Shift"}
-              </h3>
-              <p className="text-xs text-slate-500">
-                {DAY_LABELS[cell.day]} · {location.name} ·{" "}
-                {timeRange(line.start_time, line.end_time)}
-              </p>
-            </div>
-            <button
-              onClick={onClose}
-              className="text-slate-400 hover:text-slate-600"
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="flex max-h-[80vh] flex-col gap-3 sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{line.label || roleName(line.role_id) || "Shift"}</DialogTitle>
+          <DialogDescription>
+            {DAY_LABELS[cell.day]} · {location.name} · {timeRange(line.start_time, line.end_time)}
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          autoFocus
+          type="search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search eligible employees…"
+        />
+        {availableRoles.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            <Button
+              size="xs"
+              variant={roleFilter === null ? "default" : "secondary"}
+              className="rounded-full"
+              onClick={() => setRoleFilter(null)}
             >
-              ✕
-            </button>
-          </div>
-          <input
-            autoFocus
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search eligible employees…"
-            className="mt-3 w-full rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
-          />
-          {availableRoles.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1">
-              <button
-                onClick={() => setRoleFilter(null)}
-                className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
-                  roleFilter === null
-                    ? "bg-emerald-600 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
+              All
+            </Button>
+            {availableRoles.map((r) => (
+              <Button
+                key={r.name}
+                size="xs"
+                variant={roleFilter === r.name ? "default" : "secondary"}
+                className="rounded-full"
+                onClick={() => setRoleFilter((cur) => (cur === r.name ? null : r.name))}
               >
-                All
-              </button>
-              {availableRoles.map((r) => (
-                <button
-                  key={r.name}
-                  onClick={() =>
-                    setRoleFilter((cur) => (cur === r.name ? null : r.name))
-                  }
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
-                    roleFilter === r.name
-                      ? "bg-emerald-600 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  {r.name}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <ul className="flex-1 overflow-y-auto p-2">
+                {r.name}
+              </Button>
+            ))}
+          </div>
+        )}
+        <ul className="-mx-1 min-h-0 flex-1 overflow-y-auto px-1">
           {eligible.map((p) => {
             const s = settingByPerson.get(p.id);
             const count = weeklyCount.get(p.id) ?? 0;
@@ -247,16 +239,15 @@ export function EligiblePicker({
             const atTarget = count >= target;
             return (
               <li key={p.id}>
-                <button
+                <Button
+                  variant="ghost"
                   disabled={here}
                   onClick={() => onPick(p.id)}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition ${
-                    here
-                      ? "cursor-default bg-emerald-50 text-emerald-700"
-                      : "hover:bg-slate-50"
+                  className={`h-auto w-full justify-start gap-2 px-2 py-1.5 text-left font-normal ${
+                    here ? "bg-emerald-50 text-emerald-700 disabled:opacity-100" : ""
                   }`}
                 >
-                  <span className="flex-1 truncate text-slate-700">
+                  <span className="flex-1 truncate">
                     {gridName(p)}
                     {elsewhere && (
                       <span
@@ -270,53 +261,46 @@ export function EligiblePicker({
                   {here ? (
                     <span className="text-xs font-semibold">✓ added</span>
                   ) : (
-                    <span
-                      className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                        atTarget
-                          ? "bg-red-100 text-red-600"
-                          : "bg-slate-100 text-slate-500"
-                      }`}
+                    <Badge
+                      variant="secondary"
+                      className={atTarget ? "bg-red-100 text-red-600" : ""}
                       title="Shifts this week / target"
                     >
                       {count}/{target}
-                    </span>
+                    </Badge>
                   )}
-                </button>
+                </Button>
               </li>
             );
           })}
           {eligible.length === 0 && offToday.length === 0 && (
-            <li className="px-2 py-6 text-center text-xs text-slate-400">
-              No eligible employees. Assign people to this role in Set Up →
-              Roles & Eligibility.
+            <li className="px-2 py-6 text-center text-xs text-muted-foreground">
+              No eligible employees. Assign people to this role in Set Up → Roles & Eligibility.
             </li>
           )}
           {offToday.length > 0 && (
-            <li className="mt-1 border-t border-slate-100 pt-1">
-              <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+            <li className="mt-1 border-t pt-1">
+              <p className="px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Off this day — not schedulable
               </p>
               <ul>
                 {offToday.map(({ person, status }) => (
                   <li key={person.id}>
                     <div className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm opacity-70">
-                      <span className="flex-1 truncate text-slate-500 line-through">
+                      <span className="flex-1 truncate text-muted-foreground line-through">
                         {gridName(person)}
                       </span>
-                      <span
-                        className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                      <Badge
+                        variant="secondary"
+                        className={
                           status === "approved"
                             ? "bg-emerald-100 text-emerald-700"
                             : "bg-amber-100 text-amber-700"
-                        }`}
-                        title={
-                          status === "approved"
-                            ? "Approved time off"
-                            : "Pending time-off request"
                         }
+                        title={status === "approved" ? "Approved time off" : "Pending time-off request"}
                       >
                         {status === "approved" ? "Approved off" : "Pending off"}
-                      </span>
+                      </Badge>
                     </div>
                   </li>
                 ))}
@@ -324,15 +308,12 @@ export function EligiblePicker({
             </li>
           )}
         </ul>
-        <div className="border-t border-slate-200 p-3 text-right">
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50"
-          >
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
             Done
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

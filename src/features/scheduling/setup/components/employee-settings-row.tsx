@@ -8,13 +8,18 @@ import {
   type SchedEmployeeSetting,
   type SchedPerson,
 } from "@/lib/schedule/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { Switch } from "@/components/ui/switch";
+import { TableCell, TableRow } from "@/components/ui/table";
 import type { EmployeeSettingUpdate } from "@/features/scheduling/setup/types/employee-setting-update";
 import { effectiveEligibleLocationIds } from "@/features/scheduling/setup/lib/default-eligible-locations";
-import { inputCls } from "@/features/scheduling/setup/lib/ui-classes";
 
 /**
  * One employee's scheduling settings: weekly target, preferred location,
- * eligible-location and available-day chips, and the Scheduling Active box.
+ * eligible-location and available-day chips, and the Scheduling Active switch.
+ * Each control saves on its own (blur / change / click) and toasts.
  */
 export function EmployeeSettingsRow({
   person: p,
@@ -35,93 +40,85 @@ export function EmployeeSettingsRow({
 }) {
   const eligible = effectiveEligibleLocationIds(s, defaultEligibleLocIds);
   return (
-    <tr className={pending ? "opacity-70" : ""}>
-      <td className="py-2 pr-4 font-medium text-slate-800">
+    <TableRow className={pending ? "opacity-70" : undefined}>
+      <TableCell className="font-medium">
         <Link
           href={`/hr/${p.id}`}
-          className="text-slate-800 hover:text-emerald-700 hover:underline"
+          className="hover:text-primary hover:underline"
           title="Open HR profile"
         >
           {gridName(p)}
         </Link>
-      </td>
-      <td
-        className="py-2 pr-4 text-slate-600"
-        title="Schedule type — set in HR / Roster"
-      >
+      </TableCell>
+      <TableCell className="text-muted-foreground" title="Schedule type — set in HR / Roster">
         {p.schedule_type ?? "—"}
-      </td>
-      <td className="py-2 pr-4">
-        <input
+      </TableCell>
+      <TableCell>
+        <Input
           type="number"
           min={0}
           max={7}
           defaultValue={s?.weekly_shift_target ?? 5}
-          onBlur={(e) =>
-            onUpdate(p.id, { target: Number(e.target.value) })
-          }
-          className={`w-16 ${inputCls}`}
+          aria-label={`Weekly target for ${gridName(p)}`}
+          onBlur={(e) => onUpdate(p.id, { target: Number(e.target.value) })}
+          className="w-16"
         />
-      </td>
-      <td className="py-2 pr-4">
-        <select
+      </TableCell>
+      <TableCell>
+        <NativeSelect
+          size="sm"
           value={p.preferred_location_id ?? ""}
-          onChange={(e) =>
-            onUpdatePreferred(p.id, e.target.value || null)
-          }
-          className={inputCls}
+          onChange={(e) => onUpdatePreferred(p.id, e.target.value || null)}
+          aria-label={`Preferred location for ${gridName(p)}`}
           title="Employee's preferred work location"
         >
-          <option value="">—</option>
+          <NativeSelectOption value="">—</NativeSelectOption>
           {locations.map((l) => (
-            <option key={l.id} value={l.id}>
+            <NativeSelectOption key={l.id} value={l.id}>
               {l.short_code || l.name}
-            </option>
+            </NativeSelectOption>
           ))}
-        </select>
-      </td>
-      <td className="py-2 pr-4">
+        </NativeSelect>
+      </TableCell>
+      <TableCell className="whitespace-normal">
         <div className="flex flex-wrap gap-1">
           {locations.map((l) => {
             const on = eligible.includes(l.id);
             return (
-              <button
+              <Button
                 key={l.id}
                 type="button"
+                variant={on ? "default" : "outline"}
+                size="xs"
+                className="rounded-full"
                 onClick={() => {
                   const next = on
                     ? eligible.filter((x) => x !== l.id)
                     : [...eligible, l.id];
                   onUpdate(p.id, { eligibleLocs: next });
                 }}
-                className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition ${
-                  on
-                    ? "bg-emerald-600 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
-                title={
-                  on
-                    ? `Eligible at ${l.name}`
-                    : `Not eligible at ${l.name}`
-                }
+                title={on ? `Eligible at ${l.name}` : `Not eligible at ${l.name}`}
               >
                 {l.short_code || l.name}
-              </button>
+              </Button>
             );
           })}
         </div>
-        <p className="mt-1 text-[10px] text-slate-400">
+        <p className="mt-1 text-[10px] text-muted-foreground">
           None = any location
         </p>
-      </td>
-      <td className="py-2 pr-4">
+      </TableCell>
+      <TableCell className="whitespace-normal">
         <div className="flex flex-wrap gap-1">
           {DAY_SHORT.map((label, day) => {
             const on = (s?.available_days ?? []).includes(day);
             return (
-              <button
+              <Button
                 key={day}
                 type="button"
+                variant={on ? "default" : "outline"}
+                size="xs"
+                className="rounded-full"
                 onClick={() => {
                   const cur = s?.available_days ?? [];
                   const next = on
@@ -129,36 +126,31 @@ export function EmployeeSettingsRow({
                     : [...cur, day];
                   onUpdate(p.id, { days: next });
                 }}
-                className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium transition ${
-                  on
-                    ? "bg-emerald-600 text-white"
-                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                }`}
               >
                 {label}
-              </button>
+              </Button>
             );
           })}
         </div>
-        <p className="mt-1 text-[10px] text-slate-400">
+        <p className="mt-1 text-[10px] text-muted-foreground">
           None = any day
         </p>
-      </td>
-      <td className="py-2 pr-4">
-        <input
-          type="checkbox"
+      </TableCell>
+      <TableCell>
+        <Switch
           defaultChecked={s?.is_schedulable ?? false}
+          aria-label={`Scheduling Active for ${gridName(p)}`}
           title="Scheduling Active — also editable on the HR / Roster record"
-          onChange={(e) =>
+          onCheckedChange={(checked) =>
             onUpdate(
               p.id,
-              e.target.checked
+              checked
                 ? { schedulable: true }
                 : { schedulable: false, eligibleLocs: [] },
             )
           }
         />
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }

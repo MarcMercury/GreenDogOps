@@ -6,12 +6,15 @@ import { notifyPunchAdded } from "@/lib/notify/events/timeclock";
 import { localToInstant } from "@/lib/timeclock/local-time";
 import { TIME_CLOCK_TZ } from "@/lib/timeclock/server";
 import { isPunchType, PUNCH_LABELS } from "@/lib/timeclock/state";
-import { parseForm } from "@/lib/validation/form";
+import { parseInput } from "@/lib/validation/form";
 import { addDays, isIsoDate, todayInWorkTz } from "@/lib/worklist/dates";
 import { insertPunchAdjustment } from "@/features/scheduling/time-clock/db/insert-punch-adjustment";
 import { personExists } from "@/features/scheduling/time-clock/db/person-exists";
 import { ADD_PUNCH_WINDOW_DAYS } from "@/features/scheduling/time-clock/lib/constants";
-import { addPunchSchema } from "@/features/scheduling/time-clock/schema/add-punch.schema";
+import {
+  addPunchSchema,
+  type AddPunchFormValues,
+} from "@/features/scheduling/time-clock/schema/add-punch.schema";
 import { approverGate, notOwnTime } from "@/features/scheduling/time-clock/server/approver-gate";
 import { revalidateTimeClockPaths } from "@/features/scheduling/time-clock/server/revalidate-time-clock";
 import type { ApproverResult } from "@/features/scheduling/time-clock/types/approver-result";
@@ -19,10 +22,10 @@ import type { ApproverResult } from "@/features/scheduling/time-clock/types/appr
 // Approver action — see server/approver-gate.ts for the role and
 // no-own-time rules every Time Clock action applies.
 
-export async function addMissingPunch(formData: FormData): Promise<ApproverResult> {
+export async function addMissingPunch(input: AddPunchFormValues): Promise<ApproverResult> {
   const gate = await approverGate();
   if (!gate.ok) return gate;
-  const parsed = parseForm(addPunchSchema, formData);
+  const parsed = parseInput(addPunchSchema, input);
   if (!parsed.ok) return { ok: false, error: "Unknown employee." };
   const { person_id: personId, work_date: workDate, punch_type: punchType, time, next_day: nextDay } = parsed.data;
   const reason = parsed.data.reason.trim().slice(0, 1000);

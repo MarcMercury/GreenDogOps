@@ -1,5 +1,9 @@
 "use client";
 
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
 /** Search box and the "only with recorded attendance" cut, above the table. */
 export function AttendanceFilters({
   query,
@@ -14,20 +18,22 @@ export function AttendanceFilters({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <input
+      <Input
+        type="search"
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         placeholder="Search employees…"
-        className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"
+        aria-label="Search employees"
+        className="w-56"
       />
-      <label className="flex items-center gap-2 text-sm text-slate-600">
-        <input
-          type="checkbox"
+      <Label htmlFor="attendance-only-resolved" className="font-normal text-muted-foreground">
+        <Checkbox
+          id="attendance-only-resolved"
           checked={onlyResolved}
-          onChange={(e) => onOnlyResolvedChange(e.target.checked)}
+          onCheckedChange={(checked) => onOnlyResolvedChange(checked === true)}
         />
         Only with recorded attendance
-      </label>
+      </Label>
     </div>
   );
 }

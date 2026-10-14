@@ -16,6 +16,8 @@ thin composers: gate → load through `db/` → derive through `lib/` → render
 | `lib/` | Pure logic and constants (CSV builder, overlap check, template drift, rollups, selectors) | No React, no server imports. Every pure module has a `*.test.ts` beside it (vitest resolves `@/`; `server-only` modules cannot be imported by tests). |
 | `schema/` | Zod objects for the data an action accepts (`<domain>.schema.ts`, exporting `<name>Schema` and `<Name>Input`) | Built from `@/lib/validation/form` helpers. Shape-only: ids are uuids, days are 0–6, text has a cap. Business rules (no self-approval, date windows, duplicate names) stay in the action with their user-facing message. |
 | `server/` | Server-only helpers that are neither a query nor an action (role gates, `logChange`, path revalidation) | `import "server-only"` first. |
+| `hooks/` | Client hooks (`useGrid`, `useGridActions`, the shared `useAppForm` / `useAction`) | `"use client"` files; no server imports. |
+| `columns/` | TanStack Table column definitions (today: the scheduling grid) | One column (or one column factory) per file; `grid-columns.ts` assembles them and `ScheduleGrid` passes the result to `useTable`. |
 | `types/` | Route-specific TypeScript types (data shapes, UI models) | Row types shared with HR / Planning (`SchedWeek`, `SchedAssignment`, …) stay in `@/lib/schedule/types` — import them, never re-declare. |
 
 No barrel `index.ts` files: import the module you need by its full
@@ -49,6 +51,46 @@ Other modules that depend on these features (update them if a path changes):
 - `src/app/(app)/hr/[id]/*` — `attendance/db/get-person-attendance`, `setup/db/get-person-schedule-settings`, `setup/db/get-person-eligibility`, `setup/actions/role-actions`, `setup/actions/employee-setting-actions`, and their types.
 - `src/app/(app)/capacity/*` — `setup/db/get-setup-data`, `scheduling-grid/db/get-weeks` / `get-week-data` / `get-week-data-for` / `get-agenda-counts`, `scheduling-grid/components/week-picker`, `scheduling-grid/actions/planning-guide-actions`, `scheduling-grid/types/agenda-count`.
 - `src/app/(app)/planning/*` — `scheduling-grid/db/get-weeks`, `scheduling-grid/components/week-picker`.
+
+## UI stack
+
+- **shadcn/ui** (`@/components/ui/*`, generated with the `base-nova` style on
+  Base UI, `cn` from the `cn` package): `Button`, `Card`, `Dialog`,
+  `AlertDialog`, `Input`, `Textarea`, `NativeSelect`, `Checkbox`, `Switch`,
+  `Label`, `Field`, `Badge`, `Tooltip`, `Table`, `Skeleton`, `Spinner`,
+  `Empty`. Dense grid internals (the assignment chips, the PTO chips) keep
+  their own markup — a Tooltip per cell would be hundreds of portals.
+- **Server components may not render the hook-backed primitives** (`Badge`,
+  `Tooltip`, `Checkbox`, `Switch`, `Select`, `Dialog`): Base UI's `useRender`
+  runs in the component itself and fails at render time, which neither `tsc`
+  nor a dynamic-route `next build` catches. In a server component use the
+  class string (`badgeVariants({ variant })` on a `<span>`) or make the leaf a
+  `"use client"` file with plain props; `Button` is fine there as long as it
+  receives no handlers.
+- **Forms** go through TanStack Form via `shared/hooks/use-app-form`
+  (`useAppForm` + `form.AppField` + the registered `TextField` /
+  `TextareaField` / `NativeSelectField` / `CheckboxField` / `SubmitButton`).
+  The feature's zod schema is the validator — wrapped in
+  `formValidator<TValues>(schema)` because the `z.preprocess` helpers type
+  their input as `unknown` — and the Server Action re-parses it with
+  `parseInput`. Actions therefore take the form's value object, not `FormData`.
+- **Every database save toasts** (react-toastify, mounted by
+  `shared/components/schedule-providers.tsx` in the schedule layout):
+  `toastResult(result, message)` in a form's `onSubmit`, `useAction().run(...)`
+  for clicks and inline edits, `ActionButton` for one-action buttons (with an
+  optional confirmation), `toastInvalidForm()` from `onSubmitInvalid`.
+- **No `window.confirm` / `prompt` / `alert`**: `ConfirmDialog` and
+  `PromptDialog` in `shared/components/`.
+- **Every route has a `loading.tsx`** rendering the feature's
+  `components/<feature>-skeleton.tsx` (shadcn `Skeleton` +
+  `PageHeaderSkeleton`).
+- **The grid is a TanStack Table v9** (`scheduling-grid/columns/`,
+  `lib/grid-table-features.ts`): rows are shift lines grouped by department
+  (`columnGroupingFeature` + grouped / expanded row models — a group row is a
+  department section, its expansion state the collapse), columns are the
+  sticky `shift` column plus one group per day of one display column per
+  location, and the location toggles are column visibility. `autoResetExpanded`
+  is off (every save refreshes the data) and `groupedColumnMode` is `"remove"`.
 
 ## Why it is shaped this way
 

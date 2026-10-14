@@ -1,9 +1,12 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
 import type { SetupData } from "@/features/scheduling/setup/types/setup-data";
+import { useAppForm } from "@/features/scheduling/shared/hooks/use-app-form";
+import { toastInvalidForm, toastResult } from "@/features/scheduling/shared/lib/action-toast";
+import { formValidator } from "@/features/scheduling/shared/lib/form-validator";
 import { saveRole } from "@/features/scheduling/setup/actions/role-actions";
-import { btnPrimary, inputCls } from "@/features/scheduling/setup/lib/ui-classes";
+import { roleFormDefaults } from "@/features/scheduling/setup/lib/role-form-defaults";
+import { roleSchema, type RoleFormValues } from "@/features/scheduling/setup/schema/role.schema";
 
 /** Inline "department + new role / title + order" form under the matrix header. */
 export function AddRoleForm({
@@ -13,70 +16,51 @@ export function AddRoleForm({
   data: SetupData;
   onSaved: (departmentId: string) => void;
 }) {
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
-  const formRef = useRef<HTMLFormElement>(null);
-
-  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError(null);
-    const fd = new FormData(e.currentTarget);
-    const deptId = String(fd.get("department_id") ?? "");
-    start(async () => {
-      const res = await saveRole(fd);
-      if (!res.ok) {
-        setError(res.error);
-        return;
+  const form = useAppForm({
+    defaultValues: roleFormDefaults(),
+    validators: { onSubmit: formValidator<RoleFormValues>(roleSchema) },
+    onSubmit: async ({ value }) => {
+      const res = toastResult(await saveRole(value), "Role added");
+      if (res.ok) {
+        form.reset();
+        onSaved(value.department_id);
       }
-      formRef.current?.reset();
-      onSaved(deptId);
-    });
-  }
+    },
+    onSubmitInvalid: toastInvalidForm,
+  });
+
+  const departmentOptions = data.departments.map((d) => ({ value: d.id, label: d.name }));
 
   return (
     <form
-      ref={formRef}
-      onSubmit={handleSubmit}
-      className="mt-3 flex flex-wrap items-end gap-2 border-t border-slate-100 pt-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void form.handleSubmit();
+      }}
+      className="mt-3 flex flex-wrap items-end gap-2 border-t border-border pt-3"
     >
-      <label className="text-xs font-medium text-slate-500">
-        Department
-        <select
-          name="department_id"
-          required
-          defaultValue=""
-          className={`mt-1 block ${inputCls}`}
-        >
-          <option value="">Select…</option>
-          {data.departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="text-xs font-medium text-slate-500">
-        New role / title
-        <input
-          name="name"
-          required
-          placeholder="Surgery Tech"
-          className={`mt-1 block ${inputCls}`}
-        />
-      </label>
-      <label className="text-xs font-medium text-slate-500">
-        Order
-        <input
-          name="sort_order"
-          type="number"
-          defaultValue={0}
-          className={`mt-1 block w-20 ${inputCls}`}
-        />
-      </label>
-      <button type="submit" disabled={pending} className={btnPrimary}>
-        Add role
-      </button>
-      {error && <span className="text-xs text-red-600">{error}</span>}
+      <form.AppField name="department_id">
+        {(field) => (
+          <field.NativeSelectField
+            label="Department"
+            placeholder="Select…"
+            options={departmentOptions}
+            className="w-auto min-w-44"
+          />
+        )}
+      </form.AppField>
+      <form.AppField name="name">
+        {(field) => (
+          <field.TextField label="New role / title" placeholder="Surgery Tech" className="w-auto" />
+        )}
+      </form.AppField>
+      <form.AppField name="sort_order">
+        {(field) => <field.TextField label="Order" type="number" className="w-20" />}
+      </form.AppField>
+      <form.AppForm>
+        <form.SubmitButton>Add role</form.SubmitButton>
+      </form.AppForm>
     </form>
   );
 }

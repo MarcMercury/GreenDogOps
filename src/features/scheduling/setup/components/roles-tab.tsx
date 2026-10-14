@@ -1,9 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { gridName, type SchedRole } from "@/lib/schedule/types";
-import type { ActionResult } from "@/features/scheduling/shared/types/action-result";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import { ConfirmDialog } from "@/features/scheduling/shared/components/confirm-dialog";
+import { useAction } from "@/features/scheduling/shared/hooks/use-action";
 import type { SetupData } from "@/features/scheduling/setup/types/setup-data";
 import {
   deleteRole,
@@ -19,8 +23,6 @@ import {
   nextStudentFlags,
   schedulablePersonIds,
 } from "@/features/scheduling/setup/lib/eligibility";
-import { inputCls } from "@/features/scheduling/setup/lib/ui-classes";
-import { Card } from "@/features/scheduling/setup/components/card";
 import { AddRoleForm } from "@/features/scheduling/setup/components/add-role-form";
 import { EligibilityMatrixHeader } from "@/features/scheduling/setup/components/eligibility-matrix-header";
 import { EligibilityRow } from "@/features/scheduling/setup/components/eligibility-row";
@@ -31,10 +33,10 @@ import { EligibilityRow } from "@/features/scheduling/setup/components/eligibili
 
 export function RolesTab({ data }: { data: SetupData }) {
   const router = useRouter();
-  const [pending, start] = useTransition();
+  const { run, pending } = useAction();
   const [q, setQ] = useState("");
-  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(0);
+  const [roleToDelete, setRoleToDelete] = useState<SchedRole | null>(null);
   // Departments collapsed horizontally, keyed by department id. Default to all
   // departments collapsed so the matrix opens compact.
   const [collapsed, setCollapsed] = useState<Set<string>>(
@@ -82,48 +84,38 @@ export function RolesTab({ data }: { data: SetupData }) {
   async function toggle(roleId: string, personId: string) {
     const key = eligibilityKey(roleId, personId);
     const wasEligible = elig.has(key);
-    setError(null);
     setElig((prev) => {
       const next = new Set(prev);
       if (wasEligible) next.delete(key);
       else next.add(key);
       return next;
     });
-    setSaving((n) => n + 1);
-    let res: ActionResult;
-    if (isStudentFlagRole(roleId)) {
-      // Persist both student flags together; the flag not being toggled keeps
-      // its current value from the eligibility set.
-      const { mentor, coordinator } = nextStudentFlags(roleId, personId, wasEligible, elig);
-      res = await setStudentRoleFlags(personId, mentor, coordinator);
-    } else {
-      res = await toggleRoleMember(roleId, personId, !wasEligible);
-    }
-    setSaving((n) => n - 1);
-    if (!res.ok) {
-      // Revert on failure.
+    // Revert on failure.
+    const revert = () =>
       setElig((prev) => {
         const next = new Set(prev);
         if (wasEligible) next.add(key);
         else next.delete(key);
         return next;
       });
-      setError(res.error);
-    }
-  }
-
-  function removeRole(r: SchedRole) {
-    if (
-      !window.confirm(
-        `Delete role “${r.name}”? This clears every employee's eligibility for it.`,
-      )
-    )
-      return;
-    start(async () => {
-      const res = await deleteRole(r.id);
-      if (!res.ok) setError(res.error);
-      else router.refresh();
-    });
+    setSaving((n) => n + 1);
+    // The matrix is optimistic, so the page is not refreshed on success — a
+    // refresh would fight the next click; the toast confirms the save.
+    const options = { refresh: false, onError: revert };
+    const res = isStudentFlagRole(roleId)
+      ? // Persist both student flags together; the flag not being toggled keeps
+        // its current value from the eligibility set.
+        await run(
+          () => {
+            const { mentor, coordinator } = nextStudentFlags(roleId, personId, wasEligible, elig);
+            return setStudentRoleFlags(personId, mentor, coordinator);
+          },
+          "Eligibility saved",
+          options,
+        )
+      : await run(() => toggleRoleMember(roleId, personId, !wasEligible), "Eligibility saved", options);
+    if (!res) revert(); // the call itself threw (network); the toast already said so
+    setSaving((n) => n - 1);
   }
 
   function toggleDept(id: string) {
@@ -140,52 +132,54 @@ export function RolesTab({ data }: { data: SetupData }) {
   return (
     <div className="space-y-4">
       <Card>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-700">
-              Eligibility matrix
-            </h2>
-            <p className="mt-0.5 text-[11px] text-slate-400">
-              Check a box to make an employee eligible for a role. Changes save
-              instantly and mirror the HR profile &amp; schedule grid. Only
-              people marked Scheduling Active in HR / Roster are listed.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+        <CardHeader>
+          <CardTitle>Eligibility matrix</CardTitle>
+          <CardDescription>
+            Check a box to make an employee eligible for a role. Changes save
+            instantly and mirror the HR profile &amp; schedule grid. Only
+            people marked Scheduling Active in HR / Roster are listed.
+          </CardDescription>
+          <CardAction className="flex items-center gap-2">
             {saving > 0 && (
-              <span className="text-[11px] text-slate-400">Saving…</span>
+              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Spinner className="size-3" /> Saving…
+              </span>
             )}
-            <input
+            <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search employees…"
-              className={inputCls}
+              aria-label="Search employees"
+              className="w-56"
             />
-          </div>
-        </div>
-        <AddRoleForm
-          data={data}
-          onSaved={(deptId) => {
-            // Reveal the new column instead of burying it in a collapsed strip.
-            setCollapsed((prev) => {
-              const next = new Set(prev);
-              next.delete(deptId);
-              return next;
-            });
-            router.refresh();
-          }}
-        />
-        {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+          </CardAction>
+        </CardHeader>
+        <CardContent>
+          <AddRoleForm
+            data={data}
+            onSaved={(deptId) => {
+              // Reveal the new column instead of burying it in a collapsed strip.
+              setCollapsed((prev) => {
+                const next = new Set(prev);
+                next.delete(deptId);
+                return next;
+              });
+              router.refresh();
+            }}
+          />
+        </CardContent>
       </Card>
 
       {orderedRoles.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-400">
-            Add a role above to start assigning eligibility.
-          </p>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Add a role above to start assigning eligibility.
+            </p>
+          </CardContent>
         </Card>
       ) : (
-        <div className="relative max-h-[72vh] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="relative max-h-[72vh] overflow-auto rounded-xl bg-card ring-1 ring-foreground/10">
           <table className="border-separate border-spacing-0 text-sm">
             <thead>
               <EligibilityMatrixHeader
@@ -194,7 +188,7 @@ export function RolesTab({ data }: { data: SetupData }) {
                 collapsed={collapsed}
                 pending={pending}
                 onToggleDept={toggleDept}
-                onRemoveRole={removeRole}
+                onRemoveRole={setRoleToDelete}
               />
             </thead>
             <tbody>
@@ -211,7 +205,7 @@ export function RolesTab({ data }: { data: SetupData }) {
                 <tr>
                   <td
                     colSpan={colCount}
-                    className="px-3 py-6 text-center text-xs text-slate-400"
+                    className="px-3 py-6 text-center text-xs text-muted-foreground"
                   >
                     No Scheduling Active employees match your search.
                   </td>
@@ -221,6 +215,22 @@ export function RolesTab({ data }: { data: SetupData }) {
           </table>
         </div>
       )}
+
+      <ConfirmDialog
+        open={roleToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setRoleToDelete(null);
+        }}
+        title={`Delete role “${roleToDelete?.name ?? ""}”?`}
+        description="This clears every employee's eligibility for it."
+        confirmLabel="Delete"
+        destructive
+        onConfirm={() => {
+          const role = roleToDelete;
+          if (!role) return;
+          return run(() => deleteRole(role.id), "Role deleted");
+        }}
+      />
     </div>
   );
 }

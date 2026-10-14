@@ -1,75 +1,87 @@
 "use client";
 
+import { CopyIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import type { SchedWeek } from "@/lib/schedule/types";
-import { btnGhost } from "@/features/scheduling/setup/lib/ui-classes";
+import { Button } from "@/components/ui/button";
+import { ActionButton } from "@/features/scheduling/shared/components/action-button";
+import { deleteTemplate } from "@/features/scheduling/setup/actions/week-template-actions";
 
 /** The row of saved Week Templates plus the New / Rename / Duplicate / Delete controls. */
 export function TemplatePicker({
   templates,
   selectedTemplateId,
   selected,
-  pending,
   canEdit,
   onOpen,
   onCreate,
   onRename,
   onDuplicate,
-  onDelete,
 }: {
   templates: SchedWeek[];
   selectedTemplateId: string | null;
   /** The open template, when it is still in the list. */
   selected: SchedWeek | null;
-  pending: boolean;
   canEdit: boolean;
   onOpen: (templateId: string) => void;
   onCreate: () => void;
   onRename: (template: SchedWeek) => void;
   onDuplicate: (template: SchedWeek) => void;
-  onDelete: (template: SchedWeek) => void;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         Templates:
       </span>
       {templates.map((t) => (
-        <button
+        <Button
           key={t.id}
+          type="button"
+          variant={t.id === selectedTemplateId ? "default" : "outline"}
+          size="sm"
           onClick={() => onOpen(t.id)}
           aria-current={t.id === selectedTemplateId ? "page" : undefined}
-          className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-            t.id === selectedTemplateId
-              ? "bg-slate-900 text-white"
-              : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
-          }`}
         >
           {t.title}
-        </button>
+        </Button>
       ))}
-      <button
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="border-dashed"
         onClick={onCreate}
-        disabled={pending || !canEdit}
-        className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50"
+        disabled={!canEdit}
       >
-        + New template
-      </button>
+        <PlusIcon />
+        New template
+      </Button>
 
       {selected && canEdit && (
         <span className="ml-auto flex items-center gap-1.5">
-          <button onClick={() => onRename(selected)} disabled={pending} className={btnGhost}>
+          <Button type="button" variant="outline" size="sm" onClick={() => onRename(selected)}>
+            <PencilIcon />
             Rename
-          </button>
-          <button onClick={() => onDuplicate(selected)} disabled={pending} className={btnGhost}>
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => onDuplicate(selected)}>
+            <CopyIcon />
             Duplicate
-          </button>
-          <button
-            onClick={() => onDelete(selected)}
-            disabled={pending}
-            className="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+          </Button>
+          <ActionButton
+            action={() => deleteTemplate(selected.id)}
+            success="Template deleted"
+            confirm={{
+              title: `Delete the template “${selected.title}”?`,
+              description:
+                "Its shift lines and staffing go with it. Weeks already built from it are not affected.",
+              confirmLabel: "Delete",
+              destructive: true,
+            }}
+            variant="destructive"
+            size="sm"
           >
+            <Trash2Icon />
             Delete
-          </button>
+          </ActionButton>
         </span>
       )}
     </div>

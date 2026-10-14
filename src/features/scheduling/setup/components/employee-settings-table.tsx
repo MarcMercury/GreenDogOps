@@ -10,10 +10,18 @@ import {
   stickyHeadClass,
   type TableSort,
 } from "@/app/(app)/_components/data-views";
+import { TableBody, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { EmployeeSettingUpdate } from "@/features/scheduling/setup/types/employee-setting-update";
 import { EmployeeSettingsRow } from "@/features/scheduling/setup/components/employee-settings-row";
 
-/** Sortable table of every employee's scheduling settings, one row per person. */
+/** `TableHead` styling, so the sortable `SortHeader` cells line up with the plain ones. */
+const headCls = "h-10 px-2 text-left align-middle font-medium whitespace-nowrap";
+
+/**
+ * Sortable table of every employee's scheduling settings, one row per person.
+ * The `<table>` is written out (not shadcn's `Table` wrapper) so this
+ * scroll container is the one the sticky header pins to.
+ */
 export function EmployeeSettingsTable({
   sort,
   locations,
@@ -33,19 +41,19 @@ export function EmployeeSettingsTable({
 }) {
   return (
     <div className="max-h-[70vh] overflow-auto">
-      <table className="w-full text-sm">
-        <thead className={`${stickyHeadClass} text-left text-xs uppercase text-slate-400`}>
-          <tr className="border-b border-slate-200">
-            <SortHeader label="Employee" sortKey="employee" sort={sort} className="py-2 pr-4 font-medium" />
-            <SortHeader label="Schedule type" sortKey="scheduleType" sort={sort} className="py-2 pr-4 font-medium" />
-            <SortHeader label="Weekly target" sortKey="weeklyTarget" sort={sort} className="py-2 pr-4 font-medium" />
-            <SortHeader label="Preferred location" sortKey="preferred" sort={sort} className="py-2 pr-4 font-medium" />
-            <th className="py-2 pr-4 font-medium">Eligible locations</th>
-            <th className="py-2 pr-4 font-medium">Available days</th>
-            <SortHeader label="Scheduling" sortKey="schedulable" sort={sort} className="py-2 pr-4 font-medium" />
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-200">
+      <table className="w-full caption-bottom text-sm">
+        <TableHeader className={`${stickyHeadClass} text-xs uppercase text-muted-foreground`}>
+          <TableRow className="hover:bg-transparent">
+            <SortHeader label="Employee" sortKey="employee" sort={sort} className={headCls} />
+            <SortHeader label="Schedule type" sortKey="scheduleType" sort={sort} className={headCls} />
+            <SortHeader label="Weekly target" sortKey="weeklyTarget" sort={sort} className={headCls} />
+            <SortHeader label="Preferred location" sortKey="preferred" sort={sort} className={headCls} />
+            <TableHead className="text-muted-foreground">Eligible locations</TableHead>
+            <TableHead className="text-muted-foreground">Available days</TableHead>
+            <SortHeader label="Scheduling" sortKey="schedulable" sort={sort} className={headCls} />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {sort.sorted.map((p) => (
             <EmployeeSettingsRow
               key={p.id}
@@ -58,7 +66,7 @@ export function EmployeeSettingsTable({
               onUpdatePreferred={onUpdatePreferred}
             />
           ))}
-        </tbody>
+        </TableBody>
       </table>
     </div>
   );

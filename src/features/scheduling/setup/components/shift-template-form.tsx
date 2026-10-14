@@ -1,146 +1,145 @@
 "use client";
 
 import type { SchedDepartment, SchedRole, SchedShiftTemplate } from "@/lib/schedule/types";
-import { btnGhost, btnPrimary, inputCls } from "@/features/scheduling/setup/lib/ui-classes";
-import { Card } from "@/features/scheduling/setup/components/card";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAppForm } from "@/features/scheduling/shared/hooks/use-app-form";
+import { toastInvalidForm, toastResult } from "@/features/scheduling/shared/lib/action-toast";
+import { formValidator } from "@/features/scheduling/shared/lib/form-validator";
+import { saveShiftTemplate } from "@/features/scheduling/setup/actions/shift-template-actions";
+import { shiftTemplateFormDefaults } from "@/features/scheduling/setup/lib/shift-template-form-defaults";
+import {
+  NEW_ROLE_OPTION,
+  toShiftTemplateInput,
+} from "@/features/scheduling/setup/lib/shift-template-submit";
+import {
+  shiftTemplateFormSchema,
+  type ShiftTemplateFormValues,
+} from "@/features/scheduling/setup/schema/shift-template.schema";
 
-/** New / edit template-line form. Department and role are controlled by the tab. */
+/**
+ * New / edit template-line form. The parent re-keys it on the line being
+ * edited. The Role select offers the department's roles plus "+ New role…",
+ * which reveals the name box; `toShiftTemplateInput` maps that choice for the
+ * action.
+ */
 export function ShiftTemplateForm({
   editing,
   departments,
-  formDept,
-  roleSel,
-  formRoles,
-  pending,
-  error,
-  onDeptChange,
-  onRoleChange,
-  onSubmit,
+  rolesByDept,
+  onSaved,
   onCancel,
 }: {
   editing: SchedShiftTemplate | null;
   departments: SchedDepartment[];
-  formDept: string;
-  /** "" = any · "__new__" = create role inline · otherwise an existing role id. */
-  roleSel: string;
-  formRoles: SchedRole[];
-  pending: boolean;
-  error: string | null;
-  onDeptChange: (departmentId: string) => void;
-  onRoleChange: (roleSel: string) => void;
-  onSubmit: (formData: FormData) => void;
+  rolesByDept: Map<string, SchedRole[]>;
+  onSaved: () => void;
   onCancel: () => void;
 }) {
+  const form = useAppForm({
+    defaultValues: shiftTemplateFormDefaults(editing),
+    validators: { onSubmit: formValidator<ShiftTemplateFormValues>(shiftTemplateFormSchema) },
+    onSubmit: async ({ value }) => {
+      const res = toastResult(
+        await saveShiftTemplate(toShiftTemplateInput(value)),
+        editing ? "Template line saved" : "Template line added",
+      );
+      if (res.ok) {
+        form.reset();
+        onSaved();
+      }
+    },
+    onSubmitInvalid: toastInvalidForm,
+  });
+
+  const departmentOptions = departments.map((d) => ({ value: d.id, label: d.name }));
+
   return (
     <Card>
-      <h2 className="mb-3 text-sm font-semibold text-slate-700">
-        {editing ? "Edit template line" : "New template line"}
-      </h2>
-      <form action={onSubmit} className="space-y-3" key={editing?.id ?? "new"}>
-        {editing && <input type="hidden" name="id" value={editing.id} />}
-        <label className="block text-xs font-medium text-slate-500">
-          Department
-          <select
-            name="department_id"
-            value={formDept}
-            onChange={(e) => onDeptChange(e.target.value)}
-            required
-            className={`mt-1 w-full ${inputCls}`}
+      <CardHeader>
+        <CardTitle>{editing ? "Edit template line" : "New template line"}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            void form.handleSubmit();
+          }}
+          className="space-y-3"
+        >
+          <form.AppField name="department_id">
+            {(field) => (
+              <field.NativeSelectField
+                label="Department"
+                placeholder="Select…"
+                options={departmentOptions}
+                // A new department means a new set of roles: back to "— any —".
+                onValueChange={() => form.setFieldValue("role_id", "")}
+              />
+            )}
+          </form.AppField>
+          <form.Subscribe
+            selector={(s) => ({ departmentId: s.values.department_id, roleId: s.values.role_id })}
           >
-            <option value="">Select…</option>
-            {departments.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block text-xs font-medium text-slate-500">
-          Role (eligibility)
-          <select
-            value={roleSel}
-            onChange={(e) => onRoleChange(e.target.value)}
-            disabled={!formDept}
-            className={`mt-1 w-full ${inputCls} disabled:bg-slate-50`}
-          >
-            <option value="">— any —</option>
-            {formRoles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-            <option value="__new__">+ New role…</option>
-          </select>
-        </label>
-        {roleSel === "__new__" && (
-          <label className="block text-xs font-medium text-slate-500">
-            New role name
-            <input
-              name="new_role_name"
-              required
-              placeholder="e.g. Clinic Tech"
-              className={`mt-1 w-full ${inputCls}`}
-            />
-            <span className="mt-1 block text-[10px] text-slate-400">
-              Adds one eligibility checkbox for this role — reuse it for every
-              shift time. Set who&apos;s eligible in Roles &amp; Eligibility.
-            </span>
-          </label>
-        )}
-        <label className="block text-xs font-medium text-slate-500">
-          Label (optional)
-          <input
-            name="label"
-            defaultValue={editing?.label ?? ""}
-            className={`mt-1 w-full ${inputCls}`}
-            placeholder="Defaults to role name"
-          />
-        </label>
-        <div className="flex gap-3">
-          <label className="block text-xs font-medium text-slate-500">
-            Start
-            <input
-              name="start_time"
-              type="time"
-              defaultValue={editing?.start_time ?? ""}
-              className={`mt-1 w-full ${inputCls}`}
-            />
-          </label>
-          <label className="block text-xs font-medium text-slate-500">
-            End
-            <input
-              name="end_time"
-              type="time"
-              defaultValue={editing?.end_time ?? ""}
-              className={`mt-1 w-full ${inputCls}`}
-            />
-          </label>
-          <label className="block text-xs font-medium text-slate-500">
-            Order
-            <input
-              name="sort_order"
-              type="number"
-              defaultValue={editing?.sort_order ?? 0}
-              className={`mt-1 w-16 ${inputCls}`}
-            />
-          </label>
-        </div>
-        {error && <p className="text-xs text-red-600">{error}</p>}
-        <div className="flex gap-2">
-          <button type="submit" disabled={pending} className={btnPrimary}>
-            {editing ? "Save" : "Add"}
-          </button>
-          {editing && (
-            <button
-              type="button"
-              onClick={onCancel}
-              className={btnGhost}
-            >
-              Cancel
-            </button>
-          )}
-        </div>
-      </form>
+            {({ departmentId, roleId }) => (
+              <>
+                <form.AppField name="role_id">
+                  {(field) => (
+                    <field.NativeSelectField
+                      label="Role (eligibility)"
+                      placeholder="— any —"
+                      disabled={!departmentId}
+                      options={[
+                        ...(rolesByDept.get(departmentId) ?? []).map((r) => ({
+                          value: r.id,
+                          label: r.name,
+                        })),
+                        { value: NEW_ROLE_OPTION, label: "+ New role…" },
+                      ]}
+                    />
+                  )}
+                </form.AppField>
+                {roleId === NEW_ROLE_OPTION && (
+                  <form.AppField name="new_role_name">
+                    {(field) => (
+                      <field.TextField
+                        label="New role name"
+                        placeholder="e.g. Clinic Tech"
+                        description="Adds one eligibility checkbox for this role — reuse it for every shift time. Set who's eligible in Roles & Eligibility."
+                      />
+                    )}
+                  </form.AppField>
+                )}
+              </>
+            )}
+          </form.Subscribe>
+          <form.AppField name="label">
+            {(field) => <field.TextField label="Label (optional)" placeholder="Defaults to role name" />}
+          </form.AppField>
+          <div className="flex gap-3">
+            <form.AppField name="start_time">
+              {(field) => <field.TextField label="Start" type="time" />}
+            </form.AppField>
+            <form.AppField name="end_time">
+              {(field) => <field.TextField label="End" type="time" />}
+            </form.AppField>
+            <form.AppField name="sort_order">
+              {(field) => <field.TextField label="Order" type="number" className="w-20 shrink-0" />}
+            </form.AppField>
+          </div>
+          <div className="flex gap-2">
+            <form.AppForm>
+              <form.SubmitButton>{editing ? "Save" : "Add"}</form.SubmitButton>
+            </form.AppForm>
+            {editing && (
+              <Button type="button" variant="outline" onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
+          </div>
+        </form>
+      </CardContent>
     </Card>
   );
 }
