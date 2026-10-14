@@ -145,6 +145,12 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Database
 
+### Migration numbers collide across concurrent sessions — re-check `origin/main` right before committing
+- **Problem:** two agent sessions working at the same time each wrote a `0249_*.sql`; the second only noticed after pushing (`0249_pto_balance_whole_days.sql` and `0249_upcoming_report_mwf.sql`).
+- **Fix:** renamed the later one to `0250` in a follow-up commit (it had not been applied anywhere yet).
+- **Prevent:** pick the number from `git fetch && git ls-tree --name-only origin/main supabase/migrations/ | tail`, not only the local tree, and re-check it immediately before committing. Apply a migration to staging/production only after its number is on `origin/main`.
+- **Evidence:** 2026-10-14, commits `d15937f` (0249 PTO) and `cbd0e44` → `0b63c78` (renumbered to 0250).
+
 ### `now()` inside a locking function is the transaction start, not the moment the lock is acquired
 - **Problem:** in `record_time_punch()` (0240), a staging probe of four punches in one transaction stored them all at the same instant, and a call that waited on the per-person advisory lock could be stamped earlier than the punch it waited for — so "last punch" ordering and the double-tap check were unreliable.
 - **Root cause:** `now()` is fixed at transaction start. `clock_timestamp()` is the real time.
