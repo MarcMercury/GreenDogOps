@@ -148,7 +148,7 @@ export async function getMissingPunches(now: Date = new Date()): Promise<Missing
     fetchAllRows<RawPunch & { person_id: string }>((a, b) =>
       admin
         .from("time_punch")
-        .select("id, person_id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check, needs_approval")
+        .select("id, person_id, punch_type, punched_at, work_date, location_id, location_check, needs_approval")
         .gte("work_date", from)
         .lte("work_date", to)
         .order("id")

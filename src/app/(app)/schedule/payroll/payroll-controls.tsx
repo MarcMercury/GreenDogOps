@@ -108,7 +108,6 @@ const OVERRIDE_OPTIONS: { value: string; label: string }[] = [
   { value: "overtime", label: "Overtime 1.5x" },
   { value: "double_time", label: "Double time 2x" },
   { value: "meal_premium", label: "Meal premium" },
-  { value: "rest_premium", label: "Rest premium" },
   { value: "pto", label: "PTO" },
 ];
 

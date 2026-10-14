@@ -75,8 +75,6 @@ export interface PunchInput {
   longitude?: number | null;
   accuracy?: number | null;
   clientTime?: string | null;
-  /** Clock-out only, non-exempt staff: "Were you able to take your rest breaks today?" */
-  restBreaksOk?: boolean | null;
   /** The employee chose "Working off-site" after a failed location check. */
   offsiteNote?: string | null;
   /** Clock-in only: "I forgot to clock out — start a new shift" (last punch > 8 h old). */
@@ -86,7 +84,6 @@ export interface PunchInput {
 const PUNCH_ERRORS: Record<string, string> = {
   invalid_transition: "That punch doesn't fit where you are in your day. The page has been refreshed — try again.",
   not_eligible: "Only active employees and contractors can use the time clock.",
-  rest_breaks_only_on_clock_out: "The rest-break answer belongs to clock-out.",
   invalid_type: "Unknown punch.",
   note_required: "Please say why you're working off-site.",
   invalid_location_check: "The location check failed. Please try again.",
@@ -104,14 +101,6 @@ export async function recordPunch(input: PunchInput): Promise<PunchResult> {
   }
   if (!(await rateLimit(`timeclock:punch:${person.id}`, 20, 600))) {
     return { ok: false, error: "Too many punches in a short time. Please wait a minute." };
-  }
-
-  let restBreaksOk: boolean | null = null;
-  if (input.type === "clock_out" && person.nonExempt) {
-    if (typeof input.restBreaksOk !== "boolean") {
-      return { ok: false, error: "Please answer whether you were able to take your rest breaks." };
-    }
-    restBreaksOk = input.restBreaksOk;
   }
 
   const latitude = finiteIn(input.latitude, -90, 90);
@@ -174,7 +163,6 @@ export async function recordPunch(input: PunchInput): Promise<PunchResult> {
     p_accuracy_m: accuracy,
     p_client_time: clientTime,
     p_note: check.result === "off_site" ? offsiteNote : null,
-    p_rest_breaks_ok: restBreaksOk,
     p_location_check: check.result,
     p_timezone: TIME_CLOCK_TZ,
     p_matched_location_id: check.matchedLocationId,

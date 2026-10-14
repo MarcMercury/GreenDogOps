@@ -5,15 +5,15 @@ import { approvalBlockers, checkMeals, computePeriod, dayBreaks, hours, type Day
 
 // Times are UTC; the engine only uses differences and the work_date given.
 let n = 0;
-function p(type: PunchType, at: string, date: string, rest: boolean | null = null): Punch {
+function p(type: PunchType, at: string, date: string): Punch {
   n += 1;
-  return { id: `p${n}`, punch_type: type, punched_at: at, work_date: date, location_id: null, rest_breaks_ok: rest };
+  return { id: `p${n}`, punch_type: type, punched_at: at, work_date: date, location_id: null };
 }
 const NOW = new Date("2027-01-01T00:00:00Z");
 const NO_WAIVERS: DayWaivers = { sixHour: false, secondMeal: false };
 
 /** A day: clock in at 08:00Z, lunch at `lunchAt` hours for `lunchMin` minutes, clock out after `workedH` worked hours. */
-function day(date: string, workedH: number, lunch: { atH: number; min: number } | null = { atH: 4, min: 30 }, rest: boolean | null = null): Punch[] {
+function day(date: string, workedH: number, lunch: { atH: number; min: number } | null = { atH: 4, min: 30 }): Punch[] {
   const start = new Date(`${date}T08:00:00Z`).getTime();
   const out: Punch[] = [p("clock_in", new Date(start).toISOString(), date)];
   let endMs = start + workedH * 3600_000;
@@ -23,7 +23,7 @@ function day(date: string, workedH: number, lunch: { atH: number; min: number } 
     out.push(p("lunch_end", new Date(ls + lunch.min * 60_000).toISOString(), date));
     endMs += lunch.min * 60_000;
   }
-  out.push(p("clock_out", new Date(endMs).toISOString(), date, rest));
+  out.push(p("clock_out", new Date(endMs).toISOString(), date));
   return out;
 }
 
@@ -114,15 +114,15 @@ describe("meal periods", () => {
   });
 });
 
-describe("rest breaks, exempt staff, and approval blockers", () => {
-  it("adds a rest premium when the employee said No on a 3.5 h+ day", () => {
-    expect(period(day("2026-10-05", 8, { atH: 4, min: 30 }, false)).days[0].restPremium).toBe(true);
-    expect(period(day("2026-10-05", 3, null, false)).days[0].restPremium).toBe(false);
-    expect(period(day("2026-10-05", 8, { atH: 4, min: 30 }, true)).days[0].restPremium).toBe(false);
+describe("no rest premiums, exempt staff, and approval blockers", () => {
+  it("does not track rest breaks or pay rest premiums (10-minute breaks are not clocked)", () => {
+    const r = period(day("2026-10-05", 8));
+    expect(r.days[0]).not.toHaveProperty("restPremium");
+    expect(r.totals).not.toHaveProperty("restPremiums");
   });
   it("reports exempt hours without overtime or premiums", () => {
-    const r = period(day("2026-10-05", 13, null, false), "exempt");
-    expect(r.days[0]).toMatchObject({ overtime: 0, doubleTime: 0, mealPremium: false, restPremium: false });
+    const r = period(day("2026-10-05", 13, null), "exempt");
+    expect(r.days[0]).toMatchObject({ overtime: 0, doubleTime: 0, mealPremium: false });
     expect(hours(r.days[0].regular)).toBe(13);
   });
   it("does not count sessions missing a punch, and blocks approval until fixed", () => {

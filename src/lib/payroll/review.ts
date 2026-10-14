@@ -11,7 +11,7 @@ import { hours } from "./ca-rules";
 import type { ApprovalSnapshot } from "./period";
 import { PAID_KINDS, PTO_DAY_HOURS, rangeDays } from "../pto/balance";
 
-export const PAY_FIELDS = ["regular", "overtime", "double_time", "meal_premium", "rest_premium", "pto"] as const;
+export const PAY_FIELDS = ["regular", "overtime", "double_time", "meal_premium", "pto"] as const;
 export type PayField = (typeof PAY_FIELDS)[number];
 
 export const PAY_FIELD_LABELS: Record<PayField, string> = {
@@ -19,7 +19,6 @@ export const PAY_FIELD_LABELS: Record<PayField, string> = {
   overtime: "Overtime 1.5x",
   double_time: "Double time 2x",
   meal_premium: "Meal premium",
-  rest_premium: "Rest premium",
   pto: "PTO",
 };
 
@@ -67,7 +66,7 @@ export interface PtoRequestRow {
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export function zeroHours(): PayHours {
-  return { regular: 0, overtime: 0, double_time: 0, meal_premium: 0, rest_premium: 0, pto: 0 };
+  return { regular: 0, overtime: 0, double_time: 0, meal_premium: 0, pto: 0 };
 }
 
 /**
@@ -97,7 +96,6 @@ export function hoursFromSnapshot(s: ApprovalSnapshot | null): PayHours {
     overtime: r2(hours(s.overtime)),
     double_time: r2(hours(s.doubleTime)),
     meal_premium: s.mealPremiums,
-    rest_premium: s.restPremiums,
     pto: 0,
   };
 }

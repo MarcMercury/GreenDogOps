@@ -20,6 +20,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:** one shared approval function (owned by the PTO feature) that both paths call; the grid either asks for days or sends the approver to `/schedule/time-off`. Do it after the scheduling refactor merges, in its structure (`docs/agent/contributing-scheduling.md`).
 - **Risk:** medium (pay-affecting balance).
 
+### Enforce whole-day PTO in the database
+- **Why:** whole 8-hour days only is now enforced in TypeScript (`src/lib/pto/balance.ts`; the only app writers of `pto_days` are `requestPto` and `reviewPtoRequest`, both validated — other paths leave it NULL = whole calendar days), but the column still accepts 2 decimals and its comment (0246) still says "a partial sick day is a fraction (2 h = 0.25)", so a direct SQL / future writer could reintroduce fractions.
+- **Scope:** next migration: `check (pto_days is null or pto_days = trunc(pto_days))` + corrected column comment, then regenerate the baseline. Production had 0 fractional rows on 2026-10-14. Needs explicit authorization (production DDL).
+- **Risk:** low.
+
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.
 - **Done:** every exported Server Action starts with a permission gate — `src/lib/security/server-action-gates.test.ts` (2026-10-14).
@@ -111,6 +116,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Why:** turn `agent_run` failures + lessons.md into a periodic, prioritised report instead of rediscovering issues.
 - **Scope:** depends on the health view above.
 - **Risk:** low once data exists.
+
+### Drop the leftover rest-break schema (rule removed 2026-10-14)
+- **Why:** the app no longer asks the rest-break question or pays rest premiums (see architecture.md 2026-10-14), but production still has `time_punch.rest_breaks_ok` + its check constraint, `record_time_punch(p_rest_breaks_ok …)`, `'rest_premium'` in the `payroll_override.field` check (0247), and the unused `payroll.adp.code.rest_premium` setting, which still shows in Admin ▸ Settings ▸ Payroll. Verified 2026-10-14: 0 punches answered, 0 `rest_premium` overrides.
+- **Scope:** one migration (needs explicit production authorization): delete the setting row, tighten the `field` check, recreate `record_time_punch` without the parameter, drop the column and constraint; then regenerate the baseline and re-run `rls_audit()`.
+- **Risk:** low; `record_time_punch` is a single writer called only from `src/app/(app)/me/actions.ts`.
 
 ## P3 — Code quality
 

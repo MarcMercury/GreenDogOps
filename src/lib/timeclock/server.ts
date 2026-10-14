@@ -28,7 +28,7 @@ export interface SelfPerson {
   firstName: string | null;
   /** Eligible to punch: an active employee or contractor. */
   canPunch: boolean;
-  /** Non-exempt staff answer the rest-break question at clock-out. */
+  /** Non-exempt (or unknown FLSA) staff sign meal waivers. */
   nonExempt: boolean;
 }
 
@@ -76,7 +76,7 @@ export async function resolveSelf(appUser: AppUser): Promise<SelfResolution> {
 }
 
 const RAW_PUNCH_COLUMNS =
-  "id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check, needs_approval, assignment_id";
+  "id, punch_type, punched_at, work_date, location_id, location_check, needs_approval, assignment_id";
 const ADJUSTMENT_COLUMNS =
   "id, action, punch_type, punched_at, work_date, voids_punch_id, voids_adjustment_id, reason, created_at";
 

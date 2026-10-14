@@ -12,8 +12,6 @@
 //                    day of 6 h or less; the second meal on a day of 12 h or
 //                    less when the first meal was taken. At most one meal
 //                    premium hour per day.
-//   Rest breaks      the employee answered "No" at a clock-out on a day of
-//                    3.5 h or more → one rest premium hour (at most one per day).
 //   Exempt staff     hours are reported; no overtime or premiums.
 //
 // A "workday" is the clinic-time-zone date of the clock-in (an overnight shift
@@ -33,7 +31,6 @@ export const MEAL_REQUIRED_OVER = 5 * 60;
 export const SIX_HOUR_WAIVER_MAX = 6 * 60;
 export const SECOND_MEAL_REQUIRED_OVER = 10 * 60;
 export const SECOND_MEAL_WAIVER_MAX = 12 * 60;
-export const REST_BREAK_MIN_DAY = 3.5 * 60;
 
 export type FlsaClass = "exempt" | "non_exempt" | "unknown";
 
@@ -76,7 +73,6 @@ export interface DayResult {
   mealIssue: MealIssue | null;
   /** A waiver excused a meal that would otherwise have been owed. */
   mealWaived: "six_hour" | "second_meal" | null;
-  restPremium: boolean;
   /** Sessions missing a punch — not counted until corrected. */
   incomplete: boolean;
   /** Off-site punches waiting for approval. */
@@ -90,7 +86,6 @@ export interface PeriodTotals {
   overtime: number;
   doubleTime: number;
   mealPremiums: number;
-  restPremiums: number;
   incompleteDays: number;
   pendingDays: number;
 }
@@ -108,7 +103,6 @@ interface SessionLike {
   lunches: { start: string; end: string | null }[];
   status: string;
   worked_ms: number | null;
-  rest_breaks_ok: boolean | null;
   punches: readonly { punched_at: string; approval?: string | null }[];
 }
 
@@ -209,7 +203,6 @@ export function computePeriod(input: {
     const firstIn = complete.map((s) => s.clock_in).filter((v): v is string => !!v).sort()[0] ?? null;
     const exempt = input.flsa === "exempt";
     const meal = exempt ? { premium: false, issue: null, waived: null } : checkMeals(worked, breaks, input.waiversAt(date, firstIn));
-    const restNo = complete.some((s) => s.rest_breaks_ok === false);
     raw.set(date, {
       work_date: date,
       worked,
@@ -220,7 +213,6 @@ export function computePeriod(input: {
       mealPremium: meal.premium,
       mealIssue: meal.issue,
       mealWaived: meal.waived,
-      restPremium: !exempt && restNo && worked >= REST_BREAK_MIN_DAY,
       incomplete: sessions.some((s) => s.status === "missing_clock_in" || s.status === "missing_clock_out"),
       pendingApproval: sessions.some((s) => s.punches.some((p) => p.approval === "pending")),
       breaks,
@@ -277,7 +269,6 @@ export function computePeriod(input: {
     overtime: 0,
     doubleTime: 0,
     mealPremiums: 0,
-    restPremiums: 0,
     incompleteDays: 0,
     pendingDays: 0,
   };
@@ -287,7 +278,6 @@ export function computePeriod(input: {
     totals.overtime += d.overtime;
     totals.doubleTime += d.doubleTime;
     totals.mealPremiums += d.mealPremium ? 1 : 0;
-    totals.restPremiums += d.restPremium ? 1 : 0;
     totals.incompleteDays += d.incomplete ? 1 : 0;
     totals.pendingDays += d.pendingApproval ? 1 : 0;
   }

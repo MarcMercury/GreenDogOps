@@ -144,7 +144,6 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
                 <th className="px-2 py-2 text-right font-medium">OT 1.5x</th>
                 <th className="px-2 py-2 text-right font-medium">DT 2x</th>
                 <th className="px-2 py-2 text-right font-medium">Meal prem.</th>
-                <th className="px-2 py-2 text-right font-medium">Rest prem.</th>
                 <th className="px-2 py-2 font-medium">Flags</th>
                 <th className="px-4 py-2 text-right font-medium">Approval</th>
               </tr>
@@ -169,7 +168,6 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
                               {d.seventhDay ? " · 7th day" : ""}
                               {d.mealPremium && d.mealIssue ? ` · meal: ${MEAL_ISSUE_LABELS[d.mealIssue]}` : ""}
                               {d.mealWaived ? " · meal waived" : ""}
-                              {d.restPremium ? " · rest breaks missed" : ""}
                               {d.incomplete ? " · missing punch" : ""}
                               {d.pendingApproval ? " · off-site pending" : ""}
                             </li>
@@ -183,7 +181,6 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
                     <td className="px-2 py-2 text-right tabular-nums" title={mealDays.map((d) => d.work_date).join(", ")}>
                       {r.result.totals.mealPremiums}
                     </td>
-                    <td className="px-2 py-2 text-right tabular-nums">{r.result.totals.restPremiums}</td>
                     <td className="px-2 py-2 text-xs">
                       {r.blockers.length ? (
                         <span className="text-red-700">

@@ -3,9 +3,9 @@ import { buildSessions, dayTotals, decimalHours, effectivePunches, formatDuratio
 import type { PunchType } from "./state";
 
 let n = 0;
-function p(type: PunchType, at: string, workDate = "2026-10-13", rest: boolean | null = null): Punch {
+function p(type: PunchType, at: string, workDate = "2026-10-13"): Punch {
   n += 1;
-  return { id: `p${n}`, punch_type: type, punched_at: at, work_date: workDate, location_id: "loc", rest_breaks_ok: rest };
+  return { id: `p${n}`, punch_type: type, punched_at: at, work_date: workDate, location_id: "loc" };
 }
 const NOW = new Date("2026-10-14T03:00:00Z");
 const H = 3_600_000;
@@ -18,14 +18,13 @@ describe("buildSessions", () => {
         p("clock_in", "2026-10-13T15:02:00Z"),
         p("lunch_start", "2026-10-13T19:00:00Z"),
         p("lunch_end", "2026-10-13T19:31:00Z"),
-        p("clock_out", "2026-10-13T23:33:00Z", "2026-10-13", true),
+        p("clock_out", "2026-10-13T23:33:00Z"),
       ],
       NOW,
     );
     expect(s.status).toBe("complete");
     expect(s.lunch_ms).toBe(31 * M);
     expect(s.worked_ms).toBe(8 * H);
-    expect(s.rest_breaks_ok).toBe(true);
   });
 
   it("accepts input in any order", () => {

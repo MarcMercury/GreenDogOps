@@ -20,11 +20,10 @@ describe("PTO & Timekeeping Rules page (generated from the engine)", () => {
     expect(e).toContain("An exempt 11-hour day → 11 h worked, 0 h overtime");
   });
 
-  it("computes meal, rest and PTO examples with the real rules", () => {
+  it("computes meal and PTO examples with the real rules", () => {
     const e = examples();
     expect(e.meals).toContain("5.5 h worked, no lunch → 1 meal premium hour (no meal period)");
     expect(e.meals).toContain("6-hour waiver signed → no premium");
-    expect(e.rest).toContain("→ 1 rest premium hour");
     expect(e.pto).toContain("2 hours of sick time → 0.25 day");
     expect(e["pay-calendar"]).toContain("so it pays Thu 2026-12-31");
     expect(e["pto-annual"]).toContain("the payout is on 2027-01-15");
@@ -36,5 +35,11 @@ describe("PTO & Timekeeping Rules page (generated from the engine)", () => {
     const status = Object.fromEntries(buildRules().map((s) => [s.id, s.status]));
     expect(status["pto-annual"]).toBe("policy");
     expect(status.overtime).toBe("live");
+  });
+
+  it("has no rest-break rule (10-minute breaks are not clocked or paid as premiums)", () => {
+    const sections = buildRules();
+    expect(sections.map((s) => s.id)).not.toContain("rest");
+    expect(JSON.stringify(sections)).not.toMatch(/rest (break|premium)/i);
   });
 });

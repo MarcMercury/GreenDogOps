@@ -157,7 +157,7 @@ export async function gradeRange(
     fetchAllRows<RawPunch & { person_id: string }>((a, b) => {
       let q = admin
         .from("time_punch")
-        .select("id, person_id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check, needs_approval, assignment_id")
+        .select("id, person_id, punch_type, punched_at, work_date, location_id, location_check, needs_approval, assignment_id")
         .gte("work_date", pFrom)
         .lte("work_date", pTo)
         .order("id");

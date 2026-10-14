@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { approvalStale, lockBlockers, snapshotOf } from "./period";
 
-const totals = { worked: 600.004, regular: 480, overtime: 120.004, doubleTime: 0, mealPremiums: 1, restPremiums: 0, incompleteDays: 0, pendingDays: 0 };
+const totals = { worked: 600.004, regular: 480, overtime: 120.004, doubleTime: 0, mealPremiums: 1, incompleteDays: 0, pendingDays: 0 };
 
 describe("approval snapshots", () => {
   it("rounds minutes and detects changes after approval", () => {
@@ -11,6 +11,10 @@ describe("approval snapshots", () => {
     expect(approvalStale(snap, { ...snap, overtime: 135 })).toBe(true);
     expect(approvalStale(snap, { ...snap, adp_employee_id: "002" })).toBe(true);
     expect(approvalStale(null, snap)).toBe(false);
+  });
+  it("keeps approvals made while rest premiums existed valid", () => {
+    const snap = snapshotOf("non_exempt", "001", totals);
+    expect(approvalStale({ ...snap, restPremiums: 1 } as Partial<typeof snap>, snap)).toBe(false);
   });
 });
 

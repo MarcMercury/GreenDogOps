@@ -9,7 +9,6 @@ export interface Punch {
   punched_at: string;
   work_date: string;
   location_id: string | null;
-  rest_breaks_ok: boolean | null;
 }
 
 export type SessionStatus =
@@ -38,7 +37,6 @@ export interface WorkSession<P extends Punch = Punch> {
   /** Worked time (excluding lunch). null when the session is incomplete. */
   worked_ms: number | null;
   lunch_ms: number;
-  rest_breaks_ok: boolean | null;
   location_id: string | null;
 }
 
@@ -54,7 +52,6 @@ function newSession<P extends Punch>(p: P, withClockIn: boolean): WorkSession<P>
     status: withClockIn ? "open" : "missing_clock_in",
     worked_ms: null,
     lunch_ms: 0,
-    rest_breaks_ok: null,
     location_id: p.location_id,
   };
 }
@@ -98,7 +95,6 @@ export function buildSessions<P extends Punch>(punches: readonly P[], now: Date 
       if (open) open.end = p.punched_at;
     } else if (p.punch_type === "clock_out") {
       current.clock_out = p.punched_at;
-      current.rest_breaks_ok = p.rest_breaks_ok;
       if (current.status === "open") current.status = "complete";
       close(current);
       current = null;
@@ -234,7 +230,6 @@ export function effectivePunches(
       punched_at: p.punched_at,
       work_date: p.work_date,
       location_id: p.location_id,
-      rest_breaks_ok: p.rest_breaks_ok,
       origin: "punch",
       approval: !p.needs_approval ? "none" : decided.get(p.id) === "approved" ? "approved" : "pending",
       location_check: p.location_check,
@@ -249,7 +244,6 @@ export function effectivePunches(
       punched_at: a.punched_at as string,
       work_date: a.work_date,
       location_id: null,
-      rest_breaks_ok: null,
       origin: "adjustment",
       approval: "none",
       location_check: "not_checked",

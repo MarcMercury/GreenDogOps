@@ -8,7 +8,7 @@
 //   Co Code, Batch ID, File #, Reg Hours, O/T Hours, Hours 3 Code, Hours 3 Amount
 //
 // One row per employee carries Reg and O/T hours; every other kind of hours
-// (double time, meal premium, rest premium, PTO) is an extra row for the same
+// (double time, meal premium, PTO) is an extra row for the same
 // File # with an earnings code from the company's RUN earnings list and the
 // hours. Codes and File #s must match RUN exactly or the hours are dropped.
 // Batch ID = the pay date as YYMMDD, so re-exporting a period produces the same
@@ -22,7 +22,7 @@ export const ADP_RUN_FORMAT = "adp_run_timesheet_v1";
 export const ADP_RUN_HEADER = ["Co Code", "Batch ID", "File #", "Reg Hours", "O/T Hours", "Hours 3 Code", "Hours 3 Amount"] as const;
 
 /** Hours buckets that need a RUN earnings code (regular and overtime have their own columns). */
-export const CODED_FIELDS = ["double_time", "meal_premium", "rest_premium", "pto"] as const;
+export const CODED_FIELDS = ["double_time", "meal_premium", "pto"] as const;
 export type CodedField = (typeof CODED_FIELDS)[number];
 
 export const ADP_SETTING_KEYS = {
@@ -30,7 +30,6 @@ export const ADP_SETTING_KEYS = {
   codes: {
     double_time: "payroll.adp.code.double_time",
     meal_premium: "payroll.adp.code.meal_premium",
-    rest_premium: "payroll.adp.code.rest_premium",
     pto: "payroll.adp.code.pto",
   } satisfies Record<CodedField, string>,
 } as const;
@@ -49,7 +48,6 @@ export function adpSettingsFrom(values: ReadonlyMap<string, unknown>): AdpSettin
     codes: {
       double_time: clean(values.get(ADP_SETTING_KEYS.codes.double_time)),
       meal_premium: clean(values.get(ADP_SETTING_KEYS.codes.meal_premium)),
-      rest_premium: clean(values.get(ADP_SETTING_KEYS.codes.rest_premium)),
       pto: clean(values.get(ADP_SETTING_KEYS.codes.pto)),
     },
   };
@@ -58,7 +56,6 @@ export function adpSettingsFrom(values: ReadonlyMap<string, unknown>): AdpSettin
 export const CODED_LABELS: Record<CodedField, string> = {
   double_time: "double time",
   meal_premium: "meal premium",
-  rest_premium: "rest premium",
   pto: "PTO",
 };
 
@@ -111,7 +108,6 @@ const NAME_HEADER = [
   "Overtime 1.5x",
   "Double time 2x",
   "Meal premium",
-  "Rest premium",
   "PTO",
 ];
 
@@ -127,7 +123,6 @@ export function reviewSummaryCsv(lines: readonly ReviewedLine[], periodStart: st
       amt(l.hours.overtime) || "0.00",
       amt(l.hours.double_time) || "0.00",
       amt(l.hours.meal_premium) || "0.00",
-      amt(l.hours.rest_premium) || "0.00",
       amt(l.hours.pto) || "0.00",
     ]);
   }

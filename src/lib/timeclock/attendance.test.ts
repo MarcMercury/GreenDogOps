@@ -28,7 +28,6 @@ const punch = (type: Punch["punch_type"], at: string, assignment: string | null 
   punched_at: at,
   work_date: "2026-10-13",
   location_id: "L",
-  rest_breaks_ok: null,
   assignment_id: assignment,
 });
 const opts = (now: string, onPto = false) => ({ now: new Date(now), timeZone: TZ, thresholds: DEFAULT_THRESHOLDS, onPto });

@@ -91,7 +91,7 @@ export async function loadPeriodTimecards(
     fetchAllRows<RawPunch & { person_id: string }>((a, b) =>
       admin
         .from("time_punch")
-        .select("id, person_id, punch_type, punched_at, work_date, location_id, rest_breaks_ok, location_check, needs_approval, assignment_id")
+        .select("id, person_id, punch_type, punched_at, work_date, location_id, location_check, needs_approval, assignment_id")
         .gte("work_date", from)
         .lte("work_date", to)
         .order("id")

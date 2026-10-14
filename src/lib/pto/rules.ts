@@ -21,7 +21,6 @@ import {
   MEAL_ISSUE_LABELS,
   MEAL_MIN_MINUTES,
   MEAL_REQUIRED_OVER,
-  REST_BREAK_MIN_DAY,
   SECOND_MEAL_BY,
   SECOND_MEAL_REQUIRED_OVER,
   SECOND_MEAL_WAIVER_MAX,
@@ -65,13 +64,13 @@ const h = (minutes: number) => {
 // ---------------------------------------------------------------------------
 
 let seq = 0;
-function punch(type: PunchType, at: number, date: string, rest: boolean | null = null): Punch {
+function punch(type: PunchType, at: number, date: string): Punch {
   seq += 1;
-  return { id: `ex${seq}`, punch_type: type, punched_at: new Date(at).toISOString(), work_date: date, location_id: null, rest_breaks_ok: rest };
+  return { id: `ex${seq}`, punch_type: type, punched_at: new Date(at).toISOString(), work_date: date, location_id: null };
 }
 
 /** One workday: clock in 08:00Z, a 30-minute lunch after 4 h (if long enough), out after `hours` worked. */
-function day(date: string, hours: number, rest: boolean | null = null): Punch[] {
+function day(date: string, hours: number): Punch[] {
   const start = Date.parse(`${date}T08:00:00Z`);
   const out = [punch("clock_in", start, date)];
   let end = start + hours * 3_600_000;
@@ -80,7 +79,7 @@ function day(date: string, hours: number, rest: boolean | null = null): Punch[] 
     out.push(punch("lunch_start", ls, date), punch("lunch_end", ls + 30 * 60_000, date));
     end += 30 * 60_000;
   }
-  out.push(punch("clock_out", end, date, rest));
+  out.push(punch("clock_out", end, date));
   return out;
 }
 
@@ -129,7 +128,6 @@ export function buildRules(): RuleSection[] {
   const sixEights = run(weekOf([0, 8, 8, 8, 8, 8, 8]));
   const sevenTens = run(weekOf([10, 8, 8, 8, 8, 8, 10]));
   const exemptLong = run(day(EX_WEEK, 11), "exempt");
-  const restNo = run(day(EX_WEEK, 4, false));
 
   const partial = parseSelfRequest({ start: "2026-11-02", mode: "partial", hours: String(MIN_PARTIAL_HOURS) }, "2026-11-01");
   const partialDays = partial.ok ? partial.value.ptoDays : NaN;
@@ -197,7 +195,7 @@ export function buildRules(): RuleSection[] {
           why: "Labor Code §510(a).",
         },
         {
-          text: "Exempt employees punch the same way, but only their hours are reported — no overtime and no meal or rest premiums.",
+          text: "Exempt employees punch the same way, but only their hours are reported — no overtime and no meal premiums.",
           example: `An exempt 11-hour day → ${h(exemptLong.worked)} worked, ${h(exemptLong.overtime)} overtime.`,
         },
       ],
@@ -222,18 +220,6 @@ export function buildRules(): RuleSection[] {
           text: `Waivers are voluntary, e-signed in My Time, and can be revoked at any time. "${MEAL_WAIVER_LABELS.six_hour}" excuses the meal on a day of ${h(SIX_HOUR_WAIVER_MAX)} or less. "${MEAL_WAIVER_LABELS.second_meal}" excuses the second meal on a day of ${h(SECOND_MEAL_WAIVER_MAX)} or less when the first meal was taken. A day is judged by the waiver in force when it started; revoking never changes past days.`,
           example: `5.5 h, no lunch, 6-hour waiver signed → ${mealText(checkMeals(330, [], { sixHour: true, secondMeal: false }))}. 11 h, one lunch, second-meal waiver signed → ${mealText(checkMeals(660, [{ workedBefore: 240, minutes: 30 }], { sixHour: false, secondMeal: true }))}.`,
           why: "Labor Code §512(a); waivers must be mutual and voluntary.",
-        },
-      ],
-    },
-    {
-      id: "rest",
-      title: "Rest breaks",
-      status: "live",
-      rules: [
-        {
-          text: `Paid 10-minute rest breaks (one per 4 hours or major fraction) are not punched. At clock-out a non-exempt employee answers "Were you able to take your rest breaks today?". A "No" on a day of ${h(REST_BREAK_MIN_DAY)} or more is one rest premium hour (at most one per day), shown to the approver.`,
-          example: `4 h worked, answered "No" → ${restNo.restPremiums} rest premium hour.`,
-          why: "Labor Code §226.7; IWC wage orders §12.",
         },
       ],
     },

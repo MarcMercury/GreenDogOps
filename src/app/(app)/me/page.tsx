@@ -109,7 +109,6 @@ export default async function MyTimeHome() {
           ) : null}
           <ClockPanel
             allowed={allowedPunches(state)}
-            nonExempt={person.nonExempt}
             offerNewShift={canStartNewShift(last, now)}
           />
           <p className="mt-4 text-xs text-slate-400">

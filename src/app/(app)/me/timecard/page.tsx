@@ -117,7 +117,6 @@ export default async function MyTimecardPage({
                     {s.clock_in ? formatClockTime(s.clock_in, TIME_CLOCK_TZ) : "?"} –{" "}
                     {s.clock_out ? formatClockTime(s.clock_out, TIME_CLOCK_TZ) : "?"}
                     {s.lunch_ms > 0 ? ` · lunch ${formatDuration(s.lunch_ms)}` : ""}
-                    {s.rest_breaks_ok === false ? " · rest breaks missed" : ""}
                     {s.punches.some((x) => x.approval === "pending") ? (
                       <span className="ml-2 text-amber-700">Off-site — awaiting approval</span>
                     ) : null}

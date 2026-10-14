@@ -190,11 +190,12 @@ from users who cannot access it.
   missed / late alerts are sent; a manager's mark always wins.
   **Payroll** (sidebar; `/schedule/payroll`, timecard approvers) totals each
   pay period under California rules (`src/lib/payroll/ca-rules.ts`: daily
-  OT > 8 h, DT > 12 h, weekly OT > 40 h, the 7th-day rule, meal and rest
-  premiums with signed waivers; exempt staff get hours only), in three steps:
+  OT > 8 h, DT > 12 h, weekly OT > 40 h, the 7th-day rule, meal premiums
+  with signed waivers; rest breaks are not clocked and there are no rest
+  premiums; exempt staff get hours only), in three steps:
   **1 Approve & lock** each timecard and the period (corrections are then
   refused; `0245`). **2 Payroll Review** (`0247`): every employee's regular /
-  OT / DT / meal / rest premium hours plus approved paid PTO in the period;
+  OT / DT / meal premium hours plus approved paid PTO in the period;
   HR adjusts any line or leaves someone out of the file, with a reason
   (append-only `payroll_override`), then completes the review, which freezes
   the hours (`pay_period.review_snapshot`). **3 Export** the ADP RUN Time

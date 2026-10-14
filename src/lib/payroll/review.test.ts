@@ -108,8 +108,8 @@ describe("blockers, warnings, freeze", () => {
   });
   it("converts a timecard snapshot from minutes to hours", () => {
     expect(
-      hoursFromSnapshot({ flsa: "non_exempt", adp_employee_id: "1", worked: 600, regular: 480, overtime: 90, doubleTime: 30, mealPremiums: 1, restPremiums: 0 }),
-    ).toEqual({ regular: 8, overtime: 1.5, double_time: 0.5, meal_premium: 1, rest_premium: 0, pto: 0 });
+      hoursFromSnapshot({ flsa: "non_exempt", adp_employee_id: "1", worked: 600, regular: 480, overtime: 90, doubleTime: 30, mealPremiums: 1 }),
+    ).toEqual({ regular: 8, overtime: 1.5, double_time: 0.5, meal_premium: 1, pto: 0 });
     expect(hoursFromSnapshot(null)).toEqual(zeroHours());
   });
 });

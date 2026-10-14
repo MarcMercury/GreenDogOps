@@ -35,22 +35,19 @@ const PRIMARY: Record<PunchType, string> = {
   clock_out: "bg-slate-800 hover:bg-slate-900 text-white",
 };
 
-type Pending = Pick<PunchInput, "type" | "restBreaksOk" | "abandonPrevious">;
+type Pending = Pick<PunchInput, "type" | "abandonPrevious">;
 
 export function ClockPanel({
   allowed,
-  nonExempt,
   offerNewShift,
 }: {
   allowed: readonly PunchType[];
-  nonExempt: boolean;
   /** Still clocked in from > 8 h ago: offer "I forgot to clock out — start a new shift". */
   offerNewShift: boolean;
 }) {
   const router = useRouter();
   const [busy, start] = useTransition();
   const [step, setStep] = useState<string | null>(null);
-  const [askRest, setAskRest] = useState(false);
   const [offsite, setOffsite] = useState<{ pending: Pending; reason: string } | null>(null);
   const [note, setNote] = useState("");
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -70,7 +67,6 @@ export function ClockPanel({
         offsiteNote,
       });
       setStep(null);
-      setAskRest(false);
       if (!res.ok && res.offsite) {
         setOffsite({ pending, reason: res.offsite.reason });
         return;
@@ -83,10 +79,6 @@ export function ClockPanel({
 
   const onPress = (type: PunchType, abandonPrevious = false) => {
     setResult(null);
-    if (type === "clock_out" && nonExempt) {
-      setAskRest(true);
-      return;
-    }
     submit({ type, abandonPrevious });
   };
 
@@ -142,66 +134,31 @@ export function ClockPanel({
 
   return (
     <div className="space-y-3">
-      {askRest ? (
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <p className="text-sm font-medium text-slate-800">Were you able to take your rest breaks today?</p>
-          <p className="mt-1 text-xs text-slate-500">
-            A paid 10-minute break for every 4 hours worked (or major part of 4 hours).
-          </p>
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:flex">
+      <div className="space-y-2">
+        <div className="grid gap-2 sm:flex">
+          {allowed.map((type) => (
             <button
+              key={type}
               type="button"
               disabled={busy}
-              onClick={() => submit({ type: "clock_out", restBreaksOk: true })}
-              className="rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              onClick={() => onPress(type)}
+              className={`rounded-xl px-6 py-4 text-lg font-semibold shadow-sm transition disabled:opacity-60 ${PRIMARY[type]}`}
             >
-              Yes — clock out
+              {PUNCH_LABELS[type]}
             </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => submit({ type: "clock_out", restBreaksOk: false })}
-              className="rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
-            >
-              No — clock out
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setAskRest(false)}
-              className="col-span-2 rounded-lg px-4 py-2 text-sm text-slate-500 hover:text-slate-800"
-            >
-              Cancel
-            </button>
-          </div>
+          ))}
         </div>
-      ) : (
-        <div className="space-y-2">
-          <div className="grid gap-2 sm:flex">
-            {allowed.map((type) => (
-              <button
-                key={type}
-                type="button"
-                disabled={busy}
-                onClick={() => onPress(type)}
-                className={`rounded-xl px-6 py-4 text-lg font-semibold shadow-sm transition disabled:opacity-60 ${PRIMARY[type]}`}
-              >
-                {PUNCH_LABELS[type]}
-              </button>
-            ))}
-          </div>
-          {offerNewShift ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onPress("clock_in", true)}
-              className="w-full rounded-xl border border-emerald-600 px-6 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 sm:w-auto"
-            >
-              I forgot to clock out — start a new shift
-            </button>
-          ) : null}
-        </div>
-      )}
+        {offerNewShift ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onPress("clock_in", true)}
+            className="w-full rounded-xl border border-emerald-600 px-6 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 sm:w-auto"
+          >
+            I forgot to clock out — start a new shift
+          </button>
+        ) : null}
+      </div>
       {step ? <p className="text-sm text-slate-500">{step}</p> : null}
       {result ? (
         <p

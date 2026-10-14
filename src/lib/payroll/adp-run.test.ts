@@ -7,7 +7,6 @@ const SETTINGS = adpSettingsFrom(
     [ADP_SETTING_KEYS.companyCode, "GD1"],
     [ADP_SETTING_KEYS.codes.double_time, "DT"],
     [ADP_SETTING_KEYS.codes.meal_premium, "MP"],
-    [ADP_SETTING_KEYS.codes.rest_premium, "RP"],
     [ADP_SETTING_KEYS.codes.pto, "PTO"],
   ]),
 );
@@ -29,7 +28,7 @@ describe("ADP RUN Time Sheet Import file", () => {
     const csv = adpRunCsv(
       [
         line("1002", "Bo", { regular: 64, pto: 16 }),
-        line("1001", "Al", { regular: 72.5, overtime: 3.25, double_time: 0.5, meal_premium: 1, rest_premium: 2 }),
+        line("1001", "Al", { regular: 72.5, overtime: 3.25, double_time: 0.5, meal_premium: 1 }),
       ],
       SETTINGS,
       "2026-10-23",
@@ -39,7 +38,6 @@ describe("ADP RUN Time Sheet Import file", () => {
       "GD1,261023,1001,72.50,3.25,,",
       "GD1,261023,1001,,,DT,0.50",
       "GD1,261023,1001,,,MP,1.00",
-      "GD1,261023,1001,,,RP,2.00",
       "GD1,261023,1002,64.00,,,",
       "GD1,261023,1002,,,PTO,16.00",
       "",
@@ -68,6 +66,6 @@ describe("ADP RUN Time Sheet Import file", () => {
 
   it("builds a readable summary with names", () => {
     const csv = reviewSummaryCsv([line("1", "Smith, Al", { regular: 8 })], "2026-10-04", "2026-10-17");
-    expect(csv).toContain('1,"Smith, Al",Non-exempt,8.00,0.00,0.00,0.00,0.00,0.00');
+    expect(csv).toContain('1,"Smith, Al",Non-exempt,8.00,0.00,0.00,0.00,0.00');
   });
 });

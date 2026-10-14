@@ -69,7 +69,7 @@ export default async function PtoRulesPage() {
       <PageHeader
         eyebrow="HR"
         title="PTO & Timekeeping Rules"
-        description="How Ops calculates hours, overtime, meal and rest premiums, and PTO — in plain English, with the California rule behind each. The examples are computed by the same code that runs payroll, so this page always matches what Ops does."
+        description="How Ops calculates hours, overtime, meal premiums, and PTO — in plain English, with the California rule behind each. The examples are computed by the same code that runs payroll, so this page always matches what Ops does."
       />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

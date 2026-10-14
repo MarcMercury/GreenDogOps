@@ -11,7 +11,6 @@ export interface ApprovalSnapshot {
   overtime: number;
   doubleTime: number;
   mealPremiums: number;
-  restPremiums: number;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -25,7 +24,6 @@ export function snapshotOf(flsa: FlsaClass, adpId: string | null, t: PeriodTotal
     overtime: round2(t.overtime),
     doubleTime: round2(t.doubleTime),
     mealPremiums: t.mealPremiums,
-    restPremiums: t.restPremiums,
   };
 }
 
