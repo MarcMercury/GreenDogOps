@@ -10,6 +10,7 @@ rules for maintaining these files are in [AGENTS.md](../../AGENTS.md) §8.
 | [architecture.md](./architecture.md) | Invariants and decisions not already in the root README |
 | [integrations.md](./integrations.md) | External-system behaviour, failure modes, recovery steps |
 | [improvements.md](./improvements.md) | Prioritised backlog of work found but not done |
+| [contributing-scheduling.md](./contributing-scheduling.md) | Ground rules for the Scheduling module (grid, Set Up, time off, time clock, payroll) |
 
 Ground rules: record only what was verified; update or delete wrong entries;
 no secrets, tokens, or personal data about employees, candidates, or clients.

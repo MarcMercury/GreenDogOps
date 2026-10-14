@@ -15,9 +15,15 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:** pure rules in `src/lib/pto/**` + an idempotent Jan 1 job (agent_run) writing through `person_employment` so `pto_ledger` records it; `pto_eligible` flag; the 5-day sick-leave floor warning. Must land before 2027-01-01.
 - **Risk:** medium (pay-affecting; needs Payroll/HR sign-off of the rules page, item 26).
 
+### The schedule grid approves PTO without asking how many days
+- **Why:** since 0246 an approval deducts `coalesce(pto_days, end_date − start_date + 1)` for kind `pto`/`vacation`. `/schedule/time-off` (`reviewPtoRequest`) lets the approver set `pto_days`, kind and a note, and only decides `requested` rows; the grid's Approve/Deny (`setTimeOffStatus` in `schedule/actions.ts`, moved to `scheduling-grid/actions/time-off-actions.ts` on the scheduling refactor branch) sets only `status`, so a grid approval deducts every calendar day, weekends included. Reversals refund correctly (the trigger applies deltas). Verified 2026-10-14: 0246 is live in production.
+- **Scope:** one shared approval function (owned by the PTO feature) that both paths call; the grid either asks for days or sends the approver to `/schedule/time-off`. Do it after the scheduling refactor merges, in its structure (`docs/agent/contributing-scheduling.md`).
+- **Risk:** medium (pay-affecting balance).
+
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.
-- **Scope:** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `actions.ts` export calls a permission helper; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest` (that each one passes the proxy is already tested in `src/lib/supabase/public-paths.test.ts`); migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.
+- **Done:** every exported Server Action starts with a permission gate — `src/lib/security/server-action-gates.test.ts` (2026-10-14).
+- **Scope (remaining):** static vitest checks over the source tree — e.g. no `createClient(` outside `src/lib/supabase`; no `createAdminClient` / service-role import in `"use client"` files; every `src/app/api/**/route.ts` listed in `vercel.json` calls `isAuthorizedCronRequest` (that each one passes the proxy is already tested in `src/lib/supabase/public-paths.test.ts`); migrations reference no schema but `greendogops`; no `grant execute ... to authenticated`.
 - **Risk:** low; may surface existing violations that need triage.
 
 ### Security follow-ups from the ASVS L2 pass (0227)
