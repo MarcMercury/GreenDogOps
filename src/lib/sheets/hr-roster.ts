@@ -279,11 +279,8 @@ function desiredEmployment(p: SheetPerson): Record<string, unknown> {
     latest_wage_change_date: p.latest_wage_change_date,
     biweekly_wage: p.biweekly_wage,
     annual_wages: p.annual_wages,
-    pto_allotment: p.pto_allotment,
-    pto_policy_allotment: p.pto_policy_allotment,
-    pto_used: p.pto_used,
-    pto_available: p.pto_available,
-    pto_notes: p.pto_notes,
+    // PTO columns are not written: Ops owns the PTO balance (0246, owner
+    // decision 2026-10-14) and keeps it current from time-off approvals.
     ce_budget: p.ce_budget,
     ce_used: p.ce_used,
     ce_remaining: p.ce_remaining,

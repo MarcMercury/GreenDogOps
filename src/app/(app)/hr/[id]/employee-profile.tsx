@@ -205,14 +205,6 @@ export function EmployeeProfile({
     row.grid_name ||
     "Employee";
 
-  // "Used" PTO mirrors approved time-off requests; the form derives the
-  // remaining balance from the allotment minus this value.
-  const approvedPtoUsed = timeOff.reduce(
-    (sum, t) =>
-      t.status === "approved" ? sum + ptoDayCount(t.start_date, t.end_date) : sum,
-    0,
-  );
-
   // The Compensation tab's "Last review date" is driven by the Reviews tab.
   // Reviews arrive sorted by review_date desc (nulls last), so the first entry
   // with a date is the most recent review.
@@ -294,7 +286,6 @@ export function EmployeeProfile({
         canViewComp={canViewComp}
         canEdit={canEdit}
         weeklyShiftTarget={scheduleSettings.weeklyTarget}
-        approvedPtoUsed={approvedPtoUsed}
         locations={locations}
         latestReviewDate={latestReviewDate}
       />
@@ -400,15 +391,6 @@ function fmtDate(d: string | null): string {
     month: "short",
     day: "numeric",
   });
-}
-
-/** Inclusive number of days spanned by a time-off request (min 0). */
-function ptoDayCount(start: string, end: string): number {
-  const s = new Date(`${start}T00:00:00`);
-  const e = new Date(`${end}T00:00:00`);
-  if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return 0;
-  const days = Math.floor((e.getTime() - s.getTime()) / 86_400_000) + 1;
-  return days > 0 ? days : 0;
 }
 
 function AddButton({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Green Dog Ops — baseline schema for the greendogops schema
--- Generated 2026-10-13 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
+-- Generated 2026-10-14 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
 -- ----------------------------------------------------------------------------
 -- A single, internally consistent snapshot: every table, view, materialised
 -- view, function, trigger, enum, index, grant, revoke and RLS policy.
@@ -2931,6 +2931,109 @@ begin
       new.is_active := false;
     end if;
   end if;
+  return new;
+end;
+$$;
+
+
+--
+-- Name: person_employment_pto_ledger(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.person_employment_pto_ledger() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  v_source text := nullif(current_setting('greendogops.pto_source', true), '');
+  v_time_off text := nullif(current_setting('greendogops.pto_time_off', true), '');
+begin
+  insert into greendogops.pto_ledger (
+    person_id, source, time_off_id, reason,
+    allotment_before, allotment_after, extra_before, extra_after,
+    used_before, used_after, available_before, available_after, actor_auth_id
+  ) values (
+    new.person_id,
+    coalesce(v_source, 'manual'),
+    v_time_off::uuid,
+    nullif(current_setting('greendogops.pto_reason', true), ''),
+    case when tg_op = 'UPDATE' then old.pto_allotment end, new.pto_allotment,
+    case when tg_op = 'UPDATE' then old.pto_policy_allotment end, new.pto_policy_allotment,
+    case when tg_op = 'UPDATE' then old.pto_used end, new.pto_used,
+    case when tg_op = 'UPDATE' then old.pto_available end, new.pto_available,
+    auth.uid()
+  );
+  return null;
+end;
+$$;
+
+
+--
+-- Name: person_time_off_balance(); Type: FUNCTION; Schema: greendogops; Owner: -
+--
+
+CREATE FUNCTION greendogops.person_time_off_balance() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'greendogops', 'pg_catalog'
+    AS $$
+declare
+  v_new numeric := 0;
+  v_old numeric := 0;
+  v_people uuid[];
+  v_deltas numeric[];
+  v_reasons text[];
+  v_ids uuid[];
+  i int;
+begin
+  if tg_op <> 'INSERT' then
+    v_old := coalesce(old.pto_days_deducted, 0);
+  end if;
+  if tg_op <> 'DELETE' then
+    v_new := case
+      when new.status::text = 'approved' and new.balance_tracked and new.kind::text in ('pto', 'vacation')
+        then coalesce(new.pto_days, (new.end_date - new.start_date + 1)::numeric)
+      else 0::numeric
+    end;
+  end if;
+
+  if tg_op = 'DELETE' then
+    v_people := array[old.person_id]; v_deltas := array[-v_old];
+    v_reasons := array['request deleted']; v_ids := array[old.id];
+  elsif tg_op = 'UPDATE' and new.person_id is distinct from old.person_id then
+    v_people := array[old.person_id, new.person_id]; v_deltas := array[-v_old, v_new];
+    v_reasons := array['request moved to another person', 'request moved from another person'];
+    v_ids := array[old.id, new.id];
+  else
+    v_people := array[new.person_id]; v_deltas := array[v_new - v_old];
+    v_reasons := array[case
+      when v_old = 0 then 'request approved'
+      when v_new = 0 then 'request ' || new.status::text
+      else 'approved request changed'
+    end];
+    v_ids := array[new.id];
+  end if;
+
+  for i in 1 .. array_length(v_people, 1) loop
+    continue when v_deltas[i] = 0;
+    perform set_config('greendogops.pto_source', 'time_off', true);
+    perform set_config('greendogops.pto_time_off', v_ids[i]::text, true);
+    perform set_config('greendogops.pto_reason', v_reasons[i], true);
+    update greendogops.person_employment
+       set pto_used = coalesce(pto_used, 0) + v_deltas[i],
+           pto_available = pto_available - v_deltas[i]
+     where person_id = v_people[i];
+    if not found then
+      insert into greendogops.person_employment (person_id, pto_used) values (v_people[i], v_deltas[i]);
+    end if;
+    perform set_config('greendogops.pto_source', '', true);
+    perform set_config('greendogops.pto_time_off', '', true);
+    perform set_config('greendogops.pto_reason', '', true);
+  end loop;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  new.pto_days_deducted := v_new;
   return new;
 end;
 $$;
@@ -8859,7 +8962,13 @@ CREATE TABLE greendogops.person_time_off (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     source text DEFAULT 'manual'::text NOT NULL,
     external_id text,
-    CONSTRAINT person_time_off_range_ck CHECK ((end_date >= start_date))
+    pto_days numeric(5,2),
+    pto_days_deducted numeric(5,2) DEFAULT 0 NOT NULL,
+    balance_tracked boolean DEFAULT true NOT NULL,
+    review_note text,
+    CONSTRAINT person_time_off_pto_days_check CHECK (((pto_days IS NULL) OR ((pto_days >= (0)::numeric) AND (pto_days <= (400)::numeric)))),
+    CONSTRAINT person_time_off_range_ck CHECK ((end_date >= start_date)),
+    CONSTRAINT person_time_off_review_note_check CHECK (((review_note IS NULL) OR (length(review_note) <= 1000)))
 );
 
 
@@ -8874,7 +8983,7 @@ COMMENT ON TABLE greendogops.person_time_off IS 'Employee-entered PTO / Vacation
 -- Name: COLUMN person_time_off.source; Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON COLUMN greendogops.person_time_off.source IS 'Origin of the request: manual (HR profile) or wheniwork (API sync).';
+COMMENT ON COLUMN greendogops.person_time_off.source IS 'Origin of the request: manual (HR profile), self (My Time), wheniwork (email import), vacation_pdf_2026 (one-off import).';
 
 
 --
@@ -8882,6 +8991,34 @@ COMMENT ON COLUMN greendogops.person_time_off.source IS 'Origin of the request: 
 --
 
 COMMENT ON COLUMN greendogops.person_time_off.external_id IS 'Stable id from the source system (e.g. When I Work request id); NULL when manual.';
+
+
+--
+-- Name: COLUMN person_time_off.pto_days; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_time_off.pto_days IS 'PTO days this request uses (0246). Whole days; a partial sick day is a fraction (2 h = 0.25). NULL = every calendar day in the range. 0 = approve without deducting.';
+
+
+--
+-- Name: COLUMN person_time_off.pto_days_deducted; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_time_off.pto_days_deducted IS 'Days this request currently holds against person_employment.pto_available (0246). Set only by the person_time_off_balance trigger.';
+
+
+--
+-- Name: COLUMN person_time_off.balance_tracked; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_time_off.balance_tracked IS 'false = approved before Ops owned the balance (0246); the sheet already counted it, so it never moves the balance.';
+
+
+--
+-- Name: COLUMN person_time_off.review_note; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON COLUMN greendogops.person_time_off.review_note IS 'Optional note from the approver (0246).';
 
 
 --
@@ -9227,6 +9364,37 @@ CREATE TABLE greendogops.profile_transition_log (
     actor_name text,
     created_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: pto_ledger; Type: TABLE; Schema: greendogops; Owner: -
+--
+
+CREATE TABLE greendogops.pto_ledger (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    person_id uuid NOT NULL,
+    source text NOT NULL,
+    time_off_id uuid,
+    reason text,
+    allotment_before text,
+    allotment_after text,
+    extra_before numeric(6,2),
+    extra_after numeric(6,2),
+    used_before numeric(6,2),
+    used_after numeric(6,2),
+    available_before numeric(6,2),
+    available_after numeric(6,2),
+    actor_auth_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT pto_ledger_source_check CHECK ((source = ANY (ARRAY['time_off'::text, 'manual'::text])))
+);
+
+
+--
+-- Name: TABLE pto_ledger; Type: COMMENT; Schema: greendogops; Owner: -
+--
+
+COMMENT ON TABLE greendogops.pto_ledger IS 'Append-only history of every PTO allotment / used / available change (0246): automatic from time-off approvals (time_off_id) or manual HR edits. Service role only; HR-private.';
 
 
 --
@@ -13246,6 +13414,14 @@ ALTER TABLE ONLY greendogops.profile_transition_log
 
 
 --
+-- Name: pto_ledger pto_ledger_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.pto_ledger
+    ADD CONSTRAINT pto_ledger_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: qr_code qr_code_pkey; Type: CONSTRAINT; Schema: greendogops; Owner: -
 --
 
@@ -15606,6 +15782,13 @@ CREATE INDEX profile_transition_log_person_idx ON greendogops.profile_transition
 
 
 --
+-- Name: pto_ledger_person_idx; Type: INDEX; Schema: greendogops; Owner: -
+--
+
+CREATE INDEX pto_ledger_person_idx ON greendogops.pto_ledger USING btree (person_id, created_at DESC);
+
+
+--
 -- Name: qr_code_active_idx; Type: INDEX; Schema: greendogops; Owner: -
 --
 
@@ -16464,6 +16647,48 @@ CREATE TRIGGER person_after_change AFTER INSERT OR UPDATE ON greendogops.person 
 --
 
 CREATE TRIGGER person_before_change BEFORE INSERT OR UPDATE ON greendogops.person FOR EACH ROW EXECUTE FUNCTION greendogops.person_before_change();
+
+
+--
+-- Name: person_employment person_employment_pto_ledger_insert; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER person_employment_pto_ledger_insert AFTER INSERT ON greendogops.person_employment FOR EACH ROW WHEN (((new.pto_allotment IS NOT NULL) OR (new.pto_policy_allotment IS NOT NULL) OR (new.pto_used IS NOT NULL) OR (new.pto_available IS NOT NULL))) EXECUTE FUNCTION greendogops.person_employment_pto_ledger();
+
+
+--
+-- Name: person_employment person_employment_pto_ledger_update; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER person_employment_pto_ledger_update AFTER UPDATE ON greendogops.person_employment FOR EACH ROW WHEN (((old.pto_allotment IS DISTINCT FROM new.pto_allotment) OR (old.pto_policy_allotment IS DISTINCT FROM new.pto_policy_allotment) OR (old.pto_used IS DISTINCT FROM new.pto_used) OR (old.pto_available IS DISTINCT FROM new.pto_available))) EXECUTE FUNCTION greendogops.person_employment_pto_ledger();
+
+
+--
+-- Name: person_time_off person_time_off_balance_delete; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER person_time_off_balance_delete AFTER DELETE ON greendogops.person_time_off FOR EACH ROW EXECUTE FUNCTION greendogops.person_time_off_balance();
+
+
+--
+-- Name: person_time_off person_time_off_balance_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER person_time_off_balance_row BEFORE INSERT OR UPDATE ON greendogops.person_time_off FOR EACH ROW EXECUTE FUNCTION greendogops.person_time_off_balance();
+
+
+--
+-- Name: pto_ledger pto_ledger_append_only_row; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER pto_ledger_append_only_row BEFORE DELETE OR UPDATE ON greendogops.pto_ledger FOR EACH ROW EXECUTE FUNCTION greendogops.time_record_append_only();
+
+
+--
+-- Name: pto_ledger pto_ledger_append_only_truncate; Type: TRIGGER; Schema: greendogops; Owner: -
+--
+
+CREATE TRIGGER pto_ledger_append_only_truncate BEFORE TRUNCATE ON greendogops.pto_ledger FOR EACH STATEMENT EXECUTE FUNCTION greendogops.time_record_append_only();
 
 
 --
@@ -17888,6 +18113,14 @@ ALTER TABLE ONLY greendogops.profile_transition_log
 
 ALTER TABLE ONLY greendogops.profile_transition_log
     ADD CONSTRAINT profile_transition_log_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id) ON DELETE CASCADE;
+
+
+--
+-- Name: pto_ledger pto_ledger_person_id_fkey; Type: FK CONSTRAINT; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE ONLY greendogops.pto_ledger
+    ADD CONSTRAINT pto_ledger_person_id_fkey FOREIGN KEY (person_id) REFERENCES greendogops.person(id);
 
 
 --
@@ -20744,6 +20977,12 @@ ALTER TABLE greendogops."position" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE greendogops.profile_transition_log ENABLE ROW LEVEL SECURITY;
 
 --
+-- Name: pto_ledger; Type: ROW SECURITY; Schema: greendogops; Owner: -
+--
+
+ALTER TABLE greendogops.pto_ledger ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: qr_code; Type: ROW SECURITY; Schema: greendogops; Owner: -
 --
 
@@ -21112,6 +21351,13 @@ CREATE POLICY service_role_only ON greendogops.person_recruiting_score_backup_02
 --
 
 CREATE POLICY service_role_only ON greendogops.person_slack_link TO authenticated USING (false) WITH CHECK (false);
+
+
+--
+-- Name: pto_ledger service_role_only; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY service_role_only ON greendogops.pto_ledger TO authenticated USING (false) WITH CHECK (false);
 
 
 --
@@ -22357,6 +22603,15 @@ CREATE POLICY staff_read_only_delete ON greendogops."position" AS RESTRICTIVE FO
 --
 
 CREATE POLICY staff_read_only_delete ON greendogops.profile_transition_log AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: pto_ledger staff_read_only_delete; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_delete ON greendogops.pto_ledger AS RESTRICTIVE FOR DELETE TO authenticated USING ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -23950,6 +24205,15 @@ CREATE POLICY staff_read_only_insert ON greendogops."position" AS RESTRICTIVE FO
 --
 
 CREATE POLICY staff_read_only_insert ON greendogops.profile_transition_log AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
+-- Name: pto_ledger staff_read_only_insert; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_insert ON greendogops.pto_ledger AS RESTRICTIVE FOR INSERT TO authenticated WITH CHECK ((NOT (EXISTS ( SELECT 1
    FROM greendogops.app_user u
   WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
 
@@ -25794,6 +26058,17 @@ CREATE POLICY staff_read_only_update ON greendogops.profile_transition_log AS RE
 
 
 --
+-- Name: pto_ledger staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
+--
+
+CREATE POLICY staff_read_only_update ON greendogops.pto_ledger AS RESTRICTIVE FOR UPDATE TO authenticated USING ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text)))))) WITH CHECK ((NOT (EXISTS ( SELECT 1
+   FROM greendogops.app_user u
+  WHERE ((u.id = auth.uid()) AND u.is_active AND ((u.role)::text = 'staff'::text))))));
+
+
+--
 -- Name: qr_code staff_read_only_update; Type: POLICY; Schema: greendogops; Owner: -
 --
 
@@ -26909,6 +27184,22 @@ GRANT ALL ON FUNCTION greendogops.person_after_change() TO authenticated;
 REVOKE ALL ON FUNCTION greendogops.person_before_change() FROM PUBLIC;
 GRANT ALL ON FUNCTION greendogops.person_before_change() TO service_role;
 GRANT ALL ON FUNCTION greendogops.person_before_change() TO authenticated;
+
+
+--
+-- Name: FUNCTION person_employment_pto_ledger(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.person_employment_pto_ledger() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.person_employment_pto_ledger() TO service_role;
+
+
+--
+-- Name: FUNCTION person_time_off_balance(); Type: ACL; Schema: greendogops; Owner: -
+--
+
+REVOKE ALL ON FUNCTION greendogops.person_time_off_balance() FROM PUBLIC;
+GRANT ALL ON FUNCTION greendogops.person_time_off_balance() TO service_role;
 
 
 --
@@ -28371,6 +28662,13 @@ GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.product_catalog TO servic
 
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.profile_transition_log TO authenticated;
 GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.profile_transition_log TO service_role;
+
+
+--
+-- Name: TABLE pto_ledger; Type: ACL; Schema: greendogops; Owner: -
+--
+
+GRANT SELECT,INSERT,DELETE,UPDATE ON TABLE greendogops.pto_ledger TO service_role;
 
 
 --

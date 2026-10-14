@@ -10,10 +10,10 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:** create the `app_user` (role per owner decision) in `ensureAuthUserForPerson` and the daily roster sync; invites stay a separate, explicit step (Gate 1 item 2).
 - **Risk:** low.
 
-### Staff self-service: PTO requests (My Time is live for clock, schedule, timecard)
-- **Why:** `/me` (0240) covers clock in/out, the published schedule, the timecard and correction requests. PTO self-service is still HR-only (`saveTimeOff` → `ensureCanEdit("hr")`).
-- **Scope:** a PTO tab in `/me` (Gate 2 item 23): Server Action writing `person_time_off` with the service role for `appUser.person_id` only. Do **not** reopen the `schedule` module to Staff — it exposes everyone's grid.
-- **Risk:** medium (new write path; PTO is the CA sick-leave vehicle).
+### PTO annual cycle (Jan 1 grant, tenure step-up, year-end payout)
+- **Why:** since 0246 Ops keeps the PTO balance current from approvals, but nothing yet resets it on Jan 1, adds the +2-day tenure step-up, prorates a new hire's first year or computes the Dec 31 / separation payout (plan §H, D8a–D8e).
+- **Scope:** pure rules in `src/lib/pto/**` + an idempotent Jan 1 job (agent_run) writing through `person_employment` so `pto_ledger` records it; `pto_eligible` flag; the 5-day sick-leave floor warning. Must land before 2027-01-01.
+- **Risk:** medium (pay-affecting; needs Payroll/HR sign-off of the rules page, item 26).
 
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.

@@ -162,46 +162,26 @@ function ComputedCurrencyField({
   );
 }
 
-/** A read-only numeric field whose value is computed, submitted via a hidden input. */
-function ComputedNumberField({
-  label,
-  name,
-  value,
-  hint,
-}: {
-  label: string;
-  name: string;
-  value: number;
-  hint?: string;
-}) {
-  const display = Number.isInteger(value) ? value : Number(value.toFixed(2));
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-slate-500">{label}</span>
-      <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-        {display}
-      </div>
-      <input type="hidden" name={name} value={value} />
-      {hint ? <span className="text-[11px] text-slate-400">{hint}</span> : null}
-    </label>
-  );
-}
-
 /**
- * Paid Time Off section. "Used" mirrors the approved PTO requests logged in the
- * Attendance tab, and "Remaining PTO" is always the allotment minus used — both
- * are computed automatically rather than entered by hand.
+ * Paid Time Off section. Since 0246 Ops keeps "Used" and "Available" current:
+ * approving a PTO request deducts it automatically. HR edits them only to
+ * correct a balance; the save writes a field only if it was changed here
+ * (`*_was` carries the loaded value), and every change is in pto_ledger.
  */
-function PaidTimeOffSection({
-  emp,
-  approvedPtoUsed,
-}: {
-  emp: RosterRow["person_employment"];
-  approvedPtoUsed: number;
-}) {
-  const [allotment, setAllotment] = useState(
-    () => emp?.pto_policy_allotment ?? 0,
-  );
+function PaidTimeOffSection({ emp }: { emp: RosterRow["person_employment"] }) {
+  const inputCls =
+    "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
+  const balanceField = (key: "pto_used" | "pto_available", label: string, hint: string) => {
+    const loaded = emp?.[key] ?? "";
+    return (
+      <label className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-slate-500">{label}</span>
+        <input name={key} type="number" step="0.25" defaultValue={loaded} className={inputCls} />
+        <input type="hidden" name={`${key}_was`} value={loaded} />
+        <span className="text-[11px] text-slate-400">{hint}</span>
+      </label>
+    );
+  };
   return (
     <Section title="Paid Time Off">
       <label className="flex flex-col gap-1">
@@ -211,24 +191,11 @@ function PaidTimeOffSection({
           type="number"
           step="any"
           defaultValue={emp?.pto_policy_allotment ?? ""}
-          onChange={(e) =>
-            setAllotment(e.target.value === "" ? 0 : Number(e.target.value))
-          }
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          className={inputCls}
         />
       </label>
-      <ComputedNumberField
-        label="Used"
-        name="pto_used"
-        value={approvedPtoUsed}
-        hint="Auto-calculated from approved PTO requests."
-      />
-      <ComputedNumberField
-        label="Remaining PTO"
-        name="pto_available"
-        value={allotment - approvedPtoUsed}
-        hint="Allotment minus used."
-      />
+      {balanceField("pto_used", "Used (days)", "Updated automatically when PTO is approved. Edit only to correct.")}
+      {balanceField("pto_available", "Available (days)", "Updated automatically when PTO is approved. Changes are logged.")}
       <Field label="PTO notes" name="pto_notes" defaultValue={emp?.pto_notes} />
     </Section>
   );
@@ -363,7 +330,6 @@ export function EmployeeForm({
   canViewComp,
   canEdit,
   weeklyShiftTarget,
-  approvedPtoUsed,
   locations,
   latestReviewDate,
 }: {
@@ -374,8 +340,6 @@ export function EmployeeForm({
   canEdit: boolean;
   /** Days per week, sourced from Schedule → Setup (sched_employee_setting). */
   weeklyShiftTarget: number | null;
-  /** Approved PTO request days — the source of truth for "Used". */
-  approvedPtoUsed: number;
   /** Active clinic locations for the Preferred location dropdown. */
   locations: LocationOption[];
   /** Most recent review date from the Reviews tab (source of truth). */
@@ -630,7 +594,7 @@ export function EmployeeForm({
       </div>
 
       <div className={activeTab === "attendance" ? "space-y-5" : "hidden"}>
-        <PaidTimeOffSection emp={emp} approvedPtoUsed={approvedPtoUsed} />
+        <PaidTimeOffSection emp={emp} />
       </div>
 
       <div className="sticky bottom-0 z-10 -mx-4 flex items-center justify-end gap-3 border-t border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:pb-8 sm:pt-0">

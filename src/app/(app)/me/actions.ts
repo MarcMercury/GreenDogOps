@@ -28,6 +28,8 @@ import { localMinutes, pickShift } from "@/lib/timeclock/shift-match";
 import { CORRECTION_WINDOW_DAYS, isPunchType, PUNCH_LABELS, type PunchType } from "@/lib/timeclock/state";
 import { isMealWaiverKind, MEAL_WAIVER_LABELS, signatureMatches } from "@/lib/timeclock/meal-waiver";
 import { getWaiverDocuments, mealWaiversLive } from "@/lib/timeclock/meal-waiver-server";
+import { notifyTimeOffModified, notifyTimeOffRequested } from "@/lib/notify/events/schedule";
+import { overlaps, parseSelfRequest } from "@/lib/pto/balance";
 
 // Self-service time clock. Every action acts ONLY on the signed-in user's own
 // HR person (app_user.person_id); nothing about whose record it is comes from
@@ -405,4 +407,106 @@ export async function revokeMealWaiver(kind: string): Promise<TimeActionResult> 
   });
   revalidatePath("/me/waivers");
   return { ok: true, message: "Revoked. From now on you'll take this meal period." };
+}
+
+// ---------------------------------------------------------------------------
+// PTO requests (go-live item 23). Always kind "pto" (one bucket for sick and
+// vacation, D8); never asks for a reason. Approving deducts the balance in the
+// database (0246), so nothing here touches person_employment.
+// ---------------------------------------------------------------------------
+
+export async function requestPto(formData: FormData): Promise<TimeActionResult> {
+  const gate = await selfGate();
+  if (!gate.ok) return gate;
+  if (!(await rateLimit(`pto:request:${gate.person.id}`, 20, 3600))) {
+    return { ok: false, error: "Too many requests. Please try again later." };
+  }
+  const parsed = parseSelfRequest(
+    {
+      start: String(formData.get("start_date") ?? ""),
+      end: String(formData.get("end_date") ?? ""),
+      mode: String(formData.get("mode") ?? "full"),
+      days: String(formData.get("days") ?? ""),
+      hours: String(formData.get("hours") ?? ""),
+      note: String(formData.get("note") ?? ""),
+    },
+    todayInWorkTz(),
+  );
+  if (!parsed.ok) return parsed;
+  const { start, end, ptoDays, note } = parsed.value;
+
+  const admin = createAdminClient();
+  const { data: existing, error: exErr } = await admin
+    .from("person_time_off")
+    .select("start_date, end_date")
+    .eq("person_id", gate.person.id)
+    .in("status", ["requested", "approved"])
+    .lte("start_date", end)
+    .gte("end_date", start);
+  if (exErr) return { ok: false, error: `Could not check your requests: ${exErr.message}` };
+  if ((existing ?? []).some((r) => overlaps(start, end, r.start_date as string, r.end_date as string))) {
+    return { ok: false, error: "You already have a request covering some of those days." };
+  }
+
+  const { data: created, error } = await admin
+    .from("person_time_off")
+    .insert({
+      person_id: gate.person.id,
+      kind: "pto",
+      status: "requested",
+      start_date: start,
+      end_date: end,
+      pto_days: ptoDays,
+      note,
+      source: "self",
+      requested_by: gate.person.id,
+    })
+    .select("id")
+    .single();
+  if (error) return { ok: false, error: `Could not send the request: ${error.message}` };
+  const id = created.id as string;
+  await recordAudit({
+    actorId: gate.authId,
+    actorEmail: gate.email,
+    action: "pto.requested",
+    entity: "person_time_off",
+    entityId: id,
+    summary: `PTO requested ${start}${end !== start ? ` – ${end}` : ""} (${ptoDays} day(s))`,
+  });
+  runInBackground(() => notifyTimeOffRequested(id, gate.appUserId));
+  revalidatePath("/me/pto");
+  revalidatePath("/schedule");
+  return { ok: true, message: "Request sent. You'll be notified when it's reviewed." };
+}
+
+/** Withdraw your own request while it is still waiting for review. */
+export async function withdrawPto(id: string): Promise<TimeActionResult> {
+  const gate = await selfGate();
+  if (!gate.ok) return gate;
+  if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Unknown request." };
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("person_time_off")
+    .delete()
+    .eq("id", id)
+    .eq("person_id", gate.person.id)
+    .eq("status", "requested")
+    .select("id, person_id, kind, status, start_date, end_date, note");
+  if (error) return { ok: false, error: `Could not withdraw: ${error.message}` };
+  const row = data?.[0];
+  if (!row) return { ok: false, error: "Only your own requests that are still waiting can be withdrawn. Ask your manager to cancel an approved one." };
+  await recordAudit({
+    actorId: gate.authId,
+    actorEmail: gate.email,
+    action: "pto.withdrawn",
+    entity: "person_time_off",
+    entityId: id,
+    summary: `PTO request ${row.start_date} – ${row.end_date} withdrawn by the employee`,
+  });
+  runInBackground(() =>
+    notifyTimeOffModified({ timeOffId: id, change: "withdrawn", before: row, actorUserId: gate.appUserId, actorName: gate.person.name }),
+  );
+  revalidatePath("/me/pto");
+  revalidatePath("/schedule");
+  return { ok: true, message: "Request withdrawn." };
 }

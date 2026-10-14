@@ -164,7 +164,9 @@ from users who cannot access it.
   clock out, from their phone or computer), published schedule, timecard by
   pay period, correction requests, the time-clock privacy notice, and (once
   an Admin turns on `timeclock.meal_waivers_live`) e-signing or revoking the
-  California meal-period waivers (`meal_waiver`, migration `0242`). Open to
+  California meal-period waivers (`meal_waiver`, migration `0242`), and PTO:
+  the balance, requests (full days, or 2–8 hours of sick time on one day; no
+  reason asked) and withdrawing a pending one (`0246`). Open to
   every role (Staff included), always scoped to the signed-in person. Punches
   are append-only (`time_punch`, migration `0240`) and written only by
   `record_time_punch()`; see docs/security.md §12. Each punch is checked
@@ -189,6 +191,15 @@ from users who cannot access it.
   timecard, lock the period (corrections are then refused), export the totals
   CSV (each export is logged with its SHA-256). Owner/Admin can reopen with a
   reason. Migration `0245`.
+  **Scheduling ▸ Time Off** (`/schedule/time-off`, schedule editors) is the
+  queue of every pending request (My Time, HR, When I Work import): choose
+  paid PTO or unpaid and the PTO days (0 = don't deduct), then approve or deny.
+  **Ops owns the PTO balance** (`person_employment.pto_used/pto_available`, in
+  days) since 0246: approving a request — from this queue, the grid, the HR
+  profile or Slack — deducts it in the database (trigger
+  `person_time_off_balance`); denying, reopening or deleting gives it back.
+  Every change is in the append-only `pto_ledger`. The HR-roster sheet sync no
+  longer writes the PTO columns.
 - **Resources** (`/resources`) — the library of company policies, protocols and
   documents, grouped by category. Policies are **native Ops documents**
   (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),

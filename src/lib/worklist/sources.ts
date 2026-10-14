@@ -292,7 +292,7 @@ const SOURCES: Source[] = [
           title: `${later} more time-off request${later === 1 ? "" : "s"} starting after ${shortDateLabel(horizon)}`,
           detail: null,
           module: "schedule",
-          href: "/schedule",
+          href: "/schedule/time-off",
           target: "ops",
           due: null,
           priority: "low",

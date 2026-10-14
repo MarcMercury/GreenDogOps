@@ -22,6 +22,7 @@ import { safeUploadContentType } from "@/lib/security/upload";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
 import { normalizeJobTitle } from "@/lib/hr/job-titles";
 import { formatPhoneNumber } from "@/lib/shared/phone";
+import { ptoBalancePatch } from "@/lib/pto/balance";
 import * as XLSX from "xlsx";
 
 const DOCUMENTS_BUCKET = "employee-documents";
@@ -304,8 +305,8 @@ export async function updateEmployee(
     hire_date: str(formData.get("hire_date")),
     original_hire_date: str(formData.get("original_hire_date")),
     pto_policy_allotment: num(formData.get("pto_policy_allotment")),
-    pto_used: num(formData.get("pto_used")),
-    pto_available: num(formData.get("pto_available")),
+    // Only if HR changed them here — approvals keep them current (0246).
+    ...ptoBalancePatch((k) => formData.get(k)),
     pto_notes: str(formData.get("pto_notes")),
     separation_date: str(formData.get("separation_date")),
     separation_type: str(formData.get("separation_type")),

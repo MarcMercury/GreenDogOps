@@ -144,6 +144,8 @@ export const ALWAYS_BLOCKED_TABLES = [
   "pay_period",
   "timecard_approval",
   "payroll_export",
+  // PTO balance history (0246): HR-private.
+  "pto_ledger",
 ] as const;
 
 /**

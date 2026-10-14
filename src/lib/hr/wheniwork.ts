@@ -17,7 +17,8 @@ import { notifyTimeOffRequested } from "@/lib/notify/events/schedule";
 //
 // Idempotency has two layers so re-runs never duplicate and never clobber an
 // approval made later inside the app:
-//   1. Upsert on (source='wheniwork', external_id=<gmail message id>).
+//   1. Insert-only on (source='wheniwork', external_id=<gmail message id>);
+//      a duplicate is ignored, never rewritten.
 //   2. Processed messages get the "GD-WIW-Imported" Gmail label and are
 //      excluded from the search query. Because a request is only ever written
 //      while its message is still unlabeled, an in-app approval (status flipped
@@ -343,16 +344,19 @@ export async function syncWhenIWorkTimeOff(): Promise<WhenIWorkSyncResult> {
             source: "wheniwork",
             external_id: msg.id,
           },
-          { onConflict: "source,external_id" },
+          // Insert-only: an already-imported request is never rewritten, so an
+          // approval made in Ops (which moves the PTO balance, 0246) survives a
+          // re-poll even if the Gmail label below failed.
+          { onConflict: "source,external_id", ignoreDuplicates: true },
         )
         .select("id, created_at, updated_at")
-        .single();
+        .maybeSingle();
       if (error) {
         result.errors.push(`message ${msg.id}: ${error.message}`);
         continue;
       }
-      // created_at === updated_at on a fresh insert; the trigger bumps updated_at on update.
-      if (upserted && upserted.created_at === upserted.updated_at) {
+      // No row back = already imported earlier (left untouched).
+      if (upserted) {
         result.created += 1;
         newRequestIds.push(upserted.id as string);
       }
