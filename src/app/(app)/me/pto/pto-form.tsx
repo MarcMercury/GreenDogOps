@@ -15,7 +15,6 @@ export function PtoRequestForm({ minDate, maxDate, today }: { minDate: string; m
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [pending, start] = useTransition();
-  const [mode, setMode] = useState<"full" | "partial">("full");
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [days, setDays] = useState("");
@@ -32,7 +31,6 @@ export function PtoRequestForm({ minDate, maxDate, today }: { minDate: string; m
           setResult(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error });
           if (res.ok) {
             formRef.current?.reset();
-            setMode("full");
             setFrom(today);
             setTo(today);
             setDays("");
@@ -41,19 +39,12 @@ export function PtoRequestForm({ minDate, maxDate, today }: { minDate: string; m
         })
       }
     >
-      <fieldset className="flex flex-wrap gap-4 text-sm">
-        <label className="flex items-center gap-2">
-          <input type="radio" name="mode" value="full" checked={mode === "full"} onChange={() => setMode("full")} />
-          Full days
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="radio" name="mode" value="partial" checked={mode === "partial"} onChange={() => setMode("partial")} />
-          Part of a day (sick time, 2 hours minimum)
-        </label>
-      </fieldset>
+      <p className="text-sm text-slate-600">
+        Sick time and planned time off are both taken in whole days (1 day = 8 hours).
+      </p>
       <div className="grid gap-3 sm:grid-cols-3">
         <label className="block text-sm">
-          <span className="text-slate-700">{mode === "full" ? "First day" : "Day"}</span>
+          <span className="text-slate-700">First day</span>
           <input
             type="date"
             name="start_date"
@@ -68,45 +59,36 @@ export function PtoRequestForm({ minDate, maxDate, today }: { minDate: string; m
             className={field}
           />
         </label>
-        {mode === "full" ? (
-          <>
-            <label className="block text-sm">
-              <span className="text-slate-700">Last day</span>
-              <input
-                type="date"
-                name="end_date"
-                required
-                min={from || minDate}
-                max={maxDate}
-                value={to}
-                onChange={(e) => setTo(e.target.value)}
-                className={field}
-              />
-            </label>
-            <label className="block text-sm">
-              <span className="text-slate-700">PTO days to use</span>
-              <input
-                type="number"
-                name="days"
-                min={1}
-                max={span || 1}
-                step={1}
-                placeholder={span ? String(span) : ""}
-                value={days}
-                onChange={(e) => setDays(e.target.value)}
-                className={field}
-              />
-              <span className="mt-1 block text-xs text-slate-500">
-                Leave blank for all {span || ""} day{span === 1 ? "" : "s"}; lower it if some are your regular days off.
-              </span>
-            </label>
-          </>
-        ) : (
-          <label className="block text-sm">
-            <span className="text-slate-700">Hours</span>
-            <input type="number" name="hours" required min={2} max={8} step={0.25} defaultValue={2} className={field} />
-          </label>
-        )}
+        <label className="block text-sm">
+          <span className="text-slate-700">Last day</span>
+          <input
+            type="date"
+            name="end_date"
+            required
+            min={from || minDate}
+            max={maxDate}
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            className={field}
+          />
+        </label>
+        <label className="block text-sm">
+          <span className="text-slate-700">PTO days to use</span>
+          <input
+            type="number"
+            name="days"
+            min={1}
+            max={span || 1}
+            step={1}
+            placeholder={span ? String(span) : ""}
+            value={days}
+            onChange={(e) => setDays(e.target.value)}
+            className={field}
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            Leave blank for all {span || ""} day{span === 1 ? "" : "s"}; lower it if some are your regular days off.
+          </span>
+        </label>
       </div>
       <label className="block text-sm">
         <span className="text-slate-700">Note for your manager (optional)</span>

@@ -55,7 +55,7 @@ export function PtoDecision({
             type="number"
             min={0}
             max={maxDays}
-            step={0.25}
+            step={1}
             value={days}
             onChange={(e) => setDays(e.target.value)}
             className={`${input} w-20`}

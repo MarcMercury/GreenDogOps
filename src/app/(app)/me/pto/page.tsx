@@ -96,7 +96,7 @@ export default async function MyPtoPage() {
           </div>
         )}
         <p className="mt-3 text-xs text-slate-500">
-          PTO covers both sick time and vacation, in days (1 day = 8 hours). Approved requests come off your balance
+          PTO covers both sick time and vacation, in whole days only (1 day = 8 hours). Approved requests come off your balance
           straight away; pending ones don&apos;t until they&apos;re approved. Unused PTO is paid out at the end of the
           year.{" "}
           <Link href="/hr/pto-rules" className="font-medium text-emerald-700 underline">

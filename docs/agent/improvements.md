@@ -20,10 +20,10 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Scope:** one shared approval function (owned by the PTO feature) that both paths call; the grid either asks for days or sends the approver to `/schedule/time-off`. Do it after the scheduling refactor merges, in its structure (`docs/agent/contributing-scheduling.md`).
 - **Risk:** medium (pay-affecting balance).
 
-### Enforce whole-day PTO in the database
-- **Why:** whole 8-hour days only is now enforced in TypeScript (`src/lib/pto/balance.ts`; the only app writers of `pto_days` are `requestPto` and `reviewPtoRequest`, both validated — other paths leave it NULL = whole calendar days), but the column still accepts 2 decimals and its comment (0246) still says "a partial sick day is a fraction (2 h = 0.25)", so a direct SQL / future writer could reintroduce fractions.
-- **Scope:** next migration: `check (pto_days is null or pto_days = trunc(pto_days))` + corrected column comment, then regenerate the baseline. Production had 0 fractional rows on 2026-10-14. Needs explicit authorization (production DDL).
-- **Risk:** low.
+### Legacy PTO balances hold non-day values (29 profiles)
+- **Why:** in production 29 `person_employment` rows have `pto_used` / `pto_available` of 250, 500, 1483.92 or 123.66 "days" (8 fractional) — they look like CE dollar amounts that landed in the PTO columns from the old HR sheet import (the sheet sync no longer writes PTO, 0246). None has a tracked approved request. They show on My PTO, HR and Ziggy as real balances, and block a whole-day CHECK on these two columns (0248 constrains only requests and the allotment).
+- **Scope:** HR supplies the correct whole-day balances (or confirms clearing them); apply through the HR profile so `pto_ledger` records each change; then add `pto_used/pto_available = trunc(...)` CHECKs in a migration.
+- **Risk:** low technically; it changes HR records, so it needs HR's numbers and explicit authorization.
 
 ### Architectural contract tests
 - **Why:** catch violations of the invariants in architecture.md that ordinary unit tests miss.

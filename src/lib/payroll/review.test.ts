@@ -27,7 +27,7 @@ const req = (start: string, end: string, over: Partial<{ kind: string; status: s
 describe("ptoHoursInPeriod", () => {
   it("counts approved paid days in the period at 8 h a day", () => {
     expect(ptoHoursInPeriod([req("2026-10-06", "2026-10-08")], P, E)).toBe(24);
-    expect(ptoHoursInPeriod([req("2026-10-06", "2026-10-06", { pto_days: 0.25 })], P, E)).toBe(2);
+    expect(ptoHoursInPeriod([req("2026-10-06", "2026-10-06", { pto_days: 1 })], P, E)).toBe(8);
   });
   it("counts only the days inside the period for a straddling request", () => {
     expect(ptoHoursInPeriod([req("2026-10-15", "2026-10-20")], P, E)).toBe(24);
@@ -36,6 +36,16 @@ describe("ptoHoursInPeriod", () => {
   it("spreads fewer PTO days than calendar days evenly", () => {
     // 7-day range using 5 PTO days, all inside → 40 h.
     expect(ptoHoursInPeriod([req("2026-10-04", "2026-10-10", { pto_days: 5 })], P, E)).toBe(40);
+  });
+  it("gives each period whole 8-hour days when a request straddles periods, and they add up", () => {
+    // 7-day range using 5 PTO days, 4 calendar days in this period, 3 in the next.
+    const r = req("2026-10-14", "2026-10-20", { pto_days: 5 });
+    const here = ptoHoursInPeriod([r], P, E);
+    const next = ptoHoursInPeriod([r], "2026-10-18", "2026-10-31");
+    expect(here % 8).toBe(0);
+    expect(next % 8).toBe(0);
+    expect(here).toBe(24);
+    expect(here + next).toBe(40);
   });
   it("ignores pending, denied and unpaid requests", () => {
     expect(

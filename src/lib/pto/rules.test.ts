@@ -24,7 +24,8 @@ describe("PTO & Timekeeping Rules page (generated from the engine)", () => {
     const e = examples();
     expect(e.meals).toContain("5.5 h worked, no lunch → 1 meal premium hour (no meal period)");
     expect(e.meals).toContain("6-hour waiver signed → no premium");
-    expect(e.pto).toContain("2 hours of sick time → 0.25 day");
+    expect(e.pto).toContain("Out sick for part of a shift → 1 day (8 h) of PTO");
+    expect(e.pto).not.toMatch(/0\.25|2 hours/);
     expect(e["pay-calendar"]).toContain("so it pays Thu 2026-12-31");
     expect(e["pto-annual"]).toContain("the payout is on 2027-01-15");
     expect(e["pto-annual"]).toContain("raised to 5 days");

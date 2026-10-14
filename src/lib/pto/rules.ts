@@ -29,7 +29,7 @@ import {
   WEEKLY_OT_AFTER,
   type MealCheck,
 } from "../payroll/ca-rules";
-import { deductionDays, formatDays, MIN_PARTIAL_HOURS, parseSelfRequest, PTO_BACKDATE_DAYS, PTO_DAY_HOURS } from "./balance";
+import { deductionDays, formatDays, PTO_BACKDATE_DAYS, PTO_DAY_HOURS } from "./balance";
 import {
   allotmentFor,
   firstYearGrant,
@@ -129,8 +129,7 @@ export function buildRules(): RuleSection[] {
   const sevenTens = run(weekOf([10, 8, 8, 8, 8, 8, 10]));
   const exemptLong = run(day(EX_WEEK, 11), "exempt");
 
-  const partial = parseSelfRequest({ start: "2026-11-02", mode: "partial", hours: String(MIN_PARTIAL_HOURS) }, "2026-11-01");
-  const partialDays = partial.ok ? partial.value.ptoDays : NaN;
+  const oneSickDay = deductionDays({ kind: "pto", status: "approved", balance_tracked: true, pto_days: null, start_date: "2026-11-02", end_date: "2026-11-02" });
   const threeDay = deductionDays({ kind: "pto", status: "approved", balance_tracked: true, pto_days: null, start_date: "2026-11-02", end_date: "2026-11-04" });
 
   return [
@@ -246,9 +245,8 @@ export function buildRules(): RuleSection[] {
       intro: "PTO covers both sick time and vacation in one balance, and is the company's California paid sick leave.",
       rules: [
         {
-          text: `PTO is counted in days; 1 day = ${PTO_DAY_HOURS} hours for payroll. Planned time off is whole days. When PTO is used as sick time it can be taken in blocks as small as ${MIN_PARTIAL_HOURS} hours.`,
-          example: `${MIN_PARTIAL_HOURS} hours of sick time → ${partialDays} day (${formatDays(partialDays)}).`,
-          why: "Labor Code §246: paid sick leave may be used in increments of no less than 2 hours.",
+          text: `PTO is counted in whole days; 1 day = ${PTO_DAY_HOURS} hours for payroll. Sick time and planned time off are both taken in full ${PTO_DAY_HOURS}-hour days only — no partial days, no exceptions.`,
+          example: `Out sick for part of a shift → ${formatDays(oneSickDay)} (${oneSickDay * PTO_DAY_HOURS} h) of PTO.`,
         },
         {
           text: `Employees request PTO in My Time and are never asked for a reason. Sick time can be entered afterwards, up to ${PTO_BACKDATE_DAYS} days back.`,

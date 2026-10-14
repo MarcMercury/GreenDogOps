@@ -22,7 +22,7 @@ import { safeUploadContentType } from "@/lib/security/upload";
 import { ONBOARDING_ITEM_KEYS } from "@/lib/hr/onboarding";
 import { normalizeJobTitle } from "@/lib/hr/job-titles";
 import { formatPhoneNumber } from "@/lib/shared/phone";
-import { ptoBalancePatch } from "@/lib/pto/balance";
+import { fractionalPtoError, ptoBalancePatch } from "@/lib/pto/balance";
 import * as XLSX from "xlsx";
 
 const DOCUMENTS_BUCKET = "employee-documents";
@@ -232,6 +232,11 @@ export async function updateEmployee(
 
   const isAdmin = canViewAllCompensation(gate.current.appUser.role);
 
+  const ptoAllotment = num(formData.get("pto_policy_allotment"));
+  const ptoPatch = ptoBalancePatch((k) => formData.get(k));
+  const ptoErr = fractionalPtoError({ pto_policy_allotment: ptoAllotment, ...ptoPatch });
+  if (ptoErr) return { ok: false, error: ptoErr };
+
   const personPatch = {
     first_name: str(formData.get("first_name")),
     last_name: str(formData.get("last_name")),
@@ -304,9 +309,9 @@ export async function updateEmployee(
     // .weekly_shift_target) and shown read-only on HR, so it is not written here.
     hire_date: str(formData.get("hire_date")),
     original_hire_date: str(formData.get("original_hire_date")),
-    pto_policy_allotment: num(formData.get("pto_policy_allotment")),
+    pto_policy_allotment: ptoAllotment,
     // Only if HR changed them here — approvals keep them current (0246).
-    ...ptoBalancePatch((k) => formData.get(k)),
+    ...ptoPatch,
     pto_notes: str(formData.get("pto_notes")),
     separation_date: str(formData.get("separation_date")),
     separation_type: str(formData.get("separation_type")),
@@ -501,6 +506,10 @@ export async function updateEmployeeField(
     }
   } else if (field in EMPLOYMENT_EDIT_FIELDS) {
     const value = coerceFieldValue(EMPLOYMENT_EDIT_FIELDS[field], raw);
+    if (field === "pto_policy_allotment") {
+      const ptoErr = fractionalPtoError({ pto_policy_allotment: value as number | null });
+      if (ptoErr) return { ok: false, error: ptoErr };
+    }
     const { error } = await supabase
       .from("person_employment")
       .upsert({ person_id: personId, [field]: value }, { onConflict: "person_id" });

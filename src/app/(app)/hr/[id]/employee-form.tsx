@@ -174,10 +174,12 @@ function PaidTimeOffSection({ emp }: { emp: RosterRow["person_employment"] }) {
     "rounded-lg border border-slate-300 px-3 py-2 text-sm shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500";
   const balanceField = (key: "pto_used" | "pto_available", label: string, hint: string) => {
     const loaded = emp?.[key] ?? "";
+    // Whole days only; a legacy fractional value must not trip browser validation and block the save.
+    const step = loaded === "" || Number.isInteger(Number(loaded)) ? "1" : "any";
     return (
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium text-slate-500">{label}</span>
-        <input name={key} type="number" step="0.25" defaultValue={loaded} className={inputCls} />
+        <input name={key} type="number" step={step} defaultValue={loaded} className={inputCls} />
         <input type="hidden" name={`${key}_was`} value={loaded} />
         <span className="text-[11px] text-slate-400">{hint}</span>
       </label>
@@ -186,11 +188,11 @@ function PaidTimeOffSection({ emp }: { emp: RosterRow["person_employment"] }) {
   return (
     <Section title="Paid Time Off">
       <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-slate-500">Allotment</span>
+        <span className="text-xs font-medium text-slate-500">Allotment (days)</span>
         <input
           name="pto_policy_allotment"
           type="number"
-          step="any"
+          step="1"
           defaultValue={emp?.pto_policy_allotment ?? ""}
           className={inputCls}
         />

@@ -70,9 +70,11 @@ export function zeroHours(): PayHours {
 }
 
 /**
- * Paid PTO hours inside [periodStart, periodEnd] for one person. A request that
- * straddles the period counts only its days inside it; a request using fewer
- * PTO days than its calendar range is spread evenly across the range.
+ * Paid PTO hours inside [periodStart, periodEnd] for one person, in whole
+ * 8-hour days. A request that straddles the period counts only its days inside
+ * it; a request using fewer PTO days than its calendar range is spread as
+ * evenly as whole days allow (cumulative rounding), so each period gets whole
+ * days and the periods always add up to the request.
  */
 export function ptoHoursInPeriod(rows: readonly PtoRequestRow[], periodStart: string, periodEnd: string): number {
   let total = 0;
@@ -83,7 +85,9 @@ export function ptoHoursInPeriod(rows: readonly PtoRequestRow[], periodStart: st
     if (from > to) continue;
     const span = rangeDays(r.start_date, r.end_date);
     const days = r.pto_days === null || r.pto_days === "" ? span : Number(r.pto_days);
-    total += (days / span) * rangeDays(from, to) * PTO_DAY_HOURS;
+    const through = (k: number) => Math.round((days * k) / span);
+    const daysIn = through(rangeDays(r.start_date, to)) - through(rangeDays(r.start_date, from) - 1);
+    total += daysIn * PTO_DAY_HOURS;
   }
   return r2(total);
 }

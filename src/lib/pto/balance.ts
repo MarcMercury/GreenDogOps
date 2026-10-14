@@ -1,14 +1,13 @@
 // PTO self-service rules (go-live items 23–24, plan §H, D8, D8c). Pure, so the
 // request form, the approver queue and the tests share one definition.
 //
-// Units are days. A planned day off is a whole day; when PTO is used as sick
-// leave California allows blocks as small as 2 hours (Labor Code §246(k)),
-// stored as a fraction of an 8-hour day. The request never asks for a reason.
+// Units are days. Company policy: sick time and planned time off are both taken
+// in whole 8-hour days only — no partial days, no exceptions. The request never
+// asks for a reason.
 
 import { addDays, isIsoDate } from "../worklist/dates";
 
 export const PTO_DAY_HOURS = 8;
-export const MIN_PARTIAL_HOURS = 2;
 /** Furthest back a request may start: sick time is often reported afterwards. */
 export const PTO_BACKDATE_DAYS = 30;
 export const PTO_MAX_AHEAD_DAYS = 400;
@@ -44,7 +43,7 @@ export function deductionDays(r: {
   return requestedDays(r);
 }
 
-/** "3 days", "1 day", "2 h" (a partial day). */
+/** "3 days", "1 day"; a fractional balance (HR-entered or legacy) under 1 day shows as hours, e.g. "4 h". */
 export function formatDays(days: number): string {
   const d = Math.round(days * 100) / 100;
   if (d > 0 && d < 1) return `${Math.round(d * PTO_DAY_HOURS * 100) / 100} h`;
@@ -54,10 +53,9 @@ export function formatDays(days: number): string {
 export interface SelfRequestInput {
   start: string;
   end?: string | null;
-  /** "full" (whole days) or "partial" (hours on one day). */
-  mode: string;
+  /** Only "full" (whole days) exists; anything else — e.g. a stale "partial" form — is rejected. */
+  mode?: string | null;
   days?: string | number | null;
-  hours?: string | number | null;
   note?: string | null;
 }
 
@@ -68,8 +66,11 @@ export function parseSelfRequest(
   input: SelfRequestInput,
   today: string,
 ): { ok: true; value: SelfRequest } | { ok: false; error: string } {
+  if ((input.mode ?? "full") !== "full") {
+    return { ok: false, error: `PTO is taken in whole days only (1 day = ${PTO_DAY_HOURS} hours), including sick time.` };
+  }
   const start = String(input.start ?? "");
-  const end = input.mode === "partial" ? start : String(input.end || start);
+  const end = String(input.end || start);
   if (!isIsoDate(start) || !isIsoDate(end)) return { ok: false, error: "Pick the dates." };
   if (end < start) return { ok: false, error: "The last day can't be before the first day." };
   if (start < addDays(today, -PTO_BACKDATE_DAYS)) {
@@ -79,16 +80,6 @@ export function parseSelfRequest(
   const span = rangeDays(start, end);
   if (span > PTO_MAX_RANGE_DAYS) return { ok: false, error: `One request can cover at most ${PTO_MAX_RANGE_DAYS} days.` };
   const note = String(input.note ?? "").trim().slice(0, 500) || null;
-
-  if (input.mode === "partial") {
-    const h = Number(input.hours);
-    if (!Number.isFinite(h) || h < MIN_PARTIAL_HOURS || h > PTO_DAY_HOURS) {
-      return { ok: false, error: `A partial day is ${MIN_PARTIAL_HOURS}–${PTO_DAY_HOURS} hours.` };
-    }
-    if (Math.round(h * 4) !== h * 4) return { ok: false, error: "Use quarter hours (e.g. 2, 2.5, 3.25)." };
-    return { ok: true, value: { start, end, ptoDays: Math.round((h / PTO_DAY_HOURS) * 100) / 100, note } };
-  }
-  if (input.mode !== "full") return { ok: false, error: "Choose full days or part of a day." };
   const raw = input.days === null || input.days === undefined || input.days === "" ? span : Number(input.days);
   if (!Number.isInteger(raw) || raw < 1) return { ok: false, error: "PTO days must be a whole number of at least 1." };
   if (raw > span) return { ok: false, error: `That range has only ${span} day${span === 1 ? "" : "s"}.` };
@@ -109,7 +100,7 @@ export interface ReviewInput {
 
 export type Review = { status: "approved" | "denied"; kind: TimeOffKind; ptoDays: number | null; note: string | null };
 
-/** Validate an approver's decision: paid PTO or unpaid, days (0 = don't deduct), note. */
+/** Validate an approver's decision: paid PTO or unpaid, whole days (0 = don't deduct), note. */
 export function parseReview(
   input: ReviewInput,
   range: { start_date: string; end_date: string },
@@ -123,7 +114,7 @@ export function parseReview(
   if (input.days !== null && input.days !== undefined && input.days !== "") {
     const d = Number(input.days);
     if (!Number.isFinite(d) || d < 0) return { ok: false, error: "PTO days can't be negative." };
-    if (Math.abs(Math.round(d * 100) - d * 100) > 1e-9) return { ok: false, error: "Use at most two decimals for PTO days." };
+    if (!Number.isInteger(d)) return { ok: false, error: `PTO is taken in whole days only (1 day = ${PTO_DAY_HOURS} hours).` };
     if (d > rangeDays(range.start_date, range.end_date)) return { ok: false, error: "More PTO days than the request covers." };
     ptoDays = d;
   }
@@ -150,4 +141,26 @@ export function ptoBalancePatch(
     if (value !== before) patch[key] = value;
   }
   return patch;
+}
+
+const PTO_FIELD_LABELS = {
+  pto_policy_allotment: "PTO allotment",
+  pto_used: "PTO used",
+  pto_available: "PTO available",
+} as const;
+
+/**
+ * HR-entered PTO values must be whole days, like every request. Pass only the
+ * values being written, so an untouched legacy balance never blocks a save.
+ */
+export function fractionalPtoError(
+  values: Partial<Record<keyof typeof PTO_FIELD_LABELS, number | null>>,
+): string | null {
+  for (const key of Object.keys(PTO_FIELD_LABELS) as (keyof typeof PTO_FIELD_LABELS)[]) {
+    const v = values[key];
+    if (v !== null && v !== undefined && !Number.isInteger(v)) {
+      return `${PTO_FIELD_LABELS[key]} must be a whole number of days (1 day = ${PTO_DAY_HOURS} hours).`;
+    }
+  }
+  return null;
 }

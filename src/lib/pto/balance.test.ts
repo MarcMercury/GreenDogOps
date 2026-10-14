@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deductionDays, formatDays, overlaps, parseReview, parseSelfRequest, ptoBalancePatch, rangeDays, requestedDays } from "./balance";
+import { deductionDays, formatDays, fractionalPtoError, overlaps, parseReview, parseSelfRequest, ptoBalancePatch, rangeDays, requestedDays } from "./balance";
 
 const TODAY = "2026-10-14";
 const req = (over: Partial<Parameters<typeof deductionDays>[0]> = {}) => ({
@@ -17,7 +17,7 @@ describe("deductionDays (mirrors the 0246 trigger)", () => {
     expect(deductionDays(req())).toBe(3);
     expect(deductionDays(req({ kind: "vacation" }))).toBe(3);
   });
-  it("uses the explicit day count, including 0 and partial days", () => {
+  it("uses the explicit day count, including 0 and legacy fractional values", () => {
     expect(deductionDays(req({ pto_days: 2 }))).toBe(2);
     expect(deductionDays(req({ pto_days: "0.25" }))).toBe(0.25);
     expect(deductionDays(req({ pto_days: 0 }))).toBe(0);
@@ -60,14 +60,18 @@ describe("parseSelfRequest", () => {
     const r = parseSelfRequest({ start: "2026-11-02", end: "2026-11-08", mode: "full", days: "5", note: "  trip " }, TODAY);
     expect(r).toEqual({ ok: true, value: { start: "2026-11-02", end: "2026-11-08", ptoDays: 5, note: "trip" } });
   });
-  it("a partial sick day is 2–8 hours on one day, stored as a fraction of 8 h", () => {
-    expect(parseSelfRequest({ start: "2026-10-14", end: "2026-10-20", mode: "partial", hours: "2" }, TODAY)).toEqual({
+  it("sick time is whole 8-hour days only: no partial-day / hours requests", () => {
+    expect(parseSelfRequest({ start: "2026-10-14", end: "2026-10-14", mode: "full" }, TODAY)).toEqual({
       ok: true,
-      value: { start: "2026-10-14", end: "2026-10-14", ptoDays: 0.25, note: null },
+      value: { start: "2026-10-14", end: "2026-10-14", ptoDays: 1, note: null },
     });
-    expect(parseSelfRequest({ start: "2026-10-14", mode: "partial", hours: "1.5" }, TODAY).ok).toBe(false);
-    expect(parseSelfRequest({ start: "2026-10-14", mode: "partial", hours: "9" }, TODAY).ok).toBe(false);
-    expect(parseSelfRequest({ start: "2026-10-14", mode: "partial", hours: "2.1" }, TODAY).ok).toBe(false);
+    const partial = parseSelfRequest({ start: "2026-10-14", mode: "partial" }, TODAY);
+    expect(partial).toEqual({ ok: false, error: expect.stringContaining("whole days only") });
+    expect(parseSelfRequest({ start: "2026-10-14", mode: "full", days: "0.25" }, TODAY).ok).toBe(false);
+    expect(parseSelfRequest({ start: "2026-10-14", end: "2026-10-15", mode: "full", days: "1.5" }, TODAY).ok).toBe(false);
+  });
+  it("defaults to whole days when no mode is sent", () => {
+    expect(parseSelfRequest({ start: "2026-11-02", end: "2026-11-03" }, TODAY)).toMatchObject({ ok: true, value: { ptoDays: 2 } });
   });
   it("allows sick time reported afterwards, up to 30 days back", () => {
     expect(parseSelfRequest({ start: "2026-09-14", mode: "full" }, TODAY).ok).toBe(true);
@@ -106,7 +110,24 @@ describe("parseReview", () => {
     expect(parseReview({ decision: "approved", kind: "sick" }, range).ok).toBe(false);
     expect(parseReview({ decision: "approved", kind: "pto", days: "-1" }, range).ok).toBe(false);
     expect(parseReview({ decision: "approved", kind: "pto", days: "4" }, range).ok).toBe(false);
+  });
+  it("approvers can only deduct whole days", () => {
+    expect(parseReview({ decision: "approved", kind: "pto", days: "0.25" }, range).ok).toBe(false);
+    expect(parseReview({ decision: "approved", kind: "pto", days: "1.5" }, range).ok).toBe(false);
     expect(parseReview({ decision: "approved", kind: "pto", days: "1.234" }, range).ok).toBe(false);
+  });
+});
+
+describe("fractionalPtoError (HR profile / roster grid)", () => {
+  it("accepts whole days, blanks and untouched (omitted) fields", () => {
+    expect(fractionalPtoError({ pto_policy_allotment: 12, pto_used: 0, pto_available: -3 })).toBeNull();
+    expect(fractionalPtoError({ pto_policy_allotment: null })).toBeNull();
+    expect(fractionalPtoError({})).toBeNull();
+  });
+  it("rejects a fractional allotment or balance edit", () => {
+    expect(fractionalPtoError({ pto_policy_allotment: 2.5 })).toMatch(/PTO allotment must be a whole number of days/);
+    expect(fractionalPtoError({ pto_available: 0.25 })).toMatch(/PTO available must be a whole number/);
+    expect(fractionalPtoError({ pto_used: 4.5 })).toMatch(/PTO used must be a whole number/);
   });
 });
 

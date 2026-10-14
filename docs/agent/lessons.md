@@ -115,6 +115,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Verify:** `rls_audit()` returns 0 rows on staging, and a diff of greendogops columns, function bodies (md5 of `pg_get_functiondef`), view bodies, policies and triggers between the two projects is empty. The one expected difference is `format_phone(text)`, which exists only on staging (see 0213).
 - **Evidence:** 2026-10-10 — 0215–0227 applied to staging, all ok; `rls_audit` 0 rows; 3,379 production objects all match staging, with `format_phone` the only extra.
 
+### Production's applied-log is incomplete — always pass `--from`
+- **Problem:** `.secrets/applied-uekumyupkhnpjpdcjfxb.log` lists only ~30 files, so `ALLOW_PROD=1 … apply_migrations.sh` without `--from` would replay ~225 already-applied migrations against production.
+- **Fix:** `ALLOW_PROD=1 SUPABASE_PROJECT_REF=<prod> scripts/apply_migrations.sh --from 0NNN --dry-run`, check it lists only the new file(s), then run without `--dry-run`.
+- **Evidence:** 2026-10-14 dry run for 0248 reported `skipped=30 total=256`; with `--from 0248` it listed only 0248.
+
 ### Running server-only lib code from a script
 - **Fix:** stub `server-only` (`/tmp/stub/node_modules/server-only` exporting `{}`) and run with `NODE_PATH=/tmp/stub/node_modules npx --yes tsx@4 <script>.mts`. Load env by parsing `.env.local` in the script: `source .env.local` breaks on `RESEND_FROM_EMAIL=Name <addr>`. `after()` from `next/server` throws outside a request, so guard it. Examples: `scripts/ask_smart.mts`, `scripts/e2e_work_center.mts`.
 - **Evidence:** 2026-10-09: a read-only dashboard probe against production and the staging e2e both ran this way.

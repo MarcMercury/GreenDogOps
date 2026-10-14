@@ -413,9 +413,8 @@ export async function requestPto(formData: FormData): Promise<TimeActionResult> 
     {
       start: String(formData.get("start_date") ?? ""),
       end: String(formData.get("end_date") ?? ""),
-      mode: String(formData.get("mode") ?? "full"),
+      mode: "full",
       days: String(formData.get("days") ?? ""),
-      hours: String(formData.get("hours") ?? ""),
       note: String(formData.get("note") ?? ""),
     },
     todayInWorkTz(),

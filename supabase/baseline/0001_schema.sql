@@ -8623,7 +8623,8 @@ CREATE TABLE greendogops.person_employment (
     schedule_type text,
     adp_employee_id text,
     CONSTRAINT person_employment_adp_employee_id_format CHECK (((adp_employee_id IS NULL) OR (adp_employee_id ~ '^[A-Za-z0-9-]{1,20}$'::text))),
-    CONSTRAINT person_employment_pay_type_check CHECK ((pay_type = ANY (ARRAY['hourly'::text, 'salary'::text, 'day_rate'::text, 'contract'::text])))
+    CONSTRAINT person_employment_pay_type_check CHECK ((pay_type = ANY (ARRAY['hourly'::text, 'salary'::text, 'day_rate'::text, 'contract'::text]))),
+    CONSTRAINT person_employment_pto_policy_allotment_whole CHECK (((pto_policy_allotment IS NULL) OR (pto_policy_allotment = trunc(pto_policy_allotment))))
 );
 
 
@@ -9027,6 +9028,8 @@ CREATE TABLE greendogops.person_time_off (
     balance_tracked boolean DEFAULT true NOT NULL,
     review_note text,
     CONSTRAINT person_time_off_pto_days_check CHECK (((pto_days IS NULL) OR ((pto_days >= (0)::numeric) AND (pto_days <= (400)::numeric)))),
+    CONSTRAINT person_time_off_pto_days_deducted_whole CHECK ((pto_days_deducted = trunc(pto_days_deducted))),
+    CONSTRAINT person_time_off_pto_days_whole CHECK (((pto_days IS NULL) OR (pto_days = trunc(pto_days)))),
     CONSTRAINT person_time_off_range_ck CHECK ((end_date >= start_date)),
     CONSTRAINT person_time_off_review_note_check CHECK (((review_note IS NULL) OR (length(review_note) <= 1000)))
 );
@@ -9057,14 +9060,14 @@ COMMENT ON COLUMN greendogops.person_time_off.external_id IS 'Stable id from the
 -- Name: COLUMN person_time_off.pto_days; Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON COLUMN greendogops.person_time_off.pto_days IS 'PTO days this request uses (0246). Whole days; a partial sick day is a fraction (2 h = 0.25). NULL = every calendar day in the range. 0 = approve without deducting.';
+COMMENT ON COLUMN greendogops.person_time_off.pto_days IS 'PTO days this request uses (0246, 0248). Whole 8-hour days only, sick time included. NULL = every calendar day in the range. 0 = approve without deducting.';
 
 
 --
 -- Name: COLUMN person_time_off.pto_days_deducted; Type: COMMENT; Schema: greendogops; Owner: -
 --
 
-COMMENT ON COLUMN greendogops.person_time_off.pto_days_deducted IS 'Days this request currently holds against person_employment.pto_available (0246). Set only by the person_time_off_balance trigger.';
+COMMENT ON COLUMN greendogops.person_time_off.pto_days_deducted IS 'Whole days this request currently holds against person_employment.pto_available (0246, 0248). Set only by the person_time_off_balance trigger.';
 
 
 --
