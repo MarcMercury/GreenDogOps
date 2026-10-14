@@ -19,6 +19,7 @@ const CALENDAR_ENV: { env: string; category: GoogleCalendarConfig["category"]; l
   { env: "GOOGLE_CALENDAR_ID", category: "google", label: "Company Calendar" },
   { env: "GOOGLE_COMPANY_CALENDAR_ID", category: "google", label: "Green Dog Company Calendar" },
   { env: "GOOGLE_DENTAL_CALENDAR_ID", category: "google", label: "Green Dog Dental Calendar" },
+  { env: "GOOGLE_SOCIALS_CALENDAR_ID", category: "google", label: "Green Dog Socials Calendar" },
   { env: "GOOGLE_INTERVIEW_CALENDAR_ID", category: "interview", label: "Interviews" },
 ];
 

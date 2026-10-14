@@ -256,8 +256,8 @@ export async function syncGoogleCalendar(): Promise<SyncResult> {
       ...base,
       ok: false,
       error:
-        "No Google calendars configured. Set GOOGLE_CALENDAR_ID, GOOGLE_COMPANY_CALENDAR_ID, " +
-        "GOOGLE_DENTAL_CALENDAR_ID and/or GOOGLE_INTERVIEW_CALENDAR_ID.",
+        "No Google calendars configured. Set one of the GOOGLE_*_CALENDAR_ID variables " +
+        "(see src/lib/calendar/calendar-env.ts).",
     };
   }
 
