@@ -268,7 +268,13 @@ function NavLinks({
       />
       <NavSection
         title="Biz Dev"
-        items={BIZ_DEV.filter((m) => allowed.has(m.key))}
+        items={BIZ_DEV.filter(
+          (m) =>
+            allowed.has(m.key) &&
+            // Emp Reporting is a tab on Reporting; only list it on its own for
+            // someone granted it without the Reporting module.
+            !(m.key === "emp_reporting" && allowed.has("reporting")),
+        )}
         onNavigate={onNavigate}
         collapsed={collapsed}
       />

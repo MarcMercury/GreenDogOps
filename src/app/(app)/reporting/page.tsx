@@ -27,7 +27,9 @@ import type {
   SpeciesRecencyRow,
   InvoiceImportRow,
 } from "@/lib/reporting/types";
+import Link from "next/link";
 import { PageHeader } from "../_components/ui";
+import { EmpReportPanel } from "../emp-reporting/emp-report-panel";
 import { SectionCard, fmtNumber, fmtDate } from "./charts";
 import { ReportingTabs } from "./reporting-tabs";
 import { YearToggle } from "./year-toggle";
@@ -40,7 +42,7 @@ export const dynamic = "force-dynamic";
 export default async function ReportingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ year?: string }>;
+  searchParams: Promise<{ year?: string; tab?: string }>;
 }) {
   const current = await getCurrentUser();
 
@@ -77,7 +79,16 @@ export default async function ReportingPage({
   // Available years (newest first) drive the toggle. The selected year filters
   // every invoice-derived view; client/CRM views are a current snapshot and
   // stay un-scoped. Defaults to the latest year with data.
-  const { year: yearParam } = await searchParams;
+  const { year: yearParam, tab: tabParam } = await searchParams;
+
+  // The Employees tab is payroll data with its own module gate. It is only
+  // queried when that tab is requested, so it's read fresh each time it's
+  // opened and its audit entry is not written on every Reporting visit.
+  const canSeeEmployees = canAccessModule(current.appUser, "emp_reporting");
+  const showEmployees = canSeeEmployees && tabParam === "employees";
+  const employeesPanel = showEmployees ? (
+    <EmpReportPanel current={current} />
+  ) : null;
   const yearsRes = await supabase.from("report_years").select("year");
   const years = ((yearsRes.data ?? []) as { year: number }[])
     .map((r) => r.year)
@@ -222,8 +233,18 @@ export default async function ReportingPage({
             runs, this page fills with appointment volume, revenue trends, and a
             breakdown by location and species.
           </p>
+          {canSeeEmployees && !showEmployees ? (
+            <Link
+              href="/reporting?tab=employees"
+              className="mt-3 inline-block text-sm font-medium text-emerald-700 hover:underline"
+            >
+              Open the Employees (pay) report →
+            </Link>
+          ) : null}
         </SectionCard>
-      ) : (
+      ) : null}
+      {!hasInvoiceData && employeesPanel}
+      {hasInvoiceData ? (
         <>
           <div className="flex flex-wrap items-center justify-between gap-3">
             {overview?.first_date ? (
@@ -261,9 +282,12 @@ export default async function ReportingPage({
             hasClientData={hasClientData}
             imports={imports}
             isAdmin={isAdmin}
+            canSeeEmployees={canSeeEmployees}
+            initialTab={showEmployees ? "employees" : undefined}
+            employeesPanel={employeesPanel}
           />
         </>
-      )}
+      ) : null}
     </div>
   );
 }

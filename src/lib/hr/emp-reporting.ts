@@ -10,13 +10,16 @@
 //   - Doctors (DVMs) are shown in the per-role grid/chart but are NEVER part of
 //     the company-wide averages.
 //   - Company averages are computed from non-doctor, non-executive staff only.
+//   - Pay and title always come from the employee's CURRENT record: the
+//     current rate (not the stored annual wages) and the ADP job title (not the
+//     title at hire), so raises and promotions show up the next time it's run.
 
 export type EmpKind = "doctor" | "executive" | "staff";
 
 /** One employee flattened from the roster join, ready to aggregate. */
 export interface EmpInput {
   name: string;
-  /** Best available job title (position.title || offer_title || adp_job_title). */
+  /** Current job title — see currentTitle(). */
   title: string | null;
   payType: string | null;
   annualWages: number | null;
@@ -64,6 +67,8 @@ export interface EmpReport {
   excludedExecutives: number;
   /** Employees with no computable salary (skipped from all stats). */
   missingSalary: number;
+  /** Employees whose stored annual wages disagree with their current rate. */
+  staleStoredAnnual: number;
   /** Total employees considered (after excluding executives). */
   analyzed: number;
 }
@@ -148,26 +153,63 @@ export function normalizeRole(
 // Salary normalization
 // ---------------------------------------------------------------------------
 
-const HOURS_PER_YEAR = 2080; // 40h/wk * 52
+export const HOURS_PER_YEAR = 2080; // 40h/wk * 52
 const PERIODS_PER_YEAR = 26; // biweekly
+/** A rate this large is an annual salary, even on a row marked hourly. */
+const ANNUAL_RATE_FLOOR = 1000;
+/** Stored annual wages within this of the current-rate figure count as in sync. */
+const STALE_TOLERANCE = 1;
 
 /**
- * Best-effort annual salary. `annual_wages` is the pre-normalized figure when
- * present; otherwise derive it from the rate per pay type, or from the biweekly
- * wage. Returns null when nothing usable is available.
+ * Pick the employee's current job title. `adp_job_title` is what HR keeps up to
+ * date (the roster grid and staff directory lead with it); `offer_title` is the
+ * title at hire, so it is only a fallback.
+ */
+export function currentTitle(emp: {
+  adpJobTitle?: string | null;
+  positionTitle?: string | null;
+  offerTitle?: string | null;
+}): string | null {
+  for (const t of [emp.adpJobTitle, emp.positionTitle, emp.offerTitle]) {
+    if (t && t.trim()) return t.trim();
+  }
+  return null;
+}
+
+/** Annual salary implied by the current rate, or null when it can't be derived. */
+function annualFromRate(emp: EmpInput): number | null {
+  const rate = emp.currentRate;
+  if (rate == null || rate <= 0) return null;
+  // Day / contract rates aren't reliably annualizable.
+  if (emp.payType === "day_rate" || emp.payType === "contract") return null;
+  if (rate >= ANNUAL_RATE_FLOOR) return rate;
+  // Hourly is annualized at full time so part-timers compare fairly by role.
+  return rate * HOURS_PER_YEAR;
+}
+
+/**
+ * Annual salary from the employee's CURRENT pay. `current_rate` is the field HR
+ * changes on a raise, while `annual_wages` / `biweekly_wage` are stored figures
+ * that are not recalculated, so the rate always wins and the stored figures are
+ * only a fallback. Returns null when nothing usable is available.
  */
 export function annualizeSalary(emp: EmpInput): number | null {
+  const fromRate = annualFromRate(emp);
+  if (fromRate != null) return fromRate;
   if (emp.annualWages != null && emp.annualWages > 0) return emp.annualWages;
-  const rate = emp.currentRate;
-  if (rate != null && rate > 0) {
-    if (emp.payType === "hourly") return rate * HOURS_PER_YEAR;
-    if (emp.payType === "salary") return rate;
-    // day_rate / contract rates aren't reliably annualizable — fall through.
-  }
   if (emp.biweeklyWage != null && emp.biweeklyWage > 0) {
     return emp.biweeklyWage * PERIODS_PER_YEAR;
   }
   return null;
+}
+
+/** True when the stored annual wages disagree with the current rate. */
+export function storedAnnualIsStale(emp: EmpInput): boolean {
+  const fromRate = annualFromRate(emp);
+  if (fromRate == null || emp.annualWages == null || emp.annualWages <= 0) {
+    return false;
+  }
+  return Math.abs(fromRate - emp.annualWages) > STALE_TOLERANCE;
 }
 
 // ---------------------------------------------------------------------------
@@ -249,6 +291,7 @@ function buildRole(role: string, kind: EmpKind, people: EmpMember[]): RoleStats 
 export function buildEmpReport(employees: EmpInput[]): EmpReport {
   let excludedExecutives = 0;
   let missingSalary = 0;
+  let staleStoredAnnual = 0;
 
   // role -> { kind, members }
   const groups = new Map<string, { kind: EmpKind; members: EmpMember[] }>();
@@ -260,6 +303,7 @@ export function buildEmpReport(employees: EmpInput[]): EmpReport {
       excludedExecutives += 1;
       continue;
     }
+    if (storedAnnualIsStale(emp)) staleStoredAnnual += 1;
     const salary = annualizeSalary(emp);
     if (salary == null) {
       missingSalary += 1;
@@ -304,6 +348,7 @@ export function buildEmpReport(employees: EmpInput[]): EmpReport {
     company,
     excludedExecutives,
     missingSalary,
+    staleStoredAnnual,
     analyzed: companySalaries.length + roles
       .filter((r) => r.kind === "doctor")
       .reduce((s, r) => s + r.count, 0),

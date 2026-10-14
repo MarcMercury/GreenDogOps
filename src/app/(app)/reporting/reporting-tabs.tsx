@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import type {
   ReportOverview,
   MonthlyRow,
@@ -47,7 +48,8 @@ type TabKey =
   | "staff"
   | "dvm-dept"
   | "clients"
-  | "uploads";
+  | "uploads"
+  | "employees";
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: "revenue", label: "Revenue" },
@@ -59,6 +61,12 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "clients", label: "Clients" },
   { key: "uploads", label: "Uploads" },
 ];
+
+/** Payroll tab — only for users with the Emp Reporting module. */
+const EMPLOYEES_TAB: { key: TabKey; label: string } = {
+  key: "employees",
+  label: "Emp Reporting",
+};
 
 /** Bar colors for the client recency buckets (fresh → stale → non-client). */
 const RECENCY_COLORS: Record<string, string> = {
@@ -108,6 +116,11 @@ export interface ReportingTabsProps {
   hasClientData: boolean;
   imports: InvoiceImportRow[];
   isAdmin: boolean;
+  /** Show the Emp Reporting tab (caller checked the emp_reporting module). */
+  canSeeEmployees?: boolean;
+  initialTab?: TabKey;
+  /** Server-rendered payroll report; only present when ?tab=employees. */
+  employeesPanel?: ReactNode;
 }
 
 /** Compact location → revenue/value matrix table. */
@@ -447,7 +460,24 @@ function ClientRecencyLocationMatrix({
 }
 
 export function ReportingTabs(props: ReportingTabsProps) {
-  const [tab, setTab] = useState<TabKey>("revenue");
+  const router = useRouter();
+  const [tab, setTab] = useState<TabKey>(props.initialTab ?? "revenue");
+  const [loadingEmployees, startLoadingEmployees] = useTransition();
+  const tabs = props.canSeeEmployees ? [...TABS, EMPLOYEES_TAB] : TABS;
+
+  function selectTab(key: TabKey) {
+    setTab(key);
+    if (key === "employees") {
+      // Server round-trip on every open so pay and titles are read live.
+      startLoadingEmployees(() => {
+        router.push(`/reporting?year=${props.year}&tab=employees`, { scroll: false });
+      });
+    } else if (tab === "employees") {
+      // Drop ?tab=employees so a reload doesn't re-query payroll data.
+      window.history.replaceState(null, "", `/reporting?year=${props.year}`);
+    }
+  }
+
   const {
     year,
     overview,
@@ -538,13 +568,13 @@ export function ReportingTabs(props: ReportingTabsProps) {
     <div className="space-y-6">
       <div className="overflow-x-auto border-b border-slate-200">
         <nav className="-mb-px flex gap-1">
-          {TABS.map((t) => {
+          {tabs.map((t) => {
             const active = t.key === tab;
             return (
               <button
                 key={t.key}
                 type="button"
-                onClick={() => setTab(t.key)}
+                onClick={() => selectTab(t.key)}
                 className={`whitespace-nowrap border-b-2 px-3.5 py-2 text-sm font-medium transition ${
                   active
                     ? "border-emerald-600 text-emerald-700"
@@ -1019,6 +1049,27 @@ export function ReportingTabs(props: ReportingTabsProps) {
           >
             <ImportHistory imports={imports} isAdmin={isAdmin} />
           </SectionCard>
+        </div>
+      )}
+
+      {tab === "employees" && props.canSeeEmployees && (
+        <div className="space-y-3">
+          {loadingEmployees || !props.employeesPanel ? (
+            <p className="text-sm text-slate-500">
+              {loadingEmployees ? (
+                "Loading current pay and titles from the HR roster…"
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => selectTab("employees")}
+                  className="font-medium text-emerald-700 hover:underline"
+                >
+                  Load the employee pay report
+                </button>
+              )}
+            </p>
+          ) : null}
+          {props.employeesPanel}
         </div>
       )}
     </div>

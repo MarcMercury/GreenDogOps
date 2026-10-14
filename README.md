@@ -283,7 +283,11 @@ from users who cannot access it.
 **Biz Dev**
 - **Reporting** (`/reporting`) — appointment, revenue, doctor-production, and
   client-trend dashboards built on ezyVet invoice/contact data.
-- **Emp Reporting** (`/emp-reporting`) — payroll and compensation analytics.
+- **Emp Reporting** (Reporting → *Emp Reporting* tab, `/reporting?tab=employees`;
+  `/emp-reporting` redirects there) — payroll and compensation analytics. Gated
+  by its own `emp_reporting` module and read live from the HR roster each time
+  the tab opens: pay comes from **Current rate** (hourly × 2,080), not the stored
+  Annual wages, and the title from the ADP job title, not the offer title.
 - **Biz Dev** (`/biz-dev`) — business-development planner and partner targeting.
 - **Admin** (`/admin`) — users, roles, per-user module overrides, locations,
   credentials, Slack user links, settings, agent runs, and the audit log.

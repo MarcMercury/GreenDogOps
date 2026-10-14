@@ -53,6 +53,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
+### Stored annual wages drift from current rate (Ask Ziggy + HR profile)
+- **Why:** `person_employment.annual_wages` / `biweekly_wage` are not recalculated when HR changes `current_rate` (4 active employees disagree as of 2026-10-14). Emp Reporting now reads `current_rate`, but Ask Ziggy's prompt (`src/lib/reporting/smart.ts`) still says `annual_wages` is the only pay column to rank on, and the HR profile summary (`hr/[id]/employee-summary.tsx`) shows `offer_title` before `adp_job_title` as "Job title".
+- **Scope:** either recompute `annual_wages`/`biweekly_wage` when `current_rate` changes (needs HR to confirm hours for part-timers) or point Ziggy at the same rule as `annualizeSalary`; align the profile's title order with the roster grid.
+- **Risk:** medium (touches compensation records — needs HR sign-off before any backfill).
+
 ### Reliability v2 and attendance overrides from Time & Attendance
 - **Why:** automatic attendance (item 16) maps grades onto the existing statuses and the old weight table (late = 0.6 regardless of minutes). The plan's v2 deducts by severity (late 1–10 min = −1 … no-call/no-show = −15, reduced when excused) over a rolling window. Managers also override only from the grid's attendance menu, not from the dashboard row.
 - **Scope:** a pure `reliabilityV2(grades, window)` with tests, used by the attendance page and HR profile once `timeclock.attendance_from` is set; an "Excuse / mark" action on Time & Attendance rows that writes the same `markAttendance` path.

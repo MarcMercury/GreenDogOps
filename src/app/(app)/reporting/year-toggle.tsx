@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export function YearToggle({
   years,
@@ -10,6 +10,9 @@ export function YearToggle({
   selected: number;
 }) {
   const router = useRouter();
+  // Keep the open tab (e.g. Emp Reporting) when switching years.
+  const tab = useSearchParams().get("tab");
+  const tabQuery = tab ? `&tab=${encodeURIComponent(tab)}` : "";
 
   // Nothing to toggle when only one year of data exists, but keep the chip
   // visible so it's clear which year is being shown.
@@ -24,7 +27,7 @@ export function YearToggle({
           <button
             key={y}
             type="button"
-            onClick={() => router.push(`/reporting?year=${y}`)}
+            onClick={() => router.push(`/reporting?year=${y}${tabQuery}`)}
             aria-pressed={active}
             className={`rounded-md px-3 py-1 text-sm font-semibold transition ${
               active
