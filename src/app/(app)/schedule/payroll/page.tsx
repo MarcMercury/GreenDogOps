@@ -60,6 +60,12 @@ export default async function PayrollPage({ searchParams }: { searchParams: Prom
         description="Approve each timecard, lock the pay period, then export. Hours follow California rules: daily overtime over 8 h, double time over 12 h, weekly overtime over 40 h, the 7th-day rule, and meal / rest premiums."
       />
 
+      <p className="text-xs text-slate-500">
+        How hours, premiums and PTO are calculated:{" "}
+        <Link href="/hr/pto-rules" className="font-medium text-emerald-700 underline">
+          PTO &amp; Timekeeping Rules
+        </Link>
+      </p>
       <nav className="flex flex-wrap gap-2" aria-label="Pay period">
         {periods.map((p) => (
           <Link

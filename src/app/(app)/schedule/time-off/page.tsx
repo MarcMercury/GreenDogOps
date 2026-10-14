@@ -120,6 +120,12 @@ export default async function TimeOffQueuePage({ searchParams }: { searchParams:
         title="Time-off requests"
         description="Every pending request — from My Time, HR and the When I Work import — in one place. Choose paid PTO or unpaid and how many PTO days it uses, then approve or deny. Approving takes the days off the employee's balance immediately; 0 days approves without deducting (e.g. already counted)."
       />
+      <p className="text-xs text-slate-500">
+        How hours, premiums and PTO are calculated:{" "}
+        <Link href="/hr/pto-rules" className="font-medium text-emerald-700 underline">
+          PTO &amp; Timekeeping Rules
+        </Link>
+      </p>
       <nav className="flex flex-wrap gap-2" aria-label="Source">
         {Object.entries(SOURCES).map(([k, label]) => (
           <Link

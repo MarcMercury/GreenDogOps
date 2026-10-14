@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import type { RosterRow } from "@/lib/hr/types";
@@ -197,6 +198,9 @@ function PaidTimeOffSection({ emp }: { emp: RosterRow["person_employment"] }) {
       {balanceField("pto_used", "Used (days)", "Updated automatically when PTO is approved. Edit only to correct.")}
       {balanceField("pto_available", "Available (days)", "Updated automatically when PTO is approved. Changes are logged.")}
       <Field label="PTO notes" name="pto_notes" defaultValue={emp?.pto_notes} />
+      <Link href="/hr/pto-rules" className="self-end text-xs font-medium text-emerald-700 underline">
+        PTO &amp; Timekeeping Rules
+      </Link>
     </Section>
   );
 }

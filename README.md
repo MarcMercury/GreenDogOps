@@ -200,6 +200,13 @@ from users who cannot access it.
   `person_time_off_balance`); denying, reopening or deleting gives it back.
   Every change is in the append-only `pto_ledger`. The HR-roster sheet sync no
   longer writes the PTO columns.
+  **HR ▸ PTO & Timekeeping Rules** (`/hr/pto-rules`) explains every pay, meal,
+  rest and PTO rule in plain English with its California citation; the worked
+  examples are computed by the payroll / PTO code itself (`src/lib/pto/rules.ts`),
+  so the page can't drift from the behaviour. Owner/Admin/Executive/HR sign off
+  a version (audit log `timekeeping_rules.signed_off`); any rule change makes a
+  new version that needs signing again. Linked from Time Off, Payroll, the HR
+  profile PTO section and My Time ▸ PTO.
 - **Resources** (`/resources`) — the library of company policies, protocols and
   documents, grouped by category. Policies are **native Ops documents**
   (`/resources/doc/<id>`, migration `0235`): written in a visual editor (TipTap),

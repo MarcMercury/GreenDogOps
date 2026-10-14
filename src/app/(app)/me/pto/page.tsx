@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addDays, shortDateLabel, todayInWorkTz } from "@/lib/worklist/dates";
 import { formatDays, PAID_KINDS, PTO_BACKDATE_DAYS, PTO_MAX_AHEAD_DAYS, requestedDays } from "@/lib/pto/balance";
@@ -97,7 +98,10 @@ export default async function MyPtoPage() {
         <p className="mt-3 text-xs text-slate-500">
           PTO covers both sick time and vacation, in days (1 day = 8 hours). Approved requests come off your balance
           straight away; pending ones don&apos;t until they&apos;re approved. Unused PTO is paid out at the end of the
-          year.
+          year.{" "}
+          <Link href="/hr/pto-rules" className="font-medium text-emerald-700 underline">
+            How PTO works
+          </Link>
         </p>
       </section>
 

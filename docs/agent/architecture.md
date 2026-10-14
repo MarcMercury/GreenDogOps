@@ -40,6 +40,12 @@ there, or that need a sharper statement for agents.
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
 
+### 2026-10-14 — PTO & Timekeeping Rules page is generated, versioned and signed off (go-live item 26, plan §I)
+- **Decision:** `/hr/pto-rules` is built by `buildRules()` (`src/lib/pto/rules.ts`) from the same constants and functions the calculations use; every worked example runs the real engine (`computePeriod`, `checkMeals`, `parseSelfRequest`, `payPeriodFor`, `src/lib/pto/annual.ts`) on fixed sample data. `rules.test.ts` pins the outputs, so a rule change that alters an example fails a test and must be reviewed.
+- **Sign-off:** `rulesVersion()` = first 12 hex of SHA-256 of the rules JSON. Sign-offs are `audit_log` rows (`timekeeping_rules.signed_off`, `metadata.version`) — no new table. A changed rule = a new version, shown as "not signed off".
+- **Honesty:** the yearly cycle (Jan 1 reset, +2 tenure, proration, payouts) is labelled "Policy — applied by HR until automated"; `src/lib/pto/annual.ts` holds its pure rules for the future job (improvements.md).
+- **Not done:** a PDF copy in Resources (plan §I) — the page is the source; add the PDF once signed off if Resources search needs it.
+
 ### 2026-10-14 — Ops owns the PTO balance; approvals deduct in the database (migration 0246, go-live items 23–24)
 - **Decision (owner):** the HR profile's `pto_used` / `pto_available` (days) are the opening balance — no separate load (item 24). From 0246 on, Ops keeps them current: approving a paid request deducts its days immediately; deny / reopen / delete returns them. The nightly HR-roster sheet sync no longer writes any PTO column.
 - **How:** one BEFORE INSERT/UPDATE + AFTER DELETE trigger on `person_time_off` (`person_time_off_balance`) computes what the row should hold (`approved` + `balance_tracked` + kind `pto`/`vacation` → `coalesce(pto_days, calendar days)`), applies the difference to `person_employment`, and stores it in `pto_days_deducted`. Every approval path (Time Off queue, grid, HR profile, Slack buttons) is covered without TypeScript changes. The logic is inline (no helper functions) so the editing roles need no EXECUTE grant. `src/lib/pto/balance.ts` `deductionDays` mirrors the rule for previews.
