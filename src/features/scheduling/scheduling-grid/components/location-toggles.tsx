@@ -3,7 +3,7 @@
 import type { ScheduleLocation } from "@/lib/schedule/types";
 import { Button } from "@/components/ui/button";
 
-/** The "Locations:" chips that switch each clinic's columns on or off. */
+/** The "LOCATIONS" chips that switch each clinic's columns on or off. */
 export function LocationToggles({
   availableLocations,
   enabled,
@@ -15,11 +15,10 @@ export function LocationToggles({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        Locations:
-      </span>
+      <span className="mr-1 text-xs font-bold uppercase tracking-wider text-slate-500">Locations</span>
       {availableLocations.map((loc) => {
         const on = enabled.has(loc.id);
+        const color = loc.color ?? "#475569";
         return (
           <Button
             key={loc.id}
@@ -27,13 +26,10 @@ export function LocationToggles({
             variant={on ? "default" : "outline"}
             aria-pressed={on}
             onClick={() => onToggle(loc.id)}
-            className={`rounded-full ${on ? "border-transparent text-white shadow-sm" : ""}`}
-            style={on ? { background: loc.color ?? "#475569" } : undefined}
+            className={`rounded-full px-3.5 ${on ? "border-transparent text-white shadow-sm hover:opacity-90" : "text-slate-700"}`}
+            style={on ? { background: color } : undefined}
           >
-            <span
-              className="size-2 rounded-full"
-              style={{ background: on ? "#fff" : loc.color ?? "#475569" }}
-            />
+            <span className="size-2 rounded-full" style={{ background: on ? "#fff" : color }} aria-hidden />
             {loc.name}
           </Button>
         );

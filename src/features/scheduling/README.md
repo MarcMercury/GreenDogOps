@@ -27,7 +27,7 @@ No barrel `index.ts` files: import the module you need by its full
 
 | Feature | Route | Owns |
 | --- | --- | --- |
-| `scheduling-grid` | `/schedule` | Weeks (create, copy, template apply, status workflow, publish checks), shift lines, assignments (place / remove / move, post-publish absence rules), closures, day events, attendance marking from the grid, PTO decisions from the grid, planning-guide generation, the `ScheduleGrid` and `WeekPicker` components. |
+| `scheduling-grid` | `/schedule` | Weeks (create, copy, template apply, status workflow, publish checks), shift lines, assignments (place / remove / move, post-publish absence rules), closures, day events, attendance marking from the grid, PTO decisions from the grid, planning-guide generation, the `ScheduleGrid`, the schedule page's sidebar (`WeeksCard`, `RowsCard`) and the `WeekPicker` that Planning and Capacity still use. |
 | `setup` | `/schedule/setup` | Departments, roles and eligibility (`sched_role_member`, student Mentor / Coordinator flags), the Dept/Shift Template, employee scheduling settings and preferred location, appointment-type → department map, named Week Templates. Also the HR-profile loaders for a person's scheduling settings and eligibility. |
 | `attendance` | `/schedule/attendance` | The reliability rollup over published weeks, the per-person attendance summary the HR profile shows, and the safe time-clock grade lookup (`getSystemAttendance`). Read-only: no `actions/`, no `schema/`. |
 | `time-clock` | `/schedule/time-clock` | Approver queues: off-site punch review, correction decisions, adding a missing punch. Queue reads come from `@/lib/timeclock/review`. |
@@ -91,6 +91,26 @@ Other modules that depend on these features (update them if a path changes):
   sticky `shift` column plus one group per day of one display column per
   location, and the location toggles are column visibility. `autoResetExpanded`
   is off (every save refreshes the data) and `groupedColumnMode` is `"remove"`.
+- **The schedule page is two columns**
+  (`scheduling-grid/components/schedule-page-shell.tsx`): the `sidebar/` cards
+  — `WeeksCard` (a shadcn `Calendar` / react-day-picker month whose rows are
+  weeks: a status dot in the week-number slot, the open week as a navy pill, a
+  click on any day opens that week or offers to create it) and `RowsCard`
+  (show / hide departments and single shift lines — a view filter applied to
+  the table's `data` by `lib/row-visibility.ts`) — beside the week header,
+  toolbar, publish banner, location chips and the grid. Set Up's Week Template
+  renders the same `ScheduleGrid` in `templateMode` without the sidebar.
+  Week-status colours and the navy primary are grid-local
+  (`lib/week-status-style.ts`, `bg-slate-900`), section tints come from each
+  department's own colour (`lib/color.ts`).
+- **Sections open and close with an animation.** A `<tr>` cannot animate its
+  height, so every cell of a collapsible row wraps its content in
+  `CollapsibleCellContent` (a one-row CSS grid) and the row sets
+  `data-collapse={sectionState(key)}`; `components/grid/grid.module.css`
+  transitions the track `1fr → 0fr` (plus the cell padding and border) and
+  `hooks/use-section-transitions.ts` keeps a closing section mounted for the
+  220 ms before applying the TanStack expanded-state change (opening applies
+  it first and plays the reverse). `prefers-reduced-motion` turns it off.
 
 ## Why it is shaped this way
 

@@ -1,0 +1,63 @@
+/*
+ * Section open / close animation for the grid's rows.
+ *
+ * A <tr> cannot animate its height, so every cell of a collapsible row wraps
+ * its content in `.collapsible` (a one-row CSS grid) and the row's
+ * `data-collapse` state drives that grid track from 1fr to 0fr. The cell
+ * padding and border go with it so the row ends at 0px before it is removed.
+ * The timing matches SECTION_TRANSITION_MS in use-section-transitions.ts.
+ */
+.collapsible {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 220ms ease,
+    opacity 160ms ease;
+}
+
+.collapsibleInner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.row[data-collapse="closing"] .collapsible {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.row[data-collapse="opening"] .collapsible {
+  animation: rowExpand 220ms ease both;
+}
+
+.row[data-collapse="closing"] > th,
+.row[data-collapse="closing"] > td {
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-width: 0;
+  transition:
+    padding 220ms ease,
+    border-bottom-width 220ms ease;
+}
+
+@keyframes rowExpand {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .collapsible,
+  .row[data-collapse="closing"] > th,
+  .row[data-collapse="closing"] > td {
+    transition: none;
+  }
+  .row[data-collapse="opening"] .collapsible {
+    animation: none;
+  }
+}

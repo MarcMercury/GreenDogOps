@@ -4,14 +4,17 @@ import { ChevronDownIcon, PencilIcon, PlusIcon } from "lucide-react";
 import { dateForDay } from "@/lib/schedule/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useGrid } from "@/features/scheduling/scheduling-grid/hooks/use-grid";
+import { tintOf } from "@/features/scheduling/scheduling-grid/lib/color";
 import { COL_W } from "@/features/scheduling/scheduling-grid/lib/grid-constants";
 import type { GridColumn, GridTableRow } from "@/features/scheduling/scheduling-grid/types/grid-table";
 
 /**
- * A department's section header — the table's group row for that department.
- * The name / toggle cell spans just the sticky "Shift" column; the day /
- * location cells that follow carry the booked-appointment demand so the number
- * lands under its clinic column, in the department's own colour.
+ * A department's section header — the table's group row for that department,
+ * tinted in the department's colour. A dot marks a collapsed section, a
+ * chevron an open one; the pill is the number of shift lines. The name /
+ * toggle cell spans just the sticky "Shift" column; the day / location cells
+ * that follow carry the booked-appointment demand so the number lands under
+ * its clinic column.
  */
 export function DeptSectionRow({
   row,
@@ -24,38 +27,46 @@ export function DeptSectionRow({
   /** Full-width colSpan, used when no location is shown. */
   span: number;
 }) {
-  const { week, departmentById, closureSet, agendaCountMap, canEdit, actions } = useGrid();
+  const { week, departmentById, closureSet, agendaCountMap, canEdit, actions, sectionState } = useGrid();
   const dept = departmentById.get(String(row.groupingValue));
   if (!dept) return null;
-  const collapsed = !row.getIsExpanded();
+  // The dot replaces the chevron as soon as the close starts, not when it ends.
+  const collapsed = !row.getIsExpanded() || sectionState(dept.id) === "closing";
   const lineCount = row.subRows.filter((r) => r.original.kind === "line").length;
   const showDemand = cellColumns.length > 0;
+  const tint = tintOf(dept.color, 0.14);
+  const pill = tintOf(dept.color, 0.3);
   const dayOf = (column: GridColumn | undefined) => {
     const meta = column?.columnDef.meta;
     return meta?.kind === "cell" ? meta.day : null;
   };
 
   return (
-    <tr>
+    <tr style={{ backgroundColor: tint }}>
       <td
         colSpan={showDemand ? 1 : span}
-        className="group/dept sticky left-0 z-10 px-3 py-1 text-[11px] font-bold uppercase tracking-wider text-white"
-        style={{ background: dept.color }}
+        className="group/dept sticky left-0 z-10 border-b border-slate-200/70 px-3 py-1.5"
+        style={{ backgroundColor: tint }}
       >
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => row.toggleExpanded()}
-            title={collapsed ? "Expand department" : "Collapse department"}
+            onClick={() => actions.toggleDepartment(row)}
             aria-expanded={!collapsed}
-            className="flex flex-1 items-center gap-1.5 text-left hover:text-white/90"
+            className="flex flex-1 items-center gap-2 text-left text-[11px] font-bold uppercase tracking-wider hover:opacity-80"
+            style={{ color: dept.color }}
           >
-            <ChevronDownIcon
-              className={`size-3 transition-transform ${collapsed ? "-rotate-90" : ""}`}
-            />
+            {collapsed ? (
+              <span className="size-2.5 shrink-0 rounded-full" style={{ background: dept.color }} aria-hidden />
+            ) : (
+              <ChevronDownIcon className="size-3.5 shrink-0" aria-hidden />
+            )}
             <span>{dept.name}</span>
-            {collapsed && lineCount > 0 && (
-              <span className="rounded bg-white/20 px-1.5 text-[9px] font-semibold">
+            {lineCount > 0 && (
+              <span
+                className="rounded-full px-1.5 py-px text-[10px] font-bold tabular-nums"
+                style={{ backgroundColor: pill }}
+              >
                 {lineCount}
               </span>
             )}
@@ -68,7 +79,8 @@ export function DeptSectionRow({
                     <button
                       type="button"
                       onClick={() => actions.openLineModal({ line: null, deptId: dept.id })}
-                      className="flex items-center gap-0.5 rounded bg-white/20 px-1.5 text-[10px] font-semibold opacity-0 transition hover:bg-white/30 group-hover/dept:opacity-100 print:hidden"
+                      className="flex items-center gap-0.5 rounded-full px-1.5 text-[10px] font-bold opacity-0 transition hover:bg-white/60 group-hover/dept:opacity-100 print:hidden"
+                      style={{ color: dept.color }}
                     />
                   }
                 >
@@ -83,7 +95,8 @@ export function DeptSectionRow({
                       type="button"
                       onClick={() => actions.openDeptModal(dept)}
                       aria-label="Edit department"
-                      className="opacity-0 transition hover:text-white/80 group-hover/dept:opacity-100 print:hidden"
+                      className="rounded-full p-0.5 opacity-0 transition hover:bg-white/60 group-hover/dept:opacity-100 print:hidden"
+                      style={{ color: dept.color }}
                     />
                   }
                 >
@@ -109,16 +122,10 @@ export function DeptSectionRow({
           return (
             <td
               key={column.id}
-              className="px-1 py-1 text-center text-[11px] font-bold tabular-nums text-white/95"
-              style={{
-                background: dept.color,
-                width,
-                minWidth: width,
-                maxWidth: width,
-                borderLeft: isDayStart
-                  ? "2px solid rgba(255,255,255,0.5)"
-                  : "1px solid rgba(255,255,255,0.25)",
-              }}
+              className={`border-b border-slate-200/70 px-1 py-1 text-center text-[11px] font-bold tabular-nums ${
+                isDayStart ? "border-l-2 border-l-slate-300" : "border-l border-l-slate-200/70"
+              }`}
+              style={{ width, minWidth: width, maxWidth: width, color: dept.color }}
               title={
                 count > 0
                   ? `${count} appointment${count === 1 ? "" : "s"} booked — ${dept.name} @ ${location.short_code ?? location.name}`

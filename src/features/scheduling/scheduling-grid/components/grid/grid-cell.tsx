@@ -10,6 +10,7 @@ import {
   type SchedPerson,
   type WeekTimeOff,
 } from "@/lib/schedule/types";
+import { CollapsibleCellContent } from "@/features/scheduling/scheduling-grid/components/grid/collapsible-cell-content";
 import { COL_W } from "@/features/scheduling/scheduling-grid/lib/grid-constants";
 
 /** A single grid cell: the people on one shift line at one location on one day. */
@@ -48,7 +49,7 @@ export function GridCell({
 }) {
   const [dragOver, setDragOver] = useState(false);
   const dayBorder = isDayStart
-    ? "border-l-2 border-l-slate-400"
+    ? "border-l-2 border-l-slate-300"
     : "border-l border-l-slate-200";
   if (closed) {
     return (
@@ -99,7 +100,8 @@ export function GridCell({
           : undefined
       }
     >
-      <div className="flex min-h-[34px] flex-col gap-0.5 p-1">
+      <CollapsibleCellContent>
+      <div className="flex min-h-[40px] flex-col gap-0.5 p-1">
         {visible.map((a) => {
           const p = personById.get(a.person_id);
           const att = effectiveAttendance(a, isPublished, undefined, systemAttendance[a.id]);
@@ -217,6 +219,7 @@ export function GridCell({
           </button>
         )}
       </div>
+      </CollapsibleCellContent>
     </td>
   );
 }

@@ -26,8 +26,8 @@ export function EventHeaderCell({
   const width = closed ? 18 : COL_W;
   return (
     <th
-      className={`border-b border-b-slate-200 bg-slate-50 p-0.5 align-middle ${
-        isDayStart ? "border-l-2 border-l-slate-400" : "border-l border-l-slate-200"
+      className={`border-b border-b-slate-100 bg-white p-0.5 align-middle ${
+        isDayStart ? "border-l-2 border-l-slate-300" : "border-l border-l-slate-200"
       }`}
       style={{ width, minWidth: width, maxWidth: width }}
     >

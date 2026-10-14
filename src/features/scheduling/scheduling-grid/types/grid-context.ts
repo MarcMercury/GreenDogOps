@@ -8,7 +8,9 @@ import type {
   SchedWeekLine,
   WeekTimeOff,
 } from "@/lib/schedule/types";
+import type { SectionState } from "@/features/scheduling/scheduling-grid/hooks/use-section-transitions";
 import type { CellKey } from "@/features/scheduling/scheduling-grid/types/grid";
+import type { GridTableRow } from "@/features/scheduling/scheduling-grid/types/grid-table";
 
 /** What a cell, header or section renderer may ask the grid to do. */
 export interface GridActions {
@@ -21,6 +23,8 @@ export interface GridActions {
   removeAssignment: (assignmentId: string) => void;
   moveAssignment: (assignmentId: string, lineId: string, locationId: string, day: number) => void;
   removeLine: (line: SchedWeekLine) => void;
+  /** Expand or collapse a department section (its group row), animated. */
+  toggleDepartment: (row: GridTableRow) => void;
 }
 
 /**
@@ -47,5 +51,7 @@ export interface GridContextValue {
   eventMap: Map<string, SchedEvent>;
   /** Booked appointments per `${departmentId}|${locationId}|${date}`. */
   agendaCountMap: Map<string, number>;
+  /** Open / opening / closing, per department id (and "pto"), for the row animation. */
+  sectionState: (key: string) => SectionState;
   actions: GridActions;
 }

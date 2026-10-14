@@ -1,19 +1,28 @@
 "use client";
 
-import { DownloadIcon, PrinterIcon } from "lucide-react";
+import { CheckIcon, DownloadIcon, PrinterIcon, RocketIcon, SendIcon, Undo2Icon } from "lucide-react";
 import type { SchedWeek } from "@/lib/schedule/types";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-/** Submit / approve / publish / reopen, plus the print and export controls once published. */
+/** The page's primary action colour (the mock's navy). */
+const PRIMARY = "bg-slate-900 text-white hover:bg-slate-800";
+
+/**
+ * Submit / approve / publish / reopen, plus the print and export controls
+ * once published. Transitions need edit rights; printing and exporting a
+ * published week do not.
+ */
 export function WorkflowButtons({
   status,
+  canEdit,
   onStatus,
   onPrintGrid,
   onPrintEmployee,
   onExportCsv,
 }: {
   status: SchedWeek["status"];
+  canEdit: boolean;
   onStatus: (s: SchedWeek["status"]) => void;
   onPrintGrid: () => void;
   onPrintEmployee: () => void;
@@ -21,38 +30,41 @@ export function WorkflowButtons({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      {status === "draft" && (
-        <Button className="bg-amber-500 text-white hover:bg-amber-600" onClick={() => onStatus("pending_approval")}>
-          Submit for approval
+      {canEdit && status === "draft" && (
+        <Button className={PRIMARY} onClick={() => onStatus("pending_approval")}>
+          <SendIcon /> Submit for approval
         </Button>
       )}
-      {status === "pending_approval" && (
+      {canEdit && status === "pending_approval" && (
         <>
-          <Button className="bg-sky-600 text-white hover:bg-sky-700" onClick={() => onStatus("approved")}>
-            Approve
-          </Button>
           <Button variant="outline" onClick={() => onStatus("draft")}>
-            Send back
+            <Undo2Icon /> Send back
+          </Button>
+          <Button className={PRIMARY} onClick={() => onStatus("approved")}>
+            <CheckIcon /> Approve
           </Button>
         </>
       )}
-      {status === "approved" && (
+      {canEdit && status === "approved" && (
         <>
-          <Button className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => onStatus("published")}>
-            Publish
-          </Button>
           <Button variant="outline" onClick={() => onStatus("draft")}>
-            Reopen
+            <Undo2Icon /> Reopen
+          </Button>
+          <Button className={PRIMARY} onClick={() => onStatus("published")}>
+            <RocketIcon /> Publish
           </Button>
         </>
       )}
       {status === "published" && (
         <>
           <Tooltip>
-            <TooltipTrigger render={<Button onClick={onPrintGrid} />}>
-              <PrinterIcon /> Print Grid
+            <TooltipTrigger render={<Button variant="outline" onClick={onExportCsv} />}>
+              <DownloadIcon /> CSV for When I Work
             </TooltipTrigger>
-            <TooltipContent>Print the schedule grid exactly as shown</TooltipContent>
+            <TooltipContent>
+              Download a CSV grouped by Location then Employee — matching how you enter shifts into When I Work
+              (pick a location, then work employee-by-employee)
+            </TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger render={<Button variant="secondary" onClick={onPrintEmployee} />}>
@@ -63,17 +75,16 @@ export function WorkflowButtons({
             </TooltipContent>
           </Tooltip>
           <Tooltip>
-            <TooltipTrigger render={<Button variant="outline" onClick={onExportCsv} />}>
-              <DownloadIcon /> CSV for When I Work
+            <TooltipTrigger render={<Button className={PRIMARY} onClick={onPrintGrid} />}>
+              <PrinterIcon /> Print Grid
             </TooltipTrigger>
-            <TooltipContent>
-              Download a CSV grouped by Location then Employee — matching how you enter shifts into When I Work
-              (pick a location, then work employee-by-employee)
-            </TooltipContent>
+            <TooltipContent>Print the schedule grid exactly as shown</TooltipContent>
           </Tooltip>
-          <Button variant="outline" onClick={() => onStatus("draft")}>
-            Reopen
-          </Button>
+          {canEdit && (
+            <Button variant="outline" onClick={() => onStatus("draft")}>
+              <Undo2Icon /> Reopen
+            </Button>
+          )}
         </>
       )}
     </div>

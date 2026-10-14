@@ -16,15 +16,24 @@ import { GridDialogs } from "@/features/scheduling/scheduling-grid/components/gr
 import { GridFooterActions } from "@/features/scheduling/scheduling-grid/components/grid/grid-footer-actions";
 import { GridHeader } from "@/features/scheduling/scheduling-grid/components/grid/grid-header";
 import { GridLegend } from "@/features/scheduling/scheduling-grid/components/grid/grid-legend";
+import { GridPageHeader } from "@/features/scheduling/scheduling-grid/components/grid/grid-page-header";
 import { GridToolbar } from "@/features/scheduling/scheduling-grid/components/grid/grid-toolbar";
 import { NoLinesRow } from "@/features/scheduling/scheduling-grid/components/grid/no-lines-row";
 import { ShiftLineRow } from "@/features/scheduling/scheduling-grid/components/grid/shift-line-row";
+import { TemplateHeading } from "@/features/scheduling/scheduling-grid/components/grid/template-heading";
+import { LocationToggles } from "@/features/scheduling/scheduling-grid/components/location-toggles";
 import { PerEmployeePrintout } from "@/features/scheduling/scheduling-grid/components/per-employee-printout";
 import { PtoSection } from "@/features/scheduling/scheduling-grid/components/pto-section";
 import { ReadOnlyNotice } from "@/features/scheduling/scheduling-grid/components/read-only-notice";
+import { SchedulePageShell } from "@/features/scheduling/scheduling-grid/components/schedule-page-shell";
+import { RowsCard } from "@/features/scheduling/scheduling-grid/components/sidebar/rows-card";
+import { WeeksCard } from "@/features/scheduling/scheduling-grid/components/sidebar/weeks-card";
+import { UnpublishedBanner } from "@/features/scheduling/scheduling-grid/components/unpublished-banner";
 import { GridContext } from "@/features/scheduling/scheduling-grid/hooks/use-grid";
 import { useGridActions } from "@/features/scheduling/scheduling-grid/hooks/use-grid-actions";
 import { useGridUiState } from "@/features/scheduling/scheduling-grid/hooks/use-grid-ui-state";
+import { useRowVisibility } from "@/features/scheduling/scheduling-grid/hooks/use-row-visibility";
+import { useSectionTransitions } from "@/features/scheduling/scheduling-grid/hooks/use-section-transitions";
 import {
   columnVisibilityFor,
   defaultEnabledLocationIds,
@@ -39,6 +48,13 @@ import { buildGridRows } from "@/features/scheduling/scheduling-grid/lib/grid-ro
 import { gridTableFeatures } from "@/features/scheduling/scheduling-grid/lib/grid-table-features";
 import { buildPerEmployeeShifts } from "@/features/scheduling/scheduling-grid/lib/per-employee-shifts";
 import { buildPtoByDay } from "@/features/scheduling/scheduling-grid/lib/pto-by-day";
+import {
+  PTO_ROW_ID,
+  applyRowVisibility,
+  departmentsForRowsCard,
+  rowVisibilityCounts,
+} from "@/features/scheduling/scheduling-grid/lib/row-visibility";
+import { neighborWeeks, sortWeeksAscending } from "@/features/scheduling/scheduling-grid/lib/week-calendar";
 import type { AgendaCount } from "@/features/scheduling/scheduling-grid/types/agenda-count";
 import type { GridTimeOffRow } from "@/features/scheduling/scheduling-grid/types/grid";
 import type { GridContextValue } from "@/features/scheduling/scheduling-grid/types/grid-context";
@@ -48,10 +64,12 @@ import type { WeekData } from "@/features/scheduling/scheduling-grid/types/week-
  * The weekly grid, as a TanStack Table: shift lines are the rows, grouped by
  * department (each department a collapsible group row), and the columns are
  * Sunday–Saturday, each a group of the available locations; which locations
- * show is the table's column visibility. The PTO overview sits above the
- * groups. This component owns the data lookups, the table instance and the
- * dialog state; the column definitions live in `columns/`, the renderers read
- * everything else through `GridContext`.
+ * show is the table's column visibility, which rows show is the Rows card's
+ * filter. The PTO overview sits above the groups. On the schedule page the
+ * grid sits beside the Weeks / Rows sidebar; on Set Up ▸ Week Template it
+ * stands alone. This component owns the data lookups, the table instance, the
+ * section open/close animation and the dialog state; the column definitions
+ * live in `columns/`, the renderers read everything else through `GridContext`.
  */
 export function ScheduleGrid({
   weeks,
@@ -89,6 +107,10 @@ export function ScheduleGrid({
         .sort((a, b) => a.sort_order - b.sort_order),
     [setup.locations, planLocationIds],
   );
+
+  // The schedule weeks (never the templates), oldest first, for ‹ › and the calendar.
+  const scheduleWeeks = useMemo(() => sortWeeksAscending(weeks.filter((w) => !w.is_template)), [weeks]);
+  const { prev, next } = useMemo(() => neighborWeeks(scheduleWeeks, week.id), [scheduleWeeks, week.id]);
 
   // Lookups -----------------------------------------------------------------
   const departmentById = useMemo(
@@ -190,11 +212,30 @@ export function ScheduleGrid({
     [agendaCounts],
   );
 
-  // The table ----------------------------------------------------------------
-  const rows = useMemo(
+  // The rows ----------------------------------------------------------------
+  // Everything on the week, then what the Rows card has not hidden.
+  const allRows = useMemo(
     () => buildGridRows({ lines, departments: setup.departments, templateMode, agendaDeptIds }),
     [lines, setup.departments, templateMode, agendaDeptIds],
   );
+  const visibility = useRowVisibility();
+  const rows = useMemo(() => applyRowVisibility(allRows, visibility.hidden), [allRows, visibility.hidden]);
+  const withPto = !templateMode;
+  const showPto = withPto && !visibility.hidden.departments.has(PTO_ROW_ID);
+  const rowsCardDepartments = useMemo(
+    () => departmentsForRowsCard(allRows, departmentById),
+    [allRows, departmentById],
+  );
+  const rowCounts = useMemo(
+    () => rowVisibilityCounts(allRows, visibility.hidden, { withPto }),
+    [allRows, visibility.hidden, withPto],
+  );
+  const allSectionIds = useMemo(
+    () => [...(withPto ? [PTO_ROW_ID] : []), ...rowsCardDepartments.map((d) => d.dept.id)],
+    [withPto, rowsCardDepartments],
+  );
+
+  // The table ----------------------------------------------------------------
   const columns = useMemo(() => buildGridColumns(availableLocations), [availableLocations]);
   // Read once: which locations open, every department collapsed.
   const [initialState] = useState(() => ({
@@ -234,6 +275,15 @@ export function ScheduleGrid({
   const span = 1 + DAYS.length * Math.max(colCount, 1);
   const tableRows = table.getRowModel().rows;
 
+  // Sections open and close with an animation: a closing section keeps its
+  // rows until the animation ends, then the state change removes them.
+  const { expand: expandSection, collapse: collapseSection, stateOf: sectionState } = useSectionTransitions();
+  const [ptoCollapsed, setPtoCollapsed] = useState(false);
+  const togglePto = () => {
+    if (ptoCollapsed) expandSection(PTO_ROW_ID, () => setPtoCollapsed(false));
+    else collapseSection(PTO_ROW_ID, () => setPtoCollapsed(true));
+  };
+
   // Actions and dialogs ------------------------------------------------------
   const runners = useGridActions(week.id);
   const [ui, patchUi] = useGridUiState();
@@ -255,6 +305,7 @@ export function ScheduleGrid({
       closureSet,
       eventMap,
       agendaCountMap,
+      sectionState,
       actions: {
         openPicker: (cell) => patchUi({ picker: cell }),
         openAttendance: (assignmentId) => patchUi({ attendanceId: assignmentId }),
@@ -266,6 +317,11 @@ export function ScheduleGrid({
         moveAssignment: (assignmentId, lineId, locationId, day) =>
           void runners.move(assignmentId, lineId, locationId, day),
         removeLine: (line) => patchUi({ lineDelete: line }),
+        toggleDepartment: (row) => {
+          const key = String(row.groupingValue);
+          if (row.getIsExpanded()) collapseSection(key, () => row.toggleExpanded(false));
+          else expandSection(key, () => row.toggleExpanded(true));
+        },
       },
     }),
     [
@@ -284,6 +340,9 @@ export function ScheduleGrid({
       closureSet,
       eventMap,
       agendaCountMap,
+      sectionState,
+      collapseSection,
+      expandSection,
       patchUi,
       runners,
     ],
@@ -316,9 +375,6 @@ export function ScheduleGrid({
     });
     downloadCsvFile(`schedule-${week.week_start}-wheniwork.csv`, toCsvText(csvRows));
   };
-
-  // The PTO overview section sits at the top of the grid, expanded by default.
-  const [ptoCollapsed, setPtoCollapsed] = useState(false);
 
   // Printing: `null` = nothing pending; "grid" prints the schedule as-is,
   // "employee" swaps in the per-employee pages. The effect fires the browser
@@ -360,105 +416,142 @@ export function ScheduleGrid({
     }
   };
 
-  return (
-    <GridContext.Provider value={contextValue}>
-      <div
-        className={`space-y-3 ${
-          printMode === "employee" ? "sched-print-employee" : "sched-print-grid"
-        }`}
-      >
-        {!canEdit && <ReadOnlyNotice />}
-        <GridToolbar
-          week={week}
-          weeks={weeks}
+  const onStatus = (status: SchedWeek["status"]) =>
+    runners.setStatus(status, (untimed, error) => patchUi({ publishConfirm: { status, untimed, error } }));
+
+  const page = (
+    <div className={`space-y-4 ${printMode === "employee" ? "sched-print-employee" : "sched-print-grid"}`}>
+      {!canEdit && <ReadOnlyNotice />}
+      {templateMode ? <TemplateHeading /> : <GridPageHeader week={week} prev={prev} next={next} />}
+      {!templateMode && (
+        <div className="space-y-3 print:hidden">
+          <GridToolbar
+            week={week}
+            templates={templates}
+            canEdit={canEdit}
+            onStatus={onStatus}
+            onPrintGrid={() => setPrintMode("grid")}
+            onPrintEmployee={() => setPrintMode("employee")}
+            onExportCsv={downloadWiwCsv}
+          />
+          <UnpublishedBanner weekStart={week.week_start} status={week.status} />
+        </div>
+      )}
+      <div className="print:hidden">
+        <LocationToggles
           availableLocations={availableLocations}
           enabled={enabled}
-          onToggleLocation={(id) =>
-            table.setColumnVisibility((prev) => toggleLocationVisibility(prev, id))
-          }
-          templateMode={templateMode}
-          templates={templates}
-          onPrintGrid={() => setPrintMode("grid")}
-          onPrintEmployee={() => setPrintMode("employee")}
-          onExportCsv={downloadWiwCsv}
-          onStatus={(status) =>
-            runners.setStatus(status, (untimed, error) =>
-              patchUi({ publishConfirm: { status, untimed, error } }),
-            )
-          }
-        />
-
-        <div
-          ref={topScrollRef}
-          onScroll={syncFromTop}
-          className="sticky top-0 z-30 overflow-x-scroll rounded-t-lg border border-slate-200 bg-white/95 backdrop-blur print:hidden"
-          aria-hidden
-        >
-          <div style={{ width: scrollWidth, height: 12 }} />
-        </div>
-
-        <div
-          ref={gridScrollRef}
-          onScroll={syncFromGrid}
-          className="sched-grid-print overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:overflow-visible print:border-0 print:shadow-none"
-        >
-          <table className="min-w-full border-collapse text-xs" style={{ zoom: 0.85 }}>
-            <GridHeader table={table} leafHeaders={leafHeaders} />
-            <tbody>
-              {!templateMode && (
-                <PtoSection
-                  colCount={colCount}
-                  span={span}
-                  collapsed={ptoCollapsed}
-                  ptoByDay={ptoByDay}
-                  weekCount={weekTimeOff.size}
-                  canEdit={canEdit}
-                  onToggle={() => setPtoCollapsed((v) => !v)}
-                  onDecide={(chip, day) => patchUi({ ptoMenu: { chip, day } })}
-                />
-              )}
-              {tableRows.map((row) =>
-                row.getIsGrouped() ? (
-                  <DeptSectionRow key={row.id} row={row} cellColumns={cellColumns} span={span} />
-                ) : row.original.kind === "empty" ? (
-                  <EmptyDeptRow key={row.id} row={row} span={span} />
-                ) : (
-                  <ShiftLineRow key={row.id} row={row} table={table} />
-                ),
-              )}
-              {rows.length === 0 && (
-                <NoLinesRow span={1 + DAYS.length} onLoadTemplate={() => void runners.loadDefaultTemplate()} />
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        <PerEmployeePrintout weekStart={week.week_start} employees={perEmployee} />
-
-        <div className="flex items-center justify-between gap-3 print:hidden">
-          <GridLegend />
-          {canEdit && (
-            <GridFooterActions
-              showDefaultTemplate={week.status === "draft" && !templateMode}
-              onLoadDefaultTemplate={() => void runners.loadDefaultTemplate()}
-              onAddDepartment={() => patchUi({ deptModal: { dept: null } })}
-              onAddLine={() => patchUi({ lineModal: { line: null } })}
-            />
-          )}
-        </div>
-
-        <GridDialogs
-          ui={ui}
-          patchUi={patchUi}
-          lines={lines}
-          assignments={assignments}
-          setup={setup}
-          availableLocations={availableLocations}
-          membersByRole={membersByRole}
-          scheduledByDay={scheduledByDay}
-          runners={runners}
+          onToggle={(id) => table.setColumnVisibility((prev) => toggleLocationVisibility(prev, id))}
         />
       </div>
+
+      <div
+        ref={topScrollRef}
+        onScroll={syncFromTop}
+        className="sticky top-0 z-30 overflow-x-scroll rounded-t-lg border border-slate-200 bg-white/95 backdrop-blur print:hidden"
+        aria-hidden
+      >
+        <div style={{ width: scrollWidth, height: 12 }} />
+      </div>
+
+      <div
+        ref={gridScrollRef}
+        onScroll={syncFromGrid}
+        className="sched-grid-print overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm print:overflow-visible print:border-0 print:shadow-none"
+      >
+        <table className="min-w-full border-collapse text-xs" style={{ zoom: 0.85 }}>
+          <GridHeader table={table} leafHeaders={leafHeaders} />
+          <tbody>
+            {showPto && (
+              <PtoSection
+                colCount={colCount}
+                span={span}
+                collapsed={ptoCollapsed}
+                state={sectionState(PTO_ROW_ID)}
+                ptoByDay={ptoByDay}
+                weekCount={weekTimeOff.size}
+                canEdit={canEdit}
+                onToggle={togglePto}
+                onDecide={(chip, day) => patchUi({ ptoMenu: { chip, day } })}
+              />
+            )}
+            {tableRows.map((row) =>
+              row.getIsGrouped() ? (
+                <DeptSectionRow key={row.id} row={row} cellColumns={cellColumns} span={span} />
+              ) : row.original.kind === "empty" ? (
+                <EmptyDeptRow key={row.id} row={row} span={span} />
+              ) : (
+                <ShiftLineRow key={row.id} row={row} table={table} />
+              ),
+            )}
+            {allRows.length === 0 && (
+              <NoLinesRow span={1 + DAYS.length} onLoadTemplate={() => void runners.loadDefaultTemplate()} />
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <PerEmployeePrintout weekStart={week.week_start} employees={perEmployee} />
+
+      <div className="flex items-center justify-between gap-3 print:hidden">
+        <GridLegend />
+        {canEdit && (
+          <GridFooterActions
+            showDefaultTemplate={week.status === "draft" && !templateMode}
+            onLoadDefaultTemplate={() => void runners.loadDefaultTemplate()}
+            onAddDepartment={() => patchUi({ deptModal: { dept: null } })}
+            onAddLine={() => patchUi({ lineModal: { line: null } })}
+          />
+        )}
+      </div>
+
+      <GridDialogs
+        ui={ui}
+        patchUi={patchUi}
+        lines={lines}
+        assignments={assignments}
+        setup={setup}
+        availableLocations={availableLocations}
+        membersByRole={membersByRole}
+        scheduledByDay={scheduledByDay}
+        runners={runners}
+      />
+    </div>
+  );
+
+  return (
+    <GridContext.Provider value={contextValue}>
+      {templateMode ? (
+        page
+      ) : (
+        <SchedulePageShell
+          sidebar={
+            <>
+              {/* Keyed by week so the calendar's month follows the open week. */}
+              <WeeksCard
+                key={week.week_start}
+                weeks={scheduleWeeks}
+                selectedWeekStart={week.week_start}
+                selectedId={week.id}
+                canEdit={canEdit}
+              />
+              <RowsCard
+                departments={rowsCardDepartments}
+                withPto={withPto}
+                hidden={visibility.hidden}
+                counts={rowCounts}
+                roleName={roleName}
+                onToggleDepartment={visibility.toggleDepartment}
+                onToggleLine={visibility.toggleLine}
+                onShowAll={visibility.showAll}
+                onHideAll={() => visibility.hideAll(allSectionIds)}
+              />
+            </>
+          }
+        >
+          {page}
+        </SchedulePageShell>
+      )}
     </GridContext.Provider>
   );
 }

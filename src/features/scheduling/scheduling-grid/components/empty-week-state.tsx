@@ -10,7 +10,7 @@ export function EmptyWeekState() {
           <CalendarDaysIcon />
         </EmptyMedia>
         <EmptyTitle>No schedule week yet</EmptyTitle>
-        <EmptyDescription>Pick a week above to create one.</EmptyDescription>
+        <EmptyDescription>Pick a week in the calendar to open or create one.</EmptyDescription>
       </EmptyHeader>
     </Empty>
   );

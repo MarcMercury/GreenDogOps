@@ -6,10 +6,8 @@ import { getWeekDataFor } from "@/features/scheduling/scheduling-grid/db/get-wee
 import { getWeekTimeOff } from "@/features/scheduling/scheduling-grid/db/get-week-time-off";
 import { getWeeks } from "@/features/scheduling/scheduling-grid/db/get-weeks";
 import { selectDefaultWeek } from "@/features/scheduling/scheduling-grid/lib/select-default-week";
-import { EmptyWeekState } from "@/features/scheduling/scheduling-grid/components/empty-week-state";
+import { EmptyWeekLayout } from "@/features/scheduling/scheduling-grid/components/empty-week-layout";
 import { ScheduleGrid } from "@/features/scheduling/scheduling-grid/components/grid/schedule-grid";
-import { WeekPicker } from "@/features/scheduling/scheduling-grid/components/week-picker";
-import { PageHeader } from "../_components/ui";
 import { getCurrentUser } from "@/lib/auth/session";
 import { canEditModule } from "@/lib/auth/permissions";
 import { weekStartFor } from "@/lib/schedule/types";
@@ -63,17 +61,7 @@ export default async function SchedulePage({
       : [null, [], []];
 
   if (!weekData) {
-    return (
-      <div className="space-y-5">
-        <PageHeader
-          eyebrow="Scheduling"
-          title="Weekly Grid"
-          description="Build, approve, and publish the visual weekly schedule."
-        />
-        <WeekPicker weeks={weeks} selectedId={null} />
-        <EmptyWeekState />
-      </div>
-    );
+    return <EmptyWeekLayout weeks={weeks.filter((w) => !w.is_template)} canEdit={canEdit} />;
   }
 
   return (

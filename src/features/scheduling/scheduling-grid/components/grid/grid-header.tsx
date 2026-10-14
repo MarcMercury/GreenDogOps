@@ -6,6 +6,9 @@ import { useGrid } from "@/features/scheduling/scheduling-grid/hooks/use-grid";
 import { COL_W, DAYS } from "@/features/scheduling/scheduling-grid/lib/grid-constants";
 import type { GridHeader as GridHeaderModel, GridTable } from "@/features/scheduling/scheduling-grid/types/grid-table";
 
+const HATCH =
+  "bg-[repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9_6px,#e2e8f0_6px,#e2e8f0_12px)]";
+
 /**
  * The three header rows: the day groups (from the table's header groups), the
  * event banners (one slot per visible location column) and the location
@@ -20,7 +23,7 @@ export function GridHeader({ table, leafHeaders }: { table: GridTable; leafHeade
   const shiftHeader = (
     <th
       rowSpan={3}
-      className="sticky left-0 z-20 w-px whitespace-nowrap border-b border-r border-slate-300 bg-slate-50 px-3 py-2 text-left align-bottom text-[11px] font-semibold uppercase tracking-wide text-slate-500"
+      className="sticky left-0 z-20 w-px whitespace-nowrap border-b border-r border-slate-200 bg-white px-4 pb-2 pt-3 text-left align-bottom text-[10px] font-bold uppercase tracking-wider text-slate-500"
     >
       Shift
     </th>
@@ -30,13 +33,13 @@ export function GridHeader({ table, leafHeaders }: { table: GridTable; leafHeade
   // reads as a week, with an empty slot where the locations would be.
   if (noLocations) {
     return (
-      <thead>
+      <thead className="bg-white">
         <tr>
           {shiftHeader}
           {DAYS.map((d) => (
             <th
               key={d}
-              className="border-b border-l-2 border-b-slate-300 border-l-slate-400 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600"
+              className="border-b border-l-2 border-b-slate-200 border-l-slate-300 bg-white px-2 py-2 text-center text-[10px] font-bold uppercase tracking-wider text-slate-500"
             >
               {DAY_SHORT[d]}
             </th>
@@ -44,14 +47,14 @@ export function GridHeader({ table, leafHeaders }: { table: GridTable; leafHeade
         </tr>
         <tr>
           {DAYS.map((d) => (
-            <th key={d} className="border-b border-l-2 border-b-slate-200 border-l-slate-400 bg-slate-50 px-2 py-1" />
+            <th key={d} className="border-b border-l-2 border-b-slate-100 border-l-slate-300 bg-white px-2 py-1" />
           ))}
         </tr>
         <tr>
           {DAYS.map((d) => (
             <th
               key={d}
-              className="border-b border-l-2 border-b-slate-300 border-l-slate-400 bg-slate-50 px-2 py-1 text-center text-[10px] text-slate-400"
+              className="border-b border-l-2 border-b-slate-200 border-l-slate-300 bg-white px-2 py-1 text-center text-[10px] text-slate-400"
             >
               —
             </th>
@@ -69,14 +72,14 @@ export function GridHeader({ table, leafHeaders }: { table: GridTable; leafHeade
   const dayStarts = leafHeaders.map((h, i) => dayOf(h) !== dayOf(leafHeaders[i - 1]));
 
   return (
-    <thead>
+    <thead className="bg-white">
       <tr>
         {shiftHeader}
         {dayHeaders.map((header) => (
           <th
             key={header.id}
             colSpan={header.colSpan}
-            className="border-b border-l-2 border-b-slate-300 border-l-slate-400 bg-slate-50 px-2 py-1.5 text-center text-[11px] font-bold uppercase tracking-wide text-slate-600"
+            className="border-b border-l-2 border-b-slate-100 border-l-slate-300 bg-white px-2 pt-1 text-center"
           >
             <table.FlexRender header={header} />
           </th>
@@ -100,14 +103,14 @@ export function GridHeader({ table, leafHeaders }: { table: GridTable; leafHeade
           return (
             <th
               key={header.id}
-              className={`border-b border-b-slate-300 bg-slate-50 px-1.5 py-1 text-center ${
-                dayStarts[i] ? "border-l-2 border-l-slate-400" : "border-l border-l-slate-300"
+              className={`border-b border-b-slate-200 px-1.5 py-1.5 text-center ${closed ? HATCH : "bg-white"} ${
+                dayStarts[i] ? "border-l-2 border-l-slate-300" : "border-l border-l-slate-200"
               }`}
               style={{
                 width,
                 minWidth: width,
                 maxWidth: width,
-                borderTop: `2px solid ${meta.location.color ?? "#94a3b8"}`,
+                borderTop: `3px solid ${closed ? "#cbd5e1" : (meta.location.color ?? "#94a3b8")}`,
               }}
             >
               <table.FlexRender header={header} />
