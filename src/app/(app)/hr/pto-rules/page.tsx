@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth/session";
-import { canAccessModule, canViewAllCompensation } from "@/lib/auth/permissions";
+import { canAccessModule, canViewAllCompensation, isAdminRole } from "@/lib/auth/permissions";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { addDays, shortDateLabel, todayInWorkTz } from "@/lib/worklist/dates";
 import { payPeriodFor } from "@/lib/timeclock/pay-period";
@@ -26,6 +26,7 @@ export default async function PtoRulesPage() {
   const today = todayInWorkTz();
   const canSign = canViewAllCompensation(current.appUser.role);
   const seesPeople = current.appUser.role !== "staff";
+  const seesLaborCode = isAdminRole(current.appUser.role);
   const admin = createAdminClient();
 
   const [signoffRes, hiresRes] = await Promise.all([
@@ -69,7 +70,9 @@ export default async function PtoRulesPage() {
       <PageHeader
         eyebrow="HR"
         title="PTO & Timekeeping Rules"
-        description="How Ops calculates hours, overtime, meal premiums, and PTO — in plain English, with the California rule behind each. The examples are computed by the same code that runs payroll, so this page always matches what Ops does."
+        description={`How Ops calculates hours, overtime, meal premiums, and PTO — in plain English${
+          seesLaborCode ? ", with the California rule behind each" : ""
+        }. The examples are computed by the same code that runs payroll, so this page always matches what Ops does.`}
       />
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -132,7 +135,7 @@ export default async function PtoRulesPage() {
                     {r.example}
                   </p>
                 ) : null}
-                {r.why ? (
+                {seesLaborCode && r.why ? (
                   <p className="mt-1 text-xs text-slate-500">
                     <span className="font-semibold">Why: </span>
                     {r.why}
