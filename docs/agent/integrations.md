@@ -12,6 +12,7 @@ exists is in the root [README](../../README.md) "Automation & integrations".
 - GitHub cron is UTC-only: each job fires at two UTC times and the worker no-ops the wrong one. A "skipped" run is not necessarily a failure.
 - Runs are recorded in `greendogops.agent_run` / `agent_run_log`, viewable at `/admin/agents`. A green Actions run is not proof the data is complete — check row counts and the latest data date.
 - Workflows: `.github/workflows/ezyvet-*.yml`. Inspect failures with `GH_TOKEN="$GITHUB_TOKEN" gh run list --workflow <file>` and `gh run view <id> --log-failed`.
+- **Tags** (record-tags worker, `ezyvet_tag` catalog). ezyVet exposes tags only through the Records filter's tag search box (`POST /General/DropDownList`, items carry `data-record-id` / `data-record-title` / "Title(Group)"). `node agent/ezyvet/list-tags.mjs` lists every tag read-only — the Pet Tag box plus every tag group (Breed, Species, Master Problem, …) — and `agent/ezyvet/tag-catalog.json` is the 2026-10-15 snapshot: 5,471 tags in 20 groups (Master Problem 3,480, Breed 1,127, Presenting Problem 621, General 41). Typing a label resolves only when exactly one tag matches (`selectIfOne`); names collide across groups, e.g. **"AP" (General, #5140) = Advanced Procedure** vs "ap" (MyPetClient, #6364). Pin each tracked tag's `ezyvet_tag_id` so the worker clicks the right suggestion (0253). After fixing a tag that has been failing, re-run it with `MODE=backfill ONLY_TAGS=<key>` — the nightly run only looks back 7 days.
 
 ## Vercel Cron (`vercel.json`)
 

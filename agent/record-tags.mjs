@@ -117,6 +117,8 @@ async function main() {
         const file = join(dir, `record-tag-${tag.tag_key}-${RUN_ON}.csv`);
         const { path, count } = await runPetTagExport(session.page, {
           tagLabel: tag.tag_label,
+          tagId: tag.ezyvet_tag_id ?? null,
+          tagGroup: tag.tag_group ?? null,
           grain: tag.record_type ?? "animal",
           activityFrom: ACTIVITY_FROM,
           downloadPath: file,

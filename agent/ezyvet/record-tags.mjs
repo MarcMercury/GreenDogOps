@@ -23,6 +23,7 @@ import {
 } from "./records-dashboard.mjs";
 import { snapshotQueue, downloadNewQueueCsv } from "./report-center.mjs";
 import { EXPORT_RECORD_LIMIT } from "./appointments-export.mjs";
+import { pickTagSuggestion } from "./tag-pick.mjs";
 
 /**
  * Per record grain: the Record Type value, the export action, and the report
@@ -51,8 +52,13 @@ const ACTIVITY_FIELD = "ModifiedDate";
  * FILTER — the export would then silently return all ~33k contacts and every
  * one of them would be recorded as carrying the tag. A rename or typo must
  * fail the run instead, so the resolved id is verified before going further.
+ *
+ * Typing resolves on its own only when exactly one tag matches. When names
+ * collide across groups ("AP" in General vs "ap" in MyPetClient) the matching
+ * suggestion is clicked explicitly — by the catalog's ezyVet id, else by exact
+ * title within the catalog's group (see tag-pick.mjs).
  */
-async function setTagValue(page, index, tagLabel, log = () => {}) {
+async function setTagValue(page, index, tagLabel, log = () => {}, { tagId = null, tagGroup = null } = {}) {
   const idSelector = `input[name="${filterField(index, "animalTag")}"]`;
   const row = page.locator(idSelector).locator("xpath=..");
   const search = row.locator("input.dropDownField").first();
@@ -61,13 +67,46 @@ async function setTagValue(page, index, tagLabel, log = () => {}) {
   await page.keyboard.type(tagLabel, { delay: 80 });
   await page.waitForTimeout(2500);
 
-  const id = await page.locator(idSelector).first().inputValue();
+  let id = await page.locator(idSelector).first().inputValue();
+  const wrongId = tagId && id && id !== "0" && String(id) !== String(tagId);
+  if (!id || id === "0" || wrongId) {
+    const items = await page.evaluate(() =>
+      [...document.querySelectorAll("div.dropDownList a.dropDownListItem")]
+        .filter((a) => a.offsetWidth || a.offsetHeight)
+        .map((a) => {
+          const title = a.getAttribute("data-record-title") ?? "";
+          const label = a.querySelector("span")?.textContent?.trim() ?? "";
+          const rest = label.startsWith(title) ? label.slice(title.length).trim() : "";
+          return {
+            id: a.getAttribute("data-record-id"),
+            title,
+            group: rest.startsWith("(") && rest.endsWith(")") ? rest.slice(1, -1) : rest || null,
+          };
+        }),
+    );
+    const pick = pickTagSuggestion(items, { label: tagLabel, tagId, group: tagGroup });
+    log(
+      `pet tag "${tagLabel}" did not resolve by typing; ${items.length} suggestion(s): ` +
+        `${items.map((i) => `${i.title}(${i.group ?? ""})#${i.id}`).join(", ")} → ` +
+        `${pick ? `picking #${pick.id}` : "no unique match"}`,
+    );
+    if (pick) {
+      await page
+        .locator(`div.dropDownList a.dropDownListItem[data-record-id="${pick.id}"]`)
+        .first()
+        .click();
+      await page.waitForTimeout(2000);
+      id = await page.locator(idSelector).first().inputValue();
+    }
+  }
+
   const shown = await search.inputValue();
-  if (!id || id === "0") {
+  if (!id || id === "0" || (tagId && String(id) !== String(tagId))) {
     throw new Error(
-      `Pet tag "${tagLabel}" did not resolve to a tag id (the box shows "${shown}") — ` +
-        `an unresolved tag filter matches EVERY contact, so the export is refused. ` +
-        `Check the tag still exists in ezyVet and is spelled exactly.`,
+      `Pet tag "${tagLabel}"${tagGroup ? ` (${tagGroup})` : ""}${tagId ? ` #${tagId}` : ""} did not resolve ` +
+        `to the right tag id (the box shows "${shown}", id ${id || "0"}) — an unresolved tag filter matches ` +
+        `EVERY contact, so the export is refused. Check the tag in ezyVet (node agent/ezyvet/list-tags.mjs ` +
+        `lists every tag with its id and group) and fix ezyvet_tag.`,
     );
   }
   log(`pet tag "${tagLabel}" → id ${id} (shown as "${shown}")`);
@@ -84,7 +123,7 @@ async function setTagValue(page, index, tagLabel, log = () => {}) {
  */
 export async function exportRecordsWithPetTag(
   page,
-  { tagLabel, grain = "contact", activityFrom = null, log = () => {} },
+  { tagLabel, tagId = null, tagGroup = null, grain = "contact", activityFrom = null, log = () => {} },
 ) {
   const spec = GRAINS[grain];
   if (!spec) throw new Error(`unknown record grain "${grain}"`);
@@ -95,7 +134,7 @@ export async function exportRecordsWithPetTag(
 
   await page.selectOption(`select[name="${filterField(1, "Type")}"]`, "AnimalTag");
   await page.waitForTimeout(3000);
-  const tagId = await setTagValue(page, 1, tagLabel, log);
+  const resolvedId = await setTagValue(page, 1, tagLabel, log, { tagId, tagGroup });
 
   if (activityFrom) {
     log(`activity window: modified since ${activityFrom}`);
@@ -106,7 +145,7 @@ export async function exportRecordsWithPetTag(
   const count = await showRecords(page, log);
   if (count === 0) {
     log(`no records carry pet tag "${tagLabel}"${activityFrom ? " in the window" : ""}`);
-    return { count: 0, tagId };
+    return { count: 0, tagId: resolvedId };
   }
   if (count !== null && count > EXPORT_RECORD_LIMIT) {
     throw new Error(
@@ -115,7 +154,7 @@ export async function exportRecordsWithPetTag(
   }
 
   await queueRecordExport(page, { action: spec.action, log });
-  return { count, tagId };
+  return { count, tagId: resolvedId };
 }
 
 /**
@@ -126,19 +165,21 @@ export async function exportRecordsWithPetTag(
  */
 export async function runPetTagExport(
   page,
-  { tagLabel, grain = "contact", activityFrom = null, downloadPath, log = () => {} },
+  { tagLabel, tagId = null, tagGroup = null, grain = "contact", activityFrom = null, downloadPath, log = () => {} },
 ) {
   const spec = GRAINS[grain];
   if (!spec) throw new Error(`unknown record grain "${grain}"`);
 
   const before = await snapshotQueue(page, spec.queueName, log);
-  const { count, tagId } = await exportRecordsWithPetTag(page, {
+  const { count, tagId: resolvedId } = await exportRecordsWithPetTag(page, {
     tagLabel,
+    tagId,
+    tagGroup,
     grain,
     activityFrom,
     log,
   });
-  if (count === 0) return { path: null, count: 0, tagId };
+  if (count === 0) return { path: null, count: 0, tagId: resolvedId };
   const path = await downloadNewQueueCsv(page, {
     downloadPath,
     reportName: spec.queueName,
@@ -146,5 +187,5 @@ export async function runPetTagExport(
     timeoutMs: 600_000,
     log,
   });
-  return { path, count, tagId };
+  return { path, count, tagId: resolvedId };
 }

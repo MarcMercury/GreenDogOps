@@ -56,6 +56,8 @@ export type RecordTagWork = {
   tag_group: string | null;
   record_type: "contact" | "animal";
   backfilled_on: string | null;
+  /** ezyVet's TagName id; lets the worker pick the tag when names collide across groups. */
+  ezyvet_tag_id: string | null;
 };
 
 /**
@@ -73,7 +75,7 @@ export async function listRecordTagsToRun(
   const admin = createAdminClient();
   let query = admin
     .from("ezyvet_tag")
-    .select("tag_key, tag_label, tag_type, tag_group, record_type, backfilled_on")
+    .select("tag_key, tag_label, tag_type, tag_group, record_type, backfilled_on, ezyvet_tag_id")
     .eq("is_active", true)
     .order("tag_label");
   if (mode === "incremental") query = query.not("backfilled_on", "is", null);
