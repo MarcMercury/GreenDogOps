@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Green Dog Ops — baseline schema for the greendogops schema
--- Generated 2026-10-14 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
+-- Generated 2026-10-15 by scripts/generate_baseline.sh. DO NOT HAND-EDIT.
 -- ----------------------------------------------------------------------------
 -- A single, internally consistent snapshot: every table, view, materialised
 -- view, function, trigger, enum, index, grant, revoke and RLS policy.
@@ -816,7 +816,7 @@ CREATE FUNCTION greendogops.bizdev_appt_type_value() RETURNS TABLE(location_id u
   with la_today as (
     select (now() at time zone 'America/Los_Angeles')::date as d
   ),
-  ag as (
+  ag as materialized (
     select s.id,
            s.appt_date,
            s.location_id,
@@ -828,12 +828,6 @@ CREATE FUNCTION greendogops.bizdev_appt_type_value() RETURNS TABLE(location_id u
   bounds as (
     select min(appt_date) as lo, max(appt_date) as hi from ag
   ),
-  c as (
-    select contact_code,
-           lower(btrim(last_name)) || ', ' || lower(btrim(first_name)) as name_key
-    from greendogops.ezyvet_contact
-    where coalesce(last_name, '') <> '' and coalesce(first_name, '') <> ''
-  ),
   loc as (
     select id,
            case lower(name)
@@ -843,22 +837,28 @@ CREATE FUNCTION greendogops.bizdev_appt_type_value() RETURNS TABLE(location_id u
            end as lk
     from greendogops.location
   ),
-  inv as (
-    select client_contact_code, line_date, location_key,
-           sum(coalesce(total_incl, 0)) as revenue
-    from greendogops.ezyvet_invoice_line
-    where client_contact_code is not null
-      and line_date between (select lo from bounds) and (select hi from bounds)
-    group by client_contact_code, line_date, location_key
+  inv as materialized (
+    select i.client_contact_code, i.line_date, i.location_key,
+           sum(coalesce(i.total_incl, 0)) as revenue
+    from greendogops.ezyvet_invoice_line i
+    where i.client_contact_code is not null
+      and i.line_date between (select lo from bounds) and (select hi from bounds)
+    group by i.client_contact_code, i.line_date, i.location_key
+  ),
+  inv_named as materialized (
+    select lower(btrim(c.last_name)) || ', ' || lower(btrim(c.first_name)) as name_key,
+           inv.line_date, inv.location_key, inv.revenue
+    from inv
+    join greendogops.ezyvet_contact c on c.contact_code = inv.client_contact_code
+    where coalesce(c.last_name, '') <> '' and coalesce(c.first_name, '') <> ''
   ),
   joined as (
-    select ag.id, ag.location_id, ag.appt_type, max(inv.revenue) as revenue
+    select ag.id, ag.location_id, ag.appt_type, max(n.revenue) as revenue
     from ag
-    join loc l on l.id = ag.location_id
-    join c    on c.name_key = ag.name_key
-    join inv  on inv.client_contact_code = c.contact_code
-             and inv.line_date          = ag.appt_date
-             and inv.location_key        = l.lk
+    join loc l       on l.id = ag.location_id
+    join inv_named n on n.name_key     = ag.name_key
+                    and n.line_date    = ag.appt_date
+                    and n.location_key = l.lk
     group by ag.id, ag.location_id, ag.appt_type
   )
   select location_id,
@@ -867,7 +867,8 @@ CREATE FUNCTION greendogops.bizdev_appt_type_value() RETURNS TABLE(location_id u
          count(*) filter (where revenue > 0)::int       as matched_paid
   from joined
   group by location_id, appt_type
-  having count(*) filter (where revenue > 0) >= 1;
+  having count(*) filter (where revenue > 0) >= 1
+;
 $$;
 
 

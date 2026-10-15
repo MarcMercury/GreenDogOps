@@ -145,6 +145,13 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 
 ## Database
 
+### An RPC that hits PostgREST's 8s `statement_timeout`: fix the plan, not the function's timeout
+- **Problem:** `bizdev_refresh` failed every run 2026-10-13 → 10-15 ("canceling statement due to statement timeout"). `authenticator` has `statement_timeout=8s`, so every `admin.rpc(...)` — service role included — is capped at 8 s.
+- **Not a fix:** `alter function … set statement_timeout` — the timer is armed when the caller's statement starts, so a function-level SET is too late (also noted in 0092). Long jobs that truly need minutes belong in pg_cron with `set statement_timeout to '0';` as its own statement.
+- **Root cause here:** the planner under-estimated CTE row counts and joined agenda × invoice groups on (clinic, date) first — 2.6M rows, each probing `ezyvet_contact`. The data crossed a tipping point; the SQL had not changed.
+- **Fix:** `explain (analyze)` the function body (extract it from `pg_get_functiondef`), reorder so the small side is resolved first, and force it with `as materialized` CTEs. Prove equivalence with `EXCEPT` both ways before applying. 0251: 13.8 s → 0.47 s, identical 83 rows.
+- **Evidence:** 2026-10-15 — production route returned HTTP 200 in 1.15 s after 0251.
+
 ### Migration numbers collide across concurrent sessions — re-check `origin/main` right before committing
 - **Problem:** two agent sessions working at the same time each wrote a `0249_*.sql`; the second only noticed after pushing (`0249_pto_balance_whole_days.sql` and `0249_upcoming_report_mwf.sql`).
 - **Fix:** renamed the later one to `0250` in a follow-up commit (it had not been applied anywhere yet).
@@ -177,6 +184,12 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Fix:** in the migration, right after creating the table and before the narrow policies: `drop policy if exists gdo_members_all on greendogops.<table>;` (0230 and 0235 do this). Writes stayed blocked here only because the migration also revoked INSERT/UPDATE/DELETE from `authenticated`.
 - **Prevent:** add the new boundary to `scripts/security_rls_matrix.sql` and run it on staging; check `pg_policies` for the new table.
 - **Evidence:** 2026-10-12, matrix FAIL → added the drops → fresh apply and re-apply both leave only the intended policies; matrix PASS.
+
+### RLS policies that call a function bare re-run it for every row
+- **Problem:** a 12k-row `sched_assignment` read takes ~360 ms as `authenticated`; the schedule page's paginated `sched_assignment` query averages ~2 s in `pg_stat_statements`.
+- **Root cause:** `using (greendogops.is_gdo_user())` is evaluated per row (it does an `app_user` lookup, an `auth.mfa_factors` lookup and parses the JWT each time). Wrapped as `using ((select greendogops.is_gdo_user()))` Postgres runs it once per statement as an initPlan — the pattern Supabase's RLS performance guide recommends. Same for bare `auth.uid()`.
+- **Prevent:** write new policies with `(select …)` around every function call that does not depend on the row. Backlog item "RLS policies evaluate per row" covers the existing 707.
+- **Evidence:** 2026-10-15 read-only probe on production (rolled-back transaction, `set local role authenticated`): `count(*)` on `sched_assignment` 357 ms with the live policy vs 2.3 ms for the wrapped check; `person` 90 ms. 707 of 735 `greendogops` policies (148 tables) use the bare form.
 
 ### Rehearse a data import on staging by copying only the metadata rows it needs
 - **Problem:** `import_google_docs_native.mjs` could not be dry-run against production before 0235 existed there, and staging had none of the Google-linked rows.
