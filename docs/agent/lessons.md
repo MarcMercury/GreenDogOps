@@ -188,8 +188,16 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 ### RLS policies that call a function bare re-run it for every row
 - **Problem:** a 12k-row `sched_assignment` read takes ~360 ms as `authenticated`; the schedule page's paginated `sched_assignment` query averages ~2 s in `pg_stat_statements`.
 - **Root cause:** `using (greendogops.is_gdo_user())` is evaluated per row (it does an `app_user` lookup, an `auth.mfa_factors` lookup and parses the JWT each time). Wrapped as `using ((select greendogops.is_gdo_user()))` Postgres runs it once per statement as an initPlan — the pattern Supabase's RLS performance guide recommends. Same for bare `auth.uid()`.
-- **Prevent:** write new policies with `(select …)` around every function call that does not depend on the row. Backlog item "RLS policies evaluate per row" covers the existing 707.
-- **Evidence:** 2026-10-15 read-only probe on production (rolled-back transaction, `set local role authenticated`): `count(*)` on `sched_assignment` 357 ms with the live policy vs 2.3 ms for the wrapped check; `person` 90 ms. 707 of 735 `greendogops` policies (148 tables) use the bare form.
+- **Fix:** 0252 rewrote all 707 affected policies in place (`ALTER POLICY`) and made `protect_new_objects()` / `staff_read_only_policies()` generate the wrapped form.
+- **Prevent:** write new policies with `(select …)` around every function call that does not depend on the row. `src/lib/security/baseline-rls-initplan.test.ts` fails if the baseline has a bare call.
+- **Evidence:** 2026-10-15 production, `count(*)` as `authenticated` (3 runs each, same row counts): `sched_assignment` ~290 → ~5 ms, `person` ~90 → ~3 ms, `ezyvet_appointment_record` (66k) ~1,580 → ~12 ms. Every rewritten policy is identical to the original once unwrapped; staging RLS matrix output unchanged.
+
+### `pg_policies` / `pg_get_expr` drop the schema for names on the `search_path`
+- **Problem:** the first staging run of 0252 rewrote only 570 of 707 policies, and its own "nothing bare left" assertion passed. The `greendogops.is_gdo_user()` calls were skipped.
+- **Root cause:** migrations start with `set search_path = greendogops, public`, so `pg_policies.qual` printed `is_gdo_user()` unqualified. The regex (and the assertion that used it) looked for `greendogops.is_gdo_user()`. `auth.uid()` stayed qualified because `auth` isn't on the path.
+- **Fix:** `set local search_path = ''` before reading deparsed SQL (policies, views, function defaults) to rewrite it; everything then prints and re-parses fully qualified. `pg_catalog` is still searched implicitly.
+- **Prevent:** verify a text-rewrite migration from outside it (snapshot `pg_policies` before/after from a normal session and diff), not only with an assertion in the same session.
+- **Evidence:** 2026-10-15 staging: 570 changed → re-applied with the empty path → 707 changed, 0 bare.
 
 ### Rehearse a data import on staging by copying only the metadata rows it needs
 - **Problem:** `import_google_docs_native.mjs` could not be dry-run against production before 0235 existed there, and staging had none of the Google-linked rows.

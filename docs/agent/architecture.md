@@ -40,6 +40,12 @@ there, or that need a sharper statement for agents.
 
 Add entries as `### YYYY-MM-DD — title` with context, decision, and consequences.
 
+### 2026-10-15 — Scheduling target model: standard planning guides + consistent shifts; capacity not yet defined
+- **Context:** today capacity is subjective and manual. Ideal capacity is estimated from expected staffing in the spreadsheet schedule, then adjusted as the schedule is built, and the planning guides are edited and republished to match. Planning guides (how many of each appointment, at what time, by which team) are loaded into ezyVet by hand; Vetstoria reads them for online booking. There is no direct connection to ezyVet or Vetstoria, and there will not be one.
+- **Decision (owner):** operations is moving to (1) standard planning guides per day/department/location, applied as far out as they can be published; (2) employees on consistent, established shifts that meet those guides; (3) adjustments only for PTO and call-outs. The new grid supports this workflow first. Do not build features that serve the old pattern of many daily ad-hoc capacity/guide adjustments.
+- **Capacity:** not a defined business concept yet; the owner has not decided what drives it. `planning_capacity_rule`, `report_capacity_target`/`report_capacity_override` and `planning_guide_column.capacity_note` are interim, not a source of truth. Do not add another capacity column or table, or derive capacity in new places, until the owner defines it.
+- **Consequences:** most `ezyvet_*` tables with no foreign keys are the daily ezyVet report pull, keyed on ezyVet ids, and are meant to stand alone.
+
 ### 2026-10-14 — The owner decides HR, PTO and payroll policy
 - **Decision (owner):** the owner is the governing decider for these rules. Do not add "needs HR / Payroll sign-off" or "needs counsel review" requirements to docs, backlog entries or task reports. A California Labor Code concern may be mentioned once, when the decision is made, and not repeated. (The Rules page's in-app sign-off record is an existing feature, not a gate on changes.)
 

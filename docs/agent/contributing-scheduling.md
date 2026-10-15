@@ -4,6 +4,13 @@ Ground rules for the Scheduling module: the weekly grid, Set Up, time off,
 attendance, time clock and payroll. They add to [AGENTS.md](../../AGENTS.md),
 which always wins.
 
+## Direction
+
+Build for the target model in [architecture.md](architecture.md) (2026-10-15
+decision): standard planning guides, consistent employee shifts that meet them,
+and adjustments only for PTO and call-outs. Capacity is not defined yet. Don't
+add capacity logic until the owner defines it.
+
 ## Who it is for
 
 Angie, our scheduler, uses the grid more than anyone. Her feedback sets the

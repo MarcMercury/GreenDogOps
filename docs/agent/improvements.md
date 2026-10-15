@@ -48,6 +48,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P2 — Reliability
 
+### Database performance follow-ups after 0252 (RLS once-per-query)
+- **Why:** 0252 removed the per-row RLS cost (lessons.md). Measured on production 2026-10-15, these remain: 58 foreign keys with no supporting index; `report_patients_by_species`, `report_species_by_recency` and `report_clients_by_recency_location` average 1–1.7 s per call (`pg_stat_statements`); three leftover backup tables (`ats_hr_merge_backup_0032`, `person_recruiting_cleanup_0220`, `person_recruiting_score_backup_0225`).
+- **Scope:** re-check `pg_stat_statements` after a week of 0252 traffic (`select pg_stat_statements_reset()` needs owner OK); add indexes only where a hot query filters or joins on the column; profile the three views; drop the backups (the first is excluded in `rls_audit()` — remove it there too).
+- **Risk:** low (indexes, views); dropping tables needs owner authorization.
+
 ### Rehired employees keep their deactivated login
 - **Why:** since 2026-10-15 an active employee/contractor gets a Staff login automatically (`ensureAuthUserForPerson` + daily `roster-sync`), but insert-only: the `former` trigger deactivates `app_user`, and a rehire (former → employee) leaves that row inactive because an admin may also have deactivated it on purpose.
 - **Scope:** decide whether a former → employee transition should reactivate the login (e.g. only when the last `user.updated`/deactivation came from the trigger, not an admin), then do it in `person_after_change` or the backstop.
