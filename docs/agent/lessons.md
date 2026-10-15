@@ -241,6 +241,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Note:** Vercel previews only prove `npm install` + `next build`; they do not run lint or vitest, so a green Dependabot preview is not proof the tests pass (see improvements.md "CI for lint + unit tests").
 - **Evidence:** 2026-10-09 — with the fix: vitest 225/225, full `tsc` rc=0, lint 0 errors, `npm audit --omit=dev` 0.
 
+### `@fullcalendar/*` packages must be bumped together
+- **Problem:** Dependabot PRs #15/#16 bumped `@fullcalendar/core` and `@fullcalendar/react` to 7.1.1 *individually*; the Vercel preview failed type-check (`PluginDef` not assignable to `PluginInput`, `EventClickInfo` vs `EventClickArg` in `calendar-view.tsx` / `events-workspace.tsx`) because v7 and v6 types were mixed.
+- **Fix:** `.github/dependabot.yml` has a `fullcalendar` group (`@fullcalendar/*`, all update types) ahead of `minor-and-patch`. A v7 upgrade is still a real migration (handler arg types were renamed) — expect code changes on the grouped PR.
+- **Evidence:** 2026-10-15 preview build of `4218b35` on `dependabot/npm_and_yarn/fullcalendar/react-7.1.1`; production (`main`) unaffected.
+
 ### Under memory pressure, any agent process over ~150 MB is SIGTERM'd
 - **Problem:** with the Codespace near its 8 GB limit (several VS Code/Copilot sessions, no swap, <1 GB available), `npm ci` died with 137, and `npm run lint`, `npx vitest run` and even `npm install <pkg>` died with 143 within seconds. A bare `node` allocating 150 MB was killed too; 100 MB survived.
 - **Fix:** copy (`cp -a`, or `cp -al` per the worktree lesson) the shared `node_modules` instead of `npm ci`; run npm with `NODE_OPTIONS="--max-old-space-size=120 --max-semi-space-size=1"` (installs/updates then complete). Lint and vitest can't fit — push to a branch and let `ci.yml` run them (the Codespaces token can't `workflow_dispatch`, HTTP 403, so open a draft PR to trigger `pull_request`, then close it).

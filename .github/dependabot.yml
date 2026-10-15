@@ -6,6 +6,10 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # All @fullcalendar/* packages must share one version; bumping one alone
+      # mixes v6/v7 types and fails `next build`. Listed first so it wins.
+      fullcalendar:
+        patterns: ["@fullcalendar/*"]
       minor-and-patch:
         update-types: [minor, patch]
     ignore:
