@@ -20,7 +20,7 @@
     "@googleapis/calendar": "^20.1.0",
     "@googleapis/drive": "^26.0.2",
     "@googleapis/gmail": "^22.0.1",
-    "@googleapis/sheets": "^18.1.0",
+    "@googleapis/sheets": "^18.1.1",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.108.2",
     "@tiptap/extension-image": "^3.31.4",
@@ -29,26 +29,26 @@
     "@tiptap/pm": "^3.31.4",
     "@tiptap/react": "^3.31.4",
     "@tiptap/starter-kit": "^3.31.4",
-    "google-auth-library": "^11.1.0",
+    "google-auth-library": "^11.2.0",
     "next": "16.4.0",
     "qrcode.react": "^4.2.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "unpdf": "^1.8.1",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^24.19.1",
+    "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^10.12.0",
     "eslint-config-next": "16.4.0",
     "googleapis": "^183.0.0",
-    "playwright": "^1.63.0",
+    "playwright": "^1.64.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^5.0.3"
+    "vitest": "^5.0.4"
   }
 }
