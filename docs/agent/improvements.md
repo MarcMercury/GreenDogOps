@@ -5,11 +5,6 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P1 — Safety net
 
-### New hires do not get an Ops login automatically
-- **Why:** `ensureAuthUserForPerson()` (HR save, ATS hire) creates only the Supabase Auth user, never the `app_user` row, so anyone hired after the 2026-10-13 bulk provisioning has no login until an admin grants one. `scripts/provision_logins.mts` (idempotent, dry run by default) closes the gap by hand.
-- **Scope:** create the `app_user` (role per owner decision) in `ensureAuthUserForPerson` and the daily roster sync; invites stay a separate, explicit step (Gate 1 item 2).
-- **Risk:** low.
-
 ### PTO annual cycle (Jan 1 grant, tenure step-up, year-end payout)
 - **Why:** since 0246 Ops keeps the PTO balance current from approvals, but nothing yet resets it on Jan 1, adds the +2-day tenure step-up, prorates a new hire's first year or computes the Dec 31 / separation payout (plan §H, D8a–D8e).
 - **Scope:** pure rules in `src/lib/pto/**` + an idempotent Jan 1 job (agent_run) writing through `person_employment` so `pto_ledger` records it; `pto_eligible` flag; the 5-day sick-leave floor warning. Must land before 2027-01-01.
@@ -52,6 +47,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 - **Risk:** medium — every item widens what the model can see; keep each behind the allow-list tests.
 
 ## P2 — Reliability
+
+### Rehired employees keep their deactivated login
+- **Why:** since 2026-10-15 an active employee/contractor gets a Staff login automatically (`ensureAuthUserForPerson` + daily `roster-sync`), but insert-only: the `former` trigger deactivates `app_user`, and a rehire (former → employee) leaves that row inactive because an admin may also have deactivated it on purpose.
+- **Scope:** decide whether a former → employee transition should reactivate the login (e.g. only when the last `user.updated`/deactivation came from the trigger, not an admin), then do it in `person_after_change` or the backstop.
+- **Risk:** low; owner decision.
 
 ### Stored annual wages drift from current rate (Ask Ziggy + HR profile)
 - **Why:** `person_employment.annual_wages` / `biweekly_wage` are not recalculated when HR changes `current_rate` (4 active employees disagree as of 2026-10-14). Emp Reporting now reads `current_rate`, but Ask Ziggy's prompt (`src/lib/reporting/smart.ts`) still says `annual_wages` is the only pay column to rank on, and the HR profile summary (`hr/[id]/employee-summary.tsx`) shows `offer_title` before `adp_job_title` as "Job title".

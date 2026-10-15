@@ -1,6 +1,14 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordAudit } from "@/lib/auth/session";
+import {
+  AUTO_LOGIN_ROLE,
+  findExistingLogin,
+  isRosterLoginStatus,
+  normalizedLoginEmail,
+  type ExistingLogin,
+} from "@/lib/auth/login-provision";
 
 export type AuthProvisionOutcome =
   | "created"
@@ -10,10 +18,15 @@ export type AuthProvisionOutcome =
   | "skipped_inactive"
   | "skipped_missing_person";
 
+/** What happened to the person's Green Dog Ops login (`app_user`). */
+export type AppUserProvisionOutcome = "created" | "exists" | "skipped" | "failed";
+
 export interface AuthProvisionResult {
   outcome: AuthProvisionOutcome;
   authId: string | null;
   email: string | null;
+  appUser: AppUserProvisionOutcome;
+  appUserError?: string;
 }
 
 type PersonAuthSeed = {
@@ -25,16 +38,6 @@ type PersonAuthSeed = {
   first_name: string | null;
   last_name: string | null;
 };
-
-function normalizedEmail(v: string | null): string | null {
-  if (!v) return null;
-  const email = v.trim().toLowerCase();
-  return email.length > 0 ? email : null;
-}
-
-function eligibleRosterStatus(status: string): boolean {
-  return status === "employee" || status === "contractor";
-}
 
 /** Find an auth user id by email via paged Admin API lookup. */
 async function findAuthUserIdByEmail(email: string): Promise<string | null> {
@@ -59,8 +62,73 @@ async function findAuthUserIdByEmail(email: string): Promise<string | null> {
 }
 
 /**
- * Ensure a Supabase Auth account exists for this roster person.
- * Creates only for active employee/contractor records that have an email.
+ * Give the person an active Green Dog Ops login (`app_user`, role staff) when
+ * none covers them yet. Insert-only: an existing login — including one an
+ * admin deactivated — is left exactly as it is. Sends no email; inviting
+ * stays a separate, explicit step.
+ */
+async function ensureAppUserForPerson(
+  person: PersonAuthSeed,
+  authId: string,
+  email: string,
+  fullName: string | null,
+): Promise<{ appUser: AppUserProvisionOutcome; appUserError?: string }> {
+  const admin = createAdminClient();
+  // app_user is the staff allow-list (~100 rows); read it whole and match with the tested rule.
+  const { data: existing, error: lookupErr } = await admin
+    .from("app_user")
+    .select("id, email, person_id")
+    .limit(5000);
+  if (lookupErr) return { appUser: "failed", appUserError: lookupErr.message };
+  if (findExistingLogin((existing ?? []) as ExistingLogin[], { authId, personId: person.id, email })) {
+    return { appUser: "exists" };
+  }
+
+  const { data: emp } = await admin
+    .from("person_employment")
+    .select("adp_job_title, offer_title")
+    .eq("person_id", person.id)
+    .maybeSingle();
+  const job = emp as { adp_job_title: string | null; offer_title: string | null } | null;
+  const title = job?.adp_job_title ?? job?.offer_title ?? null;
+
+  const { data: rows, error } = await admin
+    .from("app_user")
+    .upsert(
+      {
+        id: authId,
+        email,
+        full_name: fullName,
+        title,
+        role: AUTO_LOGIN_ROLE,
+        is_active: true,
+        person_id: person.id,
+        notes: "Provisioned automatically when they joined the roster. No invite sent.",
+      },
+      { onConflict: "id", ignoreDuplicates: true },
+    )
+    .select("id");
+  if (error) return { appUser: "failed", appUserError: error.message };
+  if (!rows?.length) return { appUser: "exists" };
+
+  await recordAudit({
+    actorId: null,
+    actorEmail: "system:auto-provision",
+    action: "user.access_granted",
+    entity: "app_user",
+    entityId: authId,
+    summary: `Granted ${email} access as ${AUTO_LOGIN_ROLE} (joined the roster as ${person.status}, no invite sent)`,
+    metadata: { person_id: person.id, auto: true },
+  });
+  return { appUser: "created" };
+}
+
+/**
+ * Ensure an active employee/contractor with an email can sign in: a Supabase
+ * Auth account (shared with EmployeeGMGDD) plus a Green Dog Ops `app_user` row
+ * at role staff. A failure to create the `app_user` row is reported in the
+ * result rather than thrown, so the HR/ATS save that triggered it still lands;
+ * the daily roster sync retries it.
  */
 export async function ensureAuthUserForPerson(personId: string): Promise<AuthProvisionResult> {
   const admin = createAdminClient();
@@ -72,38 +140,48 @@ export async function ensureAuthUserForPerson(personId: string): Promise<AuthPro
 
   const person = data as PersonAuthSeed | null;
   if (!person) {
-    return { outcome: "skipped_missing_person", authId: null, email: null };
+    return { outcome: "skipped_missing_person", authId: null, email: null, appUser: "skipped" };
   }
 
-  const email = normalizedEmail(person.email);
+  const email = normalizedLoginEmail(person.email);
   if (!email) {
-    return { outcome: "skipped_missing_email", authId: null, email: null };
+    return { outcome: "skipped_missing_email", authId: null, email: null, appUser: "skipped" };
   }
   if (!person.is_active) {
-    return { outcome: "skipped_inactive", authId: null, email };
+    return { outcome: "skipped_inactive", authId: null, email, appUser: "skipped" };
   }
-  if (!eligibleRosterStatus(person.status)) {
-    return { outcome: "skipped_status", authId: null, email };
-  }
-
-  const existingAuthId = await findAuthUserIdByEmail(email);
-  if (existingAuthId) {
-    return { outcome: "exists", authId: existingAuthId, email };
+  if (!isRosterLoginStatus(person.status)) {
+    return { outcome: "skipped_status", authId: null, email, appUser: "skipped" };
   }
 
   const fullName =
     person.full_name ||
     [person.first_name, person.last_name].filter(Boolean).join(" ") ||
     null;
-  const temporaryPassword = `${crypto.randomUUID()}aA1!`;
 
-  const { data: created, error } = await admin.auth.admin.createUser({
-    email,
-    password: temporaryPassword,
-    email_confirm: true,
-    user_metadata: fullName ? { full_name: fullName } : undefined,
-  });
-  if (error) throw error;
+  let outcome: AuthProvisionOutcome;
+  let authId = await findAuthUserIdByEmail(email);
+  if (authId) {
+    outcome = "exists";
+  } else {
+    const temporaryPassword = `${crypto.randomUUID()}aA1!`;
+    const { data: created, error } = await admin.auth.admin.createUser({
+      email,
+      password: temporaryPassword,
+      email_confirm: true,
+      user_metadata: fullName ? { full_name: fullName } : undefined,
+    });
+    if (error) throw error;
+    authId = created.user?.id ?? null;
+    outcome = "created";
+  }
 
-  return { outcome: "created", authId: created.user?.id ?? null, email };
+  if (!authId) {
+    return { outcome, authId, email, appUser: "failed", appUserError: "auth user has no id" };
+  }
+  const login = await ensureAppUserForPerson(person, authId, email, fullName);
+  if (login.appUser === "failed") {
+    console.error(`[auto-provision] app_user for person ${person.id} failed: ${login.appUserError}`);
+  }
+  return { outcome, authId, email, ...login };
 }

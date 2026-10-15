@@ -493,7 +493,7 @@ against a queue snapshot taken before printing.
 | `/api/calendar/sync` | every 15 min | Google Calendar → `calendar_event` |
 | `/api/ats/gmail` | every 5 min | Poll Gmail for new applicants |
 | `/api/agents/wheniwork/timeoff` | every 15 min | WhenIWork PTO via Gmail notifications |
-| `/api/admin/users/roster-sync` | daily | Reconcile `app_user` against the roster |
+| `/api/admin/users/roster-sync` | daily | Reconcile `app_user` against the roster; give active employees/contractors with no login one (role Staff, no invite) |
 | `/api/admin/slack/sync` | daily | Link active staff to Slack accounts by email (`person_slack_link`) |
 | `/api/notify/dispatch` | every 5 min | Send queued Slack DMs / channel posts, batched digests, escalations, event reminders (DMs off unless `SLACK_DM_LIVE=true`) |
 | `/api/agents/ezyvet/rescue-partners` | daily | Rescue/shelter partner refresh |

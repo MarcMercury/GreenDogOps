@@ -2,6 +2,8 @@ import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { ensureAuthUserForPerson } from "@/lib/auth/auto-provision";
+import { AUTO_LOGIN_BATCH_LIMIT, peopleMissingLogins } from "@/lib/auth/login-provision";
 
 type AppUserRow = {
   id: string;
@@ -13,6 +15,8 @@ type AppUserRow = {
 
 type PersonRow = {
   id: string;
+  status: string;
+  is_active: boolean;
   email: string | null;
   full_name: string | null;
   first_name: string | null;
@@ -30,6 +34,11 @@ export interface UserRosterSyncResult {
   matchedByEmail: number;
   refreshedProfiles: number;
   updatedUsers: number;
+  /** Active employees/contractors who had no login and got one this run. */
+  provisionedLogins: number;
+  /** Eligible people still without a login after this run (failures or over the batch limit). */
+  stillMissingLogins: number;
+  provisionFailures: string[];
 }
 
 function normEmail(email: string | null): string | null {
@@ -48,8 +57,13 @@ function personName(p: PersonRow): string | null {
  * Refresh app-user roster links and profile fields from HR person records.
  * - Auto-links unlinked app users by unique email match.
  * - Syncs full_name/title from roster for linked users.
+ * - Backstop for new hires: gives every active employee/contractor with an
+ *   email and no login one (role staff, no invite), however they joined the
+ *   roster. Bounded to AUTO_LOGIN_BATCH_LIMIT per run.
  */
-export async function syncAppUsersToRoster(): Promise<UserRosterSyncResult> {
+export async function syncAppUsersToRoster(
+  options: { provisionMissingLogins?: boolean } = {},
+): Promise<UserRosterSyncResult> {
   const admin = createAdminClient();
 
   const [{ data: users, error: usersErr }, { data: people, error: peopleErr }, { data: empRows, error: empErr }] =
@@ -63,7 +77,7 @@ export async function syncAppUsersToRoster(): Promise<UserRosterSyncResult> {
       fetchAllRows<PersonRow>((from, to) =>
         admin
           .from("person")
-          .select("id, email, full_name, first_name, last_name")
+          .select("id, status, is_active, email, full_name, first_name, last_name")
           .range(from, to),
       ),
       fetchAllRows<EmploymentRow>((from, to) =>
@@ -97,6 +111,7 @@ export async function syncAppUsersToRoster(): Promise<UserRosterSyncResult> {
   let matchedByEmail = 0;
   let refreshedProfiles = 0;
   let updatedUsers = 0;
+  const linkedPersonByUser = new Map<string, string>();
 
   for (const user of users) {
     const email = normEmail(user.email);
@@ -130,9 +145,30 @@ export async function syncAppUsersToRoster(): Promise<UserRosterSyncResult> {
     if (error) continue;
 
     updatedUsers += 1;
+    if (nextPersonId) linkedPersonByUser.set(user.id, nextPersonId);
     if (!user.person_id && nextPersonId) matchedByEmail += 1;
     if (nextPersonId && (nextFullName !== user.full_name || nextTitle !== user.title)) {
       refreshedProfiles += 1;
+    }
+  }
+
+  const linkedUsers = users.map((u) => ({
+    id: u.id,
+    email: u.email,
+    person_id: linkedPersonByUser.get(u.id) ?? u.person_id,
+  }));
+  const missing = options.provisionMissingLogins ? peopleMissingLogins(people, linkedUsers) : [];
+  let provisionedLogins = 0;
+  let alreadyCovered = 0;
+  const provisionFailures: string[] = [];
+  for (const p of missing.slice(0, AUTO_LOGIN_BATCH_LIMIT)) {
+    try {
+      const r = await ensureAuthUserForPerson(p.id);
+      if (r.appUser === "created") provisionedLogins += 1;
+      else if (r.appUser === "exists" || r.appUser === "skipped") alreadyCovered += 1;
+      else if (r.appUser === "failed") provisionFailures.push(`${p.id}: ${r.appUserError ?? "unknown error"}`);
+    } catch (e) {
+      provisionFailures.push(`${p.id}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -141,5 +177,8 @@ export async function syncAppUsersToRoster(): Promise<UserRosterSyncResult> {
     matchedByEmail,
     refreshedProfiles,
     updatedUsers,
+    provisionedLogins,
+    stillMissingLogins: missing.length - provisionedLogins - alreadyCovered,
+    provisionFailures,
   };
 }
