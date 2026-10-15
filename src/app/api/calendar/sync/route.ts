@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     detail: Object.fromEntries(
       r.calendars.map((c) => [
         c.label,
-        { status: c.ok ? "success" : "error", error: c.error, parsed: c.fetched, inserted: c.inserted, updated: c.updated },
+        { status: c.ok ? "success" : "error", error: c.error, parsed: c.fetched, inserted: c.inserted, updated: c.updated, shared: c.shared },
       ]),
     ),
   }));

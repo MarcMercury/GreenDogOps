@@ -301,3 +301,9 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Rule:** for current pay, annualize `current_rate` (≥ 1,000 → annual as-is; otherwise × 2,080), skip `day_rate`/`contract`, and fall back to `annual_wages` / `biweekly_wage` only when there is no rate. Current title is `adp_job_title` first; `offer_title` is the title at hire. Implemented in `src/lib/hr/emp-reporting.ts` (`annualizeSalary`, `currentTitle`), pinned by `emp-reporting.test.ts`.
 - **Still open:** Ask Ziggy's prompt (`src/lib/reporting/smart.ts`) still tells the model `annual_wages` is the only column to rank pay on — see `improvements.md`.
 - **Evidence:** 2026-10-14, read-only aggregate query on production: 5 of 93 active employees had `annual_wages` disagreeing with `current_rate` (e.g. salary rate raised, annual unchanged); 42 had `offer_title` ≠ `adp_job_title`.
+
+### Calendar sync: the same invite is on several calendars with one event id
+- **Problem:** adding `greendogsocial@gmail.com` failed every sync with `duplicate key value violates unique constraint "calendar_event_google_uq"`, and inserted 0 of its 121 events.
+- **Root cause:** Google gives an invitation the same event id on every attendee's calendar; 71 of the 121 were already stored from `greendogmarcm@gmail.com`. `calendar_event_google_uq` is unique on `google_event_id` across all calendars, and the new rows are inserted in one batch, so one duplicate failed them all.
+- **Fix:** `syncOneCalendar` skips ids already stored by any other row (`partitionNewEvents` in `src/lib/calendar/dedupe.ts`), so a shared event shows once, under the calendar that stored it first (sync order is `calendar-env.ts`). The cron's run detail reports the skipped count as `shared`.
+- **Evidence:** 2026-10-15 read-only check: 121 socials events, 71 already stored under the main calendar.

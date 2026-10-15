@@ -2,6 +2,7 @@ import "server-only";
 import type { calendar_v3 } from "@googleapis/calendar";
 import { getCalendarClient } from "./google";
 import { getGoogleCalendars, type GoogleCalendarConfig } from "./config";
+import { partitionNewEvents } from "./dedupe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 
@@ -20,6 +21,8 @@ export interface CalendarSyncResult {
   inserted: number;
   updated: number;
   removed: number;
+  /** Events skipped because another calendar already mirrors them. */
+  shared: number;
   error?: string;
 }
 
@@ -108,6 +111,28 @@ async function fetchWindow(
 }
 
 /**
+ * Which of these event ids are already stored by some other row — another
+ * calendar's sync, or any non-google row — since the unique index on
+ * google_event_id spans the whole table.
+ */
+async function eventsOnOtherCalendars(supabase: Db, calendarId: string, eventIds: string[]): Promise<Set<string>> {
+  const owned = new Set<string>();
+  // Chunked so a large first sync can't blow past PostgREST's URL length cap.
+  for (let i = 0; i < eventIds.length; i += 200) {
+    const { data, error } = await supabase
+      .from("calendar_event")
+      .select("google_event_id, google_calendar_id, source")
+      .in("google_event_id", eventIds.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+    for (const r of (data ?? []) as { google_event_id: string | null; google_calendar_id: string | null; source: string }[]) {
+      const ours = r.source === "google" && r.google_calendar_id === calendarId;
+      if (r.google_event_id && !ours) owned.add(r.google_event_id);
+    }
+  }
+  return owned;
+}
+
+/**
  * Mirror a single Google calendar into greendogops.calendar_event for the
  * rolling window. Idempotent windowed refresh: inserts new events, updates
  * changed ones, and prunes google rows for this calendar that are no longer
@@ -129,6 +154,7 @@ async function syncOneCalendar(
     inserted: 0,
     updated: 0,
     removed: 0,
+    shared: 0,
   };
 
   try {
@@ -174,10 +200,15 @@ async function syncOneCalendar(
       }
     }
 
-    if (toInsert.length > 0) {
-      const { error } = await supabase.from("calendar_event").insert(toInsert);
+    const { insert, shared } = partitionNewEvents(
+      toInsert,
+      await eventsOnOtherCalendars(supabase, cal.id, toInsert.map((r) => r.google_event_id)),
+    );
+    result.shared = shared;
+    if (insert.length > 0) {
+      const { error } = await supabase.from("calendar_event").insert(insert);
       if (error) throw new Error(error.message);
-      result.inserted = toInsert.length;
+      result.inserted = insert.length;
     }
 
     // Prune google rows no longer present (cancelled / deleted / out of window).
