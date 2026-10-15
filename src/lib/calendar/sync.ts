@@ -2,7 +2,7 @@ import "server-only";
 import type { calendar_v3 } from "@googleapis/calendar";
 import { getCalendarClient } from "./google";
 import { getGoogleCalendars, type GoogleCalendarConfig } from "./config";
-import { partitionNewEvents } from "./dedupe";
+import { partitionNewEvents, UNIQUE_VIOLATION } from "./dedupe";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 
@@ -207,8 +207,20 @@ async function syncOneCalendar(
     result.shared = shared;
     if (insert.length > 0) {
       const { error } = await supabase.from("calendar_event").insert(insert);
-      if (error) throw new Error(error.message);
-      result.inserted = insert.length;
+      if (error && error.code === UNIQUE_VIOLATION) {
+        // Another calendar stored one of these ids since the check above. Keep
+        // whichever copy is already there and insert the rest one by one.
+        for (const row of insert) {
+          const { error: rowErr } = await supabase.from("calendar_event").insert(row);
+          if (!rowErr) result.inserted += 1;
+          else if (rowErr.code === UNIQUE_VIOLATION) result.shared += 1;
+          else throw new Error(rowErr.message);
+        }
+      } else if (error) {
+        throw new Error(error.message);
+      } else {
+        result.inserted = insert.length;
+      }
     }
 
     // Prune google rows no longer present (cancelled / deleted / out of window).

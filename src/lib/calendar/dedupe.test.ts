@@ -14,4 +14,16 @@ describe("partitionNewEvents", () => {
     const rows = [{ google_event_id: "a" }];
     expect(partitionNewEvents(rows, new Set())).toEqual({ insert: rows, shared: 0 });
   });
+
+  it("keeps one copy of an id repeated within the batch", () => {
+    const rows = [
+      { google_event_id: "a", title: "first" },
+      { google_event_id: "a", title: "second" },
+      { google_event_id: "b", title: "other" },
+    ];
+    expect(partitionNewEvents(rows, new Set())).toEqual({
+      insert: [rows[0], rows[2]],
+      shared: 1,
+    });
+  });
 });
