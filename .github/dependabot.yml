@@ -17,6 +17,11 @@ updates:
       # "Node.js Version" = 24.x). Bump it by hand when the runtime changes.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # TypeScript 7 is the native (Go) compiler with no JS API. typescript-eslint
+      # (via eslint-config-next 16.4) supports only typescript <6.1.0, so ESLint
+      # crashes on load (PR #14). Re-enable when both support it.
+      - dependency-name: "typescript"
+        versions: [">=7"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
