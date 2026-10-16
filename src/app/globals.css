@@ -109,26 +109,28 @@ body {
 }
 
 /* ----------------------------------------------------------------------------
-   Company Calendar (FullCalendar) — compact, tidy month/week cells.
-   Scoped to .gdo-calendar so it only affects the calendar page.
+   Company Calendar (FullCalendar v7) — compact, tidy month/week cells.
+   v7 has no stable fc-* class names; calendar-view.tsx attaches these
+   gdo-fc-* classes through its *Class settings. Scoped to .gdo-calendar so it
+   only affects the calendar page and outranks the theme stylesheet.
 ---------------------------------------------------------------------------- */
-.gdo-calendar .fc {
+.gdo-calendar .gdo-fc-root {
   font-size: 12px;
 }
 
 /* Toolbar */
-.gdo-calendar .fc .fc-toolbar-title {
+.gdo-calendar .gdo-fc-title {
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--foreground);
 }
-.gdo-calendar .fc .fc-button {
+.gdo-calendar .gdo-fc-button {
   font-size: 12px;
   padding: 0.3rem 0.6rem;
 }
 
 /* Column headers + day numbers */
-.gdo-calendar .fc .fc-col-header-cell-cushion {
+.gdo-calendar .gdo-fc-day-header {
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -136,14 +138,14 @@ body {
   color: var(--muted);
   padding: 6px 4px;
 }
-.gdo-calendar .fc .fc-daygrid-day-number {
+.gdo-calendar .gdo-fc-day-number {
   font-size: 11px;
   color: var(--muted);
   padding: 4px 6px;
 }
 
 /* Events: uniform compact blocks that never overflow the cell */
-.gdo-calendar .fc .fc-daygrid-event {
+.gdo-calendar .gdo-fc-row-event {
   font-size: 11px;
   line-height: 1.35;
   margin: 1px 2px;
@@ -151,25 +153,25 @@ body {
   border-radius: 5px;
   border: none;
 }
-.gdo-calendar .fc .fc-daygrid-event .fc-event-main {
+.gdo-calendar .gdo-fc-row-event-inner {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.gdo-calendar .fc .fc-event-time {
+.gdo-calendar .gdo-fc-event-time {
   font-weight: 600;
   opacity: 0.85;
   margin-right: 3px;
 }
-.gdo-calendar .fc .fc-event-title {
+.gdo-calendar .gdo-fc-event-title {
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* "+N more" link and popover */
-.gdo-calendar .fc .fc-daygrid-more-link {
+/* "+N more" link */
+.gdo-calendar .gdo-fc-more-link {
   font-size: 10px;
   font-weight: 600;
   color: var(--brand);
@@ -177,39 +179,33 @@ body {
 }
 
 /* List view rows */
-.gdo-calendar .fc .fc-list-event-title,
-.gdo-calendar .fc .fc-list-event-time {
+.gdo-calendar .gdo-fc-list-text {
   font-size: 12px;
 }
 
 /* Employee schedule shifts: subtle dot markers, smaller than real events */
-.gdo-calendar .fc .fc-daygrid-event.gdo-sched {
+.gdo-calendar .gdo-fc-row-event.gdo-sched {
   font-size: 10px;
   line-height: 1.25;
   padding: 0 3px;
   margin: 0 2px;
   opacity: 0.85;
 }
-.gdo-calendar .fc .fc-daygrid-event.gdo-sched .fc-daygrid-event-dot {
-  border-width: 3px;
-  margin-right: 3px;
-}
-.gdo-calendar .fc .fc-daygrid-event.gdo-sched .fc-event-time {
+.gdo-calendar .gdo-fc-row-event.gdo-sched .gdo-fc-event-time {
   font-weight: 500;
   opacity: 0.7;
 }
-.gdo-calendar .fc .fc-daygrid-event.gdo-sched .fc-event-title {
+.gdo-calendar .gdo-fc-row-event.gdo-sched .gdo-fc-event-title {
   font-weight: 400;
   color: var(--muted);
 }
 
 /* Slightly roomier week/day time-grid slots without huge fonts */
-.gdo-calendar .fc .fc-timegrid-slot-label-cushion,
-.gdo-calendar .fc .fc-timegrid-axis-cushion {
+.gdo-calendar .gdo-fc-slot-label {
   font-size: 11px;
   color: var(--muted);
 }
-.gdo-calendar .fc .fc-timegrid-event .fc-event-title {
+.gdo-calendar .gdo-fc-column-event-title {
   font-size: 11px;
 }
 
