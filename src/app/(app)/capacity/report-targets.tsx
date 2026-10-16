@@ -87,7 +87,7 @@ export function ReportCapacityManager({
   const targetFor = (locationId: string, track: ReportTrack, weekday: number) =>
     targets.find(
       (t) => t.location_id === locationId && t.track === track && t.weekday === weekday,
-    )?.capacity ?? 0;
+    ) ?? null;
 
   const locName = (id: string) => {
     const l = locations.find((x) => x.id === id);
@@ -100,9 +100,14 @@ export function ReportCapacityManager({
     weekday: number,
     value: string,
   ) => {
-    const next = value.trim() === "" ? 0 : Number(value);
+    const existing = targetFor(locationId, track, weekday);
+    // Blank means "leave it alone": an unset lane stays unset (the Slack report
+    // shows it as `?`), and a saved one keeps the number it already has.
+    if (value.trim() === "") return;
+    const next = Number(value);
     if (!Number.isFinite(next) || next < 0) return;
-    if (next === targetFor(locationId, track, weekday)) return;
+    // Saving 0 on a never-set lane is meaningful — it marks the lane closed.
+    if (existing && Math.round(next) === existing.capacity) return;
     setError(null);
     const fd = new FormData();
     fd.set("location_id", locationId);
@@ -165,7 +170,10 @@ export function ReportCapacityManager({
         <p className="mt-0.5 text-xs text-slate-500">
           How many Dental, VE and AP appointments each clinic offers on a normal
           week. These are the denominators in the upcoming-appointments post that
-          goes out Monday, Wednesday and Friday mornings. 0 means the lane is closed.
+          goes out Monday, Wednesday and Friday mornings. 0 means the lane is
+          closed; an amber <span className="font-semibold">?</span> means no
+          count has ever been set, so anything booked that day is left out of the
+          fill % and flagged in Slack.
         </p>
       </div>
 
@@ -201,21 +209,34 @@ export function ReportCapacityManager({
                     <th className="pr-2 text-left text-xs font-medium text-slate-600">
                       {track.label}
                     </th>
-                    {WEEKDAYS.map((d) => (
-                      <td key={d.value} className="px-1 py-0.5">
-                        <input
-                          type="number"
-                          min={0}
-                          max={200}
-                          disabled={!canEdit || pending}
-                          defaultValue={targetFor(loc.id, track.key, d.value)}
-                          onBlur={(e) =>
-                            saveTarget(loc.id, track.key, d.value, e.target.value)
-                          }
-                          className={inputClass}
-                        />
-                      </td>
-                    ))}
+                    {WEEKDAYS.map((d) => {
+                      const existing = targetFor(loc.id, track.key, d.value);
+                      return (
+                        <td key={d.value} className="px-1 py-0.5">
+                          <input
+                            type="number"
+                            min={0}
+                            max={200}
+                            disabled={!canEdit || pending}
+                            defaultValue={existing?.capacity ?? ""}
+                            placeholder="?"
+                            title={
+                              existing
+                                ? undefined
+                                : "No slot count set — bookings on this day are left out of the fill %."
+                            }
+                            onBlur={(e) =>
+                              saveTarget(loc.id, track.key, d.value, e.target.value)
+                            }
+                            className={
+                              existing
+                                ? inputClass
+                                : `${inputClass} border-amber-400 bg-amber-50 placeholder:text-amber-600`
+                            }
+                          />
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
               </tbody>

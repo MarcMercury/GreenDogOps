@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isUpcomingPostSlot, pacificWeekdayHour, staleAgendaWarning } from "./upcoming-schedule";
+import {
+  capacityCell,
+  clinicSummary,
+  isUpcomingPostSlot,
+  missingSlotCountNote,
+  pacificWeekdayHour,
+  staleAgendaWarning,
+} from "./upcoming-schedule";
 
 describe("isUpcomingPostSlot", () => {
   // During PDT (UTC-7) the 16:00 UTC cron is 9 AM Pacific; 17:00 UTC is 10 AM.
@@ -41,5 +48,59 @@ describe("staleAgendaWarning", () => {
 
   it("flags a missing pull", () => {
     expect(staleAgendaWarning(null, "2026-10-14")).toContain("No ezyVet Agenda pull");
+  });
+});
+
+describe("capacityCell", () => {
+  it("shows booked over offered, and flags a full lane", () => {
+    expect(capacityCell(12, 18, true)).toBe("12/18");
+    expect(capacityCell(18, 18, true)).toBe("18/18 FULL");
+    expect(capacityCell(19, 18, true)).toBe("19/18 FULL");
+  });
+
+  it("distinguishes an unconfigured lane from a closed one", () => {
+    // Sherman Oaks Wednesday: 12 dental booked, no weekly slot count set.
+    expect(capacityCell(12, 0, false)).toBe("12/?");
+    // Configured closed, but something slipped onto the books.
+    expect(capacityCell(12, 0, true)).toBe("12/—");
+  });
+
+  it("renders an empty lane as a dash either way", () => {
+    expect(capacityCell(0, 0, true)).toBe("—");
+    expect(capacityCell(0, 0, false)).toBe("—");
+  });
+});
+
+describe("clinicSummary", () => {
+  it("reports booked, open and fill over the configured lanes", () => {
+    expect(clinicSummary("Venice", 124, 160)).toBe(
+      "*Venice* — 124/160 booked · 36 open · 78% full",
+    );
+  });
+
+  // The Sherman Oaks bug: Wednesday's bookings had no denominator, so the
+  // clinic read as 49/41 — "120% full · 0 open" — while ezyVet had open slots.
+  it("keeps bookings with no slot count out of the fill percentage", () => {
+    expect(clinicSummary("Sherman Oaks", 36, 41, 13)).toBe(
+      "*Sherman Oaks* — 36/41 booked · 5 open · 88% full · +13 booked in lanes with no slot count",
+    );
+  });
+
+  it("never claims a fill percentage when nothing is configured", () => {
+    expect(clinicSummary("Sherman Oaks", 49, 0, 49)).toBe(
+      "*Sherman Oaks* — 49 booked · no slot counts set · +49 booked in lanes with no slot count",
+    );
+  });
+});
+
+describe("missingSlotCountNote", () => {
+  it("is silent when every booked lane has a slot count", () => {
+    expect(missingSlotCountNote([])).toBeNull();
+  });
+
+  it("names each gap and points at Daily Capacity", () => {
+    const note = missingSlotCountNote(["Wed 10/21 Dental", "Wed 10/21 VE"]);
+    expect(note).toContain("Wed 10/21 Dental, Wed 10/21 VE");
+    expect(note).toContain("Daily Capacity");
   });
 });

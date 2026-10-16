@@ -37,6 +37,53 @@ export function isUpcomingPostSlot(now: Date): boolean {
 }
 
 /**
+ * One cell of the report: `16/18`, `16/18 FULL`, `12/?` when the lane has no
+ * slot count configured, `5/—` when it is configured closed but something is
+ * booked anyway, and `—` when it is closed and empty.
+ *
+ * The `?` matters: an unconfigured lane and a closed lane used to render the
+ * same dash, so a clinic whose weekly pattern was never filled in read as "we
+ * have nothing here" while ezyVet was full.
+ */
+export function capacityCell(booked: number, capacity: number, configured: boolean): string {
+  if (!configured) return booked > 0 ? `${booked}/?` : "—";
+  if (capacity <= 0) return booked > 0 ? `${booked}/—` : "—";
+  const ratio = `${booked}/${capacity}`;
+  return booked >= capacity ? `${ratio} FULL` : ratio;
+}
+
+/**
+ * Clinic headline. Booked-vs-offered, open slots and fill % are computed over
+ * the lanes that HAVE a slot count; appointments sitting in lanes with no slot
+ * count are reported separately rather than inflating the fill past 100%.
+ */
+export function clinicSummary(
+  name: string,
+  booked: number,
+  capacity: number,
+  unconfiguredBooked = 0,
+): string {
+  const open = Math.max(capacity - booked, 0);
+  const fill = capacity > 0 ? Math.round((booked / capacity) * 100) : 0;
+  const head =
+    capacity > 0
+      ? `*${name}* — ${booked}/${capacity} booked · ${open} open · ${fill}% full`
+      : `*${name}* — ${booked} booked · no slot counts set`;
+  if (unconfiguredBooked <= 0) return head;
+  return `${head} · +${unconfiguredBooked} booked in lanes with no slot count`;
+}
+
+/**
+ * Warning line naming the lanes that have bookings but no configured slot
+ * count, so the gap is fixed on Daily Capacity instead of silently skewing the
+ * numbers. `gaps` are already-formatted labels, e.g. "Wed 10/21 Dental".
+ */
+export function missingSlotCountNote(gaps: string[]): string | null {
+  if (gaps.length === 0) return null;
+  return `⚠️ _No slot count set for ${gaps.join(", ")} — add it on Daily Capacity so these days count._`;
+}
+
+/**
  * Warning line for the report when the newest Agenda pull is not from today,
  * i.e. the morning upload failed or has not finished. Null when it is fresh.
  */

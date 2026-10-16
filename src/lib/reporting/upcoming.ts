@@ -14,13 +14,24 @@ import "server-only";
 // in report_capacity_target, with report_capacity_override taking precedence on
 // a specific date (closures, student days, an extra doctor).
 //
+// A lane with NO row in either table has no slot count at all, which is not the
+// same as being closed: its cell renders `12/?`, it is kept out of the fill %,
+// and it is called out under the table so ops can fill the gap on Daily
+// Capacity. (Sherman Oaks moved to Mon/Wed/Fri but kept the old Thu/Fri
+// pattern, which made a full Wednesday read as an empty one.)
+//
 // Runs through the service-role client. Callers MUST authorize first
 // (CRON_SECRET for the cron route, module permissions for the manual button).
 // ---------------------------------------------------------------------------
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { todayLA } from "@/lib/sheets/common";
-import { staleAgendaWarning } from "./upcoming-schedule";
+import {
+  capacityCell,
+  clinicSummary,
+  missingSlotCountNote,
+  staleAgendaWarning,
+} from "./upcoming-schedule";
 
 const DAY_MS = 86_400_000;
 
@@ -49,6 +60,8 @@ export interface UpcomingApptsReport {
   bookedAsOf: string | null;
   /** Set when today's Agenda pull has not landed, so the numbers are stale. */
   staleWarning: string | null;
+  /** `Clinic — Wed 10/21 Dental` for every lane booked with no slot count set. */
+  missingSlotCounts: string[];
 }
 
 interface DemandRow {
@@ -141,12 +154,12 @@ function renderTable(rows: string[][]): string[] {
   );
 }
 
-/** `16/18`, `16/18 FULL`, `5/—` when nothing is offered, `—` when closed. */
-function cell(booked: number, capacity: number): string {
-  if (capacity <= 0) return booked > 0 ? `${booked}/—` : "—";
-  const ratio = `${booked}/${capacity}`;
-  return booked >= capacity ? `${ratio} FULL` : ratio;
-}
+/** Column label per track, used in the missing-slot-count warning. */
+const TRACK_LABELS: Record<Track, string> = {
+  dental: "Dental",
+  ve: "VE",
+  ap: "AP",
+};
 
 function key(...parts: (string | number)[]): string {
   return parts.join("|");
@@ -220,34 +233,43 @@ export async function buildUpcomingApptsReport(): Promise<UpcomingApptsReport> {
 
   const lines: string[] = [
     `*Upcoming appointments* · week of ${monthDay(week.start)}–${monthDay(week.end)}`,
-    "_Each cell is booked / slots offered. Dental = NAD + OE._",
+    "_Each cell is booked / slots offered. Dental = NAD + OE. `?` = no slot count set._",
   ];
   const staleWarning = staleAgendaWarning(bookedAsOf, todayLA());
   if (staleWarning) lines.push(staleWarning);
 
   let anyClinic = false;
+  const missingSlotCounts: string[] = [];
 
   for (const location of locations) {
     const header = ["Day", "Dental", "NAD", "OE", "VE", "AP"];
     const body: string[][] = [];
     const notes: string[] = [];
+    const gaps: string[] = [];
     let totalBooked = 0;
     let totalCapacity = 0;
+    let unconfiguredBooked = 0;
 
     for (const date of dates) {
       const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-      const cells: Record<Track, { booked: number; capacity: number }> = {
-        dental: { booked: 0, capacity: 0 },
-        ve: { booked: 0, capacity: 0 },
-        ap: { booked: 0, capacity: 0 },
+      const cells: Record<
+        Track,
+        { booked: number; capacity: number; configured: boolean }
+      > = {
+        dental: { booked: 0, capacity: 0, configured: false },
+        ve: { booked: 0, capacity: 0, configured: false },
+        ap: { booked: 0, capacity: 0, configured: false },
       };
 
       for (const track of TRACKS) {
         const override = overrideBy.get(key(location.id, track, date));
+        const target = targetBy.get(key(location.id, track, weekday));
         cells[track] = {
           booked: booked.get(key(location.id, date, track)) ?? 0,
-          capacity:
-            override?.capacity ?? targetBy.get(key(location.id, track, weekday)) ?? 0,
+          capacity: override?.capacity ?? target ?? 0,
+          // A lane with neither an override nor a weekday row has no slot count
+          // at all — that is NOT the same as being closed for the day.
+          configured: override !== undefined || target !== undefined,
         };
         if (override?.note) {
           notes.push(`${dayLabel(date)} — ${track.toUpperCase()}: ${override.note}`);
@@ -255,36 +277,52 @@ export async function buildUpcomingApptsReport(): Promise<UpcomingApptsReport> {
       }
 
       const dayBooked = TRACKS.reduce((s, t) => s + cells[t].booked, 0);
-      const dayCapacity = TRACKS.reduce((s, t) => s + cells[t].capacity, 0);
+      const dayCapacity = TRACKS.reduce(
+        (s, t) => s + (cells[t].configured ? cells[t].capacity : 0),
+        0,
+      );
       // Closed everywhere and nothing on the books: not worth a row.
       if (dayBooked === 0 && dayCapacity === 0) continue;
 
-      totalBooked += dayBooked;
-      totalCapacity += dayCapacity;
+      for (const track of TRACKS) {
+        const lane = cells[track];
+        if (lane.configured) {
+          totalBooked += lane.booked;
+          totalCapacity += lane.capacity;
+        } else if (lane.booked > 0) {
+          // Booked against a lane nobody has given a denominator for.
+          unconfiguredBooked += lane.booked;
+          gaps.push(`${dayLabel(date)} ${TRACK_LABELS[track]}`);
+          missingSlotCounts.push(
+            `${location.name} — ${dayLabel(date)} ${TRACK_LABELS[track]}`,
+          );
+        }
+      }
+
       const nad = bySubTrack.get(key(location.id, date, "nad")) ?? 0;
       const oe = bySubTrack.get(key(location.id, date, "oe")) ?? 0;
       body.push([
         dayLabel(date),
-        cell(cells.dental.booked, cells.dental.capacity),
+        capacityCell(cells.dental.booked, cells.dental.capacity, cells.dental.configured),
         nad > 0 ? String(nad) : "—",
         oe > 0 ? String(oe) : "—",
-        cell(cells.ve.booked, cells.ve.capacity),
-        cell(cells.ap.booked, cells.ap.capacity),
+        capacityCell(cells.ve.booked, cells.ve.capacity, cells.ve.configured),
+        capacityCell(cells.ap.booked, cells.ap.capacity, cells.ap.configured),
       ]);
     }
 
     if (body.length === 0) continue;
     anyClinic = true;
 
-    const open = Math.max(totalCapacity - totalBooked, 0);
-    const fill = totalCapacity > 0 ? Math.round((totalBooked / totalCapacity) * 100) : 0;
     lines.push(
       "",
-      `*${location.name}* — ${totalBooked}/${totalCapacity} booked · ${open} open · ${fill}% full`,
+      clinicSummary(location.name, totalBooked, totalCapacity, unconfiguredBooked),
       "```",
       ...renderTable([header, ...body]),
       "```",
     );
+    const gapNote = missingSlotCountNote(gaps);
+    if (gapNote) lines.push(gapNote);
     for (const note of notes) lines.push(`_${note}_`);
   }
 
@@ -308,5 +346,6 @@ export async function buildUpcomingApptsReport(): Promise<UpcomingApptsReport> {
     weekEnd: week.end,
     bookedAsOf,
     staleWarning,
+    missingSlotCounts,
   };
 }
