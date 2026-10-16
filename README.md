@@ -19,7 +19,7 @@ the non-obvious architectural constraints, and where things live.
 | Language | TypeScript 5 |
 | Styling | **Tailwind CSS v4** (PostCSS plugin, no config file) |
 | Data | **Supabase** — Postgres, Auth (email/password), Storage |
-| Calendar UI | FullCalendar v6 (daygrid/timegrid/list/interaction) |
+| Calendar UI | FullCalendar v7 (`@fullcalendar/react` + its daygrid/timegrid/list/interaction entrypoints, Classic theme) |
 | Files | `xlsx` (spreadsheet import), `unpdf` (PDF text extraction) |
 | Automation | **Playwright** headless Chromium workers (`agent/`) |
 | AI | Multi-provider LLM chain — Gemini, Groq, OpenRouter, OpenAI, Anthropic |

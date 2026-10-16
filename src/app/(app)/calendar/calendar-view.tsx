@@ -2,13 +2,19 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import FullCalendar from "@fullcalendar/react";
-import dayGridPlugin from "@fullcalendar/daygrid";
-import timeGridPlugin from "@fullcalendar/timegrid";
-import listPlugin from "@fullcalendar/list";
-import interactionPlugin from "@fullcalendar/interaction";
-import type { EventClickArg, EventInput } from "@fullcalendar/core";
-import type { DateClickArg } from "@fullcalendar/interaction";
+import FullCalendar, {
+  type DateClickInfo,
+  type EventClickInfo,
+  type EventInput,
+} from "@fullcalendar/react";
+import classicTheme from "@fullcalendar/react/themes/classic";
+import dayGridPlugin from "@fullcalendar/react/daygrid";
+import timeGridPlugin from "@fullcalendar/react/timegrid";
+import listPlugin from "@fullcalendar/react/list";
+import interactionPlugin from "@fullcalendar/react/interaction";
+import "@fullcalendar/react/skeleton.css";
+import "@fullcalendar/react/themes/classic/theme.css";
+import "@fullcalendar/react/themes/classic/palette.css";
 import {
   type CalendarItem,
   type CalendarCategory,
@@ -109,11 +115,10 @@ export function CalendarView({
           start: it.start,
           end: it.end ?? undefined,
           allDay: it.allDay,
-          backgroundColor: CATEGORY_COLORS[it.category],
-          borderColor: CATEGORY_COLORS[it.category],
+          color: CATEGORY_COLORS[it.category],
           // Schedule shifts render as compact dot markers, smaller than events.
           display: isSchedule ? "list-item" : "block",
-          classNames: isSchedule ? ["gdo-sched"] : [],
+          className: isSchedule ? "gdo-sched" : undefined,
           // Keep schedule markers pinned to the bottom of each day cell.
           extendedProps: { item: it, sortIdx: isSchedule ? 1 : 0 },
         };
@@ -121,7 +126,7 @@ export function CalendarView({
     [items],
   );
 
-  function onEventClick(arg: EventClickArg) {
+  function onEventClick(arg: EventClickInfo) {
     const item = arg.event.extendedProps.item as CalendarItem;
     if (item.editable && item.category === "note") {
       setNote({ mode: "edit", item });
@@ -132,7 +137,7 @@ export function CalendarView({
     }
   }
 
-  function onDateClick(arg: DateClickArg) {
+  function onDateClick(arg: DateClickInfo) {
     if (!canEdit) return;
     setNote({ mode: "create", date: arg.dateStr.slice(0, 10) });
   }
@@ -188,11 +193,27 @@ export function CalendarView({
       <div className="gdo-calendar rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <FullCalendar
           plugins={[
+            classicTheme,
             dayGridPlugin,
             timeGridPlugin,
             listPlugin,
             interactionPlugin,
           ]}
+          className="gdo-fc-root"
+          toolbarTitleClass="gdo-fc-title"
+          buttonClass="gdo-fc-button"
+          dayHeaderInnerClass="gdo-fc-day-header"
+          dayCellTopInnerClass="gdo-fc-day-number"
+          rowEventClass="gdo-fc-row-event"
+          rowEventInnerClass="gdo-fc-row-event-inner"
+          eventTimeClass="gdo-fc-event-time"
+          eventTitleClass="gdo-fc-event-title"
+          moreLinkClass="gdo-fc-more-link"
+          listItemEventTitleClass="gdo-fc-list-text"
+          listItemEventTimeClass="gdo-fc-list-text"
+          slotHeaderInnerClass="gdo-fc-slot-label"
+          allDayHeaderInnerClass="gdo-fc-slot-label"
+          columnEventTitleClass="gdo-fc-column-event-title"
           initialView="dayGridMonth"
           headerToolbar={{
             left: "prev,next today",

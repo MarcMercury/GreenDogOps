@@ -2,12 +2,18 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import FullCalendar from "@fullcalendar/react";
-import dayGridPlugin from "@fullcalendar/daygrid";
-import listPlugin from "@fullcalendar/list";
-import interactionPlugin from "@fullcalendar/interaction";
-import type { EventClickArg, EventInput } from "@fullcalendar/core";
-import type { DateClickArg } from "@fullcalendar/interaction";
+import FullCalendar, {
+  type DateClickInfo,
+  type EventClickInfo,
+  type EventInput,
+} from "@fullcalendar/react";
+import classicTheme from "@fullcalendar/react/themes/classic";
+import dayGridPlugin from "@fullcalendar/react/daygrid";
+import listPlugin from "@fullcalendar/react/list";
+import interactionPlugin from "@fullcalendar/react/interaction";
+import "@fullcalendar/react/skeleton.css";
+import "@fullcalendar/react/themes/classic/theme.css";
+import "@fullcalendar/react/themes/classic/palette.css";
 import {
   type MarketingEvent,
   type MarketingEventSource,
@@ -233,8 +239,7 @@ function EventsCalendar({
             // FullCalendar treats all-day `end` as exclusive.
             end: e.endsOn ? addDay(e.endsOn) : undefined,
             allDay: true,
-            backgroundColor: color,
-            borderColor: color,
+            color,
             extendedProps: { row: e },
           };
         }),
@@ -255,12 +260,12 @@ function EventsCalendar({
     else setEditing(row.marketing);
   }
 
-  function onEventClick(arg: EventClickArg) {
+  function onEventClick(arg: EventClickInfo) {
     const row = arg.event.extendedProps.row as UnifiedEvent | undefined;
     if (row) openRow(row);
   }
 
-  function onDateClick(arg: DateClickArg) {
+  function onDateClick(arg: DateClickInfo) {
     if (canEdit) setCreatingOn(arg.dateStr);
   }
 
@@ -334,14 +339,19 @@ function EventsCalendar({
 
       <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <FullCalendar
-          plugins={[dayGridPlugin, listPlugin, interactionPlugin]}
+          plugins={[classicTheme, dayGridPlugin, listPlugin, interactionPlugin]}
           initialView="dayGridMonth"
           headerToolbar={{
             left: "prev,next today",
             center: "title",
             right: "dayGridMonth,dayGridWeek,listMonth",
           }}
-          buttonText={{ today: "Today", month: "Month", week: "Week", list: "List" }}
+          buttons={{
+            today: { text: "Today" },
+            dayGridMonth: { text: "Month" },
+            dayGridWeek: { text: "Week" },
+            listMonth: { text: "List" },
+          }}
           events={calendarEvents}
           eventClick={onEventClick}
           dateClick={onDateClick}

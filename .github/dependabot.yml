@@ -6,10 +6,6 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
-      # All @fullcalendar/* packages must share one version; bumping one alone
-      # mixes v6/v7 types and fails `next build`. Listed first so it wins.
-      fullcalendar:
-        patterns: ["@fullcalendar/*"]
       minor-and-patch:
         update-types: [minor, patch]
     ignore:
@@ -22,12 +18,6 @@ updates:
       # crashes on load (PR #14). Re-enable when both support it.
       - dependency-name: "typescript"
         versions: [">=7"]
-      # FullCalendar 7 ships only core + react; daygrid/timegrid/list/interaction
-      # stop at 6.1.x and peer-require core ~6.1, so no consistent v7 set exists
-      # and any v7 bump fails `next build` (PRs #18, #20). Upgrading is a manual
-      # migration — see docs/agent/improvements.md.
-      - dependency-name: "@fullcalendar/*"
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
