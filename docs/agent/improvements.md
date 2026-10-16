@@ -125,6 +125,11 @@ Work discovered but deliberately not done. Highest value first. Each entry:
 
 ## P3 — Code quality
 
+### FullCalendar 7 migration
+- **Why:** Dependabot majors for `@fullcalendar/*` are ignored because v7 can't be reached package-by-package (lessons.md "FullCalendar 7 cannot be reached by Dependabot"). 6.1.x keeps getting patches, so this is not urgent.
+- **Scope:** check how v7 provides day/time-grid, list and interaction views (the 6.x plugin packages have no 7.x), add `temporal-polyfill`, port `src/app/(app)/calendar/calendar-view.tsx` and `src/app/(app)/marketing/events/events-workspace.tsx` (handler arg types renamed: `EventClickInfo`, `DateClickInfo`, `PluginInput`), re-check CSS. Then drop the ignore in `.github/dependabot.yml`.
+- **Risk:** medium — both calendars are user-facing; verify on a Vercel preview.
+
 ### Two divergent `fetchAllRows` implementations
 - `src/lib/supabase/paginate.ts` (used by ~18 files, also exports concurrent variant) and `src/lib/supabase/fetch-all.ts` (2 files, structurally typed builder). Consolidate into one.
 - **Risk:** low; check call-site signatures.

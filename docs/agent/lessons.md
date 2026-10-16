@@ -262,10 +262,11 @@ Verified, reusable, non-obvious facts. Newest first within each section. Format:
 - **Note:** Vercel previews only prove `npm install` + `next build`; they do not run lint or vitest, so a green Dependabot preview is not proof the tests pass (see improvements.md "CI for lint + unit tests").
 - **Evidence:** 2026-10-09 — with the fix: vitest 225/225, full `tsc` rc=0, lint 0 errors, `npm audit --omit=dev` 0.
 
-### `@fullcalendar/*` packages must be bumped together
-- **Problem:** Dependabot PRs #15/#16 bumped `@fullcalendar/core` and `@fullcalendar/react` to 7.1.1 *individually*; the Vercel preview failed type-check (`PluginDef` not assignable to `PluginInput`, `EventClickInfo` vs `EventClickArg` in `calendar-view.tsx` / `events-workspace.tsx`) because v7 and v6 types were mixed.
-- **Fix:** `.github/dependabot.yml` has a `fullcalendar` group (`@fullcalendar/*`, all update types) ahead of `minor-and-patch`. A v7 upgrade is still a real migration (handler arg types were renamed) — expect code changes on the grouped PR.
-- **Evidence:** 2026-10-15 preview build of `4218b35` on `dependabot/npm_and_yarn/fullcalendar/react-7.1.1`; production (`main`) unaffected.
+### FullCalendar 7 cannot be reached by Dependabot — majors are held
+- **Problem:** Dependabot PRs #15/#16 and again #18/#20 bumped `@fullcalendar/core` / `@fullcalendar/react` to 7.x *individually*; the Vercel preview failed type-check (`PluginDef` not assignable to `PluginInput`, `EventClickInfo` vs `EventClickArg`, `DateClickInfo` vs `DateClickArg` in `calendar-view.tsx` / `events-workspace.tsx`) because v7 and v6 types were mixed.
+- **Root cause:** FullCalendar 7 publishes only `core` and `react` (react depends on `core@7` + `@full-ui/headless-calendar`, peer `temporal-polyfill`). `daygrid`, `timegrid`, `list` and `interaction` stop at 6.1.21 and peer-require `core ~6.1.21`. There is no consistent v7 set, so the `fullcalendar` group (added `fdf42bd`) did not help — Dependabot still filed single-package PRs.
+- **Fix:** `.github/dependabot.yml` ignores `semver-major` for `@fullcalendar/*`; the group stays so 6.x minors/patches move together. Upgrading to v7 is a manual migration (backlog: improvements.md "FullCalendar 7 migration").
+- **Evidence:** 2026-10-15 preview builds of `4218b35` (`fullcalendar/react-7.1.1`) and `40b4cfc` (`fullcalendar/react-7.1.2`); `npm view @fullcalendar/<pkg>@latest` 2026-10-16 shows the plugin packages at 6.1.21. Production (`main`, `bce3d40`) status `success`.
 
 ### Under memory pressure, any agent process over ~150 MB is SIGTERM'd
 - **Problem:** with the Codespace near its 8 GB limit (several VS Code/Copilot sessions, no swap, <1 GB available), `npm ci` died with 137, and `npm run lint`, `npx vitest run` and even `npm install <pkg>` died with 143 within seconds. A bare `node` allocating 150 MB was killed too; 100 MB survived.
